@@ -129,5 +129,18 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	river.AddWorker(workers, rw)
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
+	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
+		river.AddWorker(workers, &GitHubBuildWorker{
+			pipesClient: cfg.PipesClient,
+			ghStore:     cfg.GitHubStore,
+			agentIndex:  cfg.AgentIndex,
+			k8sClient:   cfg.K8sClient,
+			s3Client:    cfg.S3Client,
+			cfg:         cfg.ServerConfig,
+			log:         log,
+		})
+		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
+	}
+
 	return rw, pw
 }

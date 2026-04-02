@@ -36,6 +36,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
+	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -47,6 +48,7 @@ import (
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
@@ -356,8 +358,12 @@ func runAPI(
 	// Create audit log store
 	auditStore := auditlog.NewStore(db)
 
+	// Initialize GitHub connection store and WorkOS Pipes client.
+	ghStore := githubconnection.New(db)
+	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -455,6 +461,22 @@ func runWorker(
 		workosClient = auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
 	}
 
+	// Initialize WorkOS Pipes client and GitHub connection store.
+	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
+	ghStore := githubconnection.New(db)
+
+	// Initialize S3 client for GitHub build contexts (reuse AWS config if available).
+	var buildS3Client *s3.Client
+	if cfg.GitHub.BuildContextBucket != "" {
+		buildAwsCfg, buildAwsErr := awsconfig.LoadDefaultConfig(context.Background())
+		if buildAwsErr != nil {
+			log.Warn("Failed to load AWS config for GitHub build S3", "error", buildAwsErr)
+		} else {
+			buildS3Client = s3.NewFromConfig(buildAwsCfg)
+			log.Info("GitHub build S3 client initialized", "bucket", cfg.GitHub.BuildContextBucket)
+		}
+	}
+
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:           db,
@@ -470,6 +492,9 @@ func runWorker(
 		OrgClient:    orgClient,
 		PromClient:   promClient,
 		Logger:       log,
+		PipesClient:  pipesClient,
+		GitHubStore:  ghStore,
+		S3Client:     buildS3Client,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -491,7 +516,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -1112,7 +1137,51 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			)
 		}
 
+		// GitHub connection routes
+		githubCfg := handlers.GitHubHandlerConfig{
+			WebhookBaseURL: cfg.GitHub.WebhookBaseURL,
+			FrontendURL:    cfg.Auth.FrontendURL,
+		}
+		githubRoutes := protected.Group("/agents/:account/:name")
+		githubRoutes.Use(middleware.ResolveAccount(accountStore))
+		{
+			api.POST(githubRoutes, "/github/connect", "Start GitHub OAuth for repo connection",
+				handlers.GitHubConnect(log, pipesClient, githubCfg),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+			api.GET(githubRoutes, "/github/callback", "WorkOS GitHub OAuth callback",
+				handlers.GitHubCallback(log, pipesClient, accountStore, githubCfg),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+			api.GET(githubRoutes, "/github/repos", "List user GitHub repos",
+				handlers.GitHubListRepos(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
+				handlers.GitHubLink(log, pipesClient, ghStore, githubCfg),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&handlers.GitHubLinkRequest{}),
+			)
+			api.DELETE(githubRoutes, "/github", "Disconnect GitHub repo from agent",
+				handlers.GitHubDisconnect(log, pipesClient, ghStore),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+			api.GET(githubRoutes, "/github", "Get GitHub connection status and builds",
+				handlers.GitHubStatus(log, ghStore),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+		}
+
+		// GitHub webhook receiver (no auth — HMAC verified inside handler)
+		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, queue))
 	}
+
 }
 
 // startAdminGRPCServer starts the admin gRPC server and returns it for graceful shutdown.

@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"github.com/workos/workos-go/v4/pkg/usermanagement"
+	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
 
 // User represents an authenticated user

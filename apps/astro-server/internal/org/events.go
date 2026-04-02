@@ -14,7 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/workos/workos-go/v4/pkg/events"
+	"github.com/workos/workos-go/v6/pkg/events"
 )
 
 const eventsBatchSize = 100

@@ -9,7 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/workos/workos-go/v4/pkg/events"
+	"github.com/workos/workos-go/v6/pkg/events"
 )
 
 func newTestConsumer(t *testing.T) (*EventsConsumer, sqlmock.Sqlmock) {

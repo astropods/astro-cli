@@ -436,3 +436,41 @@ CREATE INDEX idx_audit_logs_account_created ON public.audit_logs (account_id, cr
 CREATE INDEX idx_audit_logs_account_resource ON public.audit_logs (account_id, resource_type, created_at DESC);
 CREATE INDEX idx_audit_logs_actor ON public.audit_logs (actor_id, created_at DESC);
 CREATE INDEX idx_audit_logs_created ON public.audit_logs (created_at);
+
+CREATE TABLE public.github_connections (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    account_id uuid NOT NULL,
+    agent_name varchar NOT NULL,
+    workos_user_id text NOT NULL,
+    repo_full_name varchar NOT NULL,
+    branch varchar NOT NULL DEFAULT 'main',
+    webhook_id bigint,
+    webhook_secret varchar NOT NULL,
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT github_connections_pkey PRIMARY KEY (id),
+    CONSTRAINT github_connections_account_agent_key UNIQUE (account_id, agent_name),
+    CONSTRAINT github_connections_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_github_connections_account ON public.github_connections (account_id);
+CREATE INDEX idx_github_connections_repo ON public.github_connections (repo_full_name);
+
+CREATE TABLE public.github_builds (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    connection_id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    agent_name varchar NOT NULL,
+    build_id varchar NOT NULL,
+    commit_sha varchar NOT NULL,
+    branch varchar NOT NULL,
+    status varchar NOT NULL DEFAULT 'pending',
+    error text,
+    enqueued_at timestamp NOT NULL DEFAULT now(),
+    completed_at timestamp,
+    CONSTRAINT github_builds_pkey PRIMARY KEY (id),
+    CONSTRAINT github_builds_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES public.github_connections(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_github_builds_connection ON public.github_builds (connection_id, enqueued_at DESC);
+CREATE INDEX idx_github_builds_account_agent ON public.github_builds (account_id, agent_name, enqueued_at DESC);

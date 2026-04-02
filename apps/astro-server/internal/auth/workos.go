@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/workos/workos-go/v4/pkg/usermanagement"
+	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
 
 // WorkOSClient wraps the WorkOS user management SDK

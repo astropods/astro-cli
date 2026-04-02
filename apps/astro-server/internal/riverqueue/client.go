@@ -12,16 +12,20 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
 
@@ -43,6 +47,10 @@ type Config struct {
 	Logger               *logger.Logger
 	WorkOSClient         *auth.WorkOSClient
 	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
+	// GitHub build worker deps (optional — worker skipped if PipesClient is nil)
+	PipesClient *pipes.Client
+	GitHubStore *githubconnection.Store
+	S3Client    *s3.Client
 }
 
 // Queue wraps a River client and its pgxpool connection.
@@ -69,6 +77,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			river.QueueDefault: {MaxWorkers: 10},
 			queueDeploy:        {MaxWorkers: 5},
 			queueWorkOS:        {MaxWorkers: 1},
+			queueGitHubBuild:   {MaxWorkers: 3},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
@@ -166,6 +175,12 @@ func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID string) erro
 // InsertWakeUpJob enqueues a wakeup job.
 func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID string) error {
 	_, err := q.Insert(ctx, WakeUpArgs{DeploymentID: deploymentID}, nil)
+	return err
+}
+
+// EnqueueGitHubBuild enqueues a GitHub build job.
+func (q *Queue) EnqueueGitHubBuild(ctx context.Context, args GitHubBuildArgs) error {
+	_, err := q.Insert(ctx, args, nil)
 	return err
 }
 

@@ -21,6 +21,7 @@ type Config struct {
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
+	GitHub               GitHubConfig
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
 	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
 	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
@@ -115,6 +116,18 @@ func (a AvatarConfig) Enabled() bool {
 // IsLocal returns true when using filesystem storage instead of S3.
 func (a AvatarConfig) IsLocal() bool {
 	return a.S3Bucket == "" && a.LocalDir != ""
+}
+
+// GitHubConfig holds GitHub connection configuration.
+type GitHubConfig struct {
+	// GITHUB_WEBHOOK_URL — public base URL for incoming GitHub webhooks (e.g. https://api.astropods.ai)
+	WebhookBaseURL string
+	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: astro-builds)
+	BuildNamespace string
+	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for Kaniko Jobs (default: kaniko-builder)
+	BuildServiceAccount string
+	// GITHUB_BUILD_CONTEXT_BUCKET — S3 bucket for uploading build context tarballs
+	BuildContextBucket string
 }
 
 // DeploymentConfig holds deployment-related configuration
@@ -233,6 +246,12 @@ func Load() (*Config, error) {
 			S3Bucket:  getEnv("ASSETS_BUCKET", ""),
 			LocalDir:  getEnv("ASSETS_LOCAL_DIR", ""),
 			AssetsURL: getEnv("ASSETS_URL", ""),
+		},
+		GitHub: GitHubConfig{
+			WebhookBaseURL:      getEnv("GITHUB_WEBHOOK_URL", ""),
+			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "astro-builds"),
+			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "kaniko-builder"),
+			BuildContextBucket:  getEnv("GITHUB_BUILD_CONTEXT_BUCKET", ""),
 		},
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),

@@ -26,9 +26,10 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.31.0
 	github.com/riverqueue/river/rivertype v0.31.0
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/workos/workos-go/v4 v4.46.1
+	github.com/workos/workos-go/v6 v6.5.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/image v0.37.0
+	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.75.1
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.0
@@ -125,7 +126,6 @@ require (
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.33.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

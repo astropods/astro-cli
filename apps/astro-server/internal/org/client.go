@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/workos/workos-go/v4/pkg/organizations"
-	"github.com/workos/workos-go/v4/pkg/usermanagement"
+	"github.com/workos/workos-go/v6/pkg/organizations"
+	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
 
 // Client wraps WorkOS Organizations + Membership + Invitation SDK calls.
