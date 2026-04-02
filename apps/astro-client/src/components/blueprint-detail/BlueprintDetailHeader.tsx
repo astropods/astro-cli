@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { Camera } from "lucide-react";
+import { PencilIcon, EllipsisHorizontalIcon, ArchiveBoxIcon } from "@heroicons/react/24/outline";
+import { Button } from "@/components/ui/button";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { InlineBadge } from "@/components/InlineBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { ArchiveBlueprintDialog } from "@/components/ArchiveBlueprintDialog";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { useUploadBlueprintAvatar } from "@/api/queries";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface BlueprintDetailHeaderProps {
   account: string;
@@ -13,6 +21,7 @@ export interface BlueprintDetailHeaderProps {
   categories: string[];
   avatarUrl?: string;
   canEdit?: boolean;
+  onArchive?: () => void;
 }
 
 export function BlueprintDetailHeader({
@@ -22,9 +31,12 @@ export function BlueprintDetailHeader({
   categories,
   avatarUrl,
   canEdit = false,
+  onArchive,
 }: BlueprintDetailHeaderProps) {
   const hasCategories = categories.length > 0;
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const uploadAvatar = useUploadBlueprintAvatar();
 
   const avatarImage = avatarUrl ? (
@@ -45,18 +57,56 @@ export function BlueprintDetailHeader({
   return (
     <header className="mb-6 border-b border-border-strong pb-6">
       <div className={`flex gap-4 ${hasCategories ? "items-start" : "items-center"}`}>
+        {onArchive && (
+          <div className="ml-auto shrink-0 order-last">
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+                  aria-label="Blueprint options"
+                >
+                  <EllipsisHorizontalIcon className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-[10px] p-0">
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => {
+                    setMenuOpen(false);
+                    setArchiveOpen(true);
+                  }}
+                  className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
+                >
+                  <ArchiveBoxIcon className="h-4 w-4" />
+                  Archive agent
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <ArchiveBlueprintDialog
+              open={archiveOpen}
+              onOpenChange={setArchiveOpen}
+              blueprintName={name}
+              account={account}
+              onArchived={onArchive}
+            />
+          </div>
+        )}
         {canEdit ? (
           <>
-            <button
-              type="button"
-              className="group relative cursor-pointer"
-              onClick={() => setAvatarDialogOpen(true)}
-            >
+            <div className="relative">
               {avatarImage}
-              <div className="absolute inset-0 flex items-center justify-center rounded-sm bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                <Camera className="size-5 text-white" />
-              </div>
-            </button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                className="absolute -bottom-1 -right-1 rounded-sm bg-white text-foreground"
+                onClick={() => setAvatarDialogOpen(true)}
+              >
+                <PencilIcon className="size-3" />
+              </Button>
+            </div>
             <AvatarUploadDialog
               open={avatarDialogOpen}
               onOpenChange={setAvatarDialogOpen}
