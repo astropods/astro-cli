@@ -34,6 +34,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -679,6 +680,7 @@ type WorkloadDetail struct {
 	Kind       string                `json:"kind"`      // "Deployment" or "StatefulSet"
 	Component  string                `json:"component"` // from app.kubernetes.io/component label
 	Age        string                `json:"age"`
+	PodName    string                `json:"pod_name,omitempty"` // name of the representative pod (for restarts)
 	Containers []ContainerStatus     `json:"containers"`
 	URLs       []ServiceEndpointInfo `json:"urls,omitempty"`
 }
@@ -1281,6 +1283,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				continue
 			}
 			wl.Containers = buildContainerStatuses(ctx, clientset, pod)
+			wl.PodName = pod.Name
 		}
 	}
 
@@ -1546,6 +1549,121 @@ func jobStatus(job *batchv1.Job) string {
 	return "Pending"
 }
 
+// RestartDeployment triggers a rolling restart of all Deployments and StatefulSets for an agent
+// by patching spec.template.metadata.annotations with kubectl.kubernetes.io/restartedAt.
+// Kubernetes performs a rolling update: new pod starts and becomes ready before the old one is terminated.
+// POST /api/v1/deployments/:id/restart
+func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		acct, acctErr := accountStore.GetByID(dep.AccountID)
+		if acctErr != nil || acct == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve account"})
+			return
+		}
+
+		labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,%s=%s,app.kubernetes.io/version=%s",
+			deployment.LabelKeyAgent, deployment.AgentLabelValue(acct.Name, dep.AgentName), dep.BuildID)
+
+		// Patch payload: setting restartedAt on the pod template triggers a rolling update
+		// without changing any spec — Kubernetes detects the annotation change and cycles pods one at a time.
+		patchPayload, _ := json.Marshal(map[string]any{
+			"spec": map[string]any{
+				"template": map[string]any{
+					"metadata": map[string]any{
+						"annotations": map[string]string{
+							"kubectl.kubernetes.io/restartedAt": time.Now().UTC().Format(time.RFC3339),
+						},
+					},
+				},
+			},
+		})
+
+		clientset := k8sClient.Clientset()
+		ctx := c.Request.Context()
+		var restarted []string
+
+		depList, err := clientset.AppsV1().Deployments(dep.Namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		if err != nil {
+			log.Error("Failed to list deployments for restart", "error", err, "namespace", dep.Namespace)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workloads", "details": err.Error()})
+			return
+		}
+		for _, d := range depList.Items {
+			log.Info("Initiating rolling restart for Deployment",
+				"deployment", d.Name,
+				"namespace", dep.Namespace,
+				"replicas", d.Spec.Replicas,
+				"ready", d.Status.ReadyReplicas,
+				"user", user.ID,
+			)
+			if _, patchErr := clientset.AppsV1().Deployments(dep.Namespace).Patch(ctx, d.Name, k8stypes.StrategicMergePatchType, patchPayload, metav1.PatchOptions{}); patchErr != nil {
+				log.Error("Failed to patch Deployment for rolling restart", "error", patchErr, "deployment", d.Name)
+				continue
+			}
+			restarted = append(restarted, d.Name)
+			log.Info("Rolling restart patch applied — K8s will start new pod before terminating old",
+				"deployment", d.Name,
+				"namespace", dep.Namespace,
+				"strategy", "RollingUpdate",
+				"annotation", "kubectl.kubernetes.io/restartedAt",
+			)
+		}
+
+		stsList, err := clientset.AppsV1().StatefulSets(dep.Namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		if err != nil {
+			log.Warn("Failed to list StatefulSets for restart", "error", err, "namespace", dep.Namespace)
+		} else {
+			for _, ss := range stsList.Items {
+				log.Info("Initiating rolling restart for StatefulSet",
+					"statefulset", ss.Name,
+					"namespace", dep.Namespace,
+					"replicas", ss.Spec.Replicas,
+					"ready", ss.Status.ReadyReplicas,
+					"user", user.ID,
+				)
+				if _, patchErr := clientset.AppsV1().StatefulSets(dep.Namespace).Patch(ctx, ss.Name, k8stypes.StrategicMergePatchType, patchPayload, metav1.PatchOptions{}); patchErr != nil {
+					log.Error("Failed to patch StatefulSet for rolling restart", "error", patchErr, "statefulset", ss.Name)
+					continue
+				}
+				restarted = append(restarted, ss.Name)
+				log.Info("Rolling restart patch applied — K8s will start new pod before terminating old",
+					"statefulset", ss.Name,
+					"namespace", dep.Namespace,
+					"strategy", "RollingUpdate",
+					"annotation", "kubectl.kubernetes.io/restartedAt",
+				)
+			}
+		}
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentRestart
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = fmt.Sprintf("Rolling restart triggered for %d workload(s)", len(restarted))
+		evt.Metadata = map[string]any{"workloads": restarted, "namespace": dep.Namespace}
+		auditStore.LogAsync(log, evt)
+
+		c.JSON(http.StatusOK, &RestartDeploymentResponse{Status: "restarting", Pods: restarted})
+	}
+}
+
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
 // POST /api/v1/deployments/:id/pods/:pod/restart
 func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
@@ -1735,12 +1853,14 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 
 // generateTemplate resolves an agent build and generates a deployment template.
 // Shared by GetDeploymentTemplate and GetPrefilledDeploymentTemplate.
+// buildIDOverride, when non-empty, pins the build instead of reading ?build= or using latest.
 func generateTemplate(
 	c *gin.Context,
 	log *logger.Logger,
 	agentIndex *agentindex.Index,
 	accountStore *account.AccountStore,
 	cfg *config.Config,
+	buildIDOverride string,
 ) (*spec.AstroDeploymentSpec, bool) {
 	accountName := c.Param("account")
 	name := c.Param("name")
@@ -1772,7 +1892,9 @@ func generateTemplate(
 	}
 
 	var agentVersion *agentindex.AgentVersion
-	if buildParam := c.Query("build"); buildParam != "" {
+	if buildIDOverride != "" {
+		agentVersion, err = agentIndex.GetVersion(accountID, name, buildIDOverride)
+	} else if buildParam := c.Query("build"); buildParam != "" {
 		agentVersion, err = agentIndex.GetVersion(accountID, name, buildParam)
 	} else {
 		agentVersion, err = agentIndex.GetLatestVersion(accountID, name)
@@ -1840,7 +1962,7 @@ func respondWithTemplate(c *gin.Context, template *spec.AstroDeploymentSpec) {
 // Optional query: ?build=<build_id>
 func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg)
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, "")
 		if !ok {
 			return
 		}
@@ -1855,12 +1977,9 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 	return func(c *gin.Context) {
 		deploymentID := c.Param("deploymentID")
 
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg)
-		if !ok {
-			return
-		}
-
-		// Look up existing deployment
+		// Look up existing deployment first so we can pin the build to what is currently deployed.
+		// The config panel must always redeploy the same build — upgrading to a newer build is
+		// only possible via the "new build available" banner.
 		existing, err := deployStore.GetDeploymentByID(deploymentID)
 		if err != nil {
 			log.Error("Failed to get deployment", "error", err, "deployment_id", deploymentID)
@@ -1876,6 +1995,11 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 		user, _ := middleware.GetUser(c)
 		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
+			return
+		}
+
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, existing.BuildID)
+		if !ok {
 			return
 		}
 
@@ -1925,10 +2049,31 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			}
 		}
 
+		// If a specific revision is requested, use its spec_json for merging adapters/schedules.
+		specJSONToMerge := existing.DeploymentSpecJSON
+		if revisionStr := c.Query("revision"); revisionStr != "" {
+			revNum, convErr := strconv.Atoi(revisionStr)
+			if convErr != nil || revNum < 1 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid revision"})
+				return
+			}
+			rev, revErr := deployStore.GetRevisionByNumber(deploymentID, revNum)
+			if revErr != nil {
+				log.Error("Failed to get revision", "error", revErr, "deployment_id", deploymentID, "revision", revNum)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
+				return
+			}
+			if rev == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "revision not found"})
+				return
+			}
+			specJSONToMerge = string(rev.SpecJSON)
+		}
+
 		// Merge adapters and ingestion schedules from stored spec
-		if existing.DeploymentSpecJSON != "" {
+		if specJSONToMerge != "" {
 			var storedSpec spec.AstroDeploymentSpec
-			if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
+			if jsonErr := json.Unmarshal([]byte(specJSONToMerge), &storedSpec); jsonErr == nil {
 				if storedSpec.Interfaces != nil && template.Interfaces != nil {
 					template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
 				}
@@ -2023,7 +2168,7 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		history, err := deployStore.GetDeploymentHistory(acct.ID, agentName)
+		history, err := deployStore.GetDeploymentHistoryByRevisions(acct.ID, agentName)
 		if err != nil {
 			log.Error("Failed to get deployment history", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
@@ -2031,42 +2176,41 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		if deploymentID := c.Query("deployment_id"); deploymentID != "" {
-			filtered := make([]*deploymentstore.Deployment, 0, 1)
-			for _, d := range history {
-				if d.ID == deploymentID {
-					filtered = append(filtered, d)
+			filtered := make([]deploymentstore.RevisionHistoryRecord, 0)
+			for _, r := range history {
+				if r.DeploymentID == deploymentID {
+					filtered = append(filtered, r)
 				}
 			}
 			history = filtered
 		}
 
-		type deploymentRecord struct {
-			ID           string          `json:"id"`
-			AgentName    string          `json:"agent_name"`
-			BuildID      string          `json:"build_id"`
-			Namespace    string          `json:"namespace"`
-			Status       string          `json:"status"`
-			DeployedAt   time.Time       `json:"deployed_at"`
-			UndeployedAt *time.Time      `json:"undeployed_at,omitempty"`
-			Spec         json.RawMessage `json:"spec"`
+		type revisionRecord struct {
+			ID          string    `json:"id"`
+			AgentName   string    `json:"agent_name"`
+			Revision    int       `json:"revision"`
+			BuildID     string    `json:"build_id"`
+			Namespace   string    `json:"namespace"`
+			DisplayName string    `json:"display_name"`
+			IsCurrent   bool      `json:"is_current"`
+			Status      string    `json:"status"`
+			DeployedAt  time.Time `json:"deployed_at"`
+			Spec        any       `json:"spec"`
 		}
 
-		records := make([]deploymentRecord, 0, len(history))
-		for _, d := range history {
-			var specObj json.RawMessage
-			if err := json.Unmarshal([]byte(d.DeploymentSpecJSON), &specObj); err != nil {
-				log.Warn("Failed to parse stored spec, skipping", "deployment_id", d.ID, "error", err)
-				specObj = json.RawMessage(`{}`)
-			}
-			records = append(records, deploymentRecord{
-				ID:           d.ID,
-				AgentName:    d.AgentName,
-				BuildID:      d.BuildID,
-				Namespace:    d.Namespace,
-				Status:       d.Status,
-				DeployedAt:   d.DeployedAt,
-				UndeployedAt: d.UndeployedAt,
-				Spec:         specObj,
+		records := make([]revisionRecord, 0, len(history))
+		for _, r := range history {
+			records = append(records, revisionRecord{
+				ID:          r.DeploymentID,
+				AgentName:   r.AgentName,
+				Revision:    r.Revision,
+				BuildID:     r.BuildID,
+				Namespace:   r.Namespace,
+				DisplayName: r.DisplayName,
+				IsCurrent:   r.IsCurrent,
+				Status:      r.Status,
+				DeployedAt:  r.DeployedAt,
+				Spec:        map[string]any{},
 			})
 		}
 

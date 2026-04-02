@@ -141,6 +141,12 @@ type RestartPodResponse struct {
 	Pod    string `json:"pod"`
 }
 
+// RestartDeploymentResponse is returned after restarting all pods in a deployment.
+type RestartDeploymentResponse struct {
+	Status string   `json:"status"`
+	Pods   []string `json:"pods"`
+}
+
 // TriggerIngestionResponse is returned after triggering an ingestion job.
 type TriggerIngestionResponse struct {
 	Status    string `json:"status"`

@@ -1522,12 +1522,7 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
 		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
 
-	// generateTemplate expectations: account lookup, agent lookup, latest version
-	expectAccountLookup(accountMock)
-	expectAgentLookup(indexMock, "public")
-	expectLatestVersion(indexMock)
-
-	// GetDeploymentByID
+	// GetDeploymentByID — must come before generateTemplate now that we pin the build
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
 			"My Deploy", `{"interfaces":{"adapters":["slack"]}}`, "active", now, nil))
@@ -1535,6 +1530,16 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	// IsMember check for deployment's account
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// generateTemplate expectations: account lookup, agent lookup, then GetVersion(existing.BuildID)
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	// GetVersion("build-1") — pinned to current deployment's build, not latest
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1571,7 +1576,10 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	}
 }
 
-func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
+// TestGetPrefilledTemplate_BuildParamIgnored verifies that passing ?build= to the prefilled
+// template endpoint has no effect — the template always uses the existing deployment's build_id.
+// Upgrading to a newer build is only possible via the "new build available" banner flow.
+func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -1600,9 +1608,17 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
 		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
 
-	// generateTemplate expectations with ?build=build-2
+	// GetDeploymentByID — existing deployment is on build-1; a newer build-2 exists
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{}`, "active", now, nil))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// generateTemplate uses existing.BuildID ("build-1"), not ?build=build-2
 	expectAccountLookup(accountMock)
-	// agentIndex.Get (visibility check) — returns build-1 as latest but we request build-2
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1613,21 +1629,12 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
 			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
-	// agentIndex.GetVersion for the specific build-2
+	// GetVersion called with "build-1" (existing), NOT "build-2" from the query param
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent", "build-2").
+		WithArgs("acct-1", "my-agent", "build-1").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
-
-	// GetDeploymentByID (old deployment was build-1)
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Deploy", `{}`, "active", now, nil))
-
-	// IsMember check
-	accountMock.ExpectQuery(`SELECT COUNT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1641,6 +1648,7 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
 			AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
 
+	// Pass ?build=build-2 — should be ignored
 	req := httptest.NewRequest(http.MethodGet,
 		"/agents/myorg/my-agent/deployment-template/"+depID+"?build=build-2&format=json", nil)
 	rec := httptest.NewRecorder()
@@ -1653,22 +1661,18 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
-	// Template should use the new build
+	// Template must use the existing deployment's build, not build-2
 	source, ok := resp["source"].(map[string]any)
 	if !ok {
 		t.Fatal("expected source to be an object")
 	}
-	if source["build"] != "build-2" {
-		t.Errorf("expected source.build='build-2', got %v", source["build"])
+	if source["build"] != "build-1" {
+		t.Errorf("expected source.build='build-1' (pinned to existing deployment), got %v", source["build"])
 	}
 
-	// But should still carry over the deployment_id and display_name from the old deployment
 	target := resp["target"].(map[string]any)
 	if target["deployment_id"] != depID {
 		t.Errorf("expected deployment_id=%q, got %v", depID, target["deployment_id"])
-	}
-	if target["display_name"] != "My Deploy" {
-		t.Errorf("expected display_name='My Deploy', got %v", target["display_name"])
 	}
 }
 

@@ -912,6 +912,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
+			api.POST(protected, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sClient, deploymentStore, auditStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.RestartDeploymentResponse{}),
+			)
 			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

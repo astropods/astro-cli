@@ -72,6 +72,84 @@ func (s *Store) GetRevisions(deploymentID string) ([]DeploymentRevision, error) 
 	return revisions, nil
 }
 
+// RevisionHistoryRecord is a flattened view of one deployment_revisions row joined with
+// its parent deployment, used for the history API endpoint.
+type RevisionHistoryRecord struct {
+	DeploymentID string
+	AgentName    string
+	Revision     int
+	BuildID      string
+	Namespace    string
+	DisplayName  string
+	IsCurrent    bool
+	Status       string
+	DeployedAt   time.Time
+}
+
+// GetDeploymentHistoryByRevisions returns one record per revision across all deployment
+// instances for the given agent, ordered newest-first. Only genuine deploys/redepolys
+// create revisions — restarts, pauses, and resumes do not — so the result naturally
+// excludes those lifecycle events.
+func (s *Store) GetDeploymentHistoryByRevisions(accountID, agentName string) ([]RevisionHistoryRecord, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			d.id,
+			d.agent_name,
+			dr.revision,
+			dr.build_id,
+			d.namespace,
+			COALESCE(d.display_name, ''),
+			(dr.revision = d.current_revision) AS is_current,
+			CASE WHEN dr.revision = d.current_revision THEN d.status ELSE 'undeployed' END AS status,
+			dr.created_at
+		FROM deployment_revisions dr
+		JOIN deployments d ON dr.deployment_id = d.id
+		WHERE d.account_id = $1 AND d.agent_name = $2
+		ORDER BY dr.created_at DESC
+	`, accountID, agentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query revision history: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var records []RevisionHistoryRecord
+	for rows.Next() {
+		var r RevisionHistoryRecord
+		if err := rows.Scan(
+			&r.DeploymentID, &r.AgentName, &r.Revision, &r.BuildID,
+			&r.Namespace, &r.DisplayName, &r.IsCurrent, &r.Status, &r.DeployedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan revision history row: %w", err)
+		}
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating revision history: %w", err)
+	}
+	return records, nil
+}
+
+// GetRevisionByNumber returns a specific revision for a deployment.
+func (s *Store) GetRevisionByNumber(deploymentID string, revision int) (*DeploymentRevision, error) {
+	var r DeploymentRevision
+	err := s.db.QueryRow(`
+		SELECT id, deployment_id, revision, build_id, spec_json,
+		       kms_ciphertext, kms_key_id, created_at
+		FROM deployment_revisions
+		WHERE deployment_id = $1 AND revision = $2
+	`, deploymentID, revision).Scan(
+		&r.ID, &r.DeploymentID, &r.Revision, &r.BuildID, &r.SpecJSON,
+		&r.KMSCiphertext, &r.KMSKeyID, &r.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get revision: %w", err)
+	}
+	return &r, nil
+}
+
 // SetCurrentRevision atomically sets a deployment's current_revision to a previous revision,
 // sets status to pending, and records an event. The txFn callback allows the caller to
 // enqueue a River job in the same transaction.
