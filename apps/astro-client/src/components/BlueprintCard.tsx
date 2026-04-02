@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { EllipsisVertical, Archive } from "lucide-react";
+import { EllipsisHorizontalIcon, ArchiveBoxIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "./BlueprintIdentity";
 import { UserAvatar } from "./UserAvatar";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
@@ -87,21 +87,23 @@ export function BlueprintCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
                   aria-label="Blueprint options"
                 >
-                  <EllipsisVertical className="h-4 w-4" />
+                  <EllipsisHorizontalIcon className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="min-w-[180px] rounded-[10px] p-0">
                 <DropdownMenuItem
+                  variant="destructive"
                   onSelect={() => {
                     setMenuOpen(false);
                     setArchiveOpen(true);
                   }}
+                  className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
                 >
-                  <Archive />
-                  Archive <span className="max-w-[120px] truncate font-semibold">{name}</span>
+                  <ArchiveBoxIcon className="h-4 w-4" />
+                  Archive agent
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
