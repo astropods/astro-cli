@@ -1,12 +1,20 @@
 # Astro Deployment Spec (deployment-template/v1, deployment/v1)
 
+**RFC:** 2
 **Version:** 1.0
 **Date:** 2026-02-18
 **Status:** Draft
+**Authors:** Saswat Das (@saswatds)
 
 ## Abstract
 
-The Astro Deployment Spec defines two related declarative YAML formats for describing how to deploy a specific version of an agent. A **deployment template** (`deployment-template/v1`) is generated from an AstroAI Spec and contains the full variable schema — including UI rendering hints and editable field metadata — for the user to fill in. A **fulfilled deployment spec** (`deployment/v1`) is what the user submits: it contains only the runtime fields needed to produce infrastructure manifests, with UI metadata stripped. Both sit between the AstroAI Spec (agent topology) and infrastructure manifests (runtime resources). A conforming fulfilled spec deterministically produces identical infrastructure manifests.
+The Astro Deployment Spec defines two related declarative YAML formats for describing how to deploy a specific version of an agent. A **deployment template** (`deployment-template/v1`) is generated from an Astropods Spec and contains the full variable schema — including UI rendering hints and editable field metadata — for the user to fill in. A **fulfilled deployment spec** (`deployment/v1`) is what the user submits: it contains only the runtime fields needed to produce infrastructure manifests, with UI metadata stripped. Both sit between the Astropods Spec (agent topology) and infrastructure manifests (runtime resources). A conforming fulfilled spec deterministically produces identical infrastructure manifests.
+
+## Changelog
+
+| Version | Date       | Changes        |
+| ------- | ---------- | -------------- |
+| v1.0    | 2026-02-18 | Initial draft. |
 
 ## Conventions
 
@@ -19,14 +27,14 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 The deployment spec occupies the middle stage of a three-stage pipeline:
 
 ```
-AstroAI Spec → Deployment Spec → Infrastructure Manifests
+Astropods Spec → Deployment Spec → Infrastructure Manifests
 ```
 
-The AstroAI Spec declares agent topology using provider bindings — components reference named providers that the platform classifies as self-hosted or cloud. The deployment spec eliminates this indirection: self-hosted providers become concrete images and ports, cloud and custom providers become variable entries, and container-mode entries carry through directly. The result is a document with no provider names — only images, ports, and variables.
+The Astropods Spec declares agent topology using provider bindings — components reference named providers that the platform classifies as self-hosted or cloud. The deployment spec eliminates this indirection: self-hosted providers become concrete images and ports, cloud and custom providers become variable entries, and container-mode entries carry through directly. The result is a document with no provider names — only images, ports, and variables.
 
 Processing occurs in three phases:
 
-1. **Template generation** — The server reads a registered AstroAI Spec and resolves providers. Self-hosted providers are looked up in the platform's provider registry to produce an image and port. Cloud and custom providers are converted to variable entries with placeholder values. The output is a `deployment-template/v1` document the user can fill in. It includes the full variable schema (UI hints, defaults, targets) and the `editable` field list.
+1. **Template generation** — The server reads a registered Astropods Spec and resolves providers. Self-hosted providers are looked up in the platform's provider registry to produce an image and port. Cloud and custom providers are converted to variable entries with placeholder values. The output is a `deployment-template/v1` document the user can fill in. It includes the full variable schema (UI hints, defaults, targets) and the `editable` field list.
 2. **Fulfillment** — A template is not deployable on its own. It contains empty variable values, missing schedules, and unselected adapters — decisions that only the deploying user can make. The user fills in these fields and submits the spec. The server validates (variables present, cron expressions valid, editable constraints enforced), strips template-only fields, and produces a `deployment/v1` document. The fulfilled spec is the deployment contract: the same fulfilled spec MUST always produce the same infrastructure manifests.
 3. **Translation** — Deterministic structural mapping from the `deployment/v1` spec to target infrastructure manifests. The translator consumes only the fulfilled deployment spec — no provider lookups, no variable discovery. Because the spec describes workloads in runtime-agnostic terms (containers, ports, replicas, persistence, scheduling), different translators can target different platforms. A Kubernetes translator produces Deployments, Services, and CronJobs; an ECS translator could produce Task Definitions and Services from the same fulfilled spec. The `target.runtime` field selects which translator is used.
 
@@ -55,7 +63,7 @@ A conforming document MUST contain the following top-level fields:
 | `observability` | object                        | OPTIONAL     | Observability configuration (Section 10).                                                                       |
 | `editable`      | string[]                      | OPTIONAL     | `deployment-template/v1` only. Lists editable field paths (Section 12). MUST NOT be present in `deployment/v1`. |
 
-Cloud providers from the AstroAI Spec do NOT appear in `models`, `knowledge`, or `tools`. They are represented solely as `variables` entries.
+Cloud providers from the Astropods Spec do NOT appear in `models`, `knowledge`, or `tools`. They are represented solely as `variables` entries.
 
 ---
 
@@ -65,7 +73,7 @@ The `source` object identifies the agent and build being deployed.
 
 | Field      | Type   | Required     | Description                              |
 | ---------- | ------ | ------------ | ---------------------------------------- |
-| `name`     | string | **REQUIRED** | Agent name from the AstroAI Spec.        |
+| `name`     | string | **REQUIRED** | Agent name from the Astropods Spec.      |
 | `build`    | string | **REQUIRED** | Build identifier.                        |
 | `registry` | string | **REQUIRED** | Registry where agent images were pushed. |
 
@@ -97,7 +105,7 @@ The `agent` object configures the primary agent container.
 | `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                      |
 | `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                |
 
-When the agent declares `interfaces.frontend: true` in the AstroAI Spec, the template generator sets the agent's HTTP endpoint to port 80 with `expose.enabled: true`. This creates an ingress directly to the agent container, bypassing the messaging sidecar.
+When the agent declares `interfaces.frontend: true` in the Astropods Spec, the template generator sets the agent's HTTP endpoint to port 80 with `expose.enabled: true`. This creates an ingress directly to the agent container, bypassing the messaging sidecar.
 
 ---
 
@@ -109,17 +117,17 @@ Components represent self-hosted services deployed alongside the agent. All prov
 
 Each entry in the `models` map configures a self-hosted model container.
 
-| Field         | Type                    | Required     | Description                                                                      |
-| ------------- | ----------------------- | ------------ | -------------------------------------------------------------------------------- |
-| `image`       | string                  | **REQUIRED** | Resolved container image reference.                                              |
-| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                                          |
-| `model`       | string                  | OPTIONAL     | Provider-specific model identifier (e.g. `llama3.2`). Carried from AstroAI Spec. |
-| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                                |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                                     |
-| `gpu`         | GPUConfig               | OPTIONAL     | GPU resource requirements (Section 13.2).                                        |
-| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the model container.                                   |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                                       |
-| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                                 |
+| Field         | Type                    | Required     | Description                                                                        |
+| ------------- | ----------------------- | ------------ | ---------------------------------------------------------------------------------- |
+| `image`       | string                  | **REQUIRED** | Resolved container image reference.                                                |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                                            |
+| `model`       | string                  | OPTIONAL     | Provider-specific model identifier (e.g. `llama3.2`). Carried from Astropods Spec. |
+| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                                  |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                                       |
+| `gpu`         | GPUConfig               | OPTIONAL     | GPU resource requirements (Section 13.2).                                          |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the model container.                                     |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                                         |
+| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                                   |
 
 ### 6.2 Knowledge
 
@@ -155,7 +163,7 @@ Each entry in the `tools` map configures a tool service container.
 
 ## 7. Ingestion
 
-Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestion entries are flattened from the AstroAI Spec's `container` object: `image` replaces `container.image`, and `endpoints` replaces the single `container.port`.
+Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestion entries are flattened from the Astropods Spec's `container` object: `image` replaces `container.image`, and `endpoints` replaces the single `container.port`.
 
 | Field         | Type                    | Required     | Description                                                                          |
 | ------------- | ----------------------- | ------------ | ------------------------------------------------------------------------------------ |
@@ -177,7 +185,7 @@ Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestio
 
 ## 8. Interfaces
 
-The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed as a sidecar. This block is only present when the agent supports messaging (`interfaces.messaging: true` or `interfaces` omitted in the AstroAI Spec). When the agent disables messaging, this block MUST be absent and no sidecar is deployed.
+The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed as a sidecar. This block is only present when the agent supports messaging (`interfaces.messaging: true` or `interfaces` omitted in the Astropods Spec). When the agent disables messaging, this block MUST be absent and no sidecar is deployed.
 
 | Field         | Type                    | Required     | Description                                                        |
 | ------------- | ----------------------- | ------------ | ------------------------------------------------------------------ |
@@ -198,7 +206,7 @@ Each entry in the `variables` map declares a deployment variable. Variables are 
 
 - **Providers** — each provider referenced by a component produces one variable entry per declared variable. The provider's definition determines the variable name, and all `Input` fields carry through transparently.
 - **Interfaces** — messaging adapters (e.g. `slack`) produce variable entries for adapter-specific configuration. All `Input` fields carry through transparently.
-- **Inputs** — `inputs` entries from the AstroAI Spec (top-level, `agent.inputs`, and per-component) produce variable entries. All `Input` fields carry through transparently. These variables are referenced via `${variables.<name>}` in `environment` fields.
+- **Inputs** — `inputs` entries from the Astropods Spec (top-level, `agent.inputs`, and per-component) produce variable entries. All `Input` fields carry through transparently. These variables are referenced via `${variables.<name>}` in `environment` fields.
 
 | Field      | Type     | Required     | Description                                                                                                                                                                                                           |
 | ---------- | -------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -295,7 +303,7 @@ CPU and memory requests and limits. All fields OPTIONAL — the server applies d
 
 ### 13.2 GPUConfig
 
-Extends the AstroAI Spec GPUConfig with `count` for multi-GPU scheduling.
+Extends the Astropods Spec GPUConfig with `count` for multi-GPU scheduling.
 
 | Field     | Type    | Required | Description                                                    |
 | --------- | ------- | -------- | -------------------------------------------------------------- |
@@ -313,7 +321,7 @@ Extends the AstroAI Spec GPUConfig with `count` for multi-GPU scheduling.
 
 ### 13.4 Healthcheck
 
-Defines both liveness and readiness probes. The runtime MUST create identical probes from this configuration. Extends the AstroAI Spec Healthcheck with `initial_delay` for runtime probe scheduling.
+Defines both liveness and readiness probes. The runtime MUST create identical probes from this configuration. Extends the Astropods Spec Healthcheck with `initial_delay` for runtime probe scheduling.
 
 | Field           | Type     | Required | Description                                                           |
 | --------------- | -------- | -------- | --------------------------------------------------------------------- |
@@ -365,26 +373,26 @@ Implementations MUST enforce the following rules:
 4. `target.namespace` MUST be a non-empty string valid for the target runtime.
 5. `agent.image` MUST be a non-empty string and `agent.endpoints` MUST contain at least one entry.
 6. For each entry in `models`, `knowledge`, and `tools`: `image` MUST be a non-empty string, `endpoints` MUST contain at least one entry, and each endpoint `port` MUST be a positive integer.
-6a. When `endpoint.protocol` is provided, it MUST be one of `http`, `grpc`, or `tcp`.
-7. For each entry in `knowledge`: when `persistent` is `true`, `storage` MUST be present.
-8. For each entry in `ingestion`: `image` MUST be a non-empty string, `trigger` MUST be present, and `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
-9. When `trigger.type` is `schedule`, `trigger.schedule` MUST be a non-empty string containing a valid cron expression.
-10. When `trigger.type` is NOT `schedule`, `trigger.schedule` MUST NOT be present.
-11. When `interfaces` is present: `adapters` MUST be a non-empty array, and `image` MUST be a non-empty string.
-12. In `deployment/v1`, for each entry in `variables` where `optional` is `false` or absent: `value` MUST be a non-empty string. `value` is stripped from storage when `secret` is `true`. `deployment/v1` MUST NOT contain `default` on any `variables` entry.
-12a. `variables.*.targets` MUST be a non-empty array. Each element MUST be `agent`, `ingestion`, `ingestion.<name>` where `<name>` is a key in `ingestion`, or `interface.<adapter>` where `<adapter>` is a name listed in `interfaces.adapters`.
-12b. When `variables.*.display-as` is `select`, `variables.*.options` MUST be present and non-empty.
-12c. When `variables.*.datatype` is provided, it MUST be one of `string`, `boolean`, `number`, `array`, `object`.
-12d. When `variables.*.display-as` is provided, it MUST be one of `short-text`, `long-text`, `select`.
-13. All `${}` references in `agent.environment` and `interfaces.environment` MUST resolve to a declared component, variable, or source attribute. A reference to a non-existent entry (e.g. `${models.foo.url}` when no model `foo` exists) is invalid.
-14. There MUST NOT be duplicate ports within the same deployment scope.
-15. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
-16. When `storage.access_mode` is provided, it MUST be one of `ReadWriteOnce` or `ReadWriteMany`.
-17. When `update.strategy` is provided, it MUST be one of `rolling` or `recreate`.
-18. When `agent.distributed` is `false` or absent, `agent.replicas` MUST be `1`.
-19. During fulfillment, any field changed that is not in the `editable` list MUST be rejected.
-20. A `deployment/v1` document MUST NOT contain an `editable` field.
-21. A `deployment/v1` document MUST NOT contain template-only variable fields (`description`, `datatype`, `display-as`, `options`, `default`) on any `variables` entry.
+7. When `endpoint.protocol` is provided, it MUST be one of `http`, `grpc`, or `tcp`.
+8. For each entry in `knowledge`: when `persistent` is `true`, `storage` MUST be present.
+9. For each entry in `ingestion`: `image` MUST be a non-empty string, `trigger` MUST be present, and `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
+10. When `trigger.type` is `schedule`, `trigger.schedule` MUST be a non-empty string containing a valid cron expression.
+11. When `trigger.type` is NOT `schedule`, `trigger.schedule` MUST NOT be present.
+12. When `interfaces` is present: `adapters` MUST be a non-empty array, and `image` MUST be a non-empty string.
+13. In `deployment/v1`, for each entry in `variables` where `optional` is `false` or absent: `value` MUST be a non-empty string. `value` is stripped from storage when `secret` is `true`. `deployment/v1` MUST NOT contain `default` on any `variables` entry.
+14. `variables.*.targets` MUST be a non-empty array. Each element MUST be `agent`, `ingestion`, `ingestion.<name>` where `<name>` is a key in `ingestion`, or `interface.<adapter>` where `<adapter>` is a name listed in `interfaces.adapters`.
+15. When `variables.*.display-as` is `select`, `variables.*.options` MUST be present and non-empty.
+16. When `variables.*.datatype` is provided, it MUST be one of `string`, `boolean`, `number`, `array`, `object`.
+17. When `variables.*.display-as` is provided, it MUST be one of `short-text`, `long-text`, `select`.
+18. All `${}` references in `agent.environment` and `interfaces.environment` MUST resolve to a declared component, variable, or source attribute. A reference to a non-existent entry (e.g. `${models.foo.url}` when no model `foo` exists) is invalid.
+19. There MUST NOT be duplicate ports within the same deployment scope.
+20. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
+21. When `storage.access_mode` is provided, it MUST be one of `ReadWriteOnce` or `ReadWriteMany`.
+22. When `update.strategy` is provided, it MUST be one of `rolling` or `recreate`.
+23. When `agent.distributed` is `false` or absent, `agent.replicas` MUST be `1`.
+24. During fulfillment, any field changed that is not in the `editable` list MUST be rejected.
+25. A `deployment/v1` document MUST NOT contain an `editable` field.
+26. A `deployment/v1` document MUST NOT contain template-only variable fields (`description`, `datatype`, `display-as`, `options`, `default`) on any `variables` entry.
 
 ---
 
@@ -400,7 +408,7 @@ Returns a deployment spec YAML template with placeholder values and descriptions
 
 **Steps:**
 
-1. Fetch registered AstroAI Spec from the agent index.
+1. Fetch registered Astropods Spec from the agent index.
 2. For each self-hosted model: resolve provider to image and port. For each cloud model: extract variables only.
 3. Same for knowledge and tools.
 4. Populate `agent.environment` with `${}` references using conventional env var names.

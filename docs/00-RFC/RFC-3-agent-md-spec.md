@@ -1,14 +1,22 @@
 # Agent Card Spec
 
+**RFC:** 3
 **Version:** 1.0
 **Date:** 2026-03-09
 **Status:** Draft
+**Authors:** Chris (@chrisjpatty)
 
 ## Abstract
 
 An agent card is a Markdown file with YAML frontmatter that serves as the public-facing documentation for an agent. It is purely descriptive — it communicates what an agent is and what it can do but does not drive any functional behavior (deployment, visibility, etc.), which remains the responsibility of `astropods.yml`.
 
 Analogous to HuggingFace's model card, the agent card lives in the agent's repository as `AGENT.md` and is submitted alongside the spec during registration.
+
+## Changelog
+
+| Version | Date       | Changes        |
+| ------- | ---------- | -------------- |
+| v1.0    | 2026-03-09 | Initial draft. |
 
 ## Conventions
 

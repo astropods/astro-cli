@@ -5,7 +5,11 @@ slug: astropods-package-spec
 ---
 
 <Versions>
-<Version version="v1.1 (Draft) - 2026-03-07" default>
+<Version version="v1.2 (Draft) - 2026-03-13" default>
+
+**RFC:** 1
+**Authors:** Saswat Das (@saswatds)
+
 ## Abstract
 
 The Astropods Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
@@ -435,15 +439,15 @@ Implementations MUST enforce the following validation rules:
 5. For each entry in `knowledge`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
 6. For each entry in `integrations`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
 7. For each entry in `providers`: `scope` MUST be present and contain one or more of `models`, `knowledge`, `integrations`. `variables` MUST be present and MUST contain at least one element. Each variable MUST have a non-empty `name` and a valid `datatype`.
-7a. When a component entry references a custom provider by name, the referencing section MUST be listed in that provider's `scope`.
-8. For each entry in `ingestion`: both `container` and `trigger` are REQUIRED. `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
-9. When a `BuildConfig` is provided (in `agent.build`, `container.build`), `context` and `dockerfile` are REQUIRED.
-10. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
-10a. For each entry in `models`: `models` and `model` are mutually exclusive. Providing both is invalid. `model` is deprecated; implementations SHOULD emit a warning when it is used.
-11. When an input's `display-as` is `select`, `options` MUST be present and non-empty.
-12. Each `Input` in any context MUST have a non-empty `name` and `datatype` MUST be one of `string`, `boolean`, `number`, `array`, `object`.
-13. When `agent.interfaces.frontend` is `true`, the agent MUST serve HTTP on port 80.
-14. When `agent.interfaces.messaging` is `true`, the agent MUST implement the messaging protocol.
+8. When a component entry references a custom provider by name, the referencing section MUST be listed in that provider's `scope`.
+9. For each entry in `ingestion`: both `container` and `trigger` are REQUIRED. `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
+10. When a `BuildConfig` is provided (in `agent.build`, `container.build`), `context` and `dockerfile` are REQUIRED.
+11. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
+12. For each entry in `models`: `models` and `model` are mutually exclusive. Providing both is invalid. `model` is deprecated; implementations SHOULD emit a warning when it is used.
+13. When an input's `display-as` is `select`, `options` MUST be present and non-empty.
+14. Each `Input` in any context MUST have a non-empty `name` and `datatype` MUST be one of `string`, `boolean`, `number`, `array`, `object`.
+15. When `agent.interfaces.frontend` is `true`, the agent MUST serve HTTP on port 80.
+16. When `agent.interfaces.messaging` is `true`, the agent MUST implement the messaging protocol.
 
 ---
 
