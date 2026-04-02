@@ -71,7 +71,7 @@ export function DashboardStats({
         className="bg-white dark:bg-background"
       />
       <UsageCard
-        label="COMPUTE USAGE"
+        label="TOTAL COMPUTE"
         value={usageData?.compute_unit_hours.usage ?? 0}
         quota={usageData?.compute_unit_hours.quota}
         unit="hours"
