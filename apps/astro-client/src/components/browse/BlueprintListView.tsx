@@ -11,6 +11,7 @@ export interface BlueprintListViewProps {
   refetch: () => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  ownerAccounts?: Set<string>;
 }
 
 export function BlueprintListView({
@@ -21,6 +22,7 @@ export function BlueprintListView({
   refetch,
   emptyTitle = "No blueprints yet",
   emptyDescription = "There are no blueprints in the registry yet.",
+  ownerAccounts,
 }: BlueprintListViewProps) {
   if (isLoading) {
     return (
@@ -80,6 +82,7 @@ export function BlueprintListView({
           visibility={blueprint.visibility}
           avatarUrl={blueprint.avatar_url}
           deployCount={blueprint.metrics?.deploy_count}
+          onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
         />
       ))}
     </div>

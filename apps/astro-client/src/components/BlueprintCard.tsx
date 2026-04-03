@@ -117,7 +117,7 @@ export function BlueprintCard({
             avatarUrl={avatarUrl}
             className="size-9 shrink-0 rounded-sm overflow-hidden"
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1 pr-1">
             <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
               {visibility === "private" && (

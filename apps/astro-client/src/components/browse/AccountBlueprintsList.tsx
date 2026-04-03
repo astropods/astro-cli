@@ -14,6 +14,7 @@ export function AccountBlueprintsList({ account, initialData }: { account: strin
       refetch={refetch}
       emptyTitle="No blueprints yet"
       emptyDescription="This account has no blueprints in the registry."
+      ownerAccounts={new Set([account])}
     />
   );
 }

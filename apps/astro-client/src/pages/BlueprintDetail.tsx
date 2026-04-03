@@ -177,7 +177,6 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           categories={categories}
           avatarUrl={blueprint.avatar_url}
           canEdit={canEdit}
-          onArchive={canEdit ? () => {} : undefined}
           readme={readme}
           mobileSidebar={
             <SidebarCard

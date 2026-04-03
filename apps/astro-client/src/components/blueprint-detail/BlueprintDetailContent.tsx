@@ -10,7 +10,6 @@ export interface BlueprintDetailContentProps {
   categories: string[];
   avatarUrl?: string;
   canEdit?: boolean;
-  onArchive?: () => void;
   readme?: string;
   mobileSidebar?: ReactNode;
 }
@@ -22,7 +21,6 @@ export function BlueprintDetailContent({
   categories,
   avatarUrl,
   canEdit,
-  onArchive,
   readme,
   mobileSidebar,
 }: BlueprintDetailContentProps) {
@@ -37,7 +35,6 @@ export function BlueprintDetailContent({
         categories={categories}
         avatarUrl={avatarUrl}
         canEdit={canEdit}
-        onArchive={onArchive}
       />
 
       {/* Sidebar content inlined on mobile */}

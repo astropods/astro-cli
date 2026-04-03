@@ -2,6 +2,7 @@ import type { Route } from "./+types/Discover";
 import { useBlueprints } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
+import { useAuth } from "@/lib/auth";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -20,6 +21,8 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
   const { data, isLoading, isError, error, refetch } = useBlueprints({
     initialData: loaderData?.blueprintsData,
   });
+  const { accounts } = useAuth();
+  const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
     <>
@@ -32,6 +35,7 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
         refetch={refetch}
         emptyTitle="No blueprints available"
         emptyDescription="There are no blueprints in the registry yet."
+        ownerAccounts={ownerAccounts}
       />
     </>
   );
