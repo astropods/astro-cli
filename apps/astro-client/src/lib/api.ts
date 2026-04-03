@@ -690,6 +690,19 @@ class ApiClient {
   }
 
   // GitHub connection
+  async gitHubRebuild(account: string, name: string): Promise<{ build_id: string; commit_sha: string }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/rebuild`,
+      { method: 'POST' }
+    );
+  }
+
+  async getGitHubBuildLogs(account: string, name: string, buildId: string): Promise<{ job: string; pod: string; logs: string }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/builds/${encodeURIComponent(buildId)}/logs`
+    );
+  }
+
   async getGitHubStatus(account: string, name: string): Promise<GitHubStatusResponse> {
     return this.request<GitHubStatusResponse>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`

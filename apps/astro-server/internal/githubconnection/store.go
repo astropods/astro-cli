@@ -24,17 +24,17 @@ type Connection struct {
 
 // Build represents a single auto-triggered build from a GitHub push.
 type Build struct {
-	ID           string
-	ConnectionID string
-	AccountID    string
-	AgentName    string
-	BuildID      string
-	CommitSHA    string
-	Branch       string
-	Status       string // pending | building | registered | failed
-	Error        string
-	EnqueuedAt   time.Time
-	CompletedAt  *time.Time
+	ID           string     `json:"id"`
+	ConnectionID string     `json:"connection_id"`
+	AccountID    string     `json:"account_id"`
+	AgentName    string     `json:"agent_name"`
+	BuildID      string     `json:"build_id"`
+	CommitSHA    string     `json:"commit_sha"`
+	Branch       string     `json:"branch"`
+	Status       string     `json:"status"` // pending | building | registered | failed
+	Error        string     `json:"error,omitempty"`
+	EnqueuedAt   time.Time  `json:"enqueued_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 }
 
 // Store provides CRUD operations for github_connections and github_builds.

@@ -1182,6 +1182,16 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 			)
+			api.POST(githubRoutes, "/github/rebuild", "Trigger a manual rebuild",
+				handlers.GitHubRebuild(log, pipesClient, ghStore, queue),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
+			api.GET(githubRoutes, "/github/builds/:build_id/logs", "Get build job logs",
+				handlers.GitHubBuildLogs(log, ghStore, k8sClient, cfg.GitHub.BuildNamespace),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+			)
 		}
 
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)

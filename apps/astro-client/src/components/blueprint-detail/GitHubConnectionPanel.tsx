@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -18,6 +18,8 @@ import {
   useGitHubConnect,
   useGitHubLink,
   useGitHubDisconnect,
+  useGitHubBuildLogs,
+  useGitHubRebuild,
 } from "@/api/queries/github";
 import type { GitHubBuild } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -34,6 +36,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
   const { data: status, isLoading: statusLoading } = useGitHubStatus(account, name);
   const connect = useGitHubConnect(account, name);
   const disconnect = useGitHubDisconnect(account, name);
+  const rebuild = useGitHubRebuild(account, name);
 
   // After OAuth callback, open the repo selector automatically.
   const [repoDialogOpen, setRepoDialogOpen] = useState(githubConnected);
@@ -91,16 +94,30 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
                   <span>{status.branch}</span>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                onClick={() => disconnect.mutate()}
-                disabled={disconnect.isPending}
-                title="Disconnect repo"
-              >
-                {disconnect.isPending ? <Spinner size={14} /> : <Link2Off className="h-3.5 w-3.5" />}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => rebuild.mutate()}
+                  disabled={rebuild.isPending}
+                  title="Rebuild"
+                >
+                  {rebuild.isPending
+                    ? <Spinner size={14} />
+                    : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => disconnect.mutate()}
+                  disabled={disconnect.isPending}
+                  title="Disconnect repo"
+                >
+                  {disconnect.isPending ? <Spinner size={14} /> : <Link2Off className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
             </div>
 
             {status.builds.length > 0 && (
@@ -108,7 +125,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-mono">Recent Builds</p>
                 <div className="space-y-1">
                   {status.builds.slice(0, 5).map((build) => (
-                    <BuildRow key={build.id} build={build} />
+                    <BuildRow key={build.id} build={build} account={account} name={name} />
                   ))}
                 </div>
               </div>
@@ -154,20 +171,76 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
   );
 }
 
-function BuildRow({ build }: { build: GitHubBuild }) {
-  const short = build.commit_sha.slice(0, 7);
+function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
+  const shortSha = build.commit_sha?.slice(0, 7) ?? "unknown";
+  const [logsOpen, setLogsOpen] = useState(false);
+
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <BuildStatusIcon status={build.status} />
-      <span className="font-mono text-muted-foreground">{short}</span>
-      <span className={cn(
-        "capitalize",
-        build.status === "failed" && "text-destructive",
-        build.status === "registered" && "text-green-600 dark:text-green-400",
-      )}>
-        {build.status}
-      </span>
-    </div>
+    <>
+      <div className="flex items-center gap-2 text-xs">
+        <BuildStatusIcon status={build.status} />
+        <span className="font-mono text-foreground">{build.build_id}</span>
+        <span className="font-mono text-muted-foreground">·{shortSha}</span>
+        <span className={cn(
+          "capitalize flex-1",
+          build.status === "failed" && "text-destructive",
+          build.status === "registered" && "text-green-600 dark:text-green-400",
+        )}>
+          {build.status}
+        </span>
+        <button
+          onClick={() => setLogsOpen(true)}
+          className="text-muted-foreground hover:text-foreground"
+          title="View logs"
+        >
+          <ScrollText className="h-3 w-3" />
+        </button>
+      </div>
+
+      <BuildLogsDialog
+        account={account}
+        name={name}
+        buildId={build.build_id}
+        commitSha={shortSha}
+        open={logsOpen}
+        onOpenChange={setLogsOpen}
+      />
+    </>
+  );
+}
+
+function BuildLogsDialog({
+  account, name, buildId, commitSha, open, onOpenChange,
+}: {
+  account: string; name: string; buildId: string; commitSha: string;
+  open: boolean; onOpenChange: (v: boolean) => void;
+}) {
+  const { data, isLoading, isError } = useGitHubBuildLogs(account, name, buildId, { enabled: open });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Build logs — <span className="font-mono">{buildId}</span> <span className="text-muted-foreground font-normal text-sm">·{commitSha}</span></DialogTitle>
+          <DialogDescription>Last 500 lines per container</DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-auto">
+          {isLoading && (
+            <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
+              <Spinner size={16} /><span>Loading logs…</span>
+            </div>
+          )}
+          {isError && (
+            <p className="text-sm text-destructive p-4">Failed to load logs. The pod may have been cleaned up.</p>
+          )}
+          {data && (
+            <pre className="text-xs font-mono whitespace-pre-wrap break-all bg-muted/50 rounded p-4 leading-5">
+              {data.logs || "(no output)"}
+            </pre>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

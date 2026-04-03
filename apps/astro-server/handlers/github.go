@@ -11,12 +11,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
@@ -488,4 +492,182 @@ type GitHubHandlerConfig struct {
 	WebhookBaseURL string
 	// FrontendURL is the base URL of the web app for redirects.
 	FrontendURL string
+}
+
+// GitHubRebuild handles POST /api/v1/agents/:account/:name/github/rebuild.
+// Fetches the latest commit on the connected branch and enqueues a new build.
+func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, queue *riverqueue.Queue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		agentName := c.Param("name")
+
+		conn, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no GitHub connection for this agent"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load connection"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+			return
+		}
+
+		gh := githubclient.New(token.AccessToken)
+		sha, err := gh.GetBranchHead(c.Request.Context(), conn.RepoFullName, conn.Branch)
+		if err != nil {
+			log.Error("github: get branch head", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get latest commit"})
+			return
+		}
+
+		buildID := randomHex(8)
+		buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
+			ConnectionID: conn.ID,
+			AccountID:    conn.AccountID,
+			AgentName:    agentName,
+			BuildID:      buildID,
+			CommitSHA:    sha,
+			Branch:       conn.Branch,
+			Status:       "pending",
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create build record"})
+			return
+		}
+
+		if err := queue.EnqueueGitHubBuild(c.Request.Context(), riverqueue.GitHubBuildArgs{
+			ConnectionID:  conn.ID,
+			CommitSHA:     sha,
+			BuildID:       buildID,
+			BuildRecordID: buildRecordID,
+		}); err != nil {
+			_ = ghStore.UpdateBuildStatus(c.Request.Context(), buildRecordID, "failed", "failed to enqueue build job")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue build"})
+			return
+		}
+
+		log.Info("Manual rebuild enqueued", "account", acct.Name, "agent", agentName, "sha", sha[:7], "build_id", buildID)
+		c.JSON(http.StatusAccepted, gin.H{"build_id": buildID, "commit_sha": sha})
+	}
+}
+
+// GitHubBuildLogs handles GET /api/v1/agents/:account/:name/github/builds/:build_id/logs.
+// Fetches the tail of logs from all containers of the build job pod.
+func GitHubBuildLogs(log *logger.Logger, ghStore *githubconnection.Store, k8sClient k8s.ClusterClient, buildNamespace string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		agentName := c.Param("name")
+		buildID := c.Param("build_id")
+
+		// Verify the build belongs to this account/agent.
+		builds, err := ghStore.ListBuilds(c.Request.Context(), acct.ID, agentName, 50)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load builds"})
+			return
+		}
+		var found bool
+		for _, b := range builds {
+			if b.BuildID == buildID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "build not found"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "k8s not configured"})
+			return
+		}
+
+		jobName := "build-" + buildID + "-agent"
+		ns := buildNamespace
+		if ns == "" {
+			ns = "as0-builds"
+		}
+
+		pods, err := k8sClient.Clientset().CoreV1().Pods(ns).List(c.Request.Context(), metav1.ListOptions{
+			LabelSelector: "job-name=" + jobName,
+		})
+		if err != nil || len(pods.Items) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no pod found for this build"})
+			return
+		}
+		pod := pods.Items[0]
+
+		tailLines := int64(500)
+		var sb strings.Builder
+
+		var containers []string
+		for _, ct := range pod.Spec.InitContainers {
+			containers = append(containers, ct.Name)
+		}
+		for _, ct := range pod.Spec.Containers {
+			containers = append(containers, ct.Name)
+		}
+
+		for _, name := range containers {
+			req := k8sClient.Clientset().CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{
+				Container: name,
+				TailLines: &tailLines,
+			})
+			stream, err := req.Stream(c.Request.Context())
+			if err != nil {
+				fmt.Fprintf(&sb, "=== %s ===\n(logs unavailable: %v)\n", name, err)
+				continue
+			}
+			body, _ := io.ReadAll(stream)
+			stream.Close() //nolint:errcheck
+			if len(body) > 0 {
+				fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
+			} else {
+				fmt.Fprintf(&sb, "=== %s ===\n(no output)\n", name)
+			}
+		}
+
+		// Append pod events (warnings/errors from scheduler, kubelet, etc.).
+		events, evErr := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
+			FieldSelector: "involvedObject.name=" + pod.Name,
+		})
+		if evErr == nil && len(events.Items) > 0 {
+			fmt.Fprintf(&sb, "\n=== events ===\n")
+			for _, ev := range events.Items {
+				fmt.Fprintf(&sb, "[%s] %s: %s\n", ev.Type, ev.Reason, ev.Message)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"job":   jobName,
+			"pod":   pod.Name,
+			"phase": string(pod.Status.Phase),
+			"logs":  sb.String(),
+		})
+	}
 }

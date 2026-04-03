@@ -35,6 +35,19 @@ type Repo struct {
 	Private       bool   `json:"private"`
 }
 
+// GetBranchHead returns the latest commit SHA on a branch.
+func (c *Client) GetBranchHead(ctx context.Context, repoFullName, branch string) (string, error) {
+	var result struct {
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+	if err := c.get(ctx, fmt.Sprintf("/repos/%s/branches/%s", repoFullName, branch), &result); err != nil {
+		return "", fmt.Errorf("github: get branch head: %w", err)
+	}
+	return result.Commit.SHA, nil
+}
+
 // ListRepos returns up to 100 repos the authenticated user has access to, sorted by recent push.
 func (c *Client) ListRepos(ctx context.Context) ([]Repo, error) {
 	var repos []Repo

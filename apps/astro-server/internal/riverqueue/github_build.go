@@ -15,6 +15,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -71,15 +72,27 @@ type GitHubBuildWorker struct {
 	log         *logger.Logger
 }
 
+// Timeout gives the build job 25 minutes — enough for any reasonable image build.
+// River's default is much shorter, which was causing context deadline exceeded.
+func (w *GitHubBuildWorker) Timeout(*river.Job[GitHubBuildArgs]) time.Duration {
+	return 25 * time.Minute
+}
+
 func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuildArgs]) error {
 	args := job.Args
 	log := w.log.With("build_id", args.BuildID, "commit", args.CommitSHA[:min(7, len(args.CommitSHA))])
 
-	_ = w.ghStore.UpdateBuildStatus(ctx, args.BuildRecordID, "building", "")
+	// dbCtx is independent of the job context so status updates always reach the DB
+	// even if the River job context is cancelled mid-flight (e.g. during a long K8s poll).
+	dbCtx := context.Background()
+
+	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "building", ""); err != nil {
+		log.Error("failed to update build status to building", "error", err)
+	}
 
 	conn, err := w.ghStore.GetByID(ctx, args.ConnectionID)
 	if err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("load connection: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("load connection: %w", err))
 	}
 
 	token, err := w.pipesClient.GetAccessToken(ctx, pipes.GetAccessTokenInput{
@@ -87,12 +100,12 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		UserID:   conn.WorkOSUserID,
 	})
 	if err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("get github token: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("get github token: %w", err))
 	}
 
 	astroSpec, specYAML, err := fetchAstroSpec(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA)
 	if err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
 	}
 
 	agentName := strings.TrimPrefix(astroSpec.Name, "@"+conn.AccountID+"/")
@@ -112,14 +125,14 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 
 	log.Info("Starting BuildKit build", "repo", conn.RepoFullName, "local", local)
 	if err := w.runBuildKitJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, buildCtx.Context, buildCtx.Dockerfile, destination); err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("build: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("build: %w", err))
 	}
 
 	readme, _ := fetchFileContent(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, "AGENT.md")
 
 	var specMap map[string]any
 	if err := yaml.Unmarshal([]byte(specYAML), &specMap); err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("parse spec YAML: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("parse spec YAML: %w", err))
 	}
 
 	if err := w.agentIndex.Register(
@@ -127,16 +140,20 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		w.cfg.Deployment.RegistryURL, conn.AccountID,
 		specMap, readme, buildAgentCardJSONFromSpec(readme, specMap), "[]",
 	); err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("register agent: %w", err))
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("register agent: %w", err))
 	}
 
-	_ = w.ghStore.UpdateBuildStatus(ctx, args.BuildRecordID, "registered", "")
+	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "registered", ""); err != nil {
+		log.Error("failed to update build status to registered", "error", err, "record_id", args.BuildRecordID)
+	}
 	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
 	return nil
 }
 
-func (w *GitHubBuildWorker) fail(ctx context.Context, buildRecordID string, err error) error {
-	_ = w.ghStore.UpdateBuildStatus(ctx, buildRecordID, "failed", err.Error())
+func (w *GitHubBuildWorker) fail(_ context.Context, buildRecordID string, err error) error {
+	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = w.ghStore.UpdateBuildStatus(updateCtx, buildRecordID, "failed", err.Error())
 	return err
 }
 
@@ -170,6 +187,20 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	sa := w.cfg.GitHub.BuildServiceAccount
 	clientset := w.k8sClient.Clientset()
 
+	// Create the build namespace and service account if they don't exist.
+	_, nsErr := clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: ns},
+	}, metav1.CreateOptions{})
+	if nsErr != nil && !k8serrors.IsAlreadyExists(nsErr) {
+		return fmt.Errorf("ensure build namespace: %w", nsErr)
+	}
+	_, saErr := clientset.CoreV1().ServiceAccounts(ns).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: sa, Namespace: ns},
+	}, metav1.CreateOptions{})
+	if saErr != nil && !k8serrors.IsAlreadyExists(saErr) {
+		return fmt.Errorf("ensure build service account: %w", saErr)
+	}
+
 	if buildContext == "" {
 		buildContext = "."
 	}
@@ -189,8 +220,10 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	defer clientset.CoreV1().Secrets(ns).Delete(context.Background(), tokenSecretName, metav1.DeleteOptions{}) //nolint:errcheck
 
 	// git clone command: shallow clone at the exact commit.
+	// HOME=/tmp gives git a writable directory for the global config (user 1000 has no home).
+	// safe.directory bypasses Git's ownership check on the emptyDir volume (owned by root).
 	cloneCmd := fmt.Sprintf(
-		"git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && git fetch --depth 1 origin %s && git checkout %s",
+		"HOME=/tmp git config --global --add safe.directory /workspace && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git checkout %s",
 		repoFullName, commitSHA, commitSHA,
 	)
 
@@ -338,10 +371,57 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 			return nil
 		}
 		if j.Status.Failed > 0 {
-			return fmt.Errorf("build job %s failed", jobName)
+			logs := w.fetchJobLogs(context.Background(), ns, jobName)
+			return fmt.Errorf("build job %s failed\n\n%s", jobName, logs)
 		}
 	}
 	return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
+}
+
+// fetchJobLogs retrieves the tail of logs from all containers of a Job's pod.
+// Tries each container in order (init containers first) and concatenates the output.
+// Returns a best-effort string — never errors, so it's safe to use in error messages.
+func (w *GitHubBuildWorker) fetchJobLogs(ctx context.Context, ns, jobName string) string {
+	clientset := w.k8sClient.Clientset()
+	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "job-name=" + jobName,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return "(could not retrieve pod logs)"
+	}
+	pod := pods.Items[0]
+
+	var sb strings.Builder
+	tailLines := int64(100)
+
+	// Collect container names in order: init containers first, then main.
+	var containers []string
+	for _, c := range pod.Spec.InitContainers {
+		containers = append(containers, c.Name)
+	}
+	for _, c := range pod.Spec.Containers {
+		containers = append(containers, c.Name)
+	}
+
+	for _, name := range containers {
+		req := clientset.CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{
+			Container: name,
+			TailLines: &tailLines,
+		})
+		stream, err := req.Stream(ctx)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(stream)
+		stream.Close() //nolint:errcheck
+		if len(body) > 0 {
+			fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
+		}
+	}
+	if sb.Len() == 0 {
+		return "(no logs available)"
+	}
+	return sb.String()
 }
 
 // fetchAstroSpec downloads astropods.yml via the GitHub contents API at a specific SHA.
