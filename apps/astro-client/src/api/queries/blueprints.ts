@@ -114,6 +114,9 @@ export function useDeployAgent(account: string, agentName: string) {
 
       // Always refresh after optimistic patch so server truth wins quickly.
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      if (data.deployment_id) {
+        queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(data.deployment_id) });
+      }
 
       queryClient.invalidateQueries({ queryKey: blueprintKeys.template(account, agentName) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, agentName) });

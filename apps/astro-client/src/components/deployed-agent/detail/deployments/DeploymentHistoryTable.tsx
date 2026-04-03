@@ -134,7 +134,7 @@ export function DeploymentHistoryTable({
 
           {/* Services section */}
           <div className="px-4 py-2 pb-4 border-t border-border bg-muted">
-            <div className="font-mono text-label tracking-[0.07em] text-faint-foreground uppercase my-1.5 flex items-center gap-1.5">
+            <div className="font-mono text-label tracking-[0.07em] text-faint-foreground my-1.5 flex items-center gap-1.5">
               Services
               {serviceRows.length > 0 && (
                 <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground text-[11px]">
@@ -222,16 +222,16 @@ export function DeploymentHistoryTable({
               : <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />}
             <span>HISTORY</span>
             {pastRows.length > 0 && (
-              <span className="flex items-center gap-1.5 normal-case tracking-normal ml-[52px]">
+              <span className="flex items-center gap-1.5 normal-case tracking-normal ml-3">
+                <span>Configs</span>
                 <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground text-[11px]">
                   {pastRows.length}
                 </InlineBadge>
-                <span>configs</span>
                 <span>·</span>
+                <span>Builds</span>
                 <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground text-[11px]">
                   {totalUniqueBuildCount}
                 </InlineBadge>
-                <span>builds</span>
               </span>
             )}
           </span>

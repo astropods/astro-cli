@@ -2051,6 +2051,7 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 
 		// If a specific revision is requested, use its spec_json for merging adapters/schedules.
 		specJSONToMerge := existing.DeploymentSpecJSON
+		revisionRequested := false
 		if revisionStr := c.Query("revision"); revisionStr != "" {
 			revNum, convErr := strconv.Atoi(revisionStr)
 			if convErr != nil || revNum < 1 {
@@ -2068,9 +2069,10 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 				return
 			}
 			specJSONToMerge = string(rev.SpecJSON)
+			revisionRequested = true
 		}
 
-		// Merge adapters and ingestion schedules from stored spec
+		// Merge adapters, ingestion schedules, and (for historical revisions) display name from stored spec
 		if specJSONToMerge != "" {
 			var storedSpec spec.AstroDeploymentSpec
 			if jsonErr := json.Unmarshal([]byte(specJSONToMerge), &storedSpec); jsonErr == nil {
@@ -2082,6 +2084,9 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 						tmplIng.Trigger.Schedule = storedIng.Trigger.Schedule
 						template.Ingestion[name] = tmplIng
 					}
+				}
+				if revisionRequested && storedSpec.Target.DisplayName != "" {
+					template.Target.DisplayName = storedSpec.Target.DisplayName
 				}
 			}
 		}

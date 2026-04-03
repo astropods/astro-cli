@@ -117,15 +117,15 @@ export function BuildHistoryGroup({
             style={{ gridTemplateColumns: gridColumns, gap: gridGap, padding: subRowPadding }}
           >
             {/* Name */}
-            <div className="min-w-0 pl-5 flex items-center gap-1.5">
-              <InlineBadge variant="soft" shape="square" style={DEPLOY_TYPE_BADGE[deployType]}>
-                {deployType === "initial" ? "Initial deploy" : "Config change"}
-              </InlineBadge>
+            <div className="min-w-0 pl-4 flex items-center gap-1.5">
               {row.source.revision !== undefined && (
-                <span className="font-mono text-mono-sm text-faint-foreground">
+                <span className="font-mono text-mono-sm text-faint-foreground w-8 shrink-0 text-right">
                   #{row.source.revision}
                 </span>
               )}
+              <InlineBadge variant="soft" shape="square" style={DEPLOY_TYPE_BADGE[deployType]}>
+                {deployType === "initial" ? "Initial deploy" : "Config change"}
+              </InlineBadge>
             </div>
 
             {/* Status — empty, inherits group's undeployed */}
