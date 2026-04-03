@@ -20,19 +20,10 @@ import type { SortOption } from "./useAgentFilters";
 
 export type { SortOption };
 
-const STATUS_COLORS: Record<string, string> = {
-  active: "var(--color-teal-600)",
-  inactive: "var(--color-stone-400)",
-  pending: "var(--color-yellow-500)",
-  error: "var(--color-coral-600)",
-  undeploying: "var(--color-stone-400)",
-};
 
-const STATUS_OPTIONS = Object.entries(deploymentStatusLabel).map(([value, label]) => ({
-  value,
-  label,
-  color: STATUS_COLORS[value],
-}));
+const STATUS_OPTIONS = Object.entries(deploymentStatusLabel)
+  .map(([value, label]) => ({ value, label }))
+  .sort((a, b) => a.label.localeCompare(b.label));
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: "Last updated", value: "recent" },
@@ -60,7 +51,12 @@ export function DashboardToolbar({
   disabled,
 }: DashboardToolbarProps) {
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", disabled && "pointer-events-none opacity-40")}>
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
       <FilterInput
         placeholder="Search agents..."
         value={filter}
@@ -70,19 +66,25 @@ export function DashboardToolbar({
 
       <MultiSelect value={statusFilter} onValueChange={onStatusFilterChange}>
         <MultiSelectTrigger className="h-8 w-full sm:w-36 text-sm">
-          <MultiSelectValue options={STATUS_OPTIONS} placeholder="All statuses" />
+          <MultiSelectValue
+            options={STATUS_OPTIONS}
+            placeholder="All statuses"
+          />
         </MultiSelectTrigger>
         <MultiSelectContent>
           <MultiSelectAllItem>All statuses</MultiSelectAllItem>
           {STATUS_OPTIONS.map((opt) => (
-            <MultiSelectItem key={opt.value} value={opt.value} color={opt.color}>
+            <MultiSelectItem key={opt.value} value={opt.value}>
               {opt.label}
             </MultiSelectItem>
           ))}
         </MultiSelectContent>
       </MultiSelect>
 
-      <Select value={sortBy} onValueChange={(v) => onSortChange(v as SortOption)}>
+      <Select
+        value={sortBy}
+        onValueChange={(v) => onSortChange(v as SortOption)}
+      >
         <SelectTrigger className="h-8 w-full sm:w-36 px-3 text-sm bg-background">
           <SelectValue />
         </SelectTrigger>
