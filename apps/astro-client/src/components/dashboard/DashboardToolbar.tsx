@@ -21,9 +21,12 @@ import type { SortOption } from "./useAgentFilters";
 export type { SortOption };
 
 
-const STATUS_OPTIONS = Object.entries(deploymentStatusLabel)
-  .map(([value, label]) => ({ value, label }))
-  .sort((a, b) => a.label.localeCompare(b.label));
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "active", label: deploymentStatusLabel.active },
+  { value: "deploying", label: deploymentStatusLabel.deploying },
+  { value: "error", label: deploymentStatusLabel.error },
+  { value: "inactive", label: deploymentStatusLabel.inactive },
+];
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: "Last updated", value: "recent" },
