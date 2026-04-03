@@ -1998,7 +1998,32 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			return
 		}
 
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, existing.BuildID)
+		// Resolve the revision first (if requested) so we can use its build_id for template generation.
+		specJSONToMerge := existing.DeploymentSpecJSON
+		buildIDForTemplate := existing.BuildID
+		revisionRequested := false
+		if revisionStr := c.Query("revision"); revisionStr != "" {
+			revNum, convErr := strconv.Atoi(revisionStr)
+			if convErr != nil || revNum < 1 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid revision"})
+				return
+			}
+			rev, revErr := deployStore.GetRevisionByNumber(deploymentID, revNum)
+			if revErr != nil {
+				log.Error("Failed to get revision", "error", revErr, "deployment_id", deploymentID, "revision", revNum)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
+				return
+			}
+			if rev == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "revision not found"})
+				return
+			}
+			specJSONToMerge = string(rev.SpecJSON)
+			buildIDForTemplate = rev.BuildID
+			revisionRequested = true
+		}
+
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDForTemplate)
 		if !ok {
 			return
 		}
@@ -2047,29 +2072,6 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 				tv.Value = val
 				template.Variables[sv.Name] = tv
 			}
-		}
-
-		// If a specific revision is requested, use its spec_json for merging adapters/schedules.
-		specJSONToMerge := existing.DeploymentSpecJSON
-		revisionRequested := false
-		if revisionStr := c.Query("revision"); revisionStr != "" {
-			revNum, convErr := strconv.Atoi(revisionStr)
-			if convErr != nil || revNum < 1 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid revision"})
-				return
-			}
-			rev, revErr := deployStore.GetRevisionByNumber(deploymentID, revNum)
-			if revErr != nil {
-				log.Error("Failed to get revision", "error", revErr, "deployment_id", deploymentID, "revision", revNum)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
-				return
-			}
-			if rev == nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "revision not found"})
-				return
-			}
-			specJSONToMerge = string(rev.SpecJSON)
-			revisionRequested = true
 		}
 
 		// Merge adapters, ingestion schedules, and (for historical revisions) display name from stored spec
