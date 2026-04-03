@@ -1,32 +1,34 @@
 # GitHub Connection Spec
 
-**Version:** 1.0
-**Date:** 2026-04-02
-**Status:** Draft
+**Version:** 2.0
+**Date:** 2026-04-03
+**Status:** Implemented
 
 ## Abstract
 
-This spec defines a Cloudflare-style GitHub connection system for Astro. Users link a GitHub repository to an agent; every push to `main` triggers a server-side build and registration without the user running `astro push`. WorkOS Pipes provides the GitHub OAuth token. Builds run as Kubernetes Jobs using Kaniko, mirroring exactly what the CLI does today.
+This spec defines a Cloudflare-style GitHub connection system for Astro. Users link a GitHub repository to an agent; every push to the configured branch triggers a server-side build and registration without running `astro push`. WorkOS Pipes provides the GitHub OAuth token. Builds run as Kubernetes Jobs using BuildKit (rootless, daemonless).
 
 ---
 
 ## 1. Motivation
 
-The current CLI-based push flow (`astro build → astro push → astro deploy`) requires the user to have Docker installed, ECR credentials, and a local build environment. This is a barrier to adoption. GitHub-connected builds move the build step to Astro infrastructure, making it possible to author and publish agents with only a code editor and a GitHub account.
+The current CLI-based push flow (`astro build → astro push → astro deploy`) requires Docker, ECR credentials, and a local build environment. GitHub-connected builds move the build step to Astro infrastructure, making it possible to author and publish agents with only a code editor and a GitHub account.
 
 ---
 
 ## 2. User Experience
 
-1. From the agent detail page, the user clicks **Connect GitHub repo**.
-2. If no GitHub connection exists on the account, WorkOS Pipes initiates OAuth to grant repository access.
-3. The user selects a repository and branch (default: `main`).
+1. User clicks **Connect GitHub repo** on the blueprint detail page (owner only).
+2. If not yet connected, WorkOS Pipes initiates GitHub OAuth (`repo` + `admin:repo_hook` scopes).
+3. After OAuth completes, a repo selector dialog appears. User picks a repo and branch.
 4. Astro installs a webhook on the repository.
 5. On the next push to the connected branch:
-   - A build job starts automatically.
-   - The build status surfaces on the agent's Builds tab (pending → building → registered or failed).
-6. Once registered, the new build appears in the deploy flow exactly like a CLI-pushed build.
-7. The user can disconnect the repo at any time; the webhook is removed and future pushes are ignored.
+   - A build job starts automatically; status updates in the panel (`pending → building → registered | failed`).
+   - The panel polls every 5 seconds while a build is in-flight; stops when the latest build reaches a terminal state.
+6. Once `registered`, the new build appears in the deploy flow identically to a CLI-pushed build.
+7. **Rebuild** button (↻) triggers a fresh build from the current HEAD without a push.
+8. **Logs** button (📋) on each build row opens a dialog with pod logs per container.
+9. User can disconnect at any time; the webhook is removed.
 
 ---
 
@@ -36,48 +38,58 @@ The current CLI-based push flow (`astro build → astro push → astro deploy`) 
 GitHub push event
        │
        ▼
-POST /webhooks/github          ← new HTTP handler (no auth, HMAC verified)
+POST /webhooks/github              ← HMAC-SHA256 verified, no session auth
        │
-       ▼
-GitHubBuildWorker (River)      ← enqueued with repo clone URL + commit SHA
-       │
-       ├─ Clone repo (GitHub token from connection record)
-       ├─ Parse astropods.yml
-       ├─ Launch Kaniko Job per container in spec
-       │     └─ Kaniko pushes image to ECR namespace
-       └─ Register spec in AgentIndex (same path as CLI push handler)
-              │
-              ▼
-       Build visible in UI, ready for deploy
+       ├─ Look up connection by repo full name
+       ├─ Verify push is to connected branch
+       ├─ Create github_builds record (status: pending)
+       └─ Enqueue GitHubBuildWorker (River, queue: github_build)
+                │
+                ▼
+        GitHubBuildWorker.Work()   ← 25-min timeout, MaxAttempts: 1
+                │
+                ├─ status → building
+                ├─ Get GitHub token via WorkOS Pipes API
+                ├─ Fetch astropods.yml from GitHub contents API at exact SHA
+                ├─ Create ephemeral K8s Secret with GitHub token
+                │
+                ├─ Create K8s Job in as0-builds namespace:
+                │     init: git-clone   → clones repo into /workspace (HOME=/tmp, safe.directory set)
+                │     init: ecr-login   → writes docker config from ECR via IRSA (prod only)
+                │     main: buildkit    → reads /workspace, builds Dockerfile
+                │                         moby/buildkit:v0.21.0-rootless, --no-push in local dev
+                │
+                ├─ Poll Job status every 15s (max 20 min)
+                │     on success: fetch AGENT.md, register in AgentIndex
+                │     on failure: fetch pod logs → stored in error field
+                │
+                └─ status → registered | failed
+                      (DB updates use context.Background(), not job ctx)
 ```
 
 ### 3.1 WorkOS Pipes
 
-WorkOS Pipes delivers a GitHub OAuth token scoped to the user's installation. The server exchanges the Pipes connection for a token with `repo` and `admin:repo_hook` scopes. This token is stored encrypted (KMS, same mechanism as other secrets) in the `github_connections` table and refreshed on use.
+The server calls the WorkOS Pipes REST API directly (not in the SDK):
+- `POST /data-integrations/github/authorize` — get OAuth redirect URL
+- `POST /data-integrations/github/token` — get/refresh access token
 
-When the user initiates a connection, the server:
-1. Calls WorkOS Pipes to get an authorization URL for GitHub.
-2. Redirects the user; WorkOS completes OAuth and calls back with a connection ID.
-3. Server fetches the access token from WorkOS using the connection ID.
-4. Stores the token and creates the webhook.
+Tokens are fetched on demand (WorkOS handles refresh); they are NOT stored in the database.
 
 ### 3.2 Webhook Delivery
 
-Astro installs a GitHub webhook on the selected repository pointing at `https://api.astropods.ai/webhooks/github`. The webhook secret is a random 32-byte hex string stored alongside the connection record. All incoming payloads are verified with `HMAC-SHA256` before processing.
+Webhook payload URL: `{GITHUB_CALLBACK_URL}/webhooks/github` (falls back to `FRONTEND_URL`).  
+Webhook secret is a random 32-byte hex string per connection, verified with `HMAC-SHA256`.  
+Only `push` events to the configured branch trigger builds; all others return `200 OK`.
 
-Only `push` events to the configured branch are acted on; all others return `200 OK` immediately.
+### 3.3 Server-Side Build (BuildKit)
 
-### 3.3 Server-Side Build (Kaniko)
+BuildKit runs rootless daemonless (`moby/buildkit:v0.21.0-rootless`) in a K8s Job:
 
-The `GitHubBuildWorker` River worker:
-1. Clones the repo at the push commit SHA using the stored GitHub token.
-2. Parses `astropods.yml` from the repo root.
-3. For each container in the spec's `agent.build` (and any ingestion containers), launches a Kubernetes `Job` using the [Kaniko](https://github.com/GoogleContainerTools/kaniko) executor image.
-4. Kaniko receives the build context via a temporary S3 presigned URL (tarball of the cloned repo) and pushes the built image directly to the account's ECR namespace, tagged with the build ID.
-5. The worker waits for all Jobs to complete (polling, max 20 minutes), then calls the agent registration logic (same as `POST /agents/:name` from the CLI).
-6. On failure, the build record is marked `failed` with the Kaniko Job log excerpt.
+**Local dev** (`K8S_CLIENT_MODE=local`): single BuildKit container, `--no-push`. Builds the image to verify the Dockerfile but does not push to any registry.
 
-Build ID generation is identical to the CLI: random 8-char hex. The ECR namespace is the account's existing namespace.
+**Production**: init container fetches ECR login credentials via IRSA → docker config on shared volume. BuildKit pushes to ECR with `--output type=image,name={dest},push=true`.
+
+In both modes: init container clones the repo from GitHub using an ephemeral K8s Secret (token not visible in Job args). Namespace (`as0-builds`) and service account (`build-worker`) are auto-created if missing.
 
 ---
 
@@ -90,8 +102,7 @@ Build ID generation is identical to the CLI: random 8-char hex. The ECR namespac
 | `id` | UUID | Primary key |
 | `account_id` | UUID | FK → accounts |
 | `agent_name` | string | Agent this connection is for |
-| `workos_connection_id` | string | WorkOS Pipes connection ID |
-| `encrypted_token` | bytes | KMS-encrypted GitHub access token |
+| `workos_user_id` | string | WorkOS user ID (for Pipes token lookup) |
 | `repo_full_name` | string | e.g. `octocat/hello-world` |
 | `branch` | string | e.g. `main` |
 | `webhook_id` | int64 | GitHub webhook ID (for removal) |
@@ -99,13 +110,13 @@ Build ID generation is identical to the CLI: random 8-char hex. The ECR namespac
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
 
-One connection per agent. Replacing the connection (user selects a different repo) removes the old webhook first.
+One connection per agent. Relinking removes the old webhook before installing the new one.
 
 ### `github_builds`
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | UUID | Primary key |
+| `id` | UUID | Primary key (`build_record_id` in worker args) |
 | `connection_id` | UUID | FK → github_connections |
 | `account_id` | UUID | Denormalized for queries |
 | `agent_name` | string | |
@@ -113,7 +124,7 @@ One connection per agent. Replacing the connection (user selects a different rep
 | `commit_sha` | string | Full SHA of the triggering push |
 | `branch` | string | |
 | `status` | enum | `pending \| building \| registered \| failed` |
-| `error` | text | Failure message if failed |
+| `error` | text | Failure message + last 100 lines of pod logs |
 | `enqueued_at` | timestamp | |
 | `completed_at` | timestamp | |
 
@@ -121,27 +132,19 @@ One connection per agent. Replacing the connection (user selects a different rep
 
 ## 5. API Surface
 
-### GitHub OAuth
+All routes are under `/api/v1/agents/:account/:name/`.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/accounts/:account/github/connect` | Starts WorkOS Pipes OAuth; returns redirect URL |
-| `GET` | `/accounts/:account/github/callback` | WorkOS callback; stores token, creates webhook |
-| `DELETE` | `/accounts/:account/agents/:name/github` | Removes webhook and connection |
-
-### Connection Status
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/accounts/:account/agents/:name/github` | Returns connection record (no token) and last 10 builds |
-
-### Webhook Receiver
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/webhooks/github` | Receives push events from GitHub; unauthenticated, HMAC verified |
-
-The webhook handler looks up the connection by `X-GitHub-Hook-ID` or repository full name in the payload, verifies the signature, and enqueues a `GitHubBuildWorker` job. It responds `202 Accepted` before the job completes.
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `.../github/connect` | session | Start WorkOS Pipes OAuth; returns `{redirect_url}` or `{connected: true}` |
+| `GET` | `.../github/callback` | session | WorkOS return_to; stores token state, redirects to frontend |
+| `GET` | `.../github/repos` | session | List user's GitHub repos via Pipes token |
+| `POST` | `.../github/link` | session | Install webhook and save connection |
+| `DELETE` | `.../github` | session | Remove webhook and connection |
+| `GET` | `.../github` | session | Connection status + last 10 builds |
+| `POST` | `.../github/rebuild` | session | Trigger build from current branch HEAD |
+| `GET` | `.../github/builds/:build_id/logs` | session | Stream pod logs for a build job |
+| `POST` | `/webhooks/github` | HMAC | Receive GitHub push events |
 
 ---
 
@@ -149,43 +152,47 @@ The webhook handler looks up the connection by `X-GitHub-Hook-ID` or repository 
 
 ```
 GitHubBuildArgs {
-    ConnectionID  uuid
+    ConnectionID  string  // uuid
     CommitSHA     string
-    BuildID       string
-    BuildRecordID uuid
+    BuildID       string  // 8-char hex
+    BuildRecordID string  // uuid, matches github_builds.id
 }
 ```
 
-The worker runs with:
-- `MaxAttempts: 1` (build failures are surfaced as build records, not retried automatically)
-- `Timeout: 25 minutes`
-- Unique by `ConnectionID + CommitSHA` (deduplicates rapid pushes)
-
-Rapid pushes within the uniqueness window are deduplicated; only the first enqueued job runs. Subsequent pushes while a build is in-flight are queued normally since the running job will have consumed the unique slot.
+- `MaxAttempts: 1` — failures surface as build records, not River retries
+- `Timeout: 25 minutes` — explicit override on `GitHubBuildWorker.Timeout()`
+- Unique by all args (each build has a unique `BuildRecordID`, so no cross-build deduplication)
+- All `github_builds` status updates use `context.Background()` to survive job context cancellation
 
 ---
 
-## 7. Kaniko Job Spec
+## 7. BuildKit Job Spec
 
-Each Kaniko Job is named `build-{build-id}-{component}` in the `astro-builds` namespace (dedicated, separate from deployment namespaces). The Job mounts no persistent volumes; the build context is fetched from S3 by the Kaniko init container.
-
-Resource limits: `2 CPU / 4Gi memory` (configurable via server config). Jobs are garbage-collected after 1 hour regardless of outcome.
+Job name: `build-{build-id}-agent` in `as0-builds` namespace.  
+Service account: `build-worker` (auto-created; needs IRSA ECR push in production).  
+Security context: rootless (`seccompProfile: Unconfined`, `runAsUser: 1000`).  
+`BUILDKITD_FLAGS=--oci-worker-no-process-sandbox` required for rootless K8s.  
+Resources: `1-2 CPU / 2-4Gi memory`. TTL: 1 hour after completion.
 
 ---
 
 ## 8. Security
 
-- **HMAC verification** on every webhook payload before any processing.
-- **GitHub token** stored KMS-encrypted; decrypted in-memory only during clone and webhook operations.
-- **Repo access** is scoped to the specific repository via WorkOS Pipes (no org-wide token).
-- **Build isolation**: each Kaniko Job runs in `astro-builds` namespace with a dedicated service account that has `push` access only to the account's ECR prefix (`ecr:{account-id}/*`).
-- **No secrets in build context**: the S3 tarball contains only the repo contents; AWS credentials are injected via IRSA, not environment variables visible to Kaniko.
+- **HMAC-SHA256** verification on every webhook payload before processing.
+- **GitHub token** fetched on-demand from WorkOS Pipes; never stored in the database.
+- **Ephemeral K8s Secret** per build for git clone credentials; deleted after job creation.
+- **ECR credentials** injected via IRSA (pod identity) — no long-lived credentials in Job spec.
+- **Build isolation**: jobs run in dedicated `as0-builds` namespace, separate from agent deployment namespaces.
 
 ---
 
-## 9. Build Status in the UI
+## 9. Environment Variables
 
-The agent detail page's **Builds** tab already lists builds from `AgentIndex`. GitHub builds appear here once registered. During the build phase (before registration), status is read from `github_builds` and surfaced as a "Building…" entry with a link to the triggering commit. Build logs (Kaniko Job stdout) are streamed via a new `GET /accounts/:account/agents/:name/github/builds/:build-id/logs` endpoint that proxies Kubernetes pod logs.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITHUB_CALLBACK_URL` | `FRONTEND_URL` | Public base URL for OAuth callbacks and webhook delivery |
+| `GITHUB_BUILD_NAMESPACE` | `as0-builds` | K8s namespace for build jobs |
+| `GITHUB_BUILD_SERVICE_ACCOUNT` | `build-worker` | K8s service account (needs IRSA ECR push in prod) |
 
 ---
 
