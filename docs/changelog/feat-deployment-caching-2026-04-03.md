@@ -2,7 +2,7 @@
 
 ## Summary
 
-Step 3 of the deployment detail performance improvements. Even with a single-deployment endpoint (step 1) and parallel K8s fetches (step 2), each request to `ListDeployments` and `GetDeployment` still makes multiple K8s API round-trips per deployment on every fetch. This adds a Redis-backed cache that eliminates all K8s and per-deployment DB calls on warm requests for both the dashboard list and the detail page.
+Step 3 of the deployment detail performance improvements. Even with a single-deployment endpoint (step 1) and parallel K8s fetches (step 2), each request to `ListDeployments` still makes multiple K8s API round-trips per deployment on every fetch. This adds a Redis-backed cache that eliminates all K8s and per-deployment DB calls on warm requests for the dashboard list.
 
 ## Design
 
@@ -13,14 +13,13 @@ New package `internal/k8scache` defines a `Cache` interface backed by raw JSON b
 - `RedisCache` — enabled when `REDIS_URL` is set; 15-second TTL
 - `NoopCache` — always misses; used when Redis is not configured
 
-Two key prefixes keep the list and detail payloads separate and scope keys to this application, avoiding collisions on shared Redis instances:
+A single key prefix scopes cache keys to this application, avoiding collisions on shared Redis instances:
 
 - `astro:k8s:list:{namespace}` — lightweight K8s data (`Deployments` + `StatefulSets`) used by `ListDeployments`
-- `astro:k8s:detail:{namespace}` — full K8s data (all 5 calls) used by `GetDeployment`
 
-TTL is specified per `Set` call rather than hardcoded in the cache layer. Each caller passes the appropriate duration; `k8scache` exports `ListTTL` and `DetailTTL` constants (both 15 seconds today) as the defaults.
+TTL is specified per `Set` call rather than hardcoded in the cache layer. `k8scache` exports a `ListTTL` constant (15 seconds) as the default.
 
-`k8scache.InvalidateNamespace` clears both keys for a namespace and is the single invalidation call used everywhere.
+`k8scache.InvalidateNamespace` clears the list key for a namespace and is the single invalidation call used everywhere.
 
 ### Read path
 
@@ -34,11 +33,11 @@ Only the Redis `GET` and in-memory DB field merge run. `CreatedAt` on cache hits
 
 On a miss the full K8s path runs, the raw K8s result is stored in Redis, then DB fields are merged before returning.
 
-Both `ListDeployments` and `GetDeployment` benefit — the dashboard and detail page are fast on repeat loads within the 15-second window.
+`ListDeployments` benefits — the dashboard is fast on repeat loads within the 15-second window. `GetDeployment` does not use the cache.
 
 ### Write path (invalidation)
 
-Both cache keys are cleared immediately after each successful K8s mutation:
+The list cache key is cleared immediately after each successful K8s mutation:
 
 | Mutation | Location |
 |----------|----------|

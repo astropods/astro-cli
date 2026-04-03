@@ -109,18 +109,14 @@ func TestRedisCache_TTLExpiry(t *testing.T) {
 
 // --- InvalidateNamespace ---
 
-func TestInvalidateNamespace_ClearsBothKeys(t *testing.T) {
+func TestInvalidateNamespace_ClearsListKey(t *testing.T) {
 	ctx := context.Background()
 	c, _ := newTestRedisCache(t)
 
-	_ = c.Set(ctx, DetailKeyPrefix+"ns1", []byte("detail"), 30*time.Second)
 	_ = c.Set(ctx, ListKeyPrefix+"ns1", []byte("list"), 30*time.Second)
 
 	InvalidateNamespace(ctx, c, "ns1")
 
-	if _, ok := c.Get(ctx, DetailKeyPrefix+"ns1"); ok {
-		t.Error("detail key should be cleared after InvalidateNamespace")
-	}
 	if _, ok := c.Get(ctx, ListKeyPrefix+"ns1"); ok {
 		t.Error("list key should be cleared after InvalidateNamespace")
 	}

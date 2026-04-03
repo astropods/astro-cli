@@ -7,18 +7,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Key prefixes distinguish full vs lightweight payloads and scope keys to this
-// application, avoiding collisions on shared Redis instances.
-const (
-	DetailKeyPrefix = "astro:k8s:detail:" // full listAstroDeployments result (GetDeployment)
-	ListKeyPrefix   = "astro:k8s:list:"   // light listAstroDeploymentsLight result (ListDeployments)
-)
+// ListKeyPrefix scopes list cache keys to this application, avoiding collisions
+// on shared Redis instances.
+const ListKeyPrefix = "astro:k8s:list:" // light listAstroDeploymentsLight result (ListDeployments)
 
-// Default TTLs per cache type.
-const (
-	ListTTL   = 15 * time.Second
-	DetailTTL = 15 * time.Second
-)
+// ListTTL is the TTL for list cache entries.
+const ListTTL = 15 * time.Second
 
 // Cache abstracts K8s namespace state caching for deployment query results.
 // Get/Set/Invalidate accept the full cache key (including prefix); callers are
@@ -39,9 +33,8 @@ func New(client *redis.Client) Cache {
 	return &RedisCache{rdb: client}
 }
 
-// InvalidateNamespace clears both the detail and list cache entries for a namespace.
+// InvalidateNamespace clears the list cache entry for a namespace.
 func InvalidateNamespace(ctx context.Context, cache Cache, namespace string) {
-	_ = cache.Invalidate(ctx, DetailKeyPrefix+namespace)
 	_ = cache.Invalidate(ctx, ListKeyPrefix+namespace)
 }
 
