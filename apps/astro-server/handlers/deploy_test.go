@@ -1676,6 +1676,220 @@ func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 	}
 }
 
+// TestGetPrefilledTemplate_RevisionUsesBuildID verifies that when ?revision=N is
+// provided, the template is generated from the revision's build_id, not the
+// current deployment's build_id.
+func TestGetPrefilledTemplate_RevisionUsesBuildID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{Deployment: config.DeploymentConfig{RegistryURL: "docker.io/library"}}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	// GetDeploymentByID — current deployment is on build-current
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-current", "astro-abc123",
+			"Current Name", `{}`, "active", now, nil))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetRevisionByNumber — revision 1 was on build-old
+	deployMock.ExpectQuery(`SELECT`).
+		WithArgs(depID, 1).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "deployment_id", "revision", "build_id", "spec_json", "kms_ciphertext", "kms_key_id", "created_at"}).
+			AddRow(1, depID, 1, "build-old", json.RawMessage(`{"target":{"display_name":"Old Name"}}`), []byte(nil), (*string)(nil), now))
+
+	// generateTemplate must use "build-old" (revision's build), not "build-current"
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-old").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-old", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+
+	// GetDeploymentVariables
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "secret", "optional", "targets", "nonce"}))
+
+	// GetByID for account name resolution
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?revision=1&format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	source, ok := resp["source"].(map[string]any)
+	if !ok {
+		t.Fatal("expected source to be an object")
+	}
+	if source["build"] != "build-old" {
+		t.Errorf("expected source.build='build-old' (revision's build), got %v", source["build"])
+	}
+}
+
+// TestGetPrefilledTemplate_RevisionRestoresDisplayName verifies that when ?revision=N
+// is provided, the display_name from the revision's spec is used instead of the
+// current deployment's display_name.
+func TestGetPrefilledTemplate_RevisionRestoresDisplayName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{Deployment: config.DeploymentConfig{RegistryURL: "docker.io/library"}}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	// Current deployment has a new display name
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-old", "astro-abc123",
+			"New Name", `{}`, "active", now, nil))
+
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// Revision 1 spec has the old display name
+	deployMock.ExpectQuery(`SELECT`).
+		WithArgs(depID, 1).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "deployment_id", "revision", "build_id", "spec_json", "kms_ciphertext", "kms_key_id", "created_at"}).
+			AddRow(1, depID, 1, "build-old", json.RawMessage(`{"target":{"display_name":"Old Name"}}`), []byte(nil), (*string)(nil), now))
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-old").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-old", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "secret", "optional", "targets", "nonce"}))
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?revision=1&format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	target, ok := resp["target"].(map[string]any)
+	if !ok {
+		t.Fatal("expected target to be an object")
+	}
+	if target["display_name"] != "Old Name" {
+		t.Errorf("expected display_name='Old Name' (from revision spec), got %v", target["display_name"])
+	}
+}
+
+// TestGetPrefilledTemplate_RevisionNotFound verifies that requesting a non-existent
+// revision returns 404.
+func TestGetPrefilledTemplate_RevisionNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, _, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{Deployment: config.DeploymentConfig{RegistryURL: "docker.io/library"}}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{}`, "active", now, nil))
+
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetRevisionByNumber returns no rows → nil revision
+	deployMock.ExpectQuery(`SELECT`).
+		WithArgs(depID, 99).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "deployment_id", "revision", "build_id", "spec_json", "kms_ciphertext", "kms_key_id", "created_at"}))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?revision=99&format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing revision, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // --- Deploy endpoint: deployment_id handling tests ---
 
 // setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
