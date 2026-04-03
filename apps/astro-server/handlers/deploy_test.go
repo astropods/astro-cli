@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/gin-gonic/gin"
@@ -215,7 +216,7 @@ func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engin
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -877,7 +878,7 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil, nil, nil, nil))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil, nil, nil, nil, k8scache.NoopCache{}))
 
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
@@ -2999,7 +3000,7 @@ func setupStopRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmoc
 
 	router := gin.New()
 	router.Use(setAuthUser("user-1"))
-	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore, nil))
+	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -3158,7 +3159,7 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
@@ -34,6 +35,7 @@ type Config struct {
 	AgentIndex           *agentindex.Index
 	AvatarStore          *avatar.Store
 	K8sClient            k8s.ClusterClient
+	K8sCache             k8scache.Cache
 	ServerConfig         *config.Config
 	WorkOSAPIKey         string
 	OrgClient            *org.Client

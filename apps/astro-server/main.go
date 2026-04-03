@@ -21,6 +21,7 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/astropods/astro/apps/astro-server/handlers"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -36,6 +37,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
@@ -137,6 +139,20 @@ func main() {
 	// Entitlement enforcement (no-op when omClient is nil or enforce is false)
 	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
 
+	// Initialize shared Redis client (nil when REDIS_URL is unset).
+	// Pass this client to any feature that needs Redis; do not create additional clients.
+	var redisClient *goredis.Client
+	if cfg.RedisURL != "" {
+		opts, redisErr := goredis.ParseURL(cfg.RedisURL)
+		if redisErr != nil {
+			log.Error("Failed to parse REDIS_URL, Redis features disabled", "error", redisErr)
+		} else {
+			redisClient = goredis.NewClient(opts)
+			log.Info("Redis client initialized", "url", cfg.RedisURL)
+		}
+	}
+	k8sCache := k8scache.New(redisClient)
+
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
@@ -148,12 +164,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore, k8sCache)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, k8sCache)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -241,6 +257,7 @@ func runAPI(
 	omClient *openmeter.Client,
 	ent *middleware.Entitlements,
 	avatarStore *avatar.Store,
+	k8sCache k8scache.Cache,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -338,7 +355,7 @@ func runAPI(
 	auditStore := auditlog.NewStore(db)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -401,6 +418,7 @@ func runWorker(
 	omClient *openmeter.Client,
 	orgClient *org.Client,
 	avatarStore *avatar.Store,
+	k8sCache k8scache.Cache,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -443,6 +461,7 @@ func runWorker(
 		AgentIndex:   agentIndex,
 		AvatarStore:  avatarStore,
 		K8sClient:    k8sClient,
+		K8sCache:     k8sCache,
 		ServerConfig: cfg,
 		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
 		WorkOSClient: workosClient,
@@ -470,7 +489,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -900,7 +919,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sClient, deploymentStore, auditStore),
+			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sClient, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -975,13 +994,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore, auditStore),
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, k8sClient, deploymentStore, avatarStore, auditStore),
+			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, k8sClient, deploymentStore, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

@@ -10,6 +10,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -46,6 +47,7 @@ type DeployWorker struct {
 	deployer *deployer.Deployer
 	store    *deploymentstore.Store
 	log      *logger.Logger
+	cache    k8scache.Cache
 }
 
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
@@ -81,6 +83,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		}
 		return fmt.Errorf("deploy failed: %w", applyErr)
 	}
+	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
 	if len(result.Errors) > 0 {
 		// Partial failure — some K8s resources failed. Mark failed with details.

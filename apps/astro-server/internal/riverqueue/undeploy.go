@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -31,6 +32,7 @@ type UndeployWorker struct {
 	deployer *deployer.Deployer
 	store    *deploymentstore.Store
 	log      *logger.Logger
+	cache    k8scache.Cache
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {
@@ -55,6 +57,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 		}
 		return fmt.Errorf("teardown failed: %w", err)
 	}
+	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
 	if err := w.store.ClearScaledDown(dep.Namespace); err != nil {
 		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)

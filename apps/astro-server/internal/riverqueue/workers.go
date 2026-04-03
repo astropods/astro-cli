@@ -61,11 +61,11 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		}
 	}
 
-	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log})
+	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "DeployWorker")
-	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, log: log})
+	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
-	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log})
+	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
 
 	var dynClient dynamic.Interface

@@ -24,6 +24,7 @@ type Config struct {
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
 	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
 	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
+	RedisURL             string // REDIS_URL — enables K8s state caching when set (e.g. redis://localhost:6379)
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -239,6 +240,7 @@ func Load() (*Config, error) {
 		LokiURL:              getEnv("LOKI_URL", ""),
 		DeploymentLogBackend: getEnv("DEPLOYMENT_LOG_BACKEND", ""),
 		PrometheusURL:        getEnv("PROMETHEUS_URL", ""),
+		RedisURL:             getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

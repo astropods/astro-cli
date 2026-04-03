@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -31,6 +32,7 @@ type WakeUpWorker struct {
 	deployer *deployer.Deployer
 	store    *deploymentstore.Store
 	log      *logger.Logger
+	cache    k8scache.Cache
 }
 
 func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) error {
@@ -59,6 +61,7 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 		}
 		return fmt.Errorf("wakeup apply failed: %w", err)
 	}
+	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
 	if err := w.store.ClearScaledDown(dep.Namespace); err != nil {
 		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)

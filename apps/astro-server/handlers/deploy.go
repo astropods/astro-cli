@@ -22,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -756,7 +757,7 @@ func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -825,7 +826,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		g, gctx := errgroup.WithContext(c.Request.Context())
 		for i, dbDep := range dbDeps {
 			g.Go(func() error {
-				enriched[i] = enrichDeployment(gctx, log, k8sClient, deployStore, dbDep, listAstroDeploymentsLight)
+				enriched[i] = enrichDeployment(gctx, log, k8sClient, deployStore, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
 				return nil
 			})
 		}
@@ -877,7 +878,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 
 // GetDeployment returns live K8s status for a single deployment.
 // GET /api/v1/deployments/:id
-func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -895,7 +896,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments)[0]
+		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)[0]
 
 		if auditStore != nil {
 			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
@@ -953,10 +954,38 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 // enrichDeployment fetches live K8s state for a single DB deployment record and
 // returns the resulting AgentDeployment entries (one per workload in the namespace).
 // Falls back to a DB-only entry if the namespace is missing or K8s calls fail.
+// When cache and keyPrefix are provided, a cache hit skips all K8s calls entirely.
 // k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
 type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
 
-func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn) []AgentDeployment {
+func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
+	applyDBFields := func(deps []AgentDeployment, createdAt time.Time) {
+		for i := range deps {
+			deps[i].ID = dbDep.ID
+			deps[i].Name = dbDep.AgentName
+			deps[i].DisplayName = dbDep.DisplayName
+			deps[i].CreatedAt = createdAt.Format(time.RFC3339)
+			switch dbDep.Status {
+			case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+				deps[i].Status = "pending"
+			case deploymentstore.StatusUndeploying:
+				deps[i].Status = "undeploying"
+			}
+		}
+	}
+
+	// Check cache before any DB or K8s calls. On a hit, use dbDep.DeployedAt for
+	// CreatedAt to avoid the GetDeploymentFirstEventAt round-trip.
+	cacheKey := keyPrefix + dbDep.Namespace
+	if data, ok := cache.Get(ctx, cacheKey); ok {
+		var deps []AgentDeployment
+		if err := json.Unmarshal(data, &deps); err == nil && len(deps) > 0 {
+			applyDBFields(deps, dbDep.DeployedAt)
+			return deps
+		}
+	}
+
+	// Cache miss: fetch firstSeenAt from DB for accurate CreatedAt.
 	firstSeenAt := dbDep.DeployedAt
 	if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
 		log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
@@ -981,18 +1010,11 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.Clu
 		return dbOnly()
 	}
 
-	for i := range deps {
-		deps[i].ID = dbDep.ID
-		deps[i].Name = dbDep.AgentName
-		deps[i].DisplayName = dbDep.DisplayName
-		deps[i].CreatedAt = firstSeenAt.Format(time.RFC3339)
-		switch dbDep.Status {
-		case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
-			deps[i].Status = "pending"
-		case deploymentstore.StatusUndeploying:
-			deps[i].Status = "undeploying"
-		}
+	if data, err := json.Marshal(deps); err == nil {
+		_ = cache.Set(ctx, cacheKey, data, cacheTTL)
 	}
+
+	applyDBFields(deps, firstSeenAt)
 	return deps
 }
 
@@ -2387,7 +2409,7 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 
 // StopDeployment scales all workloads to zero without deleting resources.
 // POST /api/v1/deployments/:id/stop
-func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2414,6 +2436,7 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sC
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 			return
 		}
+		k8scache.InvalidateNamespace(c.Request.Context(), cache, dep.Namespace)
 
 		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "", nil); err != nil {
 			log.Error("Failed to mark deployment stopped", "error", err, "deployment_id", dep.ID)
