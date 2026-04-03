@@ -159,7 +159,7 @@ func (s *Store) UpdateBuildStatus(ctx context.Context, id, status, buildErr stri
 	}
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE github_builds
-		SET status = $1, completed_at = CASE WHEN $1 IN ('registered','failed') THEN now() ELSE completed_at END
+		SET status = $1::text, completed_at = CASE WHEN $1::text IN ('registered','failed') THEN now() ELSE completed_at END
 		WHERE id = $2
 	`, status, id)
 	return err
