@@ -113,7 +113,7 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   };
 
   return (
-    <div className="min-h-full bg-muted">
+    <div className="flex-1 bg-muted">
       <PageBreadcrumb
         items={[
           { label: "Dashboard", to: "/dashboard" },
