@@ -136,11 +136,15 @@ knowledge:
       image: pgvector/pgvector:pg17
       port: 5432
       volume: /var/lib/postgresql/data
-      environment:
-        POSTGRES_DB: my_db
-        POSTGRES_USER: postgres
     persistent: true
     inputs:
+      - name: POSTGRES_DB
+        datatype: string
+        default: my_db
+        description: Database name
+      - name: POSTGRES_USER
+        datatype: string
+        default: postgres
       - name: POSTGRES_PASSWORD
         datatype: string
         secret: true
@@ -148,8 +152,7 @@ knowledge:
 ```
 
 - `volume` — where to mount persistent data inside the container. Required with `persistent: true`.
-- `environment` — static config passed to the container (database names, ports, flags).
-- `inputs` — values prompted via `ast configure`. Use `secret: true` for passwords and keys.
+- `inputs` — values injected into the container at runtime. Set via `ast configure` or defaults. Use `secret: true` for passwords and keys.
 
 Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
 
