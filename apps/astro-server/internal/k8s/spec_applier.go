@@ -188,7 +188,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
 		port := primaryPort(knowledge.Endpoints)
 
-		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port)}
+		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port), Volume: knowledge.Volume}
 		resolvedContainer, err := a.resolveContainerImage(container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
