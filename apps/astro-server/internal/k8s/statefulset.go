@@ -53,7 +53,10 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		return nil, fmt.Errorf("StatefulSet %s: no port specified and provider %q has no default port", cfg.Name, cfg.Provider)
 	}
 
-	mountPath := prov.MountPath
+	mountPath := cfg.Container.Volume
+	if mountPath == "" {
+		mountPath = prov.MountPath
+	}
 	if mountPath == "" {
 		return nil, fmt.Errorf("StatefulSet %s: provider %q has no mount path", cfg.Name, cfg.Provider)
 	}

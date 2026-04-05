@@ -241,6 +241,7 @@ type ContainerConfig struct {
 	GPU         *GPUConfig        `json:"gpu,omitempty" yaml:"gpu,omitempty"`
 	Persistent  bool              `json:"persistent,omitempty" yaml:"persistent,omitempty"`
 	Port        int               `json:"port,omitempty" yaml:"port,omitempty"`
+	Volume      string            `json:"volume,omitempty" yaml:"volume,omitempty" jsonschema:"description=Mount path for persistent data volume inside the container"`
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck      `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 }

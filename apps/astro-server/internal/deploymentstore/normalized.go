@@ -454,7 +454,9 @@ func SaveNormalizedSpec(
 				}
 			}
 			mountPath := "/data"
-			if prov := spec.GetProvider(knowledge.Provider); prov.MountPath != "" {
+			if knowledge.Container != nil && knowledge.Container.Volume != "" {
+				mountPath = knowledge.Container.Volume
+			} else if prov := spec.GetProvider(knowledge.Provider); prov.MountPath != "" {
 				mountPath = prov.MountPath
 			}
 			var sc *string
