@@ -5,11 +5,9 @@ import { createServerApi } from "@/lib/api.server";
 import {
   BookOpenIcon,
   UsersIcon,
-  Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { Bot } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { Button } from "@/components/ui/button";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
@@ -134,38 +132,11 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
               </DashboardLabel>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:pt-0.5 lg:justify-end">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 lg:pt-0.5 lg:justify-end">
             <OrgSwitcher
               activeAccount={userAccount}
               onChange={setActiveAccount}
             />
-            <div className="hidden sm:flex items-center gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link to={blueprintsPaths.discover}>Browse blueprints</Link>
-              </Button>
-              {activeAccountType !== "organization" && (
-                <Button variant="default" size="sm" asChild>
-                  <Link to="/settings">
-                    <Cog6ToothIcon className="size-3.5 text-white" />
-                    Settings
-                  </Link>
-                </Button>
-              )}
-            </div>
-            <div className="flex sm:hidden items-center gap-2">
-              <Button variant="outline" size="icon" asChild>
-                <Link to={blueprintsPaths.discover} aria-label="Browse blueprints">
-                  <BookOpenIcon className="size-3.5" />
-                </Link>
-              </Button>
-              {activeAccountType !== "organization" && (
-                <Button variant="outline" size="icon" asChild>
-                  <Link to="/settings" aria-label="Settings">
-                    <Cog6ToothIcon className="size-3.5" />
-                  </Link>
-                </Button>
-              )}
-            </div>
           </div>
         </div>
 

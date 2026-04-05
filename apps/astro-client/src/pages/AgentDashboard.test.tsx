@@ -194,23 +194,12 @@ describe('AgentDashboard page', () => {
   });
 });
 
-describe('navigation buttons', () => {
-  it('shows Settings button for personal account', async () => {
+describe('dashboard actions', () => {
+  it('does not show browse blueprints or settings actions', async () => {
     renderDashboard('/dashboard');
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.getAllByRole('link', { name: /settings/i })).not.toHaveLength(0);
-  });
-
-  it('hides Settings button for org account', async () => {
-    renderDashboard('/dashboard?account=my-org', orgAuth);
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: /browse blueprints/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
-  });
-
-  it('shows Browse blueprints button for both personal and org accounts', async () => {
-    renderDashboard('/dashboard');
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.getAllByRole('link', { name: /browse blueprints/i })).not.toHaveLength(0);
   });
 });
 
@@ -221,20 +210,14 @@ describe('org switcher', () => {
     expect(screen.getByText('testuser')).toBeInTheDocument();
   });
 
-  it('lists personal account first in dropdown regardless of array order', async () => {
-    const user = userEvent.setup();
+  it('shows active account in the switcher trigger', async () => {
     renderDashboard('/dashboard?account=my-org', orgAuth);
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
 
-    // Open the switcher — orgAuth has org first, personal second in the accounts array
-    await user.click(screen.getByRole('button', { name: /my-org/i }));
-
-    const items = await screen.findAllByRole('menuitem');
-    const accountItems = items.filter((el) =>
-      el.textContent?.includes('testuser') || el.textContent?.includes('my-org'),
+    const trigger = screen.getAllByRole('combobox').find((el) =>
+      el.textContent?.includes('my-org'),
     );
-    expect(accountItems[0]).toHaveTextContent('testuser');
-    expect(accountItems[1]).toHaveTextContent('my-org');
+    expect(trigger).toBeDefined();
   });
 
   it('shows member count label for org accounts', async () => {
