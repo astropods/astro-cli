@@ -111,7 +111,7 @@ var builtinProviders = []BuiltinProvider{
 	},
 	{
 		Name: "postgres", Section: "knowledge",
-		Image: "postgres:15-alpine", DefaultPort: 5432,
+		Image: "pgvector/pgvector:pg17", DefaultPort: 5432,
 		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
 	},
