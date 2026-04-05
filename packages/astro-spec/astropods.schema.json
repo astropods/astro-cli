@@ -269,6 +269,10 @@
               "port": {
                 "type": "integer"
               },
+              "volume": {
+                "type": "string",
+                "description": "Mount path for persistent data volume inside the container"
+              },
               "environment": {
                 "additionalProperties": {
                   "type": "string"
@@ -447,6 +451,10 @@
               },
               "port": {
                 "type": "integer"
+              },
+              "volume": {
+                "type": "string",
+                "description": "Mount path for persistent data volume inside the container"
               },
               "environment": {
                 "additionalProperties": {
@@ -629,6 +637,10 @@
               },
               "port": {
                 "type": "integer"
+              },
+              "volume": {
+                "type": "string",
+                "description": "Mount path for persistent data volume inside the container"
               },
               "environment": {
                 "additionalProperties": {
@@ -948,6 +960,10 @@
               "port": {
                 "type": "integer"
               },
+              "volume": {
+                "type": "string",
+                "description": "Mount path for persistent data volume inside the container"
+              },
               "environment": {
                 "additionalProperties": {
                   "type": "string"
@@ -1103,6 +1119,42 @@
                       },
                       "type": "array",
                       "description": "Messaging adapters to enable locally (e.g. slack)"
+                    },
+                    "slack": {
+                      "properties": {
+                        "actionable_reactions": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array",
+                          "description": "Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."
+                        },
+                        "allowed_channel_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array",
+                          "description": "Slack channel IDs allowed to interact with the agent. Empty means allow all channels."
+                        },
+                        "allowed_user_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array",
+                          "description": "Slack user IDs allowed to interact with the agent. Empty means allow all users."
+                        },
+                        "socket_mode": {
+                          "type": "boolean",
+                          "description": "Use Slack Socket Mode for real-time events. Default: true"
+                        },
+                        "auto_thread": {
+                          "type": "boolean",
+                          "description": "Automatically thread bot replies. Default: true"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "description": "Slack-specific adapter configuration"
                     }
                   },
                   "additionalProperties": false,
