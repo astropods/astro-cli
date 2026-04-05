@@ -9,7 +9,6 @@ import {
 } from "@heroicons/react/24/outline";
 import { Bot } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { Button } from "@/components/ui/button";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
@@ -114,74 +113,59 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
 
   return (
     <div className="flex-1 bg-muted">
-      <PageBreadcrumb
-        items={[
-          { label: "Dashboard", to: "/dashboard" },
-          {
-            label: (
-              <OrgSwitcher
-                activeAccount={userAccount}
-                onChange={setActiveAccount}
-              />
-            ),
-          },
-        ]}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <Link to={blueprintsPaths.discover}>Browse blueprints</Link>
-            </Button>
-            {activeAccountType !== "organization" && (
-              <Button
-                variant="default"
-                size="sm"
-                asChild
-              >
-                <Link to="/settings"><Cog6ToothIcon className="size-3.5 text-white" />Settings</Link>
-              </Button>
-            )}
+      <div className="px-6 py-6">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-heading-1 text-foreground">
+              {greeting}
+              {displayName ? `, ${displayName}` : ""}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">
+              {activeAccountType === "organization" && (
+                <DashboardLabel icon={UsersIcon}>
+                  {memberCount} member{memberCount !== 1 ? "s" : ""}
+                </DashboardLabel>
+              )}
+              <DashboardLabel icon={Bot}>
+                {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
+              </DashboardLabel>
+              <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
+                {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
+              </DashboardLabel>
+            </div>
           </div>
-        }
-        mobileActions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" asChild>
-              <Link to={blueprintsPaths.discover} aria-label="Browse blueprints">
-                <BookOpenIcon className="size-3.5" />
-              </Link>
-            </Button>
-            {activeAccountType !== "organization" && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:pt-0.5 lg:justify-end">
+            <OrgSwitcher
+              activeAccount={userAccount}
+              onChange={setActiveAccount}
+            />
+            <div className="hidden sm:flex items-center gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link to={blueprintsPaths.discover}>Browse blueprints</Link>
+              </Button>
+              {activeAccountType !== "organization" && (
+                <Button variant="default" size="sm" asChild>
+                  <Link to="/settings">
+                    <Cog6ToothIcon className="size-3.5 text-white" />
+                    Settings
+                  </Link>
+                </Button>
+              )}
+            </div>
+            <div className="flex sm:hidden items-center gap-2">
               <Button variant="outline" size="icon" asChild>
-                <Link to="/settings" aria-label="Settings">
-                  <Cog6ToothIcon className="size-3.5" />
+                <Link to={blueprintsPaths.discover} aria-label="Browse blueprints">
+                  <BookOpenIcon className="size-3.5" />
                 </Link>
               </Button>
-            )}
-          </div>
-        }
-      />
-
-      <div className="px-6 py-6">
-        <div className="mb-6">
-          <h1 className="text-heading-1 text-foreground">
-            {greeting}
-            {displayName ? `, ${displayName}` : ""}
-          </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">
-            {activeAccountType === "organization" && (
-              <DashboardLabel icon={UsersIcon}>
-                {memberCount} member{memberCount !== 1 ? "s" : ""}
-              </DashboardLabel>
-            )}
-            <DashboardLabel icon={Bot}>
-              {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
-            </DashboardLabel>
-            <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
-              {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
-            </DashboardLabel>
+              {activeAccountType !== "organization" && (
+                <Button variant="outline" size="icon" asChild>
+                  <Link to="/settings" aria-label="Settings">
+                    <Cog6ToothIcon className="size-3.5" />
+                  </Link>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
