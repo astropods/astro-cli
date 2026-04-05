@@ -582,6 +582,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				val = v
 			}
 			if val != "" {
+				if service.Environment == nil {
+					service.Environment = make(types.MappingWithEquals)
+				}
 				v := val
 				service.Environment[inp.Name] = &v
 			}
