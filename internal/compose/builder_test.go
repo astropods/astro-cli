@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -352,6 +353,69 @@ func TestBuildProject_KnowledgeStore(t *testing.T) {
 	agent := project.Services["agent"]
 	if envVal(agent.Environment, "QDRANT_HOST") != "knowledge-docs" {
 		t.Errorf("QDRANT_HOST = %q, want %q", envVal(agent.Environment, "QDRANT_HOST"), "knowledge-docs")
+	}
+}
+
+func TestBuildProject_CustomKnowledgePersistence(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"db": {
+				Container: &spec.ContainerConfig{
+					Image:      "pgvector/pgvector:pg17",
+					Port:       5432,
+					Volume:     "/var/lib/postgresql/data",
+					Persistent: true,
+				},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["knowledge-db"]
+	if !ok {
+		t.Fatal("missing knowledge-db service")
+	}
+	if svc.Image != "pgvector/pgvector:pg17" {
+		t.Errorf("Image = %q, want %q", svc.Image, "pgvector/pgvector:pg17")
+	}
+	if len(svc.Volumes) == 0 {
+		t.Error("persistent custom container should have volumes")
+	} else if svc.Volumes[0].Target != "/var/lib/postgresql/data" {
+		t.Errorf("volume target = %q, want %q", svc.Volumes[0].Target, "/var/lib/postgresql/data")
+	}
+	if _, ok := project.Volumes["knowledge-db-data"]; !ok {
+		t.Error("missing volume knowledge-db-data")
+	}
+}
+
+func TestBuildProject_CustomKnowledgePersistentNoVolume(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"db": {
+				Container: &spec.ContainerConfig{
+					Image:      "postgres:17",
+					Port:       5432,
+					Persistent: true,
+					// No Volume set — should error
+				},
+			},
+		},
+	}
+
+	_, err := BuildProject(s, "/work", nil)
+	if err == nil {
+		t.Fatal("expected error for persistent custom container without volume")
+	}
+	if !strings.Contains(err.Error(), "no volume path") {
+		t.Errorf("error = %q, want it to mention 'no volume path'", err.Error())
 	}
 }
 
