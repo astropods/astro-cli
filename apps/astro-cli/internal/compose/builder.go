@@ -399,6 +399,17 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
+		// Apply user-specified container environment variables
+		if len(container.Environment) > 0 {
+			if service.Environment == nil {
+				service.Environment = make(types.MappingWithEquals)
+			}
+			for k, v := range container.Environment {
+				val := v
+				service.Environment[k] = &val
+			}
+		}
+
 		project.Services[serviceName] = service
 	}
 
