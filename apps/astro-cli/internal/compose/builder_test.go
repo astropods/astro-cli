@@ -419,6 +419,85 @@ func TestBuildProject_CustomKnowledgePersistentNoVolume(t *testing.T) {
 	}
 }
 
+func TestBuildProject_KnowledgeInputsInjected(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"db": {
+				Container: &spec.ContainerConfig{
+					Image:  "postgres:17",
+					Port:   5432,
+					Volume: "/var/lib/postgresql/data",
+				},
+				Inputs: []spec.Input{
+					{Name: "POSTGRES_PASSWORD", Datatype: "string", Default: "default-pw"},
+					{Name: "POSTGRES_DB", Datatype: "string", Default: "my_db"},
+				},
+			},
+		},
+	}
+
+	// Test with default values
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc := project.Services["knowledge-db"]
+	if envVal(svc.Environment, "POSTGRES_PASSWORD") != "default-pw" {
+		t.Errorf("POSTGRES_PASSWORD = %q, want %q", envVal(svc.Environment, "POSTGRES_PASSWORD"), "default-pw")
+	}
+	if envVal(svc.Environment, "POSTGRES_DB") != "my_db" {
+		t.Errorf("POSTGRES_DB = %q, want %q", envVal(svc.Environment, "POSTGRES_DB"), "my_db")
+	}
+
+	// Test with envVars override
+	project2, err := BuildProject(s, "/work", map[string]string{
+		"POSTGRES_PASSWORD": "override-pw",
+	})
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc2 := project2.Services["knowledge-db"]
+	if envVal(svc2.Environment, "POSTGRES_PASSWORD") != "override-pw" {
+		t.Errorf("POSTGRES_PASSWORD = %q, want %q", envVal(svc2.Environment, "POSTGRES_PASSWORD"), "override-pw")
+	}
+	// POSTGRES_DB should still use default
+	if envVal(svc2.Environment, "POSTGRES_DB") != "my_db" {
+		t.Errorf("POSTGRES_DB = %q, want %q", envVal(svc2.Environment, "POSTGRES_DB"), "my_db")
+	}
+}
+
+func TestBuildProject_ToolInputsInjected(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Tools: map[string]spec.Tool{
+			"mcp": {
+				Container: &spec.ContainerConfig{
+					Image: "my-mcp:latest",
+					Port:  8080,
+				},
+				Inputs: []spec.Input{
+					{Name: "API_KEY", Datatype: "string", Default: "test-key"},
+				},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc := project.Services["tool-mcp"]
+	if envVal(svc.Environment, "API_KEY") != "test-key" {
+		t.Errorf("API_KEY = %q, want %q", envVal(svc.Environment, "API_KEY"), "test-key")
+	}
+}
+
 func TestBuildProject_KnowledgeExtraPortsPublished(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",

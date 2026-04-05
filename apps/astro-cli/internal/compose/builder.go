@@ -399,14 +399,18 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
-		// Apply user-specified container environment variables
-		if len(container.Environment) > 0 {
-			if service.Environment == nil {
-				service.Environment = make(types.MappingWithEquals)
+		// Inject knowledge inputs (from ast configure / .env, with default fallback)
+		for _, inp := range knowledge.Inputs {
+			val := inp.Default
+			if v, ok := envVars[inp.Name]; ok {
+				val = v
 			}
-			for k, v := range container.Environment {
-				val := v
-				service.Environment[k] = &val
+			if val != "" {
+				if service.Environment == nil {
+					service.Environment = make(types.MappingWithEquals)
+				}
+				v := val
+				service.Environment[inp.Name] = &v
 			}
 		}
 
@@ -434,6 +438,21 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 						Target:    uint32(tool.Container.Port), //nolint:gosec
 						Published: fmt.Sprintf("%d", tool.Container.Port),
 					},
+				}
+			}
+
+			// Inject tool inputs (from ast configure / .env, with default fallback)
+			for _, inp := range tool.Inputs {
+				val := inp.Default
+				if v, ok := envVars[inp.Name]; ok {
+					val = v
+				}
+				if val != "" {
+					if service.Environment == nil {
+						service.Environment = make(types.MappingWithEquals)
+					}
+					v := val
+					service.Environment[inp.Name] = &v
 				}
 			}
 
@@ -555,6 +574,18 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 		// Environment variables - inherit from agent
 		service.Environment = BuildEnvironment(s, envVars, opt)
+
+		// Inject ingestion-specific inputs (from ast configure / .env, with default fallback)
+		for _, inp := range ingestion.Inputs {
+			val := inp.Default
+			if v, ok := envVars[inp.Name]; ok {
+				val = v
+			}
+			if val != "" {
+				v := val
+				service.Environment[inp.Name] = &v
+			}
+		}
 
 		project.Services[serviceName] = service
 	}
