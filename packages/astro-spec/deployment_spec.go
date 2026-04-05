@@ -99,6 +99,7 @@ type DeploymentKnowledge struct {
 	Replicas    int                 `json:"replicas" yaml:"replicas"`
 	Resources   DeploymentResources `json:"resources" yaml:"resources"`
 	Persistent  bool                `json:"persistent" yaml:"persistent"`
+	Volume      string              `json:"volume,omitempty" yaml:"volume,omitempty"` // mount path for persistent storage
 	Storage     *StorageConfig      `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
