@@ -15,7 +15,7 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
-| v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. |
+| v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. `environment` on knowledge containers now passed through to Docker. Clarified `environment` vs `inputs` usage. |
 | v1.2    | 2026-03-13 | Deprecated `meta.description` and `meta.tags` in favor of [Agent Card](/agent-card-spec) frontmatter. |
 | v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. |
 | v1.0    | 2026-02-27 | Initial draft.                                                          |
@@ -213,12 +213,34 @@ Used by container-mode entries and by ingestion containers.
 | `build`       | BuildConfig           | Conditional | Build-from-source configuration (same schema as Section 3.1). |
 | `port`        | integer               | OPTIONAL    | Primary port the container listens on.                        |
 | `volume`      | string                | OPTIONAL    | Mount path for persistent data volume inside the container. Required when `persistent` is `true` and no built-in provider is used. |
-| `environment` | map\<string, string\> | OPTIONAL    | Static environment variables injected into the container.     |
+| `environment` | map\<string, string\> | OPTIONAL    | Static environment variables passed directly to the container at runtime. Use for non-sensitive configuration (database names, feature flags, log levels). For secrets, prefer `inputs` with `secret: true`. |
 | `gpu`         | GPUConfig             | OPTIONAL    | GPU resource requirements.                                    |
 | `persistent`  | boolean               | OPTIONAL    | Whether data SHOULD be persisted. Default: `false`.           |
 | `healthcheck` | Healthcheck           | OPTIONAL    | Health check configuration (same schema as Section 3.2).      |
 
 A ContainerConfig SHOULD specify at least one of `image` or `build`.
+
+#### `environment` vs `inputs`
+
+`environment` and `inputs` both inject environment variables, but serve different purposes:
+
+- **`environment`** is declared on the container and passed directly to that container at runtime. Values are static and visible in the deployment configuration. Best for non-sensitive settings the container needs to start: database names, ports, feature flags, log levels.
+- **`inputs`** are declared on the component (knowledge, model, integration, or ingestion entry) and prompted via `ast configure` at deploy time. Values marked `secret: true` are stored securely and never logged. Best for credentials, API keys, and passwords.
+
+```yaml
+knowledge:
+  db:
+    container:
+      image: postgres:17
+      port: 5432
+      environment:
+        POSTGRES_DB: my_database         # non-sensitive, static config
+    inputs:
+      - name: POSTGRES_PASSWORD          # sensitive, prompted at deploy time
+        datatype: string
+        secret: true
+        description: Database superuser password
+```
 
 #### GPUConfig
 

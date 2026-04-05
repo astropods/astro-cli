@@ -1,32 +1,40 @@
-# Persistent Volumes for Custom Knowledge Containers
+# Custom Knowledge Container Improvements
 
 ## Summary
 
-Knowledge entries using custom containers (not built-in providers) could not use `persistent: true` because the volume mount path was resolved exclusively from the provider registry, which returns empty for custom containers. Docker rejected the empty mount target with a cryptic error. This change adds a `volume` field to the container config so custom containers can specify their data directory, enabling persistent storage for any database image.
+Two fixes for custom knowledge containers (those using `container` instead of a built-in `provider`):
 
-## Design
+1. **Persistent volumes** — `persistent: true` now works with custom containers via a new `volume` field that specifies the data directory inside the container.
+2. **Environment passthrough** — `environment` on custom knowledge containers is now correctly passed to the running container. Previously these values were silently ignored.
 
-A new `Volume` string field is added to `ContainerConfig` in the spec. When a knowledge entry has `persistent: true`, the compose builder now checks three sources for the mount path in priority order:
+## What's new
 
-1. `container.volume` — user-specified path (new)
-2. Provider registry `MountPath` — for built-in providers (existing)
-3. Error — if neither is set, `BuildProject` returns a clear error: `persistent is true but no volume path specified`
+### `volume` field on `ContainerConfig`
 
-This same priority is applied in the deployment store (normalized.go) and Kubernetes StatefulSet builder (statefulset.go) so the behavior is consistent across local dev and production deployments.
+Custom containers can now declare where persistent data should be stored:
 
-**Example — custom Postgres with pgvector:**
 ```yaml
 knowledge:
   db:
     container:
       image: pgvector/pgvector:pg17
       port: 5432
-      volume: /var/lib/postgresql/data
+      volume: /var/lib/postgresql/data    # new — tells the platform where data lives
+      environment:
+        POSTGRES_DB: my_database
     persistent: true
+    inputs:
+      - name: POSTGRES_PASSWORD
+        datatype: string
+        secret: true
 ```
 
-Built-in providers are unaffected — their mount paths still come from the provider registry. The `volume` field is only needed for custom containers.
+For built-in providers (`provider: qdrant`, `provider: postgres`, etc.), the volume path is already known and `volume` is not needed.
+
+### `environment` now reaches the container
+
+Static configuration like database names, log levels, and feature flags can be set via `environment` on the container. For sensitive values (passwords, API keys), use `inputs` with `secret: true` instead — these are prompted via `ast configure` and stored securely.
 
 ## Migration
 
-No breaking changes. Existing specs using built-in providers with `persistent: true` continue to work unchanged. Custom containers that previously failed with `persistent: true` can now add `volume` to fix the issue.
+No breaking changes. Existing specs are unaffected. Custom containers that previously failed with `persistent: true` can now add `volume` to enable persistence.

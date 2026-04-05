@@ -139,11 +139,17 @@ knowledge:
       environment:
         POSTGRES_DB: my_db
         POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
     persistent: true
+    inputs:
+      - name: POSTGRES_PASSWORD
+        datatype: string
+        secret: true
+        description: Database superuser password
 ```
 
-The `volume` field specifies where to mount the persistent data volume inside the container. Required when `persistent: true` is used with a custom container.
+- `volume` — where to mount persistent data inside the container. Required with `persistent: true`.
+- `environment` — static config passed to the container (database names, ports, flags).
+- `inputs` — values prompted via `ast configure`. Use `secret: true` for passwords and keys.
 
 Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
 
