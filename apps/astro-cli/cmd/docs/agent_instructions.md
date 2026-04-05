@@ -101,6 +101,52 @@ ingestion:
       type: startup   # or schedule, manual, webhook
 ```
 
+## Knowledge Stores
+
+Knowledge entries define sidecar databases for your agent. Use built-in providers for zero-config setup, or bring your own container image.
+
+### Built-in providers
+
+```yaml
+knowledge:
+  vectors:
+    provider: qdrant
+    persistent: true    # data survives restarts
+
+  cache:
+    provider: redis
+
+  db:
+    provider: postgres
+    persistent: true
+```
+
+Available providers: `qdrant` (vector search), `redis` (key-value), `postgres` (relational + vector via pgvector), `neo4j` (graph).
+
+Each provider injects connection env vars into the agent: `{PROVIDER}_HOST`, `{PROVIDER}_PORT`, `{PROVIDER}_URL`.
+
+### Custom containers
+
+Use any Docker image as a knowledge store:
+
+```yaml
+knowledge:
+  db:
+    container:
+      image: pgvector/pgvector:pg17
+      port: 5432
+      volume: /var/lib/postgresql/data
+      environment:
+        POSTGRES_DB: my_db
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+    persistent: true
+```
+
+The `volume` field specifies where to mount the persistent data volume inside the container. Required when `persistent: true` is used with a custom container.
+
+Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
+
 ## Packages
 
 | Package | Purpose |
