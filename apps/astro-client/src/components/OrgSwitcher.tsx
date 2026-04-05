@@ -1,12 +1,13 @@
-import { ChevronDownIcon, BuildingOffice2Icon, CheckIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { useMemo } from "react";
+import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
 import type { Account } from "@/lib/api";
 
@@ -34,47 +35,34 @@ function AccountIcon({ account }: { account: Account }) {
 }
 
 export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
-  const { accounts, personalAccount } = useAuth();
-  const current = accounts.find((a) => a.name === activeAccount) ?? personalAccount;
+  const { accounts } = useAuth();
 
-  if (!current) return <span className="font-semibold">{activeAccount}</span>;
-
-  const label = current.display_name || current.name;
+  const sorted = useMemo(
+    () =>
+      [...accounts].sort((a, b) =>
+        a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name),
+      ),
+    [accounts],
+  );
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-mono-sm text-left text-foreground transition-colors hover:bg-accent"
-        >
-          <AccountIcon account={current} />
-          {label}
-          <ChevronDownIcon className="size-3 text-primary" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56 p-2">
-        {[...accounts].sort((a, b) => (a.type === "personal" ? -1 : b.type === "personal" ? 1 : 0)).map((account) => (
-          <DropdownMenuItem
-            key={account.id}
-            onSelect={() => onChange(account.name)}
-            className="gap-2.5"
-          >
-            <AccountIcon account={account} />
-            <span className="flex-1 truncate">{account.display_name || account.name}</span>
-            {account.name === activeAccount && (
-              <CheckIcon className="size-3.5 text-teal-600 shrink-0" />
-            )}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="gap-2">
-          <a href="/organization/new">
-            <PlusIcon className="size-4" />
-            Create organization
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-normal text-foreground select-none">View</span>
+      <Select value={activeAccount} onValueChange={onChange}>
+        <SelectTrigger className="h-8 w-48 px-2.5 py-0 text-sm leading-none">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {sorted.map((a) => (
+            <SelectItem key={a.id} value={a.name}>
+              <span className="inline-flex items-center gap-2">
+                <AccountIcon account={a} />
+                {a.display_name || a.name}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
