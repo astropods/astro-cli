@@ -32,9 +32,9 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
           </button>
         )}
         {loading ? (
-          <div className="flex flex-col gap-2 animate-pulse">
-            <div className="h-6 w-1/2 rounded bg-muted" />
-            <div className="h-3.5 w-3/4 rounded bg-muted" />
+          <div className="flex items-center gap-3 animate-pulse">
+            <div className="h-6 w-2/5 rounded bg-muted shrink-0" />
+            <div className="flex-1 h-1.5 rounded-full bg-muted" />
           </div>
         ) : (
           <>
