@@ -35,7 +35,7 @@ Add a `step` column to `github_builds` so the UI can show where in the pipeline 
 
 ## Item 3 — Input validation before K8s job creation
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 Two silent failure modes exist before the expensive K8s job starts:
 

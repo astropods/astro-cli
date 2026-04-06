@@ -108,12 +108,11 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	if err != nil {
 		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
 	}
-
-	agentName := strings.TrimPrefix(astroSpec.Name, "@"+conn.AccountID+"/")
-	agentName = strings.TrimPrefix(agentName, "@")
-	if idx := strings.Index(agentName, "/"); idx >= 0 {
-		agentName = agentName[idx+1:]
+	if specYAML == "" {
+		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("astropods.yml not found in repo at commit %s", args.CommitSHA[:min(7, len(args.CommitSHA))]))
 	}
+
+	agentName := conn.AgentName
 
 	local := w.cfg.Deployment.K8sClientMode == "local"
 	buildCtx := astroSpec.Agent.Build
