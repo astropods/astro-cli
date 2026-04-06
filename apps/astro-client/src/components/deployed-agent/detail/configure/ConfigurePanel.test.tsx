@@ -27,7 +27,7 @@ const mockDeployment: AgentDeployment = {
   components: ['deployment', 'service'],
 };
 
-// Template the server returns — source.build is the OLD build
+// Template the server returns — source.build reflects the requested build
 const mockTemplateOldBuild: DeploymentTemplate = {
   spec: 'deployment-template/v1',
   source: { account: 'testuser', name: 'code-reviewer', build: OLD_BUILD_ID, registry: 'registry.example.com' },
@@ -37,11 +37,18 @@ const mockTemplateOldBuild: DeploymentTemplate = {
   editable: ['variables.*.value'],
 };
 
-function setupTemplateHandler(template = mockTemplateOldBuild) {
+const mockTemplateNewBuild: DeploymentTemplate = {
+  ...mockTemplateOldBuild,
+  source: { ...mockTemplateOldBuild.source, build: NEW_BUILD_ID },
+};
+
+function setupTemplateHandler() {
   server.use(
-    http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', () =>
-      HttpResponse.json(template),
-    ),
+    http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', ({ request }) => {
+      const url = new URL(request.url);
+      const buildOverride = url.searchParams.get('build');
+      return HttpResponse.json(buildOverride === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild);
+    }),
   );
 }
 
