@@ -438,7 +438,7 @@ export function ActiveDetailView({
                   fullPage
                   onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
                   onRedeployStart={() => { setOptimisticDeploying(true); }}
-                  onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+                  onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
                   revisionOverride={configRevision ?? undefined}
                   readOnly={configRevision !== null && configRollbackBuildId === null}
                   isNewBuild={configIsNewBuild}
@@ -504,7 +504,7 @@ export function ActiveDetailView({
                 account={account}
                 onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
                 onRedeployStart={() => { setOptimisticDeploying(true); }}
-                onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+                onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
                 revisionOverride={configRevision ?? undefined}
                 readOnly={configRevision !== null && configRollbackBuildId === null}
                 isNewBuild={configIsNewBuild}
