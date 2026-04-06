@@ -3,10 +3,10 @@ package riverqueue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-
 	"strings"
 	"time"
 
@@ -34,6 +34,13 @@ const queueGitHubBuild = "github_build"
 // buildKitImage is the BuildKit rootless daemonless image (Docker Hub, public).
 const buildKitImage = "moby/buildkit:v0.21.0-rootless"
 
+// buildFailedError marks a build failure as permanent (bad Dockerfile or code).
+// It is distinguished from infrastructure errors, which are retriable.
+type buildFailedError struct{ cause error }
+
+func (e buildFailedError) Error() string { return e.cause.Error() }
+func (e buildFailedError) Unwrap() error { return e.cause }
+
 // GitHubBuildArgs are the job arguments for the GitHub build worker.
 type GitHubBuildArgs struct {
 	ConnectionID  string `json:"connection_id"`
@@ -47,7 +54,7 @@ func (GitHubBuildArgs) Kind() string { return "github_build" }
 func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueGitHubBuild,
-		MaxAttempts: 1,
+		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
 			ByState: []rivertype.JobState{
@@ -90,9 +97,14 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		log.Error("failed to update build status to building", "error", err)
 	}
 
+	// isLastAttempt gates whether a retriable error should also update the DB to
+	// "failed". On earlier attempts we leave the status as-is so the UI shows
+	// progress rather than flipping to failed and back.
+	isLastAttempt := job.Attempt >= job.MaxAttempts
+
 	conn, err := w.ghStore.GetByID(ctx, args.ConnectionID)
 	if err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("load connection: %w", err))
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("load connection: %w", err))
 	}
 
 	token, err := w.pipesClient.GetAccessToken(ctx, pipes.GetAccessTokenInput{
@@ -100,16 +112,17 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		UserID:   conn.WorkOSUserID,
 	})
 	if err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("get github token: %w", err))
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("get github token: %w", err))
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "fetching-spec")
 	astroSpec, specYAML, err := fetchAstroSpec(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA)
 	if err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("fetch astropods.yml: %w", err))
 	}
 	if specYAML == "" {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("astropods.yml not found in repo at commit %s", args.CommitSHA[:min(7, len(args.CommitSHA))]))
+		// Permanent: file doesn't exist at this commit — no point retrying.
+		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("astropods.yml not found in repo at commit %s", args.CommitSHA[:min(7, len(args.CommitSHA))])))
 	}
 
 	agentName := conn.AgentName
@@ -126,14 +139,21 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	w.updateStep(dbCtx, args.BuildRecordID, "building")
 	log.Info("Starting BuildKit build", "repo", conn.RepoFullName, "local", local)
 	if err := w.runBuildKitJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, buildCtx.Context, buildCtx.Dockerfile, destination); err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("build: %w", err))
+		var bfe buildFailedError
+		if errors.As(err, &bfe) {
+			// Permanent: build itself failed (bad Dockerfile / code) — no point retrying.
+			return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(err))
+		}
+		// Infrastructure error (K8s unavailable, context cancelled) — retriable.
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("build: %w", err))
 	}
 
 	readme, _ := fetchFileContent(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, "AGENT.md")
 
 	var specMap map[string]any
 	if err := yaml.Unmarshal([]byte(specYAML), &specMap); err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("parse spec YAML: %w", err))
+		// Permanent: spec was already fetched — malformed YAML won't fix itself.
+		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("parse spec YAML: %w", err)))
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "registering")
@@ -142,7 +162,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		w.cfg.Deployment.RegistryURL, conn.AccountID,
 		specMap, readme, buildAgentCardJSONFromSpec(readme, specMap), "[]",
 	); err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("register agent: %w", err))
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("register agent: %w", err))
 	}
 
 	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "registered", ""); err != nil {
@@ -158,10 +178,20 @@ func (w *GitHubBuildWorker) updateStep(ctx context.Context, buildRecordID, step 
 	}
 }
 
+// fail marks the build record as failed and returns err (which may be river.JobCancel).
 func (w *GitHubBuildWorker) fail(_ context.Context, buildRecordID string, err error) error {
 	updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = w.ghStore.UpdateBuildStatus(updateCtx, buildRecordID, "failed", err.Error())
+	return err
+}
+
+// failOrRetry marks the build as failed only on the last attempt; otherwise it
+// returns the raw error so River can schedule a retry without touching DB state.
+func (w *GitHubBuildWorker) failOrRetry(ctx context.Context, buildRecordID string, isLastAttempt bool, err error) error {
+	if isLastAttempt {
+		return w.fail(ctx, buildRecordID, err)
+	}
 	return err
 }
 
@@ -410,7 +440,7 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		}
 		if j.Status.Failed > 0 {
 			logs := w.fetchJobLogs(context.Background(), ns, jobName)
-			return fmt.Errorf("build job failed: %s", extractBuildError(logs))
+			return buildFailedError{fmt.Errorf("build job failed: %s", extractBuildError(logs))}
 		}
 	}
 	return fmt.Errorf("build job %s timed out after 20 minutes", jobName)

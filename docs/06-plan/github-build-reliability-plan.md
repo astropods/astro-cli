@@ -93,7 +93,7 @@ The `defer Secrets.Delete(...)` in `runBuildKitJob` only runs when the function 
 
 ## Item 7 — Retry transient errors; cancel on permanent failures
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `MaxAttempts: 1` means any blip (Pipes token fetch timeout, K8s API unavailable) permanently fails the build.
 
