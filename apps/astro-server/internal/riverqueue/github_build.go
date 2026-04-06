@@ -31,8 +31,12 @@ import (
 
 const queueGitHubBuild = "github_build"
 
-// buildKitImage is the BuildKit rootless daemonless image (Docker Hub, public).
-const buildKitImage = "moby/buildkit:v0.21.0-rootless"
+// Pinned init container images — update these explicitly to get new versions.
+const (
+	buildKitImage = "moby/buildkit:v0.21.0-rootless"
+	gitCloneImage = "alpine/git:2.47.2"
+	ecrLoginImage = "amazon/aws-cli:2.24.21"
+)
 
 // buildFailedError marks a build failure as permanent (bad Dockerfile or code).
 // It is distinguished from infrastructure errors, which are retriable.
@@ -320,7 +324,7 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	initContainers := []corev1.Container{
 		{
 			Name:            "git-clone",
-			Image:           "alpine/git:latest",
+			Image:           gitCloneImage,
 			Command:         []string{"sh", "-c", cloneCmd},
 			SecurityContext: initSecCtx,
 			VolumeMounts: []corev1.VolumeMount{
@@ -348,7 +352,7 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		})
 		initContainers = append(initContainers, corev1.Container{
 			Name:            "ecr-login",
-			Image:           "amazon/aws-cli:latest",
+			Image:           ecrLoginImage,
 			Command:         []string{"sh", "-c", ecrLoginCmd},
 			SecurityContext: initSecCtx,
 			VolumeMounts: []corev1.VolumeMount{

@@ -119,7 +119,7 @@ The `defer Secrets.Delete(...)` in `runBuildKitJob` only runs when the function 
 
 ## Item 9 — Pin init container image versions
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `alpine/git:latest` and `amazon/aws-cli:latest` will silently change and can break builds.
 
