@@ -97,7 +97,7 @@ func (s *Store) List(accountID string) ([]VariableMetadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accountvars list: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
 	var vars []VariableMetadata
 	for rows.Next() {
@@ -149,7 +149,7 @@ func (s *Store) GetByNames(accountID string, names []string) ([]AccountVariable,
 	if err != nil {
 		return nil, fmt.Errorf("accountvars get by names: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
 	var vars []AccountVariable
 	for rows.Next() {
