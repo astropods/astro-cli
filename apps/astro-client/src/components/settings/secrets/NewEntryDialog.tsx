@@ -11,8 +11,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Loader2, Info } from 'lucide-react'
+import { Loader2, Info, Eye, EyeOff } from 'lucide-react'
 import type { CreateAccountVariableInput } from '@/lib/api'
+import { VARIABLE_NAME_PATTERN } from '@/lib/vault'
 
 interface NewEntryDialogProps {
   open: boolean
@@ -21,21 +22,21 @@ interface NewEntryDialogProps {
   onCreate: (data: CreateAccountVariableInput) => void
 }
 
-const NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/
 
 export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryDialogProps) {
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [description, setDescription] = useState('')
-  const [isSecret, setIsSecret] = useState(false)
+  const [isSecret, setIsSecret] = useState(true)
   const [nameError, setNameError] = useState('')
+  const [revealed, setRevealed] = useState(false)
 
-  const isValid = NAME_PATTERN.test(name) && value.trim().length > 0
+  const isValid = VARIABLE_NAME_PATTERN.test(name) && value.trim().length > 0
 
   const handleNameChange = (v: string) => {
     const upper = v.toUpperCase().replace(/[^A-Z0-9_]/g, '')
     setName(upper)
-    if (upper && !NAME_PATTERN.test(upper)) {
+    if (upper && !VARIABLE_NAME_PATTERN.test(upper)) {
       setNameError('Must start with a letter and contain only A–Z, 0–9, _')
     } else {
       setNameError('')
@@ -56,7 +57,8 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
     setName('')
     setValue('')
     setDescription('')
-    setIsSecret(false)
+    setIsSecret(true)
+    setRevealed(false)
     setNameError('')
     onClose()
   }
@@ -65,7 +67,7 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
       <DialogContent className="max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>New {isSecret ? 'secret' : 'variable'}</DialogTitle>
+          <DialogTitle>New secret or variable</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -92,14 +94,27 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
           <div className="space-y-1.5">
             <Label size="md" htmlFor="entry-value">Value</Label>
             <div className="flex items-center gap-2">
-              <Input
-                id="entry-value"
-                type={isSecret ? 'password' : 'text'}
-                value={value}
-                onChange={e => setValue(e.target.value)}
-                placeholder={isSecret ? 'Your secret value...' : 'Enter value'}
-                autoComplete="off"
-              />
+              <div className="relative flex-1">
+                <Input
+                  id="entry-value"
+                  type={isSecret && !revealed ? 'password' : 'text'}
+                  value={value}
+                  onChange={e => setValue(e.target.value)}
+                  placeholder={isSecret ? 'Your secret value...' : 'Enter value'}
+                  autoComplete="off"
+                  className={isSecret ? 'pr-9' : ''}
+                />
+                {isSecret && (
+                  <button
+                    type="button"
+                    onClick={() => setRevealed(r => !r)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={revealed ? 'Hide value' : 'Reveal value'}
+                  >
+                    {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <label htmlFor="secret-toggle" className="text-sm font-medium text-foreground cursor-pointer whitespace-nowrap">Secret</label>
                 <TooltipProvider delayDuration={200}>
@@ -107,7 +122,7 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
                     <TooltipTrigger asChild>
                       <Info className="size-3.5 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[200px] text-xs">
+                    <TooltipContent side="top" className="text-xs">
                       Encrypted at rest. Value can't be read after saving.
                     </TooltipContent>
                   </Tooltip>

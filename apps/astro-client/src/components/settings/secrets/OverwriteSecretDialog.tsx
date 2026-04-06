@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Eye, EyeOff } from 'lucide-react'
 
 interface OverwriteSecretDialogProps {
   secretName: string
@@ -22,9 +22,11 @@ interface OverwriteSecretDialogProps {
 
 export function OverwriteSecretDialog({ secretName, open, isPending, onClose, onConfirm }: OverwriteSecretDialogProps) {
   const [value, setValue] = useState('')
+  const [revealed, setRevealed] = useState(false)
 
   const handleClose = () => {
     setValue('')
+    setRevealed(false)
     onClose()
   }
 
@@ -42,22 +44,32 @@ export function OverwriteSecretDialog({ secretName, open, isPending, onClose, on
             <span className="font-mono text-sm font-medium">{secretName}</span>
           </DialogTitle>
           <DialogDescription>
-            The current value will be permanently replaced. The previous value can't be recovered.
+            The current value will be permanently replaced. The previous value cannot be recovered.
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-1">
           <Label size="md" htmlFor="overwrite-value">New value</Label>
-          <Input
-            id="overwrite-value"
-            type="password"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            placeholder="••••••••••••"
-            autoComplete="off"
-            autoFocus
-            className="mt-1.5"
-          />
+          <div className="relative mt-1.5">
+            <Input
+              id="overwrite-value"
+              type={revealed ? 'text' : 'password'}
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder="••••••••••••"
+              autoComplete="off"
+              autoFocus
+              className="pr-9"
+            />
+            <button
+              type="button"
+              onClick={() => setRevealed(r => !r)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label={revealed ? 'Hide value' : 'Reveal value'}
+            >
+              {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
         </div>
 
         <DialogFooter>

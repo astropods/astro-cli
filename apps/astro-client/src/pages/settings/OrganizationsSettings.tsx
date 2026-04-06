@@ -56,12 +56,12 @@ export default function OrganizationsSettings() {
                 className="size-9 rounded-md shrink-0 flex items-center justify-center text-white text-sm font-bold"
                 style={{ background: orgColor(org.name) }}
               >
-                {(org.display_name ?? org.name)[0].toUpperCase()}
+                {(org.display_name || org.name || '?')[0].toUpperCase()}
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5">
-                  <p className="text-sm font-medium text-foreground">{org.display_name ?? org.name}</p>
+                  <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
                   {org.role && (
                     <InlineBadge
                       variant="soft"

@@ -1,33 +1,29 @@
 import { useState } from 'react'
 import { KeyRound, X } from 'lucide-react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
+import { Link } from 'react-router'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/lib/auth'
-import { useAccountVariables } from '@/api/queries'
 import type { AccountVariable } from '@/lib/api'
 
 // Parse a token like {{secrets.FOO}} or {{vars.BAR}} into its parts
 export function parseVaultToken(token: string): { type: 'secret' | 'variable'; name: string } | null {
-  const match = token.match(/^\{\{(secrets|vars)\.([A-Z0-9_]+)\}\}$/)
+  const match = token.match(/^\{\{(secrets|vars)\.([A-Z][A-Z0-9_]*)\}\}$/)
   if (!match) return null
   return { type: match[1] === 'secrets' ? 'secret' : 'variable', name: match[2] }
 }
 
 interface VaultPickerProps {
   onSelect: (token: string) => void
-  account?: string
+  entries?: AccountVariable[]
+  accountName?: string
+  vaultSettingsUrl?: string
 }
 
-export function VaultPicker({ onSelect, account }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl }: VaultPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-
-  const { personalAccount } = useAuth()
-  const accountName = account || personalAccount?.name || ''
-  const { data } = useAccountVariables(accountName)
-  const entries = data?.variables ?? []
 
   const filtered = entries.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -67,43 +63,66 @@ export function VaultPicker({ onSelect, account }: VaultPickerProps) {
           align="end"
           className="z-50 w-[280px] rounded-lg border border-border bg-popover shadow-lg overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
         >
-          <div className="px-3 pt-3 pb-2">
-            <p className="text-xs font-semibold text-foreground">Reference an existing value</p>
-          </div>
-
-          <div className="px-2 pb-2 border-b border-border">
-            <Input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search variables and secrets..."
-              className="h-8 text-sm"
-              autoFocus
-            />
-          </div>
-
-          <div className="max-h-[240px] overflow-y-auto py-1">
-            {!hasResults ? (
-              <p className="px-3 py-4 text-sm text-center text-muted-foreground">
-                {search ? 'No matches' : 'No vault entries'}
+          {entries.length === 0 ? (
+            <div className="px-4 py-5 text-center">
+              <KeyRound className="size-5 text-muted-foreground/50 mx-auto mb-2" />
+              <p className="text-sm font-medium text-foreground">No secrets or variables yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create reusable values in{' '}
+                {vaultSettingsUrl ? (
+                  <Link to={vaultSettingsUrl} className="text-teal-700 dark:text-teal-400 hover:underline">
+                    vault settings
+                  </Link>
+                ) : (
+                  'vault settings'
+                )}
+                {' '}to share across deployments.
               </p>
-            ) : (
-              filtered.map(entry => (
-                <button
-                  key={entry.name}
-                  type="button"
-                  onClick={() => handleSelect(entry)}
-                  className="w-full flex items-center px-3 py-2 text-left hover:bg-muted/60 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-mono text-xs font-medium text-foreground truncate">{entry.name}</p>
-                    {entry.description && (
-                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="px-3 pt-3 pb-2">
+                <p className="text-xs font-semibold text-foreground">Reference an existing value</p>
+                {accountName && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    From <span className="font-medium">{accountName}</span> vault
+                  </p>
+                )}
+              </div>
+
+              <div className="px-2 pb-2 border-b border-border">
+                <Input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search variables and secrets..."
+                  className="h-8 text-sm"
+                  autoFocus
+                />
+              </div>
+
+              <div className="max-h-[240px] overflow-y-auto py-1">
+                {!hasResults ? (
+                  <p className="px-3 py-4 text-sm text-center text-muted-foreground">No matches</p>
+                ) : (
+                  filtered.map(entry => (
+                    <button
+                      key={entry.name}
+                      type="button"
+                      onClick={() => handleSelect(entry)}
+                      className="w-full flex items-center px-3 py-2 text-left hover:bg-muted/60 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono text-xs font-medium text-foreground truncate">{entry.name}</p>
+                        {entry.description && (
+                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

@@ -96,7 +96,7 @@ describe('YourAgents page', () => {
     });
   });
 
-  it('shows last active as "less than a minute ago" for very recent traces', async () => {
+  it('shows last active as "just now" for very recent traces', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2025-04-08T12:00:30Z'));
 
@@ -114,7 +114,7 @@ describe('YourAgents page', () => {
     renderYourAgents();
 
     await waitFor(() => {
-      expect(screen.getAllByText('less than a minute ago')[0]).toBeInTheDocument();
+      expect(screen.getAllByText('just now')[0]).toBeInTheDocument();
     });
   });
 

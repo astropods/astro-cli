@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { WarningPanel } from '@/components/ui/status-panel'
 import { InlineBadge } from '@/components/InlineBadge'
 import {
@@ -14,12 +14,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2 } from 'lucide-react'
 import type { CreateAccountVariableInput } from '@/lib/api'
-
-interface ParsedLine {
-  name: string
-  value: string
-  valid: boolean
-}
+import { parseEnvLines } from '@/components/deploy/parse-env'
+import { VARIABLE_NAME_PATTERN } from '@/lib/vault'
 
 interface ImportEnvDialogProps {
   open: boolean
@@ -29,28 +25,21 @@ interface ImportEnvDialogProps {
   onImport: (entries: CreateAccountVariableInput[]) => void
 }
 
-function parseEnvContent(raw: string): ParsedLine[] {
-  return raw
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line && !line.startsWith('#'))
-    .map(line => {
-      const eqIndex = line.indexOf('=')
-      if (eqIndex === -1) return { name: line, value: '', valid: false }
-      const name = line.slice(0, eqIndex).trim()
-      const value = line.slice(eqIndex + 1).trim().replace(/^["']|["']$/g, '')
-      const valid = /^[A-Z][A-Z0-9_]*$/.test(name)
-      return { name, value, valid }
-    })
-}
-
 export function ImportEnvDialog({ open, isPending, existingNames, onClose, onImport }: ImportEnvDialogProps) {
   const [raw, setRaw] = useState('')
   const [importAsSecret, setImportAsSecret] = useState(false)
 
-  const parsed = raw.trim() ? parseEnvContent(raw) : []
-  const validLines = parsed.filter(l => l.valid)
-  const conflicts = validLines.filter(l => existingNames.includes(l.name))
+  const parsed = useMemo(
+    () => raw.trim()
+      ? parseEnvLines(raw).map(l => ({ ...l, valid: l.valid && VARIABLE_NAME_PATTERN.test(l.name) }))
+      : [],
+    [raw],
+  )
+  const validLines = useMemo(() => parsed.filter(l => l.valid), [parsed])
+  const conflicts = useMemo(
+    () => validLines.filter(l => existingNames.includes(l.name)),
+    [validLines, existingNames],
+  )
 
   const handleImport = () => {
     const entries: CreateAccountVariableInput[] = validLines.map(line => ({

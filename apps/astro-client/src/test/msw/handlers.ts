@@ -285,6 +285,11 @@ export const handlers = [
     return HttpResponse.json({ status: 'restarting', pods: ['pod-abc-1', 'pod-abc-2'] });
   }),
 
+  // GET /api/v1/accounts/:account/variables
+  http.get('/api/v1/accounts/:account/variables', () => {
+    return HttpResponse.json({ variables: [] });
+  }),
+
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
     const body = (await request.json()) as { deployment_id: string };

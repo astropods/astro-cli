@@ -479,9 +479,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return creds.every(([key, def]) => def.optional || allFormValues[key]?.trim());
     });
     const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
-    const vaultRefsValid = !accountVarsLoaded || variableEntries.every(
-      ([key]) => !isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames)
-    );
+    const vaultRefsValid = invalidVaultRefKeys.length === 0;
 
     return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid;
   };
@@ -554,6 +552,13 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     scheduleIngestions,
     ingestionSchedules,
     setIngestionSchedules,
+
+    vaultEntries: accountVarsData?.variables ?? [],
+    vaultSettingsUrl: (() => {
+      const acct = accounts.find(a => a.name === targetAccount);
+      if (!acct || acct.type === 'personal') return '/settings/secrets';
+      return `/settings/org/${targetAccount}/secrets`;
+    })(),
 
     errors,
     invalidVaultRefKeys,

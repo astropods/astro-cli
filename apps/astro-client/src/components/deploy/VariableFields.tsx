@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { VariableField } from "./VariableField";
+import type { AccountVariable } from "@/lib/api";
 
 /** Display-only variable metadata — only the fields the component actually renders. */
 export interface VariableDisplay {
@@ -37,9 +38,11 @@ export interface VariableFieldsProps {
   errorKeys?: string[];
   invalidRefKeys?: string[];
   account?: string;
+  vaultEntries?: AccountVariable[];
+  vaultSettingsUrl?: string;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account }: VariableFieldsProps) {
+export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultSettingsUrl }: VariableFieldsProps) {
   if (variables.length === 0) return null;
 
   return (
@@ -86,6 +89,8 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
               hasError={errorKeys?.includes(key)}
               refInvalid={invalidRefKeys?.includes(key)}
               account={account}
+              vaultEntries={vaultEntries}
+              vaultSettingsUrl={vaultSettingsUrl}
             />
             {errorKeys?.includes(key) && (
               <p className="text-destructive text-xs mt-1">

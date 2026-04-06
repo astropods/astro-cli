@@ -21,7 +21,9 @@ function OrgSettingsContent() {
     if (!org?.organization_id || org.organization_id === organizationId) return
     let mounted = true
     setSwitching(true)
-    switchOrg(org.organization_id).finally(() => { if (mounted) setSwitching(false) })
+    switchOrg(org.organization_id)
+      .catch(() => { /* org switch unavailable — continue with current context */ })
+      .finally(() => { if (mounted) setSwitching(false) })
     return () => { mounted = false }
   }, [org?.organization_id, organizationId, switchOrg])
 

@@ -165,6 +165,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             errorKeys={form.errors.credentials}
             invalidRefKeys={form.invalidVaultRefKeys}
             account={form.targetAccount}
+            vaultEntries={form.vaultEntries}
+            vaultSettingsUrl={form.vaultSettingsUrl}
           />
         </FormSection>
       )}
@@ -178,6 +180,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             onChange={form.setVariableValues}
             invalidRefKeys={form.invalidVaultRefKeys}
             account={form.targetAccount}
+            vaultEntries={form.vaultEntries}
+            vaultSettingsUrl={form.vaultSettingsUrl}
           />
         </FormSection>
       )}

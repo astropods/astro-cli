@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { VaultPicker, VaultRefChip } from "./VaultPicker";
+import { VaultPicker, VaultRefChip, parseVaultToken } from "./VaultPicker";
 import type { VariableDisplay } from "./VariableFields";
 
 /** Convert "SLACK_BOT_TOKEN" → "your-slack-bot-token" */
@@ -46,9 +46,11 @@ export interface VariableFieldProps {
   hasError?: boolean;
   refInvalid?: boolean;
   account?: string;
+  vaultEntries?: import("@/lib/api").AccountVariable[];
+  vaultSettingsUrl?: string;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -139,11 +141,11 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} />;
   }
 
   // 7. Default — text input with vault picker
-  const isVaultRef = value.startsWith("{{");
+  const isVaultRef = parseVaultToken(value) !== null;
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
@@ -162,15 +164,15 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} account={account} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} />
       </div>
     </div>
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
-  const isVaultRef = value.startsWith("{{");
+  const isVaultRef = parseVaultToken(value) !== null;
 
   return (
     <div className="relative flex items-center">
@@ -200,7 +202,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} account={account} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} />
       </div>
     </div>
   );

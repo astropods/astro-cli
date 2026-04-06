@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Lock, Plus, Pencil, Trash2, Upload, MoreHorizontal, Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,7 @@ import { formatRelativeTime } from '@/lib/deployment-utils'
 import type { VaultEntry } from '@/lib/vault'
 import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
 
-const GRID_COLS = '1.5fr 1.5fr 0.75fr 56px'
+const GRID_COLS = 'grid-cols-[1.5fr_1.5fr_0.75fr_56px]'
 
 function toVaultEntry(v: AccountVariable): VaultEntry {
   return {
@@ -59,8 +59,11 @@ export function VaultSettings({ account: accountName }: { account: string }) {
   const [editVariableEntry, setEditVariableEntry] = useState<VaultEntry | null>(null)
   const [importEnvOpen, setImportEnvOpen] = useState(false)
 
-  const entries: VaultEntry[] = (data?.variables ?? []).map(toVaultEntry)
-  const existingNames = entries.map(e => e.name)
+  const entries = useMemo(
+    () => (data?.variables ?? []).map(toVaultEntry),
+    [data?.variables],
+  )
+  const existingNames = useMemo(() => entries.map(e => e.name), [entries])
 
   const handleCreate = (input: CreateAccountVariableInput) => {
     createMutation.mutate(input, {
@@ -85,7 +88,13 @@ export function VaultSettings({ account: accountName }: { account: string }) {
   }
 
   const handleImport = async (entries: CreateAccountVariableInput[]) => {
-    await Promise.all(entries.map(entry => createMutation.mutateAsync(entry)))
+    const results = await Promise.allSettled(
+      entries.map(entry => createMutation.mutateAsync(entry)),
+    )
+    const failed = results.filter(r => r.status === 'rejected').length
+    if (failed > 0) {
+      console.warn(`Import: ${failed} of ${entries.length} entries failed`)
+    }
     setImportEnvOpen(false)
   }
 
@@ -129,25 +138,17 @@ export function VaultSettings({ account: accountName }: { account: string }) {
       ) : entries.length === 0 ? (
         <EmptyState onNew={() => setNewDialogOpen(true)} />
       ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="rounded-[10px] border border-border overflow-hidden">
           {/* Header */}
-          <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, columnGap: 12, padding: '0 16px', borderBottom: '1px solid var(--border)', background: 'var(--muted)' }}>
+          <div className={`grid ${GRID_COLS} gap-x-3 px-4 border-b border-border bg-muted`}>
             {['Name', 'Value', 'Last updated', 'Actions'].map((h, i) => (
-              <div key={i} style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-label)',
-                letterSpacing: '0.07em',
-                color: 'var(--faint-foreground)',
-                padding: '10px 0',
-                textTransform: 'uppercase',
-                textAlign: 'left',
-              }}>
+              <div key={i} className="font-mono text-label tracking-wider text-faint-foreground py-2.5 uppercase text-left">
                 {h}
               </div>
             ))}
           </div>
           {/* Rows */}
-          <div style={{ background: 'var(--surface)' }}>
+          <div className="bg-surface">
             {entries.map((entry, i) => (
               <EntryRow
                 key={entry.name}
@@ -245,19 +246,11 @@ function EntryRow({
 
   return (
     <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: GRID_COLS,
-        columnGap: 12,
-        padding: '0 16px',
-        alignItems: 'center',
-        borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      }}
-      className="hover:bg-muted/40 transition-colors"
+      className={`grid ${GRID_COLS} gap-x-3 px-4 items-center hover:bg-muted/40 transition-colors ${isLast ? '' : 'border-b border-border'}`}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0', minWidth: 0, overflow: 'hidden' }}>
-        <div style={{ minWidth: 0 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-mono-sm)', fontWeight: 500, color: 'var(--foreground)' }}>
+      <div className="flex items-center gap-2.5 py-3 min-w-0 overflow-hidden">
+        <div className="min-w-0">
+          <span className="font-mono text-mono-sm font-medium text-foreground">
             {entry.name}
           </span>
           {entry.description && (
@@ -268,11 +261,11 @@ function EntryRow({
         </div>
       </div>
 
-      <div style={{ display: 'flex', minWidth: 0, overflow: 'hidden', padding: '12px 0' }}>
+      <div className="flex min-w-0 overflow-hidden py-3">
         {isSecret ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Lock size={12} style={{ color: 'var(--foreground)', flexShrink: 0 }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--foreground)', letterSpacing: '0.1em' }}>
+          <div className="flex items-center gap-1.5">
+            <Lock size={12} className="text-foreground shrink-0" />
+            <span className="font-mono text-xs text-foreground tracking-widest">
               ••••••••
             </span>
           </div>
@@ -280,7 +273,7 @@ function EntryRow({
           <TooltipProvider delayDuration={400}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'default', maxWidth: '100%' }}>
+                <span className="font-mono text-xs text-foreground truncate cursor-default max-w-full">
                   {entry.value || '—'}
                 </span>
               </TooltipTrigger>
@@ -294,13 +287,13 @@ function EntryRow({
         )}
       </div>
 
-      <div style={{ display: 'flex' }}>
-        <span style={{ fontSize: 12, color: 'var(--foreground)' }}>
+      <div className="flex">
+        <span className="text-xs text-foreground">
           {formatRelativeTime(entry.updatedAt)}
         </span>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <div className="flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-xs">
