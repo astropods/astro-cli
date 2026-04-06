@@ -135,26 +135,79 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	}
 
 	agentName := conn.AgentName
-
 	local := w.cfg.Deployment.K8sClientMode == "local"
-	buildCtx := astroSpec.Agent.Build
-	jobName := fmt.Sprintf("build-%s-agent", args.BuildID)
 
-	var destination string
-	if !local {
-		destination = w.ecrImagePath(conn.AccountID, agentName, args.BuildID)
+	// Collect all component builds from the spec, mirroring astro push behaviour.
+	// Each entry is (jobSuffix, imageName, buildConfig).
+	type componentBuild struct {
+		suffix string
+		name   string
+		build  spec.BuildConfig
+	}
+	var builds []componentBuild
+
+	// Agent (always built if it has a build block; agent.Build is never nil in the struct)
+	if astroSpec.Agent.Build != nil {
+		builds = append(builds, componentBuild{"agent", agentName, *astroSpec.Agent.Build})
+	} else {
+		builds = append(builds, componentBuild{"agent", agentName, spec.BuildConfig{}})
+	}
+
+	for modelName, model := range astroSpec.Models {
+		if model.Container != nil && model.Container.Build != nil {
+			builds = append(builds, componentBuild{
+				"model-" + modelName,
+				fmt.Sprintf("%s-model-%s", agentName, modelName),
+				*model.Container.Build,
+			})
+		}
+	}
+	for knowledgeName, knowledge := range astroSpec.Knowledge {
+		c := knowledge.ResolvedContainer()
+		if c.Build != nil {
+			builds = append(builds, componentBuild{
+				"knowledge-" + knowledgeName,
+				fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName),
+				*c.Build,
+			})
+		}
+	}
+	for toolName, tool := range astroSpec.Tools {
+		if tool.Container != nil && tool.Container.Build != nil {
+			builds = append(builds, componentBuild{
+				"tool-" + toolName,
+				fmt.Sprintf("%s-tool-%s", agentName, toolName),
+				*tool.Container.Build,
+			})
+		}
+	}
+	for ingestionName, ingestion := range astroSpec.Ingestion {
+		if ingestion.Container.Build != nil {
+			builds = append(builds, componentBuild{
+				"ingestion-" + ingestionName,
+				fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName),
+				*ingestion.Container.Build,
+			})
+		}
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "building")
-	log.Info("Starting BuildKit build", "repo", conn.RepoFullName, "local", local)
-	if err := w.runBuildKitJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, buildCtx.Context, buildCtx.Dockerfile, destination); err != nil {
-		var bfe buildFailedError
-		if errors.As(err, &bfe) {
-			// Permanent: build itself failed (bad Dockerfile / code) — no point retrying.
-			return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(err))
+	log.Info("Starting BuildKit builds", "repo", conn.RepoFullName, "components", len(builds), "local", local)
+
+	for _, cb := range builds {
+		jobName := fmt.Sprintf("build-%s-%s", args.BuildID, cb.suffix)
+		var destination string
+		if !local {
+			destination = w.ecrImagePath(conn.AccountID, cb.name, args.BuildID)
 		}
-		// Infrastructure error (K8s unavailable, context cancelled) — retriable.
-		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("build: %w", err))
+		log.Info("Building component", "component", cb.suffix, "destination", destination)
+		if err := w.runBuildKitJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.build, destination); err != nil {
+			var bfe buildFailedError
+			if errors.As(err, &bfe) {
+				return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("build %s: %w", cb.suffix, err)))
+			}
+			return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("build %s: %w", cb.suffix, err))
+		}
 	}
 
 	readme, _ := fetchFileContent(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, "AGENT.md")
@@ -250,7 +303,7 @@ func (w *GitHubBuildWorker) ecrImagePath(accountID, agentName, buildID string) s
 //
 // When destination is empty (local dev), step 2 is skipped and BuildKit builds
 // without pushing.
-func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubToken, repoFullName, commitSHA, buildContext, dockerfile, destination string) error {
+func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubToken, repoFullName, commitSHA string, build spec.BuildConfig, destination string) error {
 	if w.k8sClient == nil {
 		return fmt.Errorf("k8s client not configured")
 	}
@@ -259,6 +312,8 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	sa := w.cfg.GitHub.BuildServiceAccount
 	clientset := w.k8sClient.Clientset()
 
+	buildContext := build.Context
+	dockerfile := build.Dockerfile
 	if buildContext == "" {
 		buildContext = "."
 	}
@@ -296,6 +351,12 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		"--local", "context=" + contextDir,
 		"--local", "dockerfile=/workspace",
 		"--opt", "filename=" + dockerfile,
+	}
+	if build.Target != "" {
+		buildctlArgs = append(buildctlArgs, "--opt", "target="+build.Target)
+	}
+	for k, v := range build.Args {
+		buildctlArgs = append(buildctlArgs, "--opt", "build-arg:"+k+"="+v)
 	}
 	if destination != "" {
 		buildctlArgs = append(buildctlArgs, "--output", "type=image,name="+destination+",push=true")
