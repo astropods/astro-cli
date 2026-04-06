@@ -332,6 +332,11 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 // Returns the current connection info and recent builds.
 func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if _, ok := middleware.GetSession(c); !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
@@ -412,7 +417,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 		}
 		if err != nil {
 			log.Error("github webhook: lookup connection", "error", err, "repo", payload.Repository.FullName)
-			c.Status(http.StatusOK)
+			c.Status(http.StatusInternalServerError)
 			return
 		}
 
@@ -477,7 +482,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 		log.Info("GitHub push enqueued for build",
 			"repo", payload.Repository.FullName,
 			"branch", conn.Branch,
-			"commit", payload.After[:7],
+			"commit", payload.After[:min(7, len(payload.After))],
 			"build_id", buildID,
 		)
 		c.Status(http.StatusAccepted)
@@ -563,7 +568,10 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 			return
 		}
 
-		commit, _ := gh.GetCommit(c.Request.Context(), conn.RepoFullName, sha)
+		commit, err := gh.GetCommit(c.Request.Context(), conn.RepoFullName, sha)
+		if err != nil {
+			log.Warn("github: get commit metadata", "error", err, "sha", sha)
+		}
 
 		buildID := randomHex(8)
 		buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{

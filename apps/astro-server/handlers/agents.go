@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"gopkg.in/yaml.v3"
 )
 
@@ -652,8 +654,8 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 		}
 
 		if err := index.Create(acct.ID, req.Name); err != nil {
-			// Duplicate key = already exists.
-			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})
 				return
 			}

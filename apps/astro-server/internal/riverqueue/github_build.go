@@ -31,6 +31,11 @@ import (
 
 const queueGitHubBuild = "github_build"
 
+// githubHTTPClient is used for GitHub API calls inside the build worker.
+// A 30-second timeout bounds any individual request without cutting off
+// the overall 25-minute job budget.
+var githubHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 // Pinned init container images — update these explicitly to get new versions.
 const (
 	buildKitImage = "moby/buildkit:v0.21.0-rootless"
@@ -553,7 +558,7 @@ func fetchFileContent(ctx context.Context, token, repoFullName, ref, filePath st
 	req.Header.Set("Accept", "application/vnd.github.raw+json")
 	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", url, err)
 	}
