@@ -51,14 +51,15 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 			return
 		}
 
-		// Validate namespace for write operations
-		if !validateNamespaceAccess(c, path, cfg.Logger, cfg.MembershipChecker) {
+		// Validate namespace access and resolve account ID
+		ok, accountID := validateNamespaceAccess(c, path, cfg.Logger, cfg.MembershipChecker)
+		if !ok {
 			return
 		}
 
 		// For write operations, ensure the repository exists before proxying
 		if isWriteOperation(c.Request.Method) {
-			repoName := extractRepositoryName(path, cfg.Environment)
+			repoName := extractRepositoryName(path, cfg.Environment, accountID)
 			if repoName != "" {
 				if err := cfg.AuthProvider.CreateRepository(c.Request.Context(), repoName); err != nil {
 					cfg.Logger.Error("Failed to ensure repository exists", "repository", repoName, "error", err)
@@ -69,7 +70,7 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 		}
 
 		// Build target URL
-		targetURL, err := buildTargetURL(cfg.RegistryURL, path, c.Request.URL.RawQuery, cfg.Environment)
+		targetURL, err := buildTargetURL(cfg.RegistryURL, path, c.Request.URL.RawQuery, cfg.Environment, accountID)
 		if err != nil {
 			cfg.Logger.Error("Failed to build target URL", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"errors": []gin.H{{"code": "SERVER_ERROR", "message": "Failed to build target URL"}}})
@@ -152,22 +153,23 @@ func extractNamespace(path string) string {
 }
 
 // extractRepositoryName returns the ECR repository name for a registry path.
-// ECR path becomes {env}-tenant-{account_name}/{image}.
-func extractRepositoryName(path string, env string) string {
+// ECR path becomes {env}-tenant-{account_id}/{image}.
+func extractRepositoryName(path string, env string, accountID string) string {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
 		return ""
 	}
-	return env + "-tenant-" + parts[0] + "/" + parts[1]
+	return env + "-tenant-" + accountID + "/" + parts[1]
 }
 
 // validateNamespaceAccess validates that the user has access to the requested namespace.
 // All operations require account membership. Org accounts also require the appropriate
 // permission: agents:read for pulls, agents:write for pushes.
-func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc *account.MembershipChecker) bool {
+// Returns (allowed, accountID) — accountID is the resolved UUID, empty for short paths.
+func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc *account.MembershipChecker) (bool, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
-		return true
+		return true, ""
 	}
 
 	namespace := parts[0]
@@ -177,22 +179,25 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 	user, ok := middleware.GetUser(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"errors": []gin.H{{"code": "UNAUTHORIZED", "message": "Authentication required"}}})
-		return false
+		return false, ""
 	}
 
-	// Check if user is a member of the account
+	// Check if user is a member of the account; resolve the account UUID in the same query.
 	memberOK := false
+	var accountID string
 	if mc != nil {
-		isMember, err := mc.IsMember(namespace, user.ID)
-		if err == nil && isMember {
+		isMember, id, err := mc.IsMemberWithID(namespace, user.ID)
+		if err != nil {
+			if log != nil {
+				log.Warn("Membership check failed",
+					"namespace", namespace,
+					"user_id", user.ID,
+					"error", err,
+				)
+			}
+		} else if isMember {
 			memberOK = true
-		}
-		if log != nil && err != nil {
-			log.Warn("Membership check failed",
-				"namespace", namespace,
-				"user_id", user.ID,
-				"error", err,
-			)
+			accountID = id
 		}
 	}
 
@@ -216,7 +221,7 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 				"message": fmt.Sprintf("Access denied: cannot %s namespace %q", action, namespace),
 			}},
 		})
-		return false
+		return false, ""
 	}
 
 	// Check permission for org accounts (session carries permissions from JWT).
@@ -241,15 +246,15 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 					"message": fmt.Sprintf("Insufficient permissions: %s required", required),
 				}},
 			})
-			return false
+			return false, ""
 		}
 	}
 
-	return true
+	return true, accountID
 }
 
 // buildTargetURL builds the full URL to the backend ECR registry.
-func buildTargetURL(registryURL, path, query, env string) (string, error) {
+func buildTargetURL(registryURL, path, query, env, accountID string) (string, error) {
 	base, err := url.Parse(registryURL)
 	if err != nil {
 		return "", err
@@ -262,7 +267,7 @@ func buildTargetURL(registryURL, path, query, env string) (string, error) {
 	}
 
 	// Add tenant prefix to path for ECR
-	ecrPath := addTenantPrefix(path, env)
+	ecrPath := addTenantPrefix(path, env, accountID)
 
 	// Build full path
 	fullPath := basePath + ecrPath
@@ -277,8 +282,8 @@ func buildTargetURL(registryURL, path, query, env string) (string, error) {
 	return target.String(), nil
 }
 
-// addTenantPrefix replaces the namespace with {env}-tenant-{namespace} for ECR.
-func addTenantPrefix(path string, env string) string {
+// addTenantPrefix replaces the namespace segment with {env}-tenant-{accountID} for ECR.
+func addTenantPrefix(path string, env string, accountID string) string {
 	trimmed := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(trimmed, "/", 2)
 
@@ -286,7 +291,7 @@ func addTenantPrefix(path string, env string) string {
 		return path
 	}
 
-	parts[0] = env + "-tenant-" + parts[0]
+	parts[0] = env + "-tenant-" + accountID
 	return "/" + strings.Join(parts, "/")
 }
 

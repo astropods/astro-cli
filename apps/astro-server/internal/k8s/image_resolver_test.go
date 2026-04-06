@@ -102,3 +102,71 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 		})
 	}
 }
+
+// ===== ECR namespace migration: old builds (account name) vs new builds (UUID) =====
+//
+// ImageResolver is called on images that are already stored in the deployment spec.
+// For old builds the spec contains ECR URLs with account names; for new builds they
+// contain UUIDs. In both cases ImageResolver must pass them through unchanged
+// (they don't start with the proxy host, so no re-resolution occurs).
+//
+// The resolver also acts as a safety net for any edge case where an image is still
+// in proxy format — tested here for completeness.
+
+func TestImageResolver_OldBuild_AlreadyResolvedECRURLPassesThrough(t *testing.T) {
+	// Old agent_version: ECR URL stored with account name namespace.
+	// ImageResolver must not alter it — the ECR repo prod-tenant-saswatds still exists.
+	resolver := NewImageResolver("registry.example.com", "https://123456789.dkr.ecr.us-east-1.amazonaws.com", "prod")
+
+	oldBuildImage := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:abc"
+	got, err := resolver.ResolveImage(oldBuildImage)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != oldBuildImage {
+		t.Errorf("old build ECR URL should pass through unchanged: expected %s, got %s", oldBuildImage, got)
+	}
+}
+
+func TestImageResolver_NewBuild_AlreadyResolvedUUIDECRURLPassesThrough(t *testing.T) {
+	// New agent_version: ECR URL stored with UUID namespace.
+	// ImageResolver must not alter it.
+	resolver := NewImageResolver("registry.example.com", "https://123456789.dkr.ecr.us-east-1.amazonaws.com", "prod")
+
+	newBuildImage := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:newbuild"
+	got, err := resolver.ResolveImage(newBuildImage)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != newBuildImage {
+		t.Errorf("new build ECR URL should pass through unchanged: expected %s, got %s", newBuildImage, got)
+	}
+}
+
+func TestImageResolver_OldAndNewBuilds_DifferentECRPaths(t *testing.T) {
+	// Sanity check: old and new build images resolve to different ECR paths
+	// (the account-name path vs the UUID path), confirming coexistence.
+	resolver := NewImageResolver("registry.example.com", "https://123456789.dkr.ecr.us-east-1.amazonaws.com", "prod")
+
+	oldImage := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:abc"
+	newImage := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:newbuild"
+
+	gotOld, err := resolver.ResolveImage(oldImage)
+	if err != nil {
+		t.Fatalf("unexpected error on old image: %v", err)
+	}
+	gotNew, err := resolver.ResolveImage(newImage)
+	if err != nil {
+		t.Fatalf("unexpected error on new image: %v", err)
+	}
+
+	if gotOld != oldImage {
+		t.Errorf("old build: expected pass-through %s, got %s", oldImage, gotOld)
+	}
+	if gotNew != newImage {
+		t.Errorf("new build: expected pass-through %s, got %s", newImage, gotNew)
+	}
+	if gotOld == gotNew {
+		t.Error("old and new build images must remain distinct after resolution")
+	}
+}

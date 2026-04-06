@@ -1978,3 +1978,144 @@ func TestGenerateDeploymentTemplate_CredentialInputDefaultMerge(t *testing.T) {
 		t.Error("ANTHROPIC_API_KEY.Secret: expected true")
 	}
 }
+
+// ===== ECR namespace migration: old builds (account name) vs new builds (UUID) =====
+//
+// After the ecr-tenant-correction change, ECRNamespace stores the account UUID.
+// Existing agent_version rows still store the account name. Both must continue
+// to resolve to valid ECR image URIs without any data migration.
+
+const (
+	testAccountName = "saswatds"
+	testAccountUUID = "01kggdgfrw46qcsnxeqbr1hr1z"
+)
+
+// migrationProxyInput returns a TemplateInput wired up with proxy/ECR config,
+// leaving ECRNamespace unset so each test can set it explicitly.
+func migrationProxyInput() TemplateInput {
+	return TemplateInput{
+		Spec: &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "proxy.registry.io/" + testAccountName + "/my-agent:abc"},
+		},
+		AgentName:         "my-agent",
+		Account:           testAccountName,
+		BuildID:           "abc",
+		RegistryURL:       "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+		ProxyRegistryHost: "proxy.registry.io",
+		Environment:       "prod",
+	}
+}
+
+// TestResolveImage_OldBuild_AccountNameNamespace verifies that a pre-migration
+// agent_version row (ECRNamespace = account name) still resolves to the correct
+// ECR path. The ECR repo under the account name still exists, so this must work.
+func TestResolveImage_OldBuild_AccountNameNamespace(t *testing.T) {
+	input := migrationProxyInput()
+	input.ECRNamespace = testAccountName // old format: stored as "saswatds"
+
+	got := resolveImage("proxy.registry.io/"+testAccountName+"/my-agent:abc", input)
+	want := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:abc"
+	if got != want {
+		t.Errorf("old build: expected %s, got %s", want, got)
+	}
+}
+
+// TestResolveImage_NewBuild_UUIDNamespace verifies that a post-migration
+// agent_version row (ECRNamespace = UUID) resolves to the UUID-namespaced ECR path.
+func TestResolveImage_NewBuild_UUIDNamespace(t *testing.T) {
+	input := migrationProxyInput()
+	input.ECRNamespace = testAccountUUID // new format: stored as UUID
+
+	got := resolveImage("proxy.registry.io/"+testAccountName+"/my-agent:newbuild", input)
+	want := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:newbuild"
+	if got != want {
+		t.Errorf("new build: expected %s, got %s", want, got)
+	}
+}
+
+// TestResolveImage_OldAndNewBuilds_IndependentECRPaths verifies that the same
+// agent with an old build and a new build resolve to different ECR paths — the
+// old path under the account name, the new path under the UUID. Both ECR repos
+// coexist and each build resolves to its own repo.
+func TestResolveImage_OldAndNewBuilds_IndependentECRPaths(t *testing.T) {
+	base := migrationProxyInput()
+	image := "proxy.registry.io/" + testAccountName + "/my-agent:tag"
+
+	oldBuildInput := base
+	oldBuildInput.ECRNamespace = testAccountName
+	oldPath := resolveImage(image, oldBuildInput)
+
+	newBuildInput := base
+	newBuildInput.ECRNamespace = testAccountUUID
+	newPath := resolveImage(image, newBuildInput)
+
+	wantOld := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:tag"
+	wantNew := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:tag"
+
+	if oldPath != wantOld {
+		t.Errorf("old build path: expected %s, got %s", wantOld, oldPath)
+	}
+	if newPath != wantNew {
+		t.Errorf("new build path: expected %s, got %s", wantNew, newPath)
+	}
+	if oldPath == newPath {
+		t.Error("old and new builds must resolve to different ECR paths")
+	}
+}
+
+// TestTemplate_OldBuild_AllComponentsResolveWithAccountName verifies that a
+// full template generated from an old agent_version (ECRNamespace = account name)
+// produces valid ECR URIs for every component type.
+func TestTemplate_OldBuild_AllComponentsResolveWithAccountName(t *testing.T) {
+	input := migrationProxyInput()
+	input.ECRNamespace = testAccountName
+	input.Spec.Models = map[string]spec.Model{
+		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:abc", Port: 8000}},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:abc", Port: 3000}},
+	}
+
+	ds := mustGenerate(t, input)
+
+	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/"
+	checks := map[string]string{
+		"agent": ds.Agent.Image,
+		"model": ds.Models["m"].Image,
+		"tool":  ds.Tools["t"].Image,
+	}
+	for component, image := range checks {
+		if !strings.HasPrefix(image, wantPrefix) {
+			t.Errorf("old build %s: expected prefix %s, got %s", component, wantPrefix, image)
+		}
+	}
+}
+
+// TestTemplate_NewBuild_AllComponentsResolveWithUUID verifies that a full
+// template generated from a new agent_version (ECRNamespace = UUID) produces
+// UUID-namespaced ECR URIs for every component type.
+func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
+	input := migrationProxyInput()
+	input.ECRNamespace = testAccountUUID
+	input.Spec.Models = map[string]spec.Model{
+		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:new", Port: 8000}},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:new", Port: 3000}},
+	}
+
+	ds := mustGenerate(t, input)
+
+	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/"
+	checks := map[string]string{
+		"agent": ds.Agent.Image,
+		"model": ds.Models["m"].Image,
+		"tool":  ds.Tools["t"].Image,
+	}
+	for component, image := range checks {
+		if !strings.HasPrefix(image, wantPrefix) {
+			t.Errorf("new build %s: expected prefix %s, got %s", component, wantPrefix, image)
+		}
+	}
+}

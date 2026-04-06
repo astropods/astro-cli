@@ -563,7 +563,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		// Parse agent card from readme and merge spec-derived integrations at registration time
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
 
-		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, accountName, specMap, req.Readme, agentCardJSON, validationWarningsJSON); err != nil {
+		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, acct.ID, specMap, req.Readme, agentCardJSON, validationWarningsJSON); err != nil {
 			log.Error("Failed to register agent", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to register agent",

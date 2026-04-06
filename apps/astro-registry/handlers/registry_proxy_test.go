@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const testAccountID = "01kggdgfrw46qcsnxeqbr1hr1z"
+
 func init() {
 	gin.SetMode(gin.TestMode)
 }
@@ -44,38 +46,38 @@ func TestBuildTargetURL(t *testing.T) {
 		expected    string
 	}{
 		{
-			name:        "adds tenant prefix",
+			name:        "adds tenant prefix with account ID",
 			registryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			path:        "/saswatds/myapp/manifests/latest",
 			query:       "",
-			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-saswatds/myapp/manifests/latest",
+			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/manifests/latest",
 		},
 		{
 			name:        "with query string",
 			registryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			path:        "/saswatds/myapp/blobs/uploads/",
 			query:       "digest=sha256:abc123",
-			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-saswatds/myapp/blobs/uploads/?digest=sha256:abc123",
+			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/blobs/uploads/?digest=sha256:abc123",
 		},
 		{
 			name:        "registry URL with trailing slash",
 			registryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com/",
 			path:        "/saswatds/myapp/manifests/v1.0.0",
 			query:       "",
-			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-saswatds/myapp/manifests/v1.0.0",
+			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/manifests/v1.0.0",
 		},
 		{
 			name:        "registry URL already has /v2",
 			registryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2",
 			path:        "/saswatds/myapp/manifests/latest",
 			query:       "",
-			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-saswatds/myapp/manifests/latest",
+			expected:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/manifests/latest",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := buildTargetURL(tt.registryURL, tt.path, tt.query, "prod")
+			result, err := buildTargetURL(tt.registryURL, tt.path, tt.query, "prod", testAccountID)
 			if err != nil {
 				t.Fatalf("buildTargetURL failed: %v", err)
 			}
@@ -95,16 +97,16 @@ func TestAddTenantPrefix(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "account name namespace",
+			name:     "uses account ID not account name",
 			input:    "/saswatds/myapp/manifests/latest",
 			env:      "prod",
-			expected: "/prod-tenant-saswatds/myapp/manifests/latest",
+			expected: "/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/manifests/latest",
 		},
 		{
 			name:     "preview environment",
 			input:    "/saswatds/myapp/manifests/latest",
 			env:      "preview",
-			expected: "/preview-tenant-saswatds/myapp/manifests/latest",
+			expected: "/preview-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myapp/manifests/latest",
 		},
 		{
 			name:     "empty path",
@@ -122,7 +124,7 @@ func TestAddTenantPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := addTenantPrefix(tt.input, tt.env)
+			result := addTenantPrefix(tt.input, tt.env, testAccountID)
 			if result != tt.expected {
 				t.Errorf("expected %s, got %s", tt.expected, result)
 			}
@@ -139,16 +141,16 @@ func TestExtractRepositoryName(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "account name and image",
+			name:     "uses account ID not account name",
 			path:     "/saswatds/sasbot/manifests/latest",
 			env:      "prod",
-			expected: "prod-tenant-saswatds/sasbot",
+			expected: "prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/sasbot",
 		},
 		{
 			name:     "preview environment",
 			path:     "/saswatds/myagent/blobs/sha256:abc",
 			env:      "preview",
-			expected: "preview-tenant-saswatds/myagent",
+			expected: "preview-tenant-01kggdgfrw46qcsnxeqbr1hr1z/myagent",
 		},
 		{
 			name:     "path too short",
@@ -166,7 +168,7 @@ func TestExtractRepositoryName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractRepositoryName(tt.path, tt.env)
+			result := extractRepositoryName(tt.path, tt.env, testAccountID)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
 			}
@@ -289,7 +291,7 @@ func TestValidateNamespaceAccess_ReadOperations_NoMembership(t *testing.T) {
 			c.Request = httptest.NewRequest(method, "/v2/saswatds/myapp/manifests/latest", nil)
 			c.Set(string(auth.UserContextKey), &auth.User{ID: "user123"})
 
-			result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+			result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 			if result {
 				t.Errorf("%s request should be denied without membership", method)
 			}
@@ -309,7 +311,7 @@ func TestValidateNamespaceAccess_WriteOperations_NoMembershipChecker(t *testing.
 
 	c.Set(string(auth.UserContextKey), &auth.User{ID: "user123"})
 
-	result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+	result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 	if result {
 		t.Error("PUT request should be denied when no MembershipChecker is available")
 	}
@@ -322,7 +324,7 @@ func TestValidateNamespaceAccess_NoUser(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPut, "/v2/saswatds/myapp/manifests/latest", nil)
 	log := logger.New("error", "text")
 
-	result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+	result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 	if result {
 		t.Error("PUT request should be denied when user not authenticated")
 	}
@@ -341,7 +343,7 @@ func TestValidateNamespaceAccess_DeniedReturns403(t *testing.T) {
 
 	c.Set(string(auth.UserContextKey), &auth.User{ID: "user123"})
 
-	result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+	result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 	if result {
 		t.Error("expected access denied")
 	}
@@ -378,7 +380,7 @@ func TestValidateNamespaceAccess_ShortPath(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPut, "/v2/", nil)
 	log := logger.New("error", "text")
 
-	result := validateNamespaceAccess(c, "/", log, nil)
+	result, _ := validateNamespaceAccess(c, "/", log, nil)
 	if !result {
 		t.Error("short path should be allowed")
 	}
@@ -396,7 +398,7 @@ func TestValidateNamespaceAccess_AllWriteMethods(t *testing.T) {
 			c.Request = httptest.NewRequest(method, "/v2/saswatds/myapp/manifests/latest", nil)
 			c.Set(string(auth.UserContextKey), &auth.User{ID: "user123"})
 
-			result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+			result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 			if result {
 				t.Errorf("%s request should be denied without MembershipChecker", method)
 			}
@@ -428,7 +430,7 @@ func TestValidateNamespaceAccess_OrgAccount_MissingPermission(t *testing.T) {
 	// Since mc is nil, membership fails first — so we test via the proxy handler path.
 	// For a direct unit test, we need a membership checker that returns true.
 	// Let's just verify the 403 message mentions permissions.
-	result := validateNamespaceAccess(c, "/myorg/myapp/manifests/latest", log, nil)
+	result, _ := validateNamespaceAccess(c, "/myorg/myapp/manifests/latest", log, nil)
 	if result {
 		t.Error("should be denied (no membership checker)")
 	}
@@ -445,7 +447,7 @@ func TestValidateNamespaceAccess_ReadOperations_NoUser(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/v2/saswatds/myapp/manifests/latest", nil)
 	log := logger.New("error", "text")
 
-	result := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
+	result, _ := validateNamespaceAccess(c, "/saswatds/myapp/manifests/latest", log, nil)
 	if result {
 		t.Error("GET should be denied when user not authenticated")
 	}
