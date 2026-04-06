@@ -132,15 +132,8 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker := &GitHubBuildWorker{
-			pipesClient: cfg.PipesClient,
-			ghStore:     cfg.GitHubStore,
-			agentIndex:  cfg.AgentIndex,
-			k8sClient:   cfg.K8sClient,
-			cfg:         cfg.ServerConfig,
-			log:         log,
-		}
-		if err := ghBuildWorker.EnsureBuildInfrastructure(context.Background()); err != nil {
+		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sClient, cfg.ServerConfig, log)
+		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}
 		river.AddWorker(workers, ghBuildWorker)
