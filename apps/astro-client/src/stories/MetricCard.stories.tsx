@@ -20,6 +20,7 @@ export const Default: Story = {
     label: "Requests today",
     value: "1,284",
     trend: 12,
+    showTrend: true,
     higherIsBetter: true,
   },
 };
@@ -29,6 +30,7 @@ export const NegativeTrend: Story = {
     label: "Error rate",
     value: "3.2%",
     trend: 18,
+    showTrend: true,
     higherIsBetter: false,
   },
 };
@@ -38,6 +40,7 @@ export const GoodNegativeTrend: Story = {
     label: "P95 latency",
     value: "420ms",
     trend: -8,
+    showTrend: true,
     higherIsBetter: false,
   },
 };
@@ -70,12 +73,12 @@ export const AllStates: Story = {
   args: { label: "Requests today", value: "1,284" },
   render: () => (
     <div className="grid grid-cols-2 gap-3 max-w-lg">
-      <MetricCard label="Requests today" value="1,284" trend={12} higherIsBetter />
-      <MetricCard label="Error rate" value="3.2%" trend={18} higherIsBetter={false} />
-      <MetricCard label="P95 latency" value="420ms" trend={-8} higherIsBetter={false} />
+      <MetricCard label="Requests today" value="1,284" trend={12} showTrend higherIsBetter />
+      <MetricCard label="Error rate" value="3.2%" trend={18} showTrend higherIsBetter={false} />
+      <MetricCard label="P95 latency" value="420ms" trend={-8} showTrend higherIsBetter={false} />
       <MetricCard label="Tokens today" value="84,210" />
       <MetricCard label="Loading" value="—" loading trendLoading />
-      <MetricCard label="Trend loading" value="1,284" trendLoading />
+      <MetricCard label="Trend loading" value="1,284" showTrend trendLoading />
     </div>
   ),
 };

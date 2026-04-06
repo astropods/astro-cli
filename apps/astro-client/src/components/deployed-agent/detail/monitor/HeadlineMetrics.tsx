@@ -102,6 +102,7 @@ export function HeadlineMetrics({ summary, summaryLoading, trendLoading, selecte
           label={card.label}
           value={card.value}
           trend={card.trend(selectedWindow)}
+          showTrend
           higherIsBetter={card.higherIsBetter}
           loading={summaryLoading}
           trendLoading={trendLoading}

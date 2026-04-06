@@ -32,12 +32,13 @@ export interface MetricCardProps {
   value: string;
   trend?: number | null;
   higherIsBetter?: boolean;
+  showTrend?: boolean;
   loading?: boolean;
   trendLoading?: boolean;
   className?: string;
 }
 
-export function MetricCard({ label, value, trend = null, higherIsBetter = true, loading, trendLoading, className }: MetricCardProps) {
+export function MetricCard({ label, value, trend = null, higherIsBetter = true, showTrend = false, loading, trendLoading, className }: MetricCardProps) {
   return (
     <div className={cn("rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
       <span className="mb-2 block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
@@ -48,7 +49,7 @@ export function MetricCard({ label, value, trend = null, higherIsBetter = true, 
       ) : (
         <span className="block font-sans text-heading-2 font-bold text-foreground">{value}</span>
       )}
-      {trendLoading ? (
+      {showTrend && (trendLoading ? (
         <div className="mt-2 flex gap-1.5 items-center">
           <SkeletonBar className="h-3.5 w-1/4" />
           <SkeletonBar className="h-3.5 w-8" />
@@ -56,7 +57,7 @@ export function MetricCard({ label, value, trend = null, higherIsBetter = true, 
         </div>
       ) : (
         <TrendIndicator value={trend} higherIsBetter={higherIsBetter} />
-      )}
+      ))}
     </div>
   );
 }
