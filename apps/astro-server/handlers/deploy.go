@@ -896,7 +896,17 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)[0]
+		deps := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
+		result := deps[0]
+		// During a rolling build update the namespace contains workloads for both the old and
+		// new build ID. Pick the entry matching the DB's current build so the client always
+		// sees the new ingress URL, not the stale entry from the outgoing build.
+		for _, dep := range deps {
+			if dep.BuildID == dbDep.BuildID {
+				result = dep
+				break
+			}
+		}
 
 		if auditStore != nil {
 			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})

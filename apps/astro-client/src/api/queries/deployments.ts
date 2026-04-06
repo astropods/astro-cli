@@ -42,22 +42,27 @@ export function useDeployments(account: string, enabled = true) {
   });
 }
 
+function deploymentNeedsPolling(dep: AgentDeployment | null | undefined): boolean {
+  if (!dep) return false;
+  const status = dep.status?.toLowerCase?.() ?? "";
+  const isTransitional =
+    status === "pending" ||
+    status === "provisioning" ||
+    status === "deploying" ||
+    status === "undeploying";
+  // A Running deployment with no workloads is a transient K8s state (pods cycling during
+  // a rolling update). Keep polling until workloads appear so the playground URL surfaces.
+  const missingWorkloads = status === "running" && !(dep.workloads?.length ?? 0);
+  return isTransitional || hasContainerMismatch(dep) || missingWorkloads;
+}
+
 export function useDeployment(id: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.detail(id),
     queryFn: () => api.getDeployment(id),
     enabled: !!id && enabled,
-    refetchInterval: (query) => {
-      const dep = query.state.data?.deployment;
-      const status = dep?.status?.toLowerCase?.() ?? "";
-      const isTransitional =
-        status === "pending" ||
-        status === "provisioning" ||
-        status === "deploying" ||
-        status === "undeploying";
-      return isTransitional || hasContainerMismatch(dep) ? 3000 : false;
-    },
+    refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
   });
 }
 
@@ -67,16 +72,7 @@ export function useDeploymentSuspense(id: string) {
   return useSuspenseQuery({
     queryKey: deploymentKeys.detail(id),
     queryFn: () => api.getDeployment(id),
-    refetchInterval: (query) => {
-      const dep = query.state.data?.deployment;
-      const status = dep?.status?.toLowerCase?.() ?? "";
-      const isTransitional =
-        status === "pending" ||
-        status === "provisioning" ||
-        status === "deploying" ||
-        status === "undeploying";
-      return isTransitional || hasContainerMismatch(dep) ? 3000 : false;
-    },
+    refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
   });
 }
 
