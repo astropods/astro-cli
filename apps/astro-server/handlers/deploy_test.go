@@ -1577,10 +1577,10 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	}
 }
 
-// TestGetPrefilledTemplate_BuildParamIgnored verifies that passing ?build= to the prefilled
-// template endpoint has no effect — the template always uses the existing deployment's build_id.
-// Upgrading to a newer build is only possible via the "new build available" banner flow.
-func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
+// TestGetPrefilledTemplate_BuildParamOverride verifies that passing ?build= to the prefilled
+// template endpoint overrides the build ID used to generate the template. This supports the
+// "new build available" upgrade flow where the client needs a template for a newer build.
+func TestGetPrefilledTemplate_BuildParamOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -1618,7 +1618,7 @@ func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// generateTemplate uses existing.BuildID ("build-1"), not ?build=build-2
+	// generateTemplate uses ?build=build-2 override, not the existing deployment's build-1
 	expectAccountLookup(accountMock)
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
@@ -1629,13 +1629,13 @@ func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
-	// GetVersion called with "build-1" (existing), NOT "build-2" from the query param
+			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+	// GetVersion called with "build-2" from the query param override, not "build-1"
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent", "build-1").
+		WithArgs("acct-1", "my-agent", "build-2").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1649,7 +1649,7 @@ func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
 			AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
 
-	// Pass ?build=build-2 — should be ignored
+	// Pass ?build=build-2 — should override the existing deployment's build-1
 	req := httptest.NewRequest(http.MethodGet,
 		"/agents/myorg/my-agent/deployment-template/"+depID+"?build=build-2&format=json", nil)
 	rec := httptest.NewRecorder()
@@ -1662,13 +1662,13 @@ func TestGetPrefilledTemplate_BuildParamIgnored(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
-	// Template must use the existing deployment's build, not build-2
+	// Template must use build-2 from the query param, not the existing deployment's build-1
 	source, ok := resp["source"].(map[string]any)
 	if !ok {
 		t.Fatal("expected source to be an object")
 	}
-	if source["build"] != "build-1" {
-		t.Errorf("expected source.build='build-1' (pinned to existing deployment), got %v", source["build"])
+	if source["build"] != "build-2" {
+		t.Errorf("expected source.build='build-2' (overridden by ?build=), got %v", source["build"])
 	}
 
 	target := resp["target"].(map[string]any)
