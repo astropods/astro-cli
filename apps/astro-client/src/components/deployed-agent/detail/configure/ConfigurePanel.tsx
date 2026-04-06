@@ -45,9 +45,6 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
 
-  useEffect(() => {
-    console.log(`current build: ${deployment.build_id}`);
-  }, [deployment.build_id]);
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
 
   const trackedState: TrackedFormState = {
@@ -68,17 +65,14 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const canSubmit = form.trySubmit();
-    console.log('[redeploy] trySubmit:', canSubmit);
-    if (!canSubmit) return;
+    if (!form.trySubmit()) return;
     onRedeployStart?.();
     try {
-      const result = await form.deploy();
-      console.log('[redeploy] success:', result);
+      await form.deploy();
       onClose();
       onRedeploy?.();
-    } catch (err) {
-      console.error('[redeploy] failed:', err);
+    } catch {
+      // captured in form.deployError
     }
   };
 
