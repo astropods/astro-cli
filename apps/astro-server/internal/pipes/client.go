@@ -111,7 +111,7 @@ func (c *Client) GetAuthorizationURL(ctx context.Context, in GetAuthorizationURL
 	if err != nil {
 		return "", fmt.Errorf("pipes: authorize request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(resp.Body); err != nil {

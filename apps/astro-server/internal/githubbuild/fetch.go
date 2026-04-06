@@ -105,7 +105,7 @@ func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath st
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode == http.StatusNotFound {
 		return "", nil
 	}
