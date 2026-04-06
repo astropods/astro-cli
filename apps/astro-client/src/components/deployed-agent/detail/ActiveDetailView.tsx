@@ -187,9 +187,16 @@ export function ActiveDetailView({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Lock page-level scroll while this view is mounted — all scrolling is handled internally
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
 
   return (
-    <div style={{ display: 'flex', flex: 1, minHeight: 0, background: C.bg }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg }}>
       <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
       {/* ── TOP BAR ── */}
       <header style={{
@@ -435,6 +442,7 @@ export function ActiveDetailView({
                   revisionOverride={configRevision ?? undefined}
                   readOnly={configRevision !== null && configRollbackBuildId === null}
                   isNewBuild={configIsNewBuild}
+                  newBuildId={configIsNewBuild ? latestBuildId : undefined}
                   rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
                 />
               ) : showTraceAsPage && selectedTrace ? (
@@ -474,42 +482,47 @@ export function ActiveDetailView({
 
       {/* right panel — configure or trace detail */}
       {!isCompact && (
-        <div
-          style={{
-            position: 'sticky',
-            top: 0,
-            alignSelf: 'flex-start',
-            height: '100vh',
-            width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0,
-            flexShrink: 0,
-            overflowX: 'clip',
-            transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            zIndex: 45,
-          }}
-        >
-          {configOpen && (
-            <ConfigurePanel
-              deployment={renderedDeployment}
-              account={account}
-              onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
-              onRedeployStart={() => { setOptimisticDeploying(true); }}
-              onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
-              revisionOverride={configRevision ?? undefined}
-              readOnly={configRevision !== null && configRollbackBuildId === null}
-              isNewBuild={configIsNewBuild}
-              rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
-            />
-          )}
-          {selectedTrace && !configOpen && (
-            <TraceDetailPanel
-              trace={selectedTrace}
-              canGoPrev={canGoPrev}
-              canGoNext={canGoNext}
-              onNavigate={handleNavigate}
-              onClose={() => setSelectedTrace(null)}
-            />
-          )}
-        </div>
+        <>
+          {/* in-flow spacer — drives the left content push animation without affecting panel position */}
+          <div style={{ flexShrink: 0, width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0, transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }} />
+          {/* fixed panel — viewport-anchored below AppHeader (h-14 = 56px), immune to any ancestor scroll */}
+          <div
+            style={{
+              position: 'fixed',
+              top: 56,
+              right: 0,
+              height: 'calc(100vh - 56px)',
+              width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+              overflowX: 'clip',
+              transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              zIndex: 45,
+            }}
+          >
+            {configOpen && (
+              <ConfigurePanel
+                deployment={renderedDeployment}
+                account={account}
+                onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
+                onRedeployStart={() => { setOptimisticDeploying(true); }}
+                onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+                revisionOverride={configRevision ?? undefined}
+                readOnly={configRevision !== null && configRollbackBuildId === null}
+                isNewBuild={configIsNewBuild}
+                newBuildId={configIsNewBuild ? latestBuildId : undefined}
+                rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
+              />
+            )}
+            {selectedTrace && !configOpen && (
+              <TraceDetailPanel
+                trace={selectedTrace}
+                canGoPrev={canGoPrev}
+                canGoNext={canGoNext}
+                onNavigate={handleNavigate}
+                onClose={() => setSelectedTrace(null)}
+              />
+            )}
+          </div>
+        </>
       )}
     </div>
   )

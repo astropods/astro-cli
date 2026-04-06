@@ -25,6 +25,7 @@ interface ConfigurePanelProps {
   revisionOverride?: number;
   readOnly?: boolean;
   isNewBuild?: boolean;
+  newBuildId?: string;
   rollbackContext?: { revision: number; buildId: string };
 }
 
@@ -43,6 +44,10 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
+
+  useEffect(() => {
+    console.log(`current build: ${deployment.build_id}`);
+  }, [deployment.build_id]);
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
 
   const trackedState: TrackedFormState = {
@@ -93,12 +98,14 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
       </div>
 
       {/* Context banner — shown when panel has a special mode */}
-      {(rollbackContext || readOnly) && (
+      {(rollbackContext || readOnly || isNewBuild) && (
         <div
           className="relative flex items-center gap-2 px-5 py-[13.5px] shrink-0 border-b border-border"
           style={{
             background: rollbackContext
               ? "color-mix(in oklch, var(--color-amber-600) 8%, transparent)"
+              : isNewBuild
+              ? "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)"
               : "var(--muted)",
           }}
         >
@@ -108,6 +115,8 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
             style={{
               background: rollbackContext
                 ? "var(--color-amber-600)"
+                : isNewBuild
+                ? "var(--color-yellow-700)"
                 : "var(--border-strong)",
             }}
           />
@@ -133,12 +142,24 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
               <span className="font-mono text-mono-sm text-faint-foreground">— read only</span>
             </>
           )}
+          {isNewBuild && !rollbackContext && (
+            <>
+              <span className="font-mono text-mono-sm font-medium" style={{ color: "var(--color-yellow-700)" }}>Update</span>
+              <InlineBadge variant="soft" className="normal-case font-mono text-[11px] px-1.5 h-[18px]" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                {deployment.build_id.slice(0, 8)}
+              </InlineBadge>
+              <span className="font-mono text-[11px] text-muted-foreground">→</span>
+              <InlineBadge variant="soft" className="normal-case font-mono text-[11px] px-1.5 h-[18px]" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                {template.source.build.slice(0, 8)}
+              </InlineBadge>
+            </>
+          )}
         </div>
       )}
 
       <form id={PANEL_FORM_ID} onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit} className={formClass}>
         <div className={readOnly ? "pointer-events-none select-text flex flex-col min-h-0 flex-1" : "flex flex-col min-h-0 flex-1"}>
-          <div className="px-6 pt-5 pb-24">
+          <div className="px-6 pt-5 pb-6">
             <DeployFormFields
               form={form}
               hideAccountPicker
@@ -166,7 +187,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
         </div>
       </form>
 
-      <div className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+      <div className="shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
         {readOnly ? (
           <Button type="button" variant="outline" className="w-full" onClick={onClose}>
             Close
@@ -249,8 +270,9 @@ function ManualTriggers({
   );
 }
 
-export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, rollbackContext }: ConfigurePanelProps) {
-  const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride });
+export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, newBuildId, rollbackContext }: ConfigurePanelProps) {
+  const { data: rawTemplate, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride });
+  const template = rawTemplate && newBuildId ? { ...rawTemplate, source: { ...rawTemplate.source, build: newBuildId } } : rawTemplate;
   const shellClass = fullPage
     ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
     : PANEL_SHELL_CLASS;
