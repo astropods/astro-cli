@@ -131,7 +131,7 @@ The `defer Secrets.Delete(...)` in `runBuildKitJob` only runs when the function 
 
 ## Item 10 — Replace wall-clock poll deadline with context timeout
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `deadline := time.Now().Add(20 * time.Minute)` runs independently of the River job context. Cancellation is only checked at the top of each poll iteration, not at the deadline boundary.
 

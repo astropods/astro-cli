@@ -438,14 +438,19 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		}
 	}()
 
-	deadline := time.Now().Add(20 * time.Minute)
-	for time.Now().Before(deadline) {
+	pollCtx, pollCancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer pollCancel()
+
+	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-pollCtx.Done():
+			if ctx.Err() != nil {
+				return ctx.Err() // parent cancelled
+			}
+			return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
 		case <-time.After(15 * time.Second):
 		}
-		j, err := clientset.BatchV1().Jobs(ns).Get(ctx, jobName, metav1.GetOptions{})
+		j, err := clientset.BatchV1().Jobs(ns).Get(pollCtx, jobName, metav1.GetOptions{})
 		if err != nil {
 			continue
 		}
@@ -458,7 +463,6 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 			return buildFailedError{fmt.Errorf("build job failed: %s", extractBuildError(logs))}
 		}
 	}
-	return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
 }
 
 // fetchJobLogs retrieves the tail of logs from all containers of a Job's pod.
