@@ -82,7 +82,7 @@ When the River job context is cancelled (server restart, timeout), `runBuildKitJ
 
 ## Item 6 — Use owner reference on token secret
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 The `defer Secrets.Delete(...)` in `runBuildKitJob` only runs when the function returns normally. A hard process kill leaves the token secret in K8s permanently.
 

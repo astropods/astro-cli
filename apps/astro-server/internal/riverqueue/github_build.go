@@ -225,7 +225,6 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	if _, err := clientset.CoreV1().Secrets(ns).Create(ctx, tokenSecret, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("create token secret: %w", err)
 	}
-	defer clientset.CoreV1().Secrets(ns).Delete(context.Background(), tokenSecretName, metav1.DeleteOptions{}) //nolint:errcheck
 
 	// git clone command: shallow clone at the exact commit.
 	// HOME=/tmp gives git a writable directory for the global config (user 1000 has no home).
@@ -360,8 +359,24 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		},
 	}
 
-	if _, err := clientset.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{}); err != nil {
+	createdJob, err := clientset.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{})
+	if err != nil {
 		return fmt.Errorf("create build job: %w", err)
+	}
+
+	// Bind the token secret to the job via an owner reference so K8s garbage-collects
+	// it automatically whenever the job is deleted (TTL or the defer below).
+	isController := true
+	tokenSecret.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: "batch/v1",
+		Kind:       "Job",
+		Name:       createdJob.Name,
+		UID:        createdJob.UID,
+		Controller: &isController,
+	}}
+	if _, err := clientset.CoreV1().Secrets(ns).Update(ctx, tokenSecret, metav1.UpdateOptions{}); err != nil {
+		// Non-fatal: the secret will still be cleaned up by the job deletion defer.
+		w.log.Warn("failed to set owner reference on token secret", "error", err)
 	}
 
 	// Delete the job on any non-success path (cancel, timeout, build failure) to
