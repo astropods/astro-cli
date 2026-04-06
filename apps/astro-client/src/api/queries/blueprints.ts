@@ -48,11 +48,12 @@ export function useDeploymentTemplate(account: string, name: string, opts?: { in
   });
 }
 
-export function usePrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, opts?: { enabled?: boolean; revision?: number }) {
+export function usePrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, opts?: { enabled?: boolean; revision?: number; build?: string }) {
   const revision = opts?.revision;
+  const build = opts?.build;
   return useQuery({
-    queryKey: blueprintKeys.prefilledTemplate(account, name, deploymentId, revision),
-    queryFn: () => api.getPrefilledDeploymentTemplate(account, name, deploymentId, revision),
+    queryKey: blueprintKeys.prefilledTemplate(account, name, deploymentId, revision, build),
+    queryFn: () => api.getPrefilledDeploymentTemplate(account, name, deploymentId, revision, build),
     enabled: (opts?.enabled ?? true) && !!account && !!name && !!deploymentId,
   });
 }

@@ -2024,6 +2024,10 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 		specJSONToMerge := existing.DeploymentSpecJSON
 		buildIDForTemplate := existing.BuildID
 		revisionRequested := false
+		// Allow the client to override the build ID (e.g. for new-build upgrades from the CTA).
+		if buildOverride := c.Query("build"); buildOverride != "" {
+			buildIDForTemplate = buildOverride
+		}
 		if revisionStr := c.Query("revision"); revisionStr != "" {
 			revNum, convErr := strconv.Atoi(revisionStr)
 			if convErr != nil || revNum < 1 {

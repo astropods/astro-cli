@@ -368,9 +368,10 @@ class ApiClient {
 
   // Get deployment template pre-filled with values from an existing deployment.
   // Pass revision to prefill from a specific historical revision's spec.
-  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, revision?: number): Promise<DeploymentTemplate> {
+  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, revision?: number, build?: string): Promise<DeploymentTemplate> {
     const params = new URLSearchParams({ format: "json" });
     if (revision != null) params.set("revision", String(revision));
+    if (build != null) params.set("build", build);
     return this.request<DeploymentTemplate>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template/${encodeURIComponent(deploymentId)}?${params}`
     );
