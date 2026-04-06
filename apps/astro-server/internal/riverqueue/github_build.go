@@ -137,7 +137,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 
 	var destination string
 	if !local {
-		destination = w.ecrImagePath(conn.AccountID, agentName, args.BuildID)
+		destination = w.ecrImagePath(conn.AccountName, agentName, args.BuildID)
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "building")
@@ -163,7 +163,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	w.updateStep(dbCtx, args.BuildRecordID, "registering")
 	if err := w.agentIndex.Register(
 		conn.AccountID, agentName, args.BuildID,
-		w.cfg.Deployment.RegistryURL, conn.AccountID,
+		w.cfg.Deployment.RegistryURL, conn.AccountName,
 		specMap, readme, buildAgentCardJSONFromSpec(readme, specMap), "[]",
 	); err != nil {
 		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("register agent: %w", err))

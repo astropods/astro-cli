@@ -12,6 +12,7 @@ import (
 type Connection struct {
 	ID            string
 	AccountID     string
+	AccountName   string
 	AgentName     string
 	WorkOSUserID  string
 	RepoFullName  string
@@ -55,24 +56,25 @@ func New(db *sql.DB) *Store {
 func (s *Store) Upsert(ctx context.Context, c *Connection) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO github_connections
-			(account_id, agent_name, workos_user_id, repo_full_name, branch, webhook_id, webhook_secret, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+			(account_id, account_name, agent_name, workos_user_id, repo_full_name, branch, webhook_id, webhook_secret, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
 		ON CONFLICT (account_id, agent_name)
 		DO UPDATE SET
+			account_name    = EXCLUDED.account_name,
 			workos_user_id  = EXCLUDED.workos_user_id,
 			repo_full_name  = EXCLUDED.repo_full_name,
 			branch          = EXCLUDED.branch,
 			webhook_id      = EXCLUDED.webhook_id,
 			webhook_secret  = EXCLUDED.webhook_secret,
 			updated_at      = now()
-	`, c.AccountID, c.AgentName, c.WorkOSUserID, c.RepoFullName, c.Branch, c.WebhookID, c.WebhookSecret)
+	`, c.AccountID, c.AccountName, c.AgentName, c.WorkOSUserID, c.RepoFullName, c.Branch, c.WebhookID, c.WebhookSecret)
 	return err
 }
 
 // Get returns the connection for an account+agent, or sql.ErrNoRows if none.
 func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, agent_name, workos_user_id, repo_full_name, branch,
+		SELECT id, account_id, account_name, agent_name, workos_user_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
 		WHERE account_id = $1 AND agent_name = $2
@@ -80,7 +82,7 @@ func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connecti
 
 	var c Connection
 	if err := row.Scan(
-		&c.ID, &c.AccountID, &c.AgentName, &c.WorkOSUserID,
+		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID,
 		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
@@ -92,7 +94,7 @@ func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connecti
 // GetByID returns the connection by primary key.
 func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, agent_name, workos_user_id, repo_full_name, branch,
+		SELECT id, account_id, account_name, agent_name, workos_user_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
 		WHERE id = $1
@@ -100,7 +102,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 
 	var c Connection
 	if err := row.Scan(
-		&c.ID, &c.AccountID, &c.AgentName, &c.WorkOSUserID,
+		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID,
 		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
@@ -112,7 +114,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 // GetByRepo returns the connection for a given repo full name (used by webhook handler).
 func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, agent_name, workos_user_id, repo_full_name, branch,
+		SELECT id, account_id, account_name, agent_name, workos_user_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
 		WHERE repo_full_name = $1
@@ -121,7 +123,7 @@ func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection
 
 	var c Connection
 	if err := row.Scan(
-		&c.ID, &c.AccountID, &c.AgentName, &c.WorkOSUserID,
+		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID,
 		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {

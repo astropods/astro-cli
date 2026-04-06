@@ -440,6 +440,7 @@ CREATE INDEX idx_audit_logs_created ON public.audit_logs (created_at);
 CREATE TABLE public.github_connections (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,
+    account_name varchar NOT NULL DEFAULT '',
     agent_name varchar NOT NULL,
     workos_user_id text NOT NULL,
     repo_full_name varchar NOT NULL,

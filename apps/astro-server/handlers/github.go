@@ -253,6 +253,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 
 		if err := ghStore.Upsert(c.Request.Context(), &githubconnection.Connection{
 			AccountID:     acct.ID,
+			AccountName:   acct.Name,
 			AgentName:     agentName,
 			WorkOSUserID:  session.UserID,
 			RepoFullName:  req.RepoFullName,
