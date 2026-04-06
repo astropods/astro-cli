@@ -1,6 +1,8 @@
 package riverqueue
 
 import (
+	"context"
+
 	"github.com/riverqueue/river"
 	"k8s.io/client-go/dynamic"
 
@@ -130,14 +132,18 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		river.AddWorker(workers, &GitHubBuildWorker{
+		ghBuildWorker := &GitHubBuildWorker{
 			pipesClient: cfg.PipesClient,
 			ghStore:     cfg.GitHubStore,
 			agentIndex:  cfg.AgentIndex,
 			k8sClient:   cfg.K8sClient,
 			cfg:         cfg.ServerConfig,
 			log:         log,
-		})
+		}
+		if err := ghBuildWorker.EnsureBuildInfrastructure(context.Background()); err != nil {
+			log.Warn("github build: failed to ensure build infrastructure", "error", err)
+		}
+		river.AddWorker(workers, ghBuildWorker)
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 

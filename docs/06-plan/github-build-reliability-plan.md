@@ -107,7 +107,7 @@ The `defer Secrets.Delete(...)` in `runBuildKitJob` only runs when the function 
 
 ## Item 8 — Ensure build namespace/SA at startup, not per-build
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `Namespaces().Create()` and `ServiceAccounts().Create()` are called on every build. While `IsAlreadyExists` short-circuits them, it's a wasted round-trip pair on every job.
 

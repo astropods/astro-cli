@@ -195,6 +195,31 @@ func (w *GitHubBuildWorker) failOrRetry(ctx context.Context, buildRecordID strin
 	return err
 }
 
+// EnsureBuildInfrastructure creates the build namespace and service account if
+// they don't already exist. Called once at server startup rather than per-build.
+func (w *GitHubBuildWorker) EnsureBuildInfrastructure(ctx context.Context) error {
+	if w.k8sClient == nil {
+		return nil
+	}
+	ns := w.cfg.GitHub.BuildNamespace
+	sa := w.cfg.GitHub.BuildServiceAccount
+	clientset := w.k8sClient.Clientset()
+
+	_, nsErr := clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: ns},
+	}, metav1.CreateOptions{})
+	if nsErr != nil && !k8serrors.IsAlreadyExists(nsErr) {
+		return fmt.Errorf("ensure build namespace: %w", nsErr)
+	}
+	_, saErr := clientset.CoreV1().ServiceAccounts(ns).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: sa, Namespace: ns},
+	}, metav1.CreateOptions{})
+	if saErr != nil && !k8serrors.IsAlreadyExists(saErr) {
+		return fmt.Errorf("ensure build service account: %w", saErr)
+	}
+	return nil
+}
+
 func (w *GitHubBuildWorker) ecrImagePath(accountName, agentName, buildID string) string {
 	cfg := w.cfg.Deployment
 	return fmt.Sprintf("%s/%s-tenant-%s/%s:%s",
@@ -224,20 +249,6 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 	ns := w.cfg.GitHub.BuildNamespace
 	sa := w.cfg.GitHub.BuildServiceAccount
 	clientset := w.k8sClient.Clientset()
-
-	// Create the build namespace and service account if they don't exist.
-	_, nsErr := clientset.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: ns},
-	}, metav1.CreateOptions{})
-	if nsErr != nil && !k8serrors.IsAlreadyExists(nsErr) {
-		return fmt.Errorf("ensure build namespace: %w", nsErr)
-	}
-	_, saErr := clientset.CoreV1().ServiceAccounts(ns).Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: sa, Namespace: ns},
-	}, metav1.CreateOptions{})
-	if saErr != nil && !k8serrors.IsAlreadyExists(saErr) {
-		return fmt.Errorf("ensure build service account: %w", saErr)
-	}
 
 	if buildContext == "" {
 		buildContext = "."
