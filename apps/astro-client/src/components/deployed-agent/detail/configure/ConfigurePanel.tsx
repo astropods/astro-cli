@@ -68,14 +68,17 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!form.trySubmit()) return;
+    const canSubmit = form.trySubmit();
+    console.log('[redeploy] trySubmit:', canSubmit);
+    if (!canSubmit) return;
     onRedeployStart?.();
     try {
-      await form.deploy();
+      const result = await form.deploy();
+      console.log('[redeploy] success:', result);
       onClose();
       onRedeploy?.();
-    } catch {
-      // captured in form.deployError
+    } catch (err) {
+      console.error('[redeploy] failed:', err);
     }
   };
 
@@ -272,7 +275,11 @@ function ManualTriggers({
 
 export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, newBuildId, rollbackContext }: ConfigurePanelProps) {
   const { data: rawTemplate, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride });
-  const template = rawTemplate && newBuildId ? { ...rawTemplate, source: { ...rawTemplate.source, build: newBuildId } } : rawTemplate;
+  // When upgrading to a new build, replace every occurrence of the old build ID in the template
+  // (source.build, agent.image, ingestion.*.image, etc.) so the server sees a consistent spec.
+  const template = rawTemplate && newBuildId
+    ? JSON.parse(JSON.stringify(rawTemplate).replaceAll(rawTemplate.source.build, newBuildId)) as typeof rawTemplate
+    : rawTemplate;
   const shellClass = fullPage
     ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
     : PANEL_SHELL_CLASS;
