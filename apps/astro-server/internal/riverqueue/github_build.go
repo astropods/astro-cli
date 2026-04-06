@@ -364,6 +364,20 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		return fmt.Errorf("create build job: %w", err)
 	}
 
+	// Delete the job on any non-success path (cancel, timeout, build failure) to
+	// stop wasted compute. On success the TTL handles cleanup.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			deleteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			propagation := metav1.DeletePropagationBackground
+			_ = clientset.BatchV1().Jobs(ns).Delete(deleteCtx, jobName, metav1.DeleteOptions{
+				PropagationPolicy: &propagation,
+			})
+		}
+	}()
+
 	deadline := time.Now().Add(20 * time.Minute)
 	for time.Now().Before(deadline) {
 		select {
@@ -376,6 +390,7 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 			continue
 		}
 		if j.Status.Succeeded > 0 {
+			succeeded = true
 			return nil
 		}
 		if j.Status.Failed > 0 {

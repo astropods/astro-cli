@@ -63,7 +63,7 @@ Changes:
 
 ## Item 5 — Cancel / clean up K8s job on context cancellation
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 When the River job context is cancelled (server restart, timeout), `runBuildKitJob` exits with `ctx.Err()` but the K8s Job keeps running until TTL (1 hour). The build record is marked `failed` but wasted compute continues.
 
