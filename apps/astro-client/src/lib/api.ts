@@ -682,13 +682,6 @@ class ApiClient {
     );
   }
 
-  async createBlueprint(account: string, body: { name: string; visibility?: string }): Promise<{ account: string; name: string }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}`,
-      { method: 'POST', body: JSON.stringify(body) }
-    );
-  }
-
   // GitHub connection
   async gitHubRebuild(account: string, name: string): Promise<{ build_id: string; commit_sha: string }> {
     return this.request(
