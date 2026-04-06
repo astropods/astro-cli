@@ -103,6 +103,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("get github token: %w", err))
 	}
 
+	w.updateStep(dbCtx, args.BuildRecordID, "fetching-spec")
 	astroSpec, specYAML, err := fetchAstroSpec(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA)
 	if err != nil {
 		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
@@ -123,6 +124,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		destination = w.ecrImagePath(conn.AccountID, agentName, args.BuildID)
 	}
 
+	w.updateStep(dbCtx, args.BuildRecordID, "building")
 	log.Info("Starting BuildKit build", "repo", conn.RepoFullName, "local", local)
 	if err := w.runBuildKitJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, buildCtx.Context, buildCtx.Dockerfile, destination); err != nil {
 		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("build: %w", err))
@@ -135,6 +137,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(dbCtx, args.BuildRecordID, fmt.Errorf("parse spec YAML: %w", err))
 	}
 
+	w.updateStep(dbCtx, args.BuildRecordID, "registering")
 	if err := w.agentIndex.Register(
 		conn.AccountID, agentName, args.BuildID,
 		w.cfg.Deployment.RegistryURL, conn.AccountID,
@@ -148,6 +151,12 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	}
 	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
 	return nil
+}
+
+func (w *GitHubBuildWorker) updateStep(ctx context.Context, buildRecordID, step string) {
+	if err := w.ghStore.UpdateBuildStep(ctx, buildRecordID, step); err != nil {
+		w.log.Error("failed to update build step", "step", step, "error", err)
+	}
 }
 
 func (w *GitHubBuildWorker) fail(_ context.Context, buildRecordID string, err error) error {

@@ -31,7 +31,8 @@ type Build struct {
 	BuildID      string     `json:"build_id"`
 	CommitSHA    string     `json:"commit_sha"`
 	Branch       string     `json:"branch"`
-	Status       string     `json:"status"` // pending | building | registered | failed
+	Status       string     `json:"status"`         // pending | building | registered | failed
+	Step         string     `json:"step,omitempty"` // fetching-spec | building | registering
 	Error        string     `json:"error,omitempty"`
 	EnqueuedAt   time.Time  `json:"enqueued_at"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
@@ -140,10 +141,10 @@ func (s *Store) CreateBuild(ctx context.Context, b *Build) (string, error) {
 	var id string
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO github_builds
-			(connection_id, account_id, agent_name, build_id, commit_sha, branch, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+			(connection_id, account_id, agent_name, build_id, commit_sha, branch, status, step)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, b.ConnectionID, b.AccountID, b.AgentName, b.BuildID, b.CommitSHA, b.Branch, b.Status).Scan(&id)
+	`, b.ConnectionID, b.AccountID, b.AgentName, b.BuildID, b.CommitSHA, b.Branch, b.Status, b.Step).Scan(&id)
 	return id, err
 }
 
@@ -165,6 +166,12 @@ func (s *Store) UpdateBuildStatus(ctx context.Context, id, status, buildErr stri
 	return err
 }
 
+// UpdateBuildStep records the current sub-phase of a running build.
+func (s *Store) UpdateBuildStep(ctx context.Context, id, step string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE github_builds SET step = $1 WHERE id = $2`, step, id)
+	return err
+}
+
 // ListBuilds returns up to 10 recent builds for an agent.
 func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, limit int) ([]Build, error) {
 	if limit <= 0 {
@@ -172,7 +179,7 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, connection_id, account_id, agent_name, build_id, commit_sha, branch,
-		       status, COALESCE(error,''), enqueued_at, completed_at
+		       status, step, COALESCE(error,''), enqueued_at, completed_at
 		FROM github_builds
 		WHERE account_id = $1 AND agent_name = $2
 		ORDER BY enqueued_at DESC
@@ -189,7 +196,7 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 		if err := rows.Scan(
 			&b.ID, &b.ConnectionID, &b.AccountID, &b.AgentName,
 			&b.BuildID, &b.CommitSHA, &b.Branch,
-			&b.Status, &b.Error, &b.EnqueuedAt, &b.CompletedAt,
+			&b.Status, &b.Step, &b.Error, &b.EnqueuedAt, &b.CompletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("githubconnection: scan build: %w", err)
 		}
