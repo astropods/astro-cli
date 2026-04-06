@@ -107,7 +107,7 @@ func (c *Client) DeleteWebhook(ctx context.Context, repoFullName string, webhook
 	if err != nil {
 		return fmt.Errorf("github: delete webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("github: delete webhook returned %d", resp.StatusCode)
 	}
@@ -123,7 +123,7 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	if err != nil {
 		return fmt.Errorf("github: GET %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("github: GET %s returned %d", path, resp.StatusCode)
 	}
@@ -144,7 +144,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, out any) e
 	if err != nil {
 		return fmt.Errorf("github: POST %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("github: POST %s returned %d", path, resp.StatusCode)
 	}
@@ -164,6 +164,6 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body *byte
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 	return req, nil
 }

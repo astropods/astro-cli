@@ -644,7 +644,7 @@ func GitHubBuildLogs(log *logger.Logger, ghStore *githubconnection.Store, k8sCli
 				continue
 			}
 			body, _ := io.ReadAll(stream)
-			stream.Close() //nolint:errcheck
+			_ = stream.Close()
 			if len(body) > 0 {
 				fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
 			} else {

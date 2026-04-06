@@ -413,7 +413,7 @@ func (w *GitHubBuildWorker) fetchJobLogs(ctx context.Context, ns, jobName string
 			continue
 		}
 		body, _ := io.ReadAll(stream)
-		stream.Close() //nolint:errcheck
+		_ = stream.Close()
 		if len(body) > 0 {
 			fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
 		}
@@ -446,7 +446,7 @@ func fetchFileContent(ctx context.Context, token, repoFullName, ref, filePath st
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github.raw+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -486,6 +486,9 @@ func buildAgentCardJSONFromSpec(readme string, specMap map[string]any) string {
 		}
 	}
 	card.ResolvedIntegrations = spec.MergeResolvedIntegrations(card.ResolvedIntegrations, providers)
-	out, _ := json.Marshal(card)
+	out, err := json.Marshal(card)
+	if err != nil {
+		return ""
+	}
 	return string(out)
 }

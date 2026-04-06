@@ -181,7 +181,7 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var builds []Build
 	for rows.Next() {
