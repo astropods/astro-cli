@@ -18,21 +18,19 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
 
   return (
     <>
-      <div className={cn("rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
-            {label}
-          </span>
-          {quota != null && (
-            <button
-              type="button"
-              onClick={() => setDialogOpen(true)}
-              className="font-sans text-body-sm text-primary hover:text-primary/80 transition-colors"
-            >
-              Request increase
-            </button>
-          )}
-        </div>
+      <div className={cn("relative rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
+        <span className="mb-4 block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
+          {label}
+        </span>
+        {quota != null && (
+          <button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="absolute top-[12px] right-[14px] font-sans text-body-sm text-primary hover:text-primary/80 transition-colors"
+          >
+            Request increase
+          </button>
+        )}
         {loading ? (
           <div className="flex flex-col gap-2 animate-pulse">
             <div className="h-6 w-1/2 rounded bg-muted" />
@@ -40,19 +38,21 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
           </div>
         ) : (
           <>
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-sans text-heading-2 font-bold text-foreground">
-                {formatNumber(value, 1)}
-              </span>
-              <span className="font-sans text-body-sm text-muted-foreground">
-                / {quota ?? "—"} {unit}
-              </span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-300"
-                style={{ width: `${pct}%` }}
-              />
+            <div className="flex items-start gap-3">
+              <div className="flex items-baseline gap-1.5 shrink-0">
+                <span className="font-sans text-heading-2 font-bold text-foreground">
+                  {formatNumber(value, 1)}
+                </span>
+                <span className="font-sans text-body-sm text-muted-foreground">
+                  / {quota ?? "—"} {unit}
+                </span>
+              </div>
+              <div className="flex-1 self-center h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </div>
           </>
         )}

@@ -41,7 +41,7 @@ export interface MetricCardProps {
 export function MetricCard({ label, value, trend = null, higherIsBetter = true, showTrend = true, loading, trendLoading, className }: MetricCardProps) {
   return (
     <div className={cn("rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
-      <span className="mb-2 block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
+      <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend ? "mb-2" : "mb-4")}>
         {label}
       </span>
       {loading ? (
