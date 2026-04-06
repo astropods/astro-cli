@@ -380,7 +380,7 @@ func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, githubT
 		}
 		if j.Status.Failed > 0 {
 			logs := w.fetchJobLogs(context.Background(), ns, jobName)
-			return fmt.Errorf("build job %s failed\n\n%s", jobName, logs)
+			return fmt.Errorf("build job failed: %s", extractBuildError(logs))
 		}
 	}
 	return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
@@ -430,6 +430,24 @@ func (w *GitHubBuildWorker) fetchJobLogs(ctx context.Context, ns, jobName string
 		return "(no logs available)"
 	}
 	return sb.String()
+}
+
+// extractBuildError returns a concise failure reason from raw job logs.
+// It walks lines in reverse and returns the last non-empty, non-header line,
+// truncated to 500 chars. Full logs are still readable via the logs endpoint.
+func extractBuildError(logs string) string {
+	lines := strings.Split(logs, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "===") {
+			continue
+		}
+		if len(line) > 500 {
+			line = line[:500]
+		}
+		return line
+	}
+	return "build job failed (no output captured)"
 }
 
 // fetchAstroSpec downloads astropods.yml via the GitHub contents API at a specific SHA.

@@ -51,7 +51,7 @@ Changes:
 
 ## Item 4 — Truncate error field; keep logs in K8s
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `w.fail(..., fmt.Errorf("build job failed\n\n<full K8s logs>"))` stores potentially hundreds of lines into the `error` DB column. Logs are already retrievable via `/builds/:build_id/logs`.
 
