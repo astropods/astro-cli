@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -33,6 +34,37 @@ type Repo struct {
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
 	Private       bool   `json:"private"`
+}
+
+// Commit holds the minimal commit metadata returned by GetCommit.
+type Commit struct {
+	Message string
+	Author  string
+}
+
+// GetCommit returns the message and author name for a given commit SHA.
+func (c *Client) GetCommit(ctx context.Context, repoFullName, sha string) (Commit, error) {
+	var result struct {
+		Commit struct {
+			Message string `json:"message"`
+			Author  struct {
+				Name string `json:"name"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+	if err := c.get(ctx, fmt.Sprintf("/repos/%s/commits/%s", repoFullName, sha), &result); err != nil {
+		return Commit{}, fmt.Errorf("github: get commit: %w", err)
+	}
+	return Commit{
+		Message: firstLine(result.Commit.Message),
+		Author:  result.Commit.Author.Name,
+	}, nil
+}
+
+// firstLine returns the first line of s, trimmed of whitespace.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return strings.TrimSpace(line)
 }
 
 // GetBranchHead returns the latest commit SHA on a branch.

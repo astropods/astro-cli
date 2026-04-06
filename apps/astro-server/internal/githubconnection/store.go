@@ -24,18 +24,20 @@ type Connection struct {
 
 // Build represents a single auto-triggered build from a GitHub push.
 type Build struct {
-	ID           string     `json:"id"`
-	ConnectionID string     `json:"connection_id"`
-	AccountID    string     `json:"account_id"`
-	AgentName    string     `json:"agent_name"`
-	BuildID      string     `json:"build_id"`
-	CommitSHA    string     `json:"commit_sha"`
-	Branch       string     `json:"branch"`
-	Status       string     `json:"status"`         // pending | building | registered | failed
-	Step         string     `json:"step,omitempty"` // fetching-spec | building | registering
-	Error        string     `json:"error,omitempty"`
-	EnqueuedAt   time.Time  `json:"enqueued_at"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	ID            string     `json:"id"`
+	ConnectionID  string     `json:"connection_id"`
+	AccountID     string     `json:"account_id"`
+	AgentName     string     `json:"agent_name"`
+	BuildID       string     `json:"build_id"`
+	CommitSHA     string     `json:"commit_sha"`
+	Branch        string     `json:"branch"`
+	Status        string     `json:"status"`         // pending | building | registered | failed
+	Step          string     `json:"step,omitempty"` // fetching-spec | building | registering
+	CommitMessage string     `json:"commit_message,omitempty"`
+	CommitAuthor  string     `json:"commit_author,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	EnqueuedAt    time.Time  `json:"enqueued_at"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 }
 
 // Store provides CRUD operations for github_connections and github_builds.
@@ -141,10 +143,10 @@ func (s *Store) CreateBuild(ctx context.Context, b *Build) (string, error) {
 	var id string
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO github_builds
-			(connection_id, account_id, agent_name, build_id, commit_sha, branch, status, step)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			(connection_id, account_id, agent_name, build_id, commit_sha, branch, status, step, commit_message, commit_author)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
-	`, b.ConnectionID, b.AccountID, b.AgentName, b.BuildID, b.CommitSHA, b.Branch, b.Status, b.Step).Scan(&id)
+	`, b.ConnectionID, b.AccountID, b.AgentName, b.BuildID, b.CommitSHA, b.Branch, b.Status, b.Step, b.CommitMessage, b.CommitAuthor).Scan(&id)
 	return id, err
 }
 
@@ -179,7 +181,7 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, connection_id, account_id, agent_name, build_id, commit_sha, branch,
-		       status, step, COALESCE(error,''), enqueued_at, completed_at
+		       status, step, commit_message, commit_author, COALESCE(error,''), enqueued_at, completed_at
 		FROM github_builds
 		WHERE account_id = $1 AND agent_name = $2
 		ORDER BY enqueued_at DESC
@@ -196,7 +198,7 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 		if err := rows.Scan(
 			&b.ID, &b.ConnectionID, &b.AccountID, &b.AgentName,
 			&b.BuildID, &b.CommitSHA, &b.Branch,
-			&b.Status, &b.Step, &b.Error, &b.EnqueuedAt, &b.CompletedAt,
+			&b.Status, &b.Step, &b.CommitMessage, &b.CommitAuthor, &b.Error, &b.EnqueuedAt, &b.CompletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("githubconnection: scan build: %w", err)
 		}

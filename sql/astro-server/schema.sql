@@ -466,6 +466,8 @@ CREATE TABLE public.github_builds (
     branch varchar NOT NULL,
     status varchar NOT NULL DEFAULT 'pending',
     step text NOT NULL DEFAULT '',
+    commit_message text NOT NULL DEFAULT '',
+    commit_author text NOT NULL DEFAULT '',
     error text,
     enqueued_at timestamp NOT NULL DEFAULT now(),
     completed_at timestamp,

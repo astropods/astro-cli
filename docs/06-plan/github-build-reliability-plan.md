@@ -23,7 +23,7 @@ Add a `step` column to `github_builds` so the UI can show where in the pipeline 
 
 ## Item 2 — Store commit metadata at enqueue time
 
-**Status:** [ ] pending
+**Status:** [x] done
 
 `github_builds` only stores `commit_sha` and `branch`. The webhook payload has `commit_message` and `commit_author` already; storing them avoids a GitHub API call when rendering build history.
 

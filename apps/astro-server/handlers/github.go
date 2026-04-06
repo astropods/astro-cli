@@ -374,6 +374,12 @@ type githubPushPayload struct {
 	Repository struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
+	HeadCommit *struct {
+		Message string `json:"message"`
+		Author  struct {
+			Name string `json:"name"`
+		} `json:"author"`
+	} `json:"head_commit"`
 }
 
 // GitHubWebhook handles POST /webhooks/github.
@@ -432,14 +438,22 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 
 		buildID := randomHex(8)
 
+		var commitMsg, commitAuthor string
+		if payload.HeadCommit != nil {
+			commitMsg = firstCommitLine(payload.HeadCommit.Message)
+			commitAuthor = payload.HeadCommit.Author.Name
+		}
+
 		buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
-			ConnectionID: conn.ID,
-			AccountID:    conn.AccountID,
-			AgentName:    conn.AgentName,
-			BuildID:      buildID,
-			CommitSHA:    payload.After,
-			Branch:       conn.Branch,
-			Status:       "pending",
+			ConnectionID:  conn.ID,
+			AccountID:     conn.AccountID,
+			AgentName:     conn.AgentName,
+			BuildID:       buildID,
+			CommitSHA:     payload.After,
+			Branch:        conn.Branch,
+			Status:        "pending",
+			CommitMessage: commitMsg,
+			CommitAuthor:  commitAuthor,
 		})
 		if err != nil {
 			log.Error("github webhook: create build record", "error", err)
@@ -478,6 +492,14 @@ func verifyGitHubSignature(body []byte, secret, sig string) bool {
 	mac.Write(body)
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(sig), []byte(expected))
+}
+
+// firstCommitLine returns the subject line of a commit message (text before the first newline).
+func firstCommitLine(msg string) string {
+	if line, _, found := strings.Cut(msg, "\n"); found {
+		return strings.TrimSpace(line)
+	}
+	return strings.TrimSpace(msg)
 }
 
 func randomHex(n int) string {
@@ -540,15 +562,19 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 			return
 		}
 
+		commit, _ := gh.GetCommit(c.Request.Context(), conn.RepoFullName, sha)
+
 		buildID := randomHex(8)
 		buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
-			ConnectionID: conn.ID,
-			AccountID:    conn.AccountID,
-			AgentName:    agentName,
-			BuildID:      buildID,
-			CommitSHA:    sha,
-			Branch:       conn.Branch,
-			Status:       "pending",
+			ConnectionID:  conn.ID,
+			AccountID:     conn.AccountID,
+			AgentName:     agentName,
+			BuildID:       buildID,
+			CommitSHA:     sha,
+			Branch:        conn.Branch,
+			CommitMessage: commit.Message,
+			CommitAuthor:  commit.Author,
+			Status:        "pending",
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create build record"})
