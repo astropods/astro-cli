@@ -112,31 +112,29 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   return (
     <div className="flex-1 bg-muted">
       <div className="px-6 py-6">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-heading-1 text-foreground">
+        <div className="mb-6 flex flex-col gap-3">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <h1 className="min-w-0 text-heading-1 text-foreground">
               {greeting}
               {displayName ? `, ${displayName}` : ""}
             </h1>
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">
-              {activeAccountType === "organization" && (
-                <DashboardLabel icon={UsersIcon}>
-                  {memberCount} member{memberCount !== 1 ? "s" : ""}
-                </DashboardLabel>
-              )}
-              <DashboardLabel icon={Bot}>
-                {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
-              </DashboardLabel>
-              <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
-                {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
-              </DashboardLabel>
-            </div>
-          </div>
-          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 lg:pt-0.5 lg:justify-end">
             <OrgSwitcher
               activeAccount={userAccount}
               onChange={setActiveAccount}
             />
+          </div>
+          <div className="flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">
+            {activeAccountType === "organization" && (
+              <DashboardLabel icon={UsersIcon}>
+                {memberCount} member{memberCount !== 1 ? "s" : ""}
+              </DashboardLabel>
+            )}
+            <DashboardLabel icon={Bot}>
+              {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
+            </DashboardLabel>
+            <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
+              {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
+            </DashboardLabel>
           </div>
         </div>
 

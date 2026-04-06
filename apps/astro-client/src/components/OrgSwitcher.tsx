@@ -51,7 +51,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
     <div className="flex items-center gap-2">
       <Label
         htmlFor={selectId}
-        className="mb-0 shrink-0 cursor-default select-none font-sans text-xs font-medium normal-case text-foreground"
+        className="mb-0 hidden shrink-0 cursor-default select-none font-sans text-xs font-medium normal-case text-foreground sm:inline"
       >
         View
       </Label>
