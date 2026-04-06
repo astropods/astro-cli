@@ -25,12 +25,14 @@ export function DashboardStats({
       <MetricCard
         label="TOTAL TOKENS"
         value={totalTokens.toLocaleString()}
+        showTrend={false}
         loading={isLoading || allTimeLoading}
         className="bg-white dark:bg-background"
       />
       <MetricCard
         label="TOTAL REQUESTS"
         value={totalRequests.toLocaleString()}
+        showTrend={false}
         loading={isLoading || allTimeLoading}
         className="bg-white dark:bg-background"
       />

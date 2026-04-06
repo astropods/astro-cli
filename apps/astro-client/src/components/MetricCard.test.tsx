@@ -12,19 +12,19 @@ describe("MetricCard", () => {
     expect(screen.getByText("1,284")).toBeInTheDocument();
   });
 
-  it("hides trend indicator by default", () => {
+  it("shows flat trend by default when no trend value is provided", () => {
     render(<MetricCard label="Tokens" value="84k" />);
-    expect(screen.queryByText("—")).not.toBeInTheDocument();
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
-  it("shows flat trend when showTrend is true and no trend value is provided", () => {
-    render(<MetricCard label="Tokens" value="84k" showTrend />);
-    expect(screen.getAllByText("—")).toHaveLength(2);
+  it("hides trend indicator when showTrend is false", () => {
+    render(<MetricCard label="Tokens" value="84k" showTrend={false} />);
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
   it("shows up arrow and green color when trend is positive and higherIsBetter", () => {
     const { container } = render(
-      <MetricCard label="Requests" value="100" trend={12} showTrend higherIsBetter />
+      <MetricCard label="Requests" value="100" trend={12} higherIsBetter />
     );
     expect(screen.getByText("12%")).toBeInTheDocument();
     expect(screen.getByText("↑")).toBeInTheDocument();
@@ -33,7 +33,7 @@ describe("MetricCard", () => {
 
   it("shows up arrow and bad color when trend is positive and not higherIsBetter", () => {
     const { container } = render(
-      <MetricCard label="Error rate" value="5%" trend={20} showTrend higherIsBetter={false} />
+      <MetricCard label="Error rate" value="5%" trend={20} higherIsBetter={false} />
     );
     expect(screen.getByText("20%")).toBeInTheDocument();
     expect(screen.getByText("↑")).toBeInTheDocument();
@@ -41,13 +41,13 @@ describe("MetricCard", () => {
   });
 
   it("shows down arrow and good color when trend is negative and not higherIsBetter", () => {
-    render(<MetricCard label="P95 latency" value="420ms" trend={-8} showTrend higherIsBetter={false} />);
+    render(<MetricCard label="P95 latency" value="420ms" trend={-8} higherIsBetter={false} />);
     expect(screen.getByText("8%")).toBeInTheDocument();
     expect(screen.getByText("↓")).toBeInTheDocument();
   });
 
   it("rounds fractional trend percentages", () => {
-    render(<MetricCard label="Requests" value="100" trend={12.7} showTrend higherIsBetter />);
+    render(<MetricCard label="Requests" value="100" trend={12.7} higherIsBetter />);
     expect(screen.getByText("13%")).toBeInTheDocument();
   });
 

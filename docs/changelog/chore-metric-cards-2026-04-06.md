@@ -6,13 +6,13 @@ The `MetricCard` component previously always rendered a trend indicator row, sho
 
 ## Design
 
-A `showTrend` prop (default `false`) controls whether the trend indicator is rendered. Cards opt in explicitly rather than suppressing it.
+A `showTrend` prop (default `true`) controls whether the trend indicator is rendered. Cards that will never have trend data pass `showTrend={false}` to opt out.
 
-- `DashboardStats` cards omit `showTrend` — the indicator is hidden by default.
-- `HeadlineMetrics` passes `showTrend` — dashes render while data is null/loading, arrows and percentages render once trend data is available.
+- `DashboardStats` passes `showTrend={false}` — the indicator is hidden on all-time total cards.
+- `HeadlineMetrics` relies on the default — dashes render while data is null/loading, arrows and percentages render once trend data is available.
 
 The `trendLoading` skeleton path is also gated on `showTrend`, so cards without trend data never show a skeleton row either.
 
 ## Migration
 
-Any `MetricCard` usage that relied on the trend indicator rendering by default must now pass `showTrend` explicitly.
+No changes required for existing usages — the trend indicator still renders by default. Pass `showTrend={false}` to hide it on cards that will never display trend data.
