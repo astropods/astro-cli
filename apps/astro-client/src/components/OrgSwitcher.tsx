@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -36,6 +37,7 @@ function AccountIcon({ account }: { account: Account }) {
 
 export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
   const { accounts } = useAuth();
+  const selectId = useId();
 
   const sorted = useMemo(
     () =>
@@ -47,9 +49,14 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs font-normal text-foreground select-none">View</span>
+      <Label
+        htmlFor={selectId}
+        className="mb-0 shrink-0 cursor-default select-none font-sans text-xs font-semibold normal-case text-foreground"
+      >
+        View
+      </Label>
       <Select value={activeAccount} onValueChange={onChange}>
-        <SelectTrigger className="h-8 w-48 px-2.5 py-0 text-sm leading-none">
+        <SelectTrigger id={selectId} className="h-8 w-48 px-2.5 py-0 text-sm leading-none">
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">

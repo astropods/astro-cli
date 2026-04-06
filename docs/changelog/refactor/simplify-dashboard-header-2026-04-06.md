@@ -6,7 +6,7 @@ The dashboard hero section had redundant navigation — a breadcrumb bar with an
 
 ## Design
 
-The OrgSwitcher now uses the existing Radix-based `Select` component (from `ui/select`) instead of a `DropdownMenu`. A "View" label sits beside it so the purpose is clear without the breadcrumb context. The scope switcher is placed inline in the hero row next to the greeting, keeping the header to a single visual block.
+The OrgSwitcher now uses the existing Radix-based `Select` component (from `ui/select`) instead of a `DropdownMenu`. Radix `Select` does not expose a built-in field label on the trigger (`SelectLabel` is only for section headings inside the menu). The "View" text uses the shared `Label` component with `htmlFor` tied to `useId()` on `SelectTrigger`, so the label is properly associated for accessibility and matches form patterns elsewhere in the app. The scope switcher sits inline in the hero row next to the greeting, keeping the header to a single visual block.
 
 Action buttons (Browse Blueprints, Settings) were removed entirely since the sidebar already provides these links at all breakpoints.
 
