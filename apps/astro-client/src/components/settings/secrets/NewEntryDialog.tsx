@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,17 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
   const [isSecret, setIsSecret] = useState(true)
   const [nameError, setNameError] = useState('')
   const [revealed, setRevealed] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setName('')
+      setValue('')
+      setDescription('')
+      setIsSecret(true)
+      setRevealed(false)
+      setNameError('')
+    }
+  }, [open])
 
   const isValid = VARIABLE_NAME_PATTERN.test(name) && value.trim().length > 0
 
