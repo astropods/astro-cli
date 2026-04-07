@@ -144,6 +144,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           onAdapterCredentialsChange={form.setAdapterCredentials}
           showError={!!form.errors.adapters}
           adapterErrorKeys={form.errors.adapterCredentials}
+          webAuthEnabled={form.webAuthEnabled}
+          onWebAuthChange={form.setWebAuthEnabled}
         />
       </FormSection>
 

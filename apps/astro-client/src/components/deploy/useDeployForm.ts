@@ -27,6 +27,7 @@ export interface DeployFormInitialValues {
   adapterCredentials?: Record<string, string>;
   targetAccount?: string;
   ingestionSchedules?: Record<string, string>;
+  webAuthEnabled?: boolean;
 }
 
 export interface UseDeployFormOptions {
@@ -141,6 +142,7 @@ function fulfillTemplate(
   targetAccount: string,
   deployName: string,
   ingestionSchedules: Record<string, string>,
+  webAuthEnabled: boolean,
 ): DeploymentSpec {
   // Destructure out editable (template-only) so it is not present in the fulfilled spec
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
@@ -196,7 +198,13 @@ function fulfillTemplate(
     target: { ...rest.target, account: targetAccount, display_name: deployName },
     variables: Object.keys(variables).length > 0 ? variables : undefined,
     interfaces: rest.interfaces
-      ? { ...rest.interfaces, adapters: selectedAdapters }
+      ? {
+          ...rest.interfaces,
+          adapters: selectedAdapters,
+          auth: webAuthEnabled
+            ? { web: { type: "oidc" } }
+            : undefined,
+        }
       : rest.interfaces,
     ingestion,
   };
@@ -247,6 +255,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
+  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(iv?.webAuthEnabled ?? false);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(iv?.ingestionSchedules ?? {});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -498,6 +507,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       targetAccount,
       deployName.trim(),
       ingestionSchedules,
+      webAuthEnabled,
     );
 
     try {
@@ -544,6 +554,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     adapterDisplayFields,
     adapterCredentials,
     setAdapterCredentials,
+    webAuthEnabled,
+    setWebAuthEnabled,
 
     variableValues,
     setVariableValues,
@@ -620,6 +632,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       setSelectedAdapters(v?.selectedAdapters ?? ["web"]);
       setAdapterCredentials(v?.adapterCredentials ?? {});
       setIngestionSchedules(v?.ingestionSchedules ?? {});
+      setWebAuthEnabled(v?.webAuthEnabled ?? false);
     },
   };
 }

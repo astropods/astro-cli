@@ -39,6 +39,9 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
   const interfaces = template.interfaces as Record<string, unknown> | undefined;
   const adapters = interfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) ? adapters : ["web"];
+  const auth = interfaces?.auth as Record<string, unknown> | undefined;
+  const webAuth = auth?.web as Record<string, unknown> | undefined;
+  const webAuthEnabled = webAuth?.type === "oidc";
 
   const ingestionSchedules: Record<string, string> = {};
   if (template.ingestion) {
@@ -56,5 +59,6 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
     selectedAdapters,
     adapterCredentials,
     ingestionSchedules,
+    webAuthEnabled,
   };
 };
