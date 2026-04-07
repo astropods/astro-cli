@@ -1,6 +1,6 @@
 import { Outlet } from "react-router";
 import { UserIcon, ChartBarIcon, BuildingOfficeIcon } from "@heroicons/react/24/outline";
-import { KeyRound, FlaskConical } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import {
   SidebarLayout,
@@ -36,12 +36,6 @@ function SettingsContent() {
             <span className="flex items-center gap-2">
               <BuildingOfficeIcon className="size-3.5" />
               Organizations
-            </span>
-          </SidebarNavItem>
-          <SidebarNavItem to="/settings/experiments">
-            <span className="flex items-center gap-2">
-              <FlaskConical className="size-3.5" />
-              Experiments
             </span>
           </SidebarNavItem>
         </SidebarNav>

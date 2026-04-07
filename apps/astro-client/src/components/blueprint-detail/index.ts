@@ -8,5 +8,4 @@ export { RequiredAppsList } from "./RequiredAppsList";
 export { SidebarAuthor } from "./SidebarAuthor";
 export { SidebarRepository } from "./SidebarRepository";
 export { SidebarSection } from "./SidebarSection";
-export { GitHubConnectionPanel } from "./GitHubConnectionPanel";
 export { SidebarStats } from "./SidebarStats";
