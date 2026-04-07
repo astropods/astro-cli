@@ -2,13 +2,27 @@ package k8s
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// OIDCAuthConfig holds ALB OIDC authentication configuration for an ingress.
+// When set on IngressConfig, BuildIngress adds the ALB authenticate-oidc annotations.
+type OIDCAuthConfig struct {
+	Issuer                string // OIDC issuer URL
+	AuthorizationEndpoint string // OIDC authorization endpoint
+	TokenEndpoint         string // OIDC token endpoint
+	UserInfoEndpoint      string // OIDC userinfo endpoint
+	SecretsManagerARN     string // ARN of Secrets Manager secret holding clientId/clientSecret
+	Scope                 string // OAuth scopes (default: "openid email")
+	SessionTimeoutSeconds int    // Session duration in seconds (default: 3600)
+}
 
 // IngressConfig holds configuration for building an Ingress
 type IngressConfig struct {
@@ -23,6 +37,7 @@ type IngressConfig struct {
 	Host              string // Full hostname (e.g., agent-name-namespace.agents.example.com)
 	ACMCertificateARN string
 	ALBGroupName      string
+	OIDCAuth          *OIDCAuthConfig // When non-nil, ALB OIDC auth annotations are added
 }
 
 // BuildIngress creates a Kubernetes Ingress manifest for AWS ALB
@@ -48,6 +63,30 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 	// Add group name to share ALB across ingresses
 	if cfg.ALBGroupName != "" {
 		annotations["alb.ingress.kubernetes.io/group.name"] = cfg.ALBGroupName
+	}
+
+	// Add ALB OIDC authentication annotations when configured
+	if cfg.OIDCAuth != nil {
+		scope := cfg.OIDCAuth.Scope
+		if scope == "" {
+			scope = "openid email"
+		}
+		timeout := cfg.OIDCAuth.SessionTimeoutSeconds
+		if timeout == 0 {
+			timeout = 3600
+		}
+		oidcJSON, _ := json.Marshal(map[string]string{
+			"issuer":                cfg.OIDCAuth.Issuer,
+			"authorizationEndpoint": cfg.OIDCAuth.AuthorizationEndpoint,
+			"tokenEndpoint":         cfg.OIDCAuth.TokenEndpoint,
+			"userInfoEndpoint":      cfg.OIDCAuth.UserInfoEndpoint,
+			"secretName":            cfg.OIDCAuth.SecretsManagerARN,
+		})
+		annotations["alb.ingress.kubernetes.io/auth-type"] = "oidc"
+		annotations["alb.ingress.kubernetes.io/auth-idp-oidc"] = string(oidcJSON)
+		annotations["alb.ingress.kubernetes.io/auth-on-unauthenticated-request"] = "authenticate"
+		annotations["alb.ingress.kubernetes.io/auth-scope"] = scope
+		annotations["alb.ingress.kubernetes.io/auth-session-timeout"] = strconv.Itoa(timeout)
 	}
 
 	return &networkingv1.Ingress{

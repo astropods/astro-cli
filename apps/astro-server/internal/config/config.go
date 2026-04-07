@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -176,6 +177,13 @@ type DeploymentConfig struct {
 	LangfuseBaseURL    string   // LANGFUSE_BASE_URL — Langfuse instance URL
 	LangfuseBaseURLExt string   // LANGFUSE_BASE_URL_EXT — external Langfuse URL for collector (overrides LANGFUSE_BASE_URL)
 	LangfuseVPCEIPs    []string // LANGFUSE_VPCE_IPS — VPC endpoint IPs for NetworkPolicy egress rules
+	// Messaging OIDC authentication — ALB authenticate-oidc action for messaging ingress
+	MessagingOIDCIssuer           string // MESSAGING_OIDC_ISSUER — WorkOS OIDC issuer URL
+	MessagingOIDCAuthEndpoint     string // MESSAGING_OIDC_AUTH_ENDPOINT — authorization endpoint
+	MessagingOIDCTokenEndpoint    string // MESSAGING_OIDC_TOKEN_ENDPOINT — token endpoint
+	MessagingOIDCUserInfoEndpoint string // MESSAGING_OIDC_USERINFO_ENDPOINT — userinfo endpoint
+	MessagingOIDCSecretARN        string // MESSAGING_OIDC_SECRET_ARN — Secrets Manager ARN for client credentials
+	MessagingOIDCSessionTimeout   int    // MESSAGING_OIDC_SESSION_TIMEOUT — session duration in seconds (default 3600)
 }
 
 // Load loads configuration from environment variables with defaults
@@ -226,6 +234,12 @@ func Load() (*Config, error) {
 			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
 			LangfuseBaseURLExt:     getEnv("LANGFUSE_BASE_URL_EXT", ""),
 			LangfuseVPCEIPs:        getEnvSlice("LANGFUSE_VPCE_IPS", nil),
+			MessagingOIDCIssuer:           getEnv("MESSAGING_OIDC_ISSUER", ""),
+			MessagingOIDCAuthEndpoint:     getEnv("MESSAGING_OIDC_AUTH_ENDPOINT", ""),
+			MessagingOIDCTokenEndpoint:    getEnv("MESSAGING_OIDC_TOKEN_ENDPOINT", ""),
+			MessagingOIDCUserInfoEndpoint: getEnv("MESSAGING_OIDC_USERINFO_ENDPOINT", ""),
+			MessagingOIDCSecretARN:        getEnv("MESSAGING_OIDC_SECRET_ARN", ""),
+			MessagingOIDCSessionTimeout:   getEnvInt("MESSAGING_OIDC_SESSION_TIMEOUT", 3600),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -350,6 +364,16 @@ func (c *Config) Validate() error {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvInt gets an integer from an environment variable or returns the default
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
 	}
 	return defaultValue
 }

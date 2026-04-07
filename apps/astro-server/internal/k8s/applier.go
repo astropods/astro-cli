@@ -54,6 +54,9 @@ type ApplierConfig struct {
 	// ManagedAnthropicAPIKey is the platform-provided Anthropic API key
 	// injected into pods for the anthropic-managed provider.
 	ManagedAnthropicAPIKey string
+	// MessagingOIDCAuth configures ALB OIDC authentication for messaging ingresses.
+	// When nil, no auth annotations are added.
+	MessagingOIDCAuth *OIDCAuthConfig
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -84,6 +87,7 @@ type Applier struct {
 	langfuseVPCEIPs        []string
 	localMode              bool
 	managedAnthropicAPIKey string
+	messagingOIDCAuth      *OIDCAuthConfig
 }
 
 // NewApplier creates a new applier
@@ -113,6 +117,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
 		localMode:              cfg.LocalMode,
 		managedAnthropicAPIKey: cfg.ManagedAnthropicAPIKey,
+		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
 	}
 }
 

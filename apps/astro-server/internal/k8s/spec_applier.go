@@ -559,6 +559,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
 					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
+					OIDCAuth: a.messagingOIDCAuth,
 				})
 				status, err := a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)

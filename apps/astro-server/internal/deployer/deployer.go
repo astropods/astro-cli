@@ -100,6 +100,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		LangfuseVPCEIPs:        d.Cfg.Deployment.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
+		MessagingOIDCAuth:      messagingOIDCAuthFromConfig(d.Cfg),
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,
@@ -203,4 +204,21 @@ func imagePullPolicyForMode(mode string) corev1.PullPolicy {
 		return corev1.PullIfNotPresent
 	}
 	return corev1.PullAlways
+}
+
+// messagingOIDCAuthFromConfig builds an OIDCAuthConfig from server config.
+// Returns nil if the issuer is not set (OIDC disabled).
+func messagingOIDCAuthFromConfig(cfg *config.Config) *k8s.OIDCAuthConfig {
+	d := cfg.Deployment
+	if d.MessagingOIDCIssuer == "" {
+		return nil
+	}
+	return &k8s.OIDCAuthConfig{
+		Issuer:                d.MessagingOIDCIssuer,
+		AuthorizationEndpoint: d.MessagingOIDCAuthEndpoint,
+		TokenEndpoint:         d.MessagingOIDCTokenEndpoint,
+		UserInfoEndpoint:      d.MessagingOIDCUserInfoEndpoint,
+		SecretsManagerARN:     d.MessagingOIDCSecretARN,
+		SessionTimeoutSeconds: d.MessagingOIDCSessionTimeout,
+	}
 }
