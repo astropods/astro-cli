@@ -106,7 +106,7 @@ export function InterfacesPicker({
                 >
                   <ShieldCheck className={cn("h-4 w-4 shrink-0", webAuthEnabled ? "text-primary" : "text-muted-foreground")} strokeWidth={1.5} />
                   <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                    <span className="text-[12px] font-semibold text-foreground">Enable authentication</span>
+                    <span className="text-[12px] font-semibold text-foreground">Require authentication</span>
                     <span className="text-[11px] text-faint-foreground">Restrict access to signed-in users only</span>
                   </div>
                   <div className={cn(
