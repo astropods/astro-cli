@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { KeyRound, X } from 'lucide-react'
-import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { X } from 'lucide-react'
+import { MagnifyingGlassIcon, KeyIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Link } from 'react-router'
 import { Input } from '@/components/ui/input'
@@ -54,7 +54,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
             open && 'border-teal-600 text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40'
           )}
         >
-          <KeyRound className="size-3.5" />
+          <KeyIcon className="size-3.5" />
         </Button>
       </PopoverPrimitive.Trigger>
 
@@ -66,7 +66,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
         >
           {entries.length === 0 ? (
             <div className="px-4 py-5 text-center">
-              <KeyRound className="size-5 text-muted-foreground/50 mx-auto mb-2" />
+              <KeyIcon className="size-5 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">No variables yet</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Create reusable values in{' '}
