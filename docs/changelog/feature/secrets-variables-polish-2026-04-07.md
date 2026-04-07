@@ -14,9 +14,11 @@ Polish pass on the Variables & Secrets settings page and the VaultPicker compone
 
 **Edit variable modal:** Aligned to the same style as the change value modal — matching width, label sizing, and 1Password suppression.
 
-**VaultPicker:** "From [account] vault" simplified to "From [account]" at 11px muted. Description text bumped to 11px. Search input updated to "Find..." with a magnifying glass icon. The VaultRefChip X button now animates smoothly on hover using a width + opacity transition instead of abruptly appearing. Empty state updated to "No variables yet" to match the new terminology, with the "vault settings" link simplified to "settings".
+**VaultPicker:** "From [account] vault" simplified to "From [account]" at 11px muted. Description text bumped to 11px. Search input updated to "Find..." with a magnifying glass icon. The VaultRefChip X button now animates smoothly on hover using a width + opacity transition instead of abruptly appearing. Empty state updated to "No variables yet" with the "vault settings" link simplified to "settings".
 
-**Empty states:** Both the Variables & Secrets settings page and VaultPicker empty states were updated — icon changed from Lock to KeyRound to match the nav tab, and copy simplified to "No variables yet" / "Create a new variable to get started."
+**Empty states:** Both the Variables & Secrets settings page and VaultPicker empty states updated — icon changed to `KeyIcon` from heroicons to match the nav tab, and copy simplified to "No variables yet" / "Create a new variable to get started."
+
+**Icon consistency:** All key icons across the settings tab nav, empty states, and VaultPicker trigger button now use `KeyIcon` from `@heroicons/react/24/outline`, replacing the previous mix of lucide `KeyRound` and heroicons.
 
 ## Migration
 
