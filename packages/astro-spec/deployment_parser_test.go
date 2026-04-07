@@ -889,6 +889,105 @@ interfaces:
 	}
 }
 
+// ===== Rule 12 / Rule 12e: variable value/ref/optional combinations =====
+//
+// Truth table (optional × value × ref):
+//   optional=false, value="",  ref=""  → error (no value, no ref)
+//   optional=false, value="v", ref=""  → valid
+//   optional=false, value="",  ref="R" → valid
+//   optional=false, value="v", ref="R" → error (both set)
+//   optional=true,  value="",  ref=""  → valid (optional, nothing needed)
+//   optional=true,  value="v", ref=""  → valid
+//   optional=true,  value="",  ref="R" → valid
+//   optional=true,  value="v", ref="R" → error (both set)
+
+func varFixture(optional bool, value, ref string) string {
+	optStr := ""
+	if optional {
+		optStr = "\n    optional: true"
+	}
+	valueStr := ""
+	if value != "" {
+		valueStr = "\n    value: " + value
+	}
+	refStr := ""
+	if ref != "" {
+		refStr = "\n    ref: " + ref
+	}
+	return `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+variables:
+  KEY:
+    secret: true
+    targets:
+      - agent` + optStr + valueStr + refStr + "\n"
+}
+
+func TestParseDeploymentSpec_Variable_RequiredNoValueNoRef(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(false, "", "")))
+	if err == nil {
+		t.Fatal("expected error: required variable with no value and no ref")
+	}
+}
+
+func TestParseDeploymentSpec_Variable_RequiredValueOnly(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(false, "v", "")))
+	if err != nil {
+		t.Fatalf("required variable with value only should be valid, got: %v", err)
+	}
+}
+
+func TestParseDeploymentSpec_Variable_RequiredRefOnly(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(false, "", "R")))
+	if err != nil {
+		t.Fatalf("required variable with ref only should be valid, got: %v", err)
+	}
+}
+
+func TestParseDeploymentSpec_Variable_RequiredValueAndRef(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(false, "v", "R")))
+	if err == nil {
+		t.Fatal("expected error: cannot set both value and ref")
+	}
+}
+
+func TestParseDeploymentSpec_Variable_OptionalNoValueNoRef(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(true, "", "")))
+	if err != nil {
+		t.Fatalf("optional variable with no value and no ref should be valid, got: %v", err)
+	}
+}
+
+func TestParseDeploymentSpec_Variable_OptionalValueOnly(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(true, "v", "")))
+	if err != nil {
+		t.Fatalf("optional variable with value only should be valid, got: %v", err)
+	}
+}
+
+func TestParseDeploymentSpec_Variable_OptionalRefOnly(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(true, "", "R")))
+	if err != nil {
+		t.Fatalf("optional variable with ref only should be valid, got: %v", err)
+	}
+}
+
+func TestParseDeploymentSpec_Variable_OptionalValueAndRef(t *testing.T) {
+	_, err := ParseDeploymentSpec([]byte(varFixture(true, "v", "R")))
+	if err == nil {
+		t.Fatal("expected error: cannot set both value and ref")
+	}
+}
+
 // ===== Rule 12a: variables.*.targets validation in deployment/v1 =====
 
 func TestParseDeploymentSpec_VariablesMissingTargets(t *testing.T) {

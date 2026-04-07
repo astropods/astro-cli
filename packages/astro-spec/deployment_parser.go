@@ -328,9 +328,13 @@ func validateVariablesFulfilled(ds *AstroDeploymentSpec) error {
 		if len(v.Options) > 0 {
 			return fmt.Errorf("variables.%s: options field is not allowed in deployment/v1", key)
 		}
-		// Rule 12: non-optional must have a value
-		if !v.Optional && v.Value == "" {
+		// Rule 12: non-optional must have a value or a ref
+		if !v.Optional && v.Value == "" && v.Ref == "" {
 			return fmt.Errorf("variables.%s.value: required variable has no value", key)
+		}
+		// Rule 12e: value and ref are mutually exclusive
+		if v.Value != "" && v.Ref != "" {
+			return fmt.Errorf("variables.%s: cannot set both value and ref", key)
 		}
 		// Rule 12a: targets must be non-empty with valid values
 		if len(v.Targets) == 0 {
