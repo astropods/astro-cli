@@ -187,6 +187,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
               installs={blueprint.metrics?.deploy_count}
               recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
+              canEdit={canEdit}
             />
           }
         />
@@ -199,6 +200,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           installs={blueprint.metrics?.deploy_count}
           recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
+          canEdit={canEdit}
         />
       </div>
       </div>
