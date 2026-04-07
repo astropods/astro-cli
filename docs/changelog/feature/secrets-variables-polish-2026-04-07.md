@@ -20,6 +20,8 @@ Polish pass on the Variables & Secrets settings page and the VaultPicker compone
 
 **Icon consistency:** All key icons across the settings tab nav, empty states, and VaultPicker trigger button now use `KeyIcon` from `@heroicons/react/24/outline`, replacing the previous mix of lucide `KeyRound` and heroicons.
 
+**Bug fix:** `NewEntryDialog` form state (name, value, description, secret toggle) was not resetting when the dialog was closed programmatically after a successful save. Radix UI's `onOpenChange` doesn't fire on prop-driven closes, so state persisted into the next open. Fixed with a `useEffect` that resets all fields when `open` transitions to `false`.
+
 ## Migration
 
 No migration required.
