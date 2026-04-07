@@ -29,7 +29,7 @@ function UsageBar({ usage, quota, onRequestIncrease }: { usage: number; quota: n
         {onRequestIncrease && (
           <button
             onClick={onRequestIncrease}
-            className="text-primary hover:underline"
+            className="cursor-pointer text-primary hover:underline"
           >
             Request increase
           </button>

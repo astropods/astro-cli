@@ -26,7 +26,7 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
           <button
             type="button"
             onClick={() => setDialogOpen(true)}
-            className="absolute top-[12px] right-[14px] font-sans text-body-sm text-primary hover:text-primary/80 transition-colors"
+            className="absolute top-[12px] right-[14px] cursor-pointer font-sans text-body-sm text-primary hover:text-primary/80 transition-colors"
           >
             Request increase
           </button>
