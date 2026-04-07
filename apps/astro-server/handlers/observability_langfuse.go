@@ -99,7 +99,12 @@ func GetAccountLangfuseSummary(
 
 		creds, err := langfuseStore.Get(acct.ID)
 		if err != nil || creds == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "langfuse not configured for this account"})
+			c.JSON(http.StatusOK, gin.H{
+				"total_traces":  0,
+				"input_tokens":  0,
+				"output_tokens": 0,
+				"time_range":    gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
+			})
 			return
 		}
 

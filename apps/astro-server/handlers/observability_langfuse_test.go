@@ -2,11 +2,69 @@ package handlers
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
+
+var accountCols = []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}
+
+func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New()
+	langfuseDB, langfuseMock, _ := sqlmock.New()
+
+	accountStore := account.NewAccountStore(accountDB)
+	langfuseStore := langfuse.NewStore(langfuseDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+
+	now := time.Now()
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(accountCols).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, 0, ""))
+	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/accounts/:account/observability/summary",
+		GetAccountLangfuseSummary(log, cfg, accountStore, langfuseStore))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/summary?start_time=2026-04-01T00:00:00Z&end_time=2026-04-02T00:00:00Z", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["total_traces"] != float64(0) {
+		t.Errorf("total_traces = %v, want 0", resp["total_traces"])
+	}
+}
 
 func TestComputeLangfuseSummary_Empty(t *testing.T) {
 	result := computeLangfuseSummary(nil, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
