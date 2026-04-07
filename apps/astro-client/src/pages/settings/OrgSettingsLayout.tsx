@@ -1,6 +1,7 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useState } from 'react'
-import { KeyRound, ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
+import { KeyIcon } from '@heroicons/react/24/outline'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import {
   SidebarLayout,
@@ -53,7 +54,7 @@ function OrgSettingsContent() {
         <SidebarNav label="Org settings" className="md:w-48">
           <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
             <span className="flex items-center gap-2">
-              <KeyRound className="size-3.5" />
+              <KeyIcon className="size-3.5" />
               Variables & Secrets
             </span>
           </SidebarNavItem>
