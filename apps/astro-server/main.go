@@ -681,22 +681,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 					)
 				}
-				api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
-					oapispec.Tags("Usage"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
-					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
-					oapispec.Response(200, &handlers.UsageResponse{}),
-					oapispec.Response(503, &handlers.ErrorResponse{}),
-				)
-				api.POST(accountAdmin, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
-					oapispec.Tags("Usage"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-				)
 				api.GET(accountAdmin, "/quota-increase", "List quota increase requests", handlers.ListQuotaIncreaseRequests(log, db),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
@@ -746,6 +730,29 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
+			}
+
+			// Account-scoped routes (any member)
+			accountMember := protected.Group("/accounts/:account")
+			accountMember.Use(middleware.ResolveAccount(accountStore))
+			accountMember.Use(middleware.RequireAccountMember(accountStore))
+			{
+				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.UsageResponse{}),
+					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
+				api.POST(accountMember, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
 			}
 

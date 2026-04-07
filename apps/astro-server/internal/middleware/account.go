@@ -93,6 +93,38 @@ func RequireAccountPermission(accountStore *account.AccountStore, permission str
 	}
 }
 
+// RequireAccountMember checks that the authenticated user is a member of the
+// resolved account. Must be used after ResolveAccount and RequireAuth.
+func RequireAccountMember(accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, ok := GetUser(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "authentication required",
+			})
+			return
+		}
+
+		acct, ok := GetAccountFromContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error": "account not resolved",
+			})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "you are not a member of this account",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // GetAccountFromContext retrieves the resolved account from the gin context
 func GetAccountFromContext(c *gin.Context) (*account.Account, bool) {
 	val, exists := c.Get(string(auth.AccountContextKey))

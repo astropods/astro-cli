@@ -243,6 +243,103 @@ func TestRequireAccountPermission_OrgAccount_OrgMismatch_Rejected(t *testing.T) 
 	}
 }
 
+// --- RequireAccountMember tests ---
+
+func setupMemberTestRouter(
+	store *account.AccountStore,
+	user *auth.User,
+	acct *account.Account,
+) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/test", func(c *gin.Context) {
+		if user != nil {
+			c.Set(string(auth.UserContextKey), user)
+		}
+		if acct != nil {
+			c.Set(string(auth.AccountContextKey), acct)
+		}
+		c.Next()
+	}, RequireAccountMember(store), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "allowed"})
+	})
+	return router
+}
+
+func TestRequireAccountMember_NoUser(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := setupMemberTestRouter(store, nil, &account.Account{
+		ID: "acct-1", Name: "test", Type: "personal",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestRequireAccountMember_NoAccount(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := setupMemberTestRouter(store, &auth.User{ID: "user-1"}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestRequireAccountMember_IsMember(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := setupMemberTestRouter(store,
+		&auth.User{ID: "user-1"},
+		&account.Account{ID: "acct-1", Name: "myorg", Type: "organization"})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("member should be allowed, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequireAccountMember_NotMember(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	router := setupMemberTestRouter(store,
+		&auth.User{ID: "user-2"},
+		&account.Account{ID: "acct-1", Name: "myorg", Type: "organization"})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-member should be forbidden, got %d", rec.Code)
+	}
+}
+
 func TestRequireAccountPermission_OrgAccount_NoSession_Rejected(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
