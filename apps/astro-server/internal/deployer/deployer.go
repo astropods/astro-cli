@@ -81,6 +81,16 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		}
 	}
 
+	oidcAuth := messagingOIDCAuthFromConfig(d.Cfg)
+	if oidcAuth == nil {
+		d.Log.Info("Messaging OIDC auth disabled — MESSAGING_OIDC_ISSUER not set, ingress will be unauthenticated")
+	} else if oidcAuth.SecretsManagerARN == "" {
+		d.Log.Warn("Messaging OIDC auth misconfigured — MESSAGING_OIDC_SECRET_ARN not set, skipping OIDC annotations")
+		oidcAuth = nil
+	} else {
+		d.Log.Info("Messaging OIDC auth enabled", "issuer", oidcAuth.Issuer, "secret_arn", oidcAuth.SecretsManagerARN)
+	}
+
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
 		Namespace:              dep.Namespace,
 		RegistryURL:            d.Cfg.Deployment.RegistryURL,
@@ -100,7 +110,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		LangfuseVPCEIPs:        d.Cfg.Deployment.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
-		MessagingOIDCAuth:      messagingOIDCAuthFromConfig(d.Cfg),
+		MessagingOIDCAuth:      oidcAuth,
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,
