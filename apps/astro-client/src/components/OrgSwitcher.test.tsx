@@ -21,8 +21,8 @@ function renderSwitcher({
 }: {
   activeAccount?: string;
   defaultAccount?: string;
-  onChange?: ReturnType<typeof vi.fn>;
-  onSetDefault?: ReturnType<typeof vi.fn>;
+  onChange?: (account: string) => void;
+  onSetDefault?: (account: string) => void;
   accounts?: { id: string; name: string; type: string }[];
 } = {}) {
   render(

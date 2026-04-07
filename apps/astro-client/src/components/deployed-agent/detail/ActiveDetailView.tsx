@@ -81,7 +81,6 @@ interface ActiveDetailViewProps {
 export function ActiveDetailView({
   deployment,
   account,
-  isPersonal,
   monitorLocked = false,
   monitorLockReason = "Available once deployment is live.",
   backPathOverride,
