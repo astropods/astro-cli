@@ -75,13 +75,16 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 		if timeout == 0 {
 			timeout = 3600
 		}
-		oidcJSON, _ := json.Marshal(map[string]string{
+		oidcJSON, err := json.Marshal(map[string]string{
 			"issuer":                cfg.OIDCAuth.Issuer,
 			"authorizationEndpoint": cfg.OIDCAuth.AuthorizationEndpoint,
 			"tokenEndpoint":         cfg.OIDCAuth.TokenEndpoint,
 			"userInfoEndpoint":      cfg.OIDCAuth.UserInfoEndpoint,
 			"secretName":            cfg.OIDCAuth.SecretsManagerARN,
 		})
+		if err != nil {
+			panic(fmt.Sprintf("failed to marshal OIDC config: %v", err))
+		}
 		annotations["alb.ingress.kubernetes.io/auth-type"] = "oidc"
 		annotations["alb.ingress.kubernetes.io/auth-idp-oidc"] = string(oidcJSON)
 		annotations["alb.ingress.kubernetes.io/auth-on-unauthenticated-request"] = "authenticate"
