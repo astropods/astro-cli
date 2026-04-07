@@ -14,6 +14,12 @@ import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import type { Account } from "@/lib/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface OrgSwitcherProps {
   activeAccount: string;
@@ -111,29 +117,40 @@ export function OrgSwitcher({
                 </span>
                 <AccountIcon account={a} />
                 <span className="truncate">{a.display_name || a.name}</span>
-                <button
-                  type="button"
-                  className={cn(
-                    "ml-auto mr-2 hidden shrink-0 transition-opacity sm:block",
-                    isDefault
-                      ? "opacity-100"
-                      : "opacity-0 group-data-[highlighted]:opacity-100",
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSetDefault(a.name);
-                  }}
-                  title={isDefault ? "Default view" : "Set as default view"}
-                >
-                  <StarIcon
-                    className={cn(
-                      "size-3.5",
-                      isDefault
-                        ? "fill-current text-primary"
-                        : "text-muted-foreground",
-                    )}
-                  />
-                </button>
+                {isDefault ? (
+                  <button
+                    type="button"
+                    aria-label="Default view"
+                    className="ml-auto mr-2 hidden shrink-0 cursor-pointer opacity-100 sm:block"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSetDefault(a.name);
+                    }}
+                  >
+                    <StarIcon className="size-3.5 fill-current text-primary" />
+                  </button>
+                ) : (
+                  <TooltipProvider delayDuration={500}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Set as default view"
+                          className="ml-auto mr-2 hidden shrink-0 cursor-pointer opacity-0 transition-opacity group-data-[highlighted]:opacity-100 sm:block"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSetDefault(a.name);
+                          }}
+                        >
+                          <StarIcon className="size-3.5 text-muted-foreground" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        Set as default view
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
               </DropdownMenuItem>
             );
           })}

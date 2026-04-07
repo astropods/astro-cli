@@ -87,7 +87,7 @@ describe('OrgSwitcher', () => {
       renderSwitcher({ activeAccount: 'testuser', defaultAccount: 'testuser', onChange, onSetDefault });
 
       await user.click(screen.getByRole('button', { name: triggerName }));
-      await user.click(screen.getByTitle('Set as default view'));
+      await user.click(screen.getByRole('button', { name: 'Set as default view' }));
 
       expect(onChange).not.toHaveBeenCalled();
     });
@@ -98,7 +98,7 @@ describe('OrgSwitcher', () => {
       renderSwitcher({ activeAccount: 'testuser', defaultAccount: 'testuser', onSetDefault });
 
       await user.click(screen.getByRole('button', { name: triggerName }));
-      await user.click(screen.getByTitle('Set as default view'));
+      await user.click(screen.getByRole('button', { name: 'Set as default view' }));
 
       expect(onSetDefault).toHaveBeenCalledWith('my-org');
     });
@@ -109,7 +109,7 @@ describe('OrgSwitcher', () => {
 
       await user.click(screen.getByRole('button', { name: triggerName }));
 
-      expect(screen.getByTitle('Default view')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Default view' })).toBeInTheDocument();
     });
 
     it('shows "Set as default view" title on non-default account stars', async () => {
@@ -118,7 +118,7 @@ describe('OrgSwitcher', () => {
 
       await user.click(screen.getByRole('button', { name: triggerName }));
 
-      expect(screen.getByTitle('Set as default view')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Set as default view' })).toBeInTheDocument();
     });
   });
 });
