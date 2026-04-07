@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useDefaultAccount } from "@/hooks/use-default-account";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
 import { createServerApi } from "@/lib/api.server";
@@ -53,7 +54,9 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const userAccount = searchParams.get("account") || personalAccount?.name || "";
+
+  const { defaultAccount, validStoredDefault, handleSetDefault } = useDefaultAccount();
+  const userAccount = searchParams.get("account") || validStoredDefault || personalAccount?.name || "";
 
   const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
   const revealDeploymentId = revealState?.revealDeploymentId ?? null;
@@ -63,7 +66,7 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
   const setActiveAccount = (account: string) => {
-    setSearchParams(account === personalAccount?.name ? {} : { account });
+    setSearchParams({ account });
   };
   const displayName =
     personalAccount?.display_name || personalAccount?.name || "";
@@ -120,7 +123,9 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
             </h1>
             <OrgSwitcher
               activeAccount={userAccount}
+              defaultAccount={defaultAccount}
               onChange={setActiveAccount}
+              onSetDefault={handleSetDefault}
             />
           </div>
           <div className="flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">

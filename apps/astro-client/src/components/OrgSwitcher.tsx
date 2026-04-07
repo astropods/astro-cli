@@ -1,21 +1,27 @@
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
+import { Check, ChevronDown } from "lucide-react";
+import { StarIcon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { inputBase, inputFocusVisible } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import type { Account } from "@/lib/api";
 
 interface OrgSwitcherProps {
   activeAccount: string;
+  defaultAccount?: string;
   onChange: (account: string) => void;
+  onSetDefault: (account: string) => void;
 }
+
 
 function AccountIcon({ account }: { account: Account }) {
   if (account.type === "personal") {
@@ -35,17 +41,29 @@ function AccountIcon({ account }: { account: Account }) {
   );
 }
 
-export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
+export function OrgSwitcher({
+  activeAccount,
+  defaultAccount,
+  onChange,
+  onSetDefault,
+}: OrgSwitcherProps) {
   const { accounts } = useAuth();
   const selectId = useId();
 
   const sorted = useMemo(
     () =>
       [...accounts].sort((a, b) =>
-        a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name),
+        a.type === "personal"
+          ? -1
+          : b.type === "personal"
+            ? 1
+            : a.name.localeCompare(b.name),
       ),
     [accounts],
   );
+
+  const activeAccountObj = sorted.find((a) => a.name === activeAccount);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="flex items-center gap-2">
@@ -55,21 +73,72 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
       >
         View
       </Label>
-      <Select value={activeAccount} onValueChange={onChange}>
-        <SelectTrigger id={selectId} className="h-8 w-48 px-2.5 py-0 text-sm leading-none">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          {sorted.map((a) => (
-            <SelectItem key={a.id} value={a.name}>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            id={selectId}
+            type="button"
+            className={cn(
+              "flex h-8 w-56 items-center justify-between px-2.5 py-0 text-sm leading-none text-foreground",
+              inputBase,
+              inputFocusVisible,
+            )}
+          >
+            {activeAccountObj && (
               <span className="inline-flex items-center gap-2">
-                <AccountIcon account={a} />
-                {a.display_name || a.name}
+                <AccountIcon account={activeAccountObj} />
+                <span className="truncate">
+                  {activeAccountObj.display_name || activeAccountObj.name}
+                </span>
               </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+            )}
+            <ChevronDown className="size-4 shrink-0 opacity-50" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {sorted.map((a) => {
+            const isActive = a.name === activeAccount;
+            const isDefault = a.name === defaultAccount;
+            return (
+              <DropdownMenuItem
+                key={a.id}
+                className="group relative cursor-pointer pl-8 pr-0"
+                onSelect={(e) => e.preventDefault()}
+                onClick={() => { onChange(a.name); setOpen(false); }}
+              >
+                <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+                  {isActive && <Check className="size-4" />}
+                </span>
+                <AccountIcon account={a} />
+                <span className="truncate">{a.display_name || a.name}</span>
+                <button
+                  type="button"
+                  className={cn(
+                    "ml-auto mr-2 hidden shrink-0 transition-opacity sm:block",
+                    isDefault
+                      ? "opacity-100"
+                      : "opacity-0 group-data-[highlighted]:opacity-100",
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSetDefault(a.name);
+                  }}
+                  title={isDefault ? "Default view" : "Set as default view"}
+                >
+                  <StarIcon
+                    className={cn(
+                      "size-3.5",
+                      isDefault
+                        ? "fill-current text-primary"
+                        : "text-muted-foreground",
+                    )}
+                  />
+                </button>
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

@@ -112,10 +112,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           // Avatar upload failure shouldn't block navigation — deployment succeeded
         }
       }
-      const isOrgDeploy = form.targetAccount && form.targetAccount !== personalAccount?.name;
-      const destination = isOrgDeploy
-        ? `${dashboardPath}?account=${encodeURIComponent(form.targetAccount)}`
-        : dashboardPath;
+      const destination = `${dashboardPath}?account=${encodeURIComponent(form.targetAccount)}`;
 
       if (result?.deployment_id) {
         const deployResult = result as DeployResponse;
