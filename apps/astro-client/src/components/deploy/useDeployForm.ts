@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
@@ -247,7 +248,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(iv?.ingestionSchedules ?? {});
-  const [deployError, setDeployError] = useState<string | null>(null);
+  const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
@@ -503,20 +504,19 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return await deployMutation.mutateAsync(spec);
     } catch (err) {
       const apiErr = err as ApiError;
-      const messages: string[] = [];
+      const details: string[] = [];
       if (apiErr.validation_errors?.length) {
-        for (const ve of apiErr.validation_errors) messages.push(`${ve.field}: ${ve.message}`);
+        for (const ve of apiErr.validation_errors) details.push(`${ve.field}: ${ve.message}`);
       }
       if (apiErr.missing_variables?.length) {
-        messages.push(`Missing variables: ${apiErr.missing_variables.join(", ")}`);
+        details.push(`Missing variables: ${apiErr.missing_variables.join(", ")}`);
       }
-      if (messages.length === 0) {
-        const detail = typeof apiErr.details === "string" ? apiErr.details : undefined;
-        messages.push(
-          detail ?? apiErr.error ?? (err instanceof Error ? err.message : "Deployment failed"),
-        );
-      }
-      setDeployError(messages.join("\n"));
+      const rawMessage = apiErr.error ?? (err instanceof Error ? err.message : "Deployment failed");
+      const message = sentenceCase(rawMessage);
+      const detailText = details.length > 0
+        ? details.join("\n")
+        : typeof apiErr.details === "string" ? apiErr.details : undefined;
+      setDeployError({ message, details: detailText });
       throw err;
     }
   };

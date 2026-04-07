@@ -130,7 +130,7 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
           </button>
         ) : null}
       </div>
-      <p className="text-sm whitespace-pre-wrap" style={toneTextStyle}>{children}</p>
+      {children != null && <p className="text-sm whitespace-pre-wrap" style={toneTextStyle}>{children}</p>}
     </div>
   );
 }

@@ -214,7 +214,9 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
       {/* Error */}
       {form.deployError && (
-        <ErrorPanel title="Deployment failed">{form.deployError}</ErrorPanel>
+        <ErrorPanel title={form.deployError.message}>
+          {form.deployError.details ?? null}
+        </ErrorPanel>
       )}
     </div>
   );
