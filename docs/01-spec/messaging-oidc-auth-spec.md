@@ -1,137 +1,164 @@
-# Messaging Ingress OIDC Authentication Specification
+# Messaging Ingress Authentication Specification
 
-**Version**: 1.0
-**Status**: Draft
+**Version**: 2.0
+**Status**: Implemented
 **Author**: Astro Team
 **Date**: 2026-04-07
 
 ## Overview
 
-The messaging container's web adapter is exposed via an AWS ALB ingress with no authentication. This spec covers adding WorkOS OIDC authentication in front of the messaging ingress using ALB's native OIDC support, with no changes to the container.
+The messaging container's web adapter is exposed via an AWS ALB ingress. This spec covers adding authentication in front of the messaging ingress using ALB's native OIDC support, with no changes to the container.
+
+Authentication is opt-in per deployment via the deployment template. Server-level env vars provide the OIDC credentials; each deployment explicitly enables auth via `interfaces.auth.web.type: oidc`.
 
 ## Goals
 
 1. **Zero container changes**: Auth is enforced entirely at the ALB layer.
-2. **WorkOS as IdP**: Reuse the existing WorkOS identity provider via its OIDC endpoints.
-3. **Opt-in per deployment**: OIDC auth is configured per-ingress via server env vars; absent config means no auth (preserves backward compat).
+2. **WorkOS as IdP**: Reuse the existing WorkOS identity provider via its AuthKit OIDC endpoints.
+3. **Explicit opt-in per deployment**: Auth is disabled by default. Each deployment template controls whether it is enabled.
 4. **Session management**: ALB manages session cookies and token refresh.
+5. **User-friendly toggle**: The deploy form exposes "Enable authentication" without surfacing OIDC/WorkOS terminology.
 
 ## Non-Goals
 
 1. **Machine-to-machine auth**: ALB OIDC uses the browser Authorization Code flow; API clients are out of scope.
-2. **Fine-grained authorization**: ALB only validates identity (authn). Authz (what the user can do) remains the agent's responsibility.
-3. **Per-agent OIDC config**: Single global OIDC config applies to all messaging ingresses (see Future Work).
+2. **Fine-grained authorization**: ALB only validates identity (authn). Per-user access control is handled separately (see Future Work).
+3. **Per-deployment OIDC credentials**: A single server-level OIDC config applies to all deployments. Per-deployment credential override is reserved for `oidc-custom` (see Future Work).
 
 ## Design
 
 ### How ALB OIDC works
 
-ALB's built-in authenticate-oidc action intercepts unauthenticated requests on the listener rule. It redirects the browser to the OIDC IdP, handles the callback at the fixed path `/oauth2/idpresponse`, exchanges the authorization code for tokens, validates them, sets an `AWSELBAuthSessionCookie`, then forwards the request to the target with identity headers injected:
+ALB's built-in authenticate-oidc action intercepts unauthenticated requests on the listener rule. It redirects the browser to the OIDC IdP, handles the callback at the fixed path `/oauth2/idpresponse`, exchanges the authorization code for tokens, validates them, sets an `AWSELBAuthSessionCookie`, then forwards the request to the container with identity headers:
 
-- `x-amzn-oidc-identity` — subject claim
+- `x-amzn-oidc-identity` — subject claim (WorkOS user ID)
 - `x-amzn-oidc-data` — signed JWT with user claims
 - `x-amzn-oidc-accesstoken` — access token
 
-ALB retrieves the client secret from AWS Secrets Manager at request time using the ALB controller's IAM role.
+The ALB controller reads OIDC client credentials from a Kubernetes secret (`messaging-oidc`) created in the agent namespace on every deploy.
 
 ### WorkOS OIDC endpoints
 
-WorkOS exposes standard OIDC endpoints. The discovery document is at `https://api.workos.com/.well-known/openid-configuration`. ALB requires explicit endpoint URLs (no auto-discovery):
+AuthKit domain: `https://<env>.authkit.app`
+
+Discovery document: `https://<env>.authkit.app/.well-known/openid-configuration`
 
 | Field | Value |
 |-------|-------|
-| Issuer | from discovery doc |
-| Authorization endpoint | from discovery doc |
-| Token endpoint | from discovery doc |
-| UserInfo endpoint | from discovery doc |
+| Issuer | `https://<env>.authkit.app` |
+| Authorization endpoint | `https://<env>.authkit.app/oauth2/authorize` |
+| Token endpoint | `https://<env>.authkit.app/oauth2/token` |
+| UserInfo endpoint | `https://<env>.authkit.app/oauth2/userinfo` |
 
 ### Redirect URI
 
-ALB's fixed callback path is `/oauth2/idpresponse`. The redirect URI registered with WorkOS must be `https://<messaging-host>/oauth2/idpresponse`.
+ALB's fixed callback path is `/oauth2/idpresponse`. Register a wildcard redirect URI in the WorkOS OIDC application:
 
-Since each agent gets a unique host (via `GenerateIngressHost`), a wildcard redirect URI must be registered in WorkOS, or each agent's host must be registered individually. Wildcard is preferred for operational simplicity.
-
-### Secrets Manager secret format
-
-```json
-{ "clientId": "<workos-client-id>", "clientSecret": "<workos-client-secret>" }
+```
+https://*.<ingress-domain>/oauth2/idpresponse
 ```
 
-The ALB controller's service account (via IRSA) needs `secretsmanager:GetSecretValue` on this ARN.
+### K8s secret
+
+The ALB controller reads OIDC credentials from a Kubernetes secret in the agent namespace. The server creates this secret on every deploy when auth is enabled:
+
+```
+name: messaging-oidc
+namespace: <agent-namespace>
+data:
+  clientId: <base64>
+  clientSecret: <base64>
+```
+
+The ALB controller's ClusterRole must include `get`/`list`/`watch` on `secrets`.
 
 ## Implementation
 
-### `IngressConfig` — new optional OIDC fields (`ingress.go`)
+### Deployment spec — `packages/astro-spec/deployment_spec.go`
 
-Add an `OIDCAuthConfig` struct:
-
-- `Issuer` string
-- `AuthorizationEndpoint` string
-- `TokenEndpoint` string
-- `UserInfoEndpoint` string
-- `SecretsManagerARN` string — ARN of the Secrets Manager secret
-- `Scope` string — default `"openid email"`
-- `SessionTimeoutSeconds` int — default `3600`
-
-Add `OIDCAuth *OIDCAuthConfig` to `IngressConfig`. Nil means no auth annotations are added.
-
-`BuildIngress` adds these ALB annotations when `OIDCAuth` is non-nil:
-
-- `alb.ingress.kubernetes.io/auth-type: oidc`
-- `alb.ingress.kubernetes.io/auth-idp-oidc` — JSON-encoded struct with `issuer`, `authorizationEndpoint`, `tokenEndpoint`, `userInfoEndpoint`, `secretName` (the ARN)
-- `alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate`
-- `alb.ingress.kubernetes.io/auth-scope` — from config
-- `alb.ingress.kubernetes.io/auth-session-timeout` — from config
-
-### `spec_applier.go` — pass OIDC config
-
-When building the messaging ingress, populate `IngressConfig.OIDCAuth` from the applier's config. If any required field is empty, log a warning and skip OIDC (fail open, not closed, to avoid blocking deployments during misconfiguration).
-
-### Server config — new env vars
-
-| Env var | Purpose |
-|---------|---------|
-| `MESSAGING_OIDC_ISSUER` | WorkOS issuer URL |
-| `MESSAGING_OIDC_AUTH_ENDPOINT` | Authorization endpoint |
-| `MESSAGING_OIDC_TOKEN_ENDPOINT` | Token endpoint |
-| `MESSAGING_OIDC_USERINFO_ENDPOINT` | UserInfo endpoint |
-| `MESSAGING_OIDC_SECRET_ARN` | Secrets Manager ARN for client credentials |
-| `MESSAGING_OIDC_SESSION_TIMEOUT` | Session duration in seconds (default 3600) |
-
-All vars are optional. If none are set, OIDC is disabled and the ingress is created as-is today.
-
-## Future Work
-
-### Per-deployment OIDC override
-
-The global env var config applies uniformly to all messaging ingresses. A future extension would allow operators to override auth config per deployment via `DeploymentInterfaces.Auth` in `AstroDeploymentSpec` (`packages/astro-spec/deployment_spec.go`):
+`DeploymentInterfaces` has an optional `Auth` field:
 
 ```go
 type DeploymentInterfaces struct {
     // ... existing fields ...
-    Auth *MessagingAuthConfig `json:"auth,omitempty"`
+    Auth *DeploymentInterfacesAuth `json:"auth,omitempty"`
 }
 
-type MessagingAuthConfig struct {
-    Type              string // "oidc" | "none"
-    Issuer            string
-    AuthEndpoint      string
-    TokenEndpoint     string
-    UserInfoEndpoint  string
-    SecretsManagerARN string
-    SessionTimeout    int
+type DeploymentInterfacesAuth struct {
+    Web *DeploymentWebAuth `json:"web,omitempty"`
+}
+
+type DeploymentWebAuth struct {
+    Type string `json:"type,omitempty"` // "oidc" | "oidc-custom"
 }
 ```
 
-Override semantics:
-- `auth` absent → inherit server global config
-- `auth.type: none` → explicitly disable auth for this deployment
-- `auth.type: oidc` with fields → override server defaults for this deployment
+### Server config — `apps/astro-server/internal/config/config.go`
 
-This is purely a server-side deployment spec concern. It does not belong in `astropods.yml` (agent author concern) — it is an operator-level decision set at deploy time.
+| Env var | Purpose |
+|---------|---------|
+| `MESSAGING_OIDC_ISSUER` | WorkOS AuthKit issuer URL |
+| `MESSAGING_OIDC_AUTH_ENDPOINT` | Authorization endpoint |
+| `MESSAGING_OIDC_TOKEN_ENDPOINT` | Token endpoint |
+| `MESSAGING_OIDC_USERINFO_ENDPOINT` | UserInfo endpoint |
+| `MESSAGING_OIDC_CLIENT_ID` | OIDC application client ID |
+| `MESSAGING_OIDC_CLIENT_SECRET` | OIDC application client secret |
+| `MESSAGING_OIDC_SESSION_TIMEOUT` | Session duration in seconds (default 3600) |
+
+All vars are optional. If `MESSAGING_OIDC_ISSUER` is unset, auth is fully disabled regardless of deployment spec.
+
+### Deployment flow — `apps/astro-server/internal/k8s/spec_applier.go`
+
+On deploy, when `ds.Interfaces.Auth.Web.Type == "oidc"` AND server OIDC is configured:
+
+1. Create/update the `messaging-oidc` Kubernetes secret in the agent namespace
+2. Build the ingress with 5 ALB auth annotations:
+   - `alb.ingress.kubernetes.io/auth-type: oidc`
+   - `alb.ingress.kubernetes.io/auth-idp-oidc` — JSON with issuer/endpoints/secretName
+   - `alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate`
+   - `alb.ingress.kubernetes.io/auth-scope: openid email`
+   - `alb.ingress.kubernetes.io/auth-session-timeout: <seconds>`
+
+If `auth` is absent or `web` is nil, no auth annotations are added.
+
+### Frontend — `apps/astro-client`
+
+The web adapter card in the messaging interfaces picker shows an "Enable authentication" toggle when selected. When enabled, `interfaces.auth.web.type: oidc` is set in the fulfilled deployment spec. Pre-fills correctly when editing an existing deployment.
+
+## Infra requirements
+
+```hcl
+resource "aws_secretsmanager_secret" "messaging_oidc" {
+  name = "preview-messaging-oidc"
+}
+
+resource "aws_secretsmanager_secret_version" "messaging_oidc" {
+  secret_id     = aws_secretsmanager_secret.messaging_oidc.id
+  secret_string = jsonencode({
+    clientId     = var.workos_messaging_oidc_client_id
+    clientSecret = var.workos_messaging_oidc_client_secret
+  })
+}
+```
+
+The server reads `MESSAGING_OIDC_CLIENT_ID` and `MESSAGING_OIDC_CLIENT_SECRET` from the deployment secrets (not from Secrets Manager directly — Secrets Manager is used only to store them securely in infra).
+
+The ALB controller's IAM role needs `secretsmanager:GetSecretValue` on the secret ARN — but note this is only needed if the ALB controller fetches from Secrets Manager directly. In the current implementation, the server creates a K8s secret and the ALB controller reads from K8s.
 
 ## Migration
 
-No changes required for existing deployments. OIDC auth is activated by setting the env vars above on the server. On next deploy of an agent, the messaging ingress will be updated with auth annotations.
+No action required for existing deployments. Auth is only applied when:
+1. `MESSAGING_OIDC_ISSUER` (and client credentials) are set on the server, AND
+2. The deployment spec has `interfaces.auth.web.type: oidc`
 
-Agents deployed before the env vars are set will continue to work without auth until they are redeployed (the ingress is only updated on deploy).
+Existing deployments without `auth` in their spec will not get auth applied on redeploy.
+
+## Future Work
+
+### Per-user access control
+
+ALB injects `x-amzn-oidc-identity` (WorkOS user ID) on every authenticated request. The messaging container's web adapter supports `WEB_ALLOWED_USER_IDS` (comma-separated) to restrict access to specific users without any infra changes.
+
+### Per-deployment OIDC credentials (`oidc-custom`)
+
+`DeploymentWebAuth.Type: "oidc-custom"` is reserved for future per-deployment credential override. This would allow different WorkOS applications per agent.
