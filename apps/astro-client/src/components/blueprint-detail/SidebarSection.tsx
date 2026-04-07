@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 export interface SidebarSectionProps {
   title: string;
-  badge?: string;
+  badge?: ReactNode;
   children: ReactNode;
   className?: string;
   headerClassName?: string;
@@ -25,7 +25,7 @@ export function SidebarSection({
           {title}
         </span>
         {badge && (
-          <span className="text-[9px] font-mono uppercase tracking-[0.1em] px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 leading-none">
+          <span className="text-amber-500 dark:text-amber-400">
             {badge}
           </span>
         )}

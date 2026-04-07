@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -69,7 +69,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   if (statusLoading) {
     return (
-      <SidebarSection title="GitHub" badge="alpha">
+      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />}>
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
           <Spinner size={14} />
           <span>Loading…</span>
@@ -80,7 +80,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   return (
     <>
-      <SidebarSection title="GitHub" badge="alpha">
+      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />}>
         {status?.connected ? (
           <ConnectedRepoView
             account={account}

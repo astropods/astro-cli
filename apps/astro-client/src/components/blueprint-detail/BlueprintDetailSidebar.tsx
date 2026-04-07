@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
 import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
+import { useExperiments } from "@/lib/experiments";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarRepository } from "./SidebarRepository";
 import { SidebarStats } from "./SidebarStats";
@@ -52,6 +53,7 @@ export function SidebarCard({
     : agent.account;
 
   const repository = getBlueprintRepository(agent);
+  const { experiments } = useExperiments();
 
   return (
     <div className="space-y-4">
@@ -88,7 +90,7 @@ export function SidebarCard({
         <CapabilitiesList capabilities={capabilities} />
       )}
 
-      {canEdit && (
+      {canEdit && experiments.githubAutoBuild && (
         <GitHubConnectionPanel account={agent.account} name={agent.name} />
       )}
 
