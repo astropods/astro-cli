@@ -511,8 +511,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         messages.push(`Missing variables: ${apiErr.missing_variables.join(", ")}`);
       }
       if (messages.length === 0) {
+        const detail = typeof apiErr.details === "string" ? apiErr.details : undefined;
         messages.push(
-          apiErr.error ?? (typeof apiErr.details === "string" ? apiErr.details : undefined) ?? (err instanceof Error ? err.message : "Deployment failed"),
+          detail ?? apiErr.error ?? (err instanceof Error ? err.message : "Deployment failed"),
         );
       }
       setDeployError(messages.join("\n"));
