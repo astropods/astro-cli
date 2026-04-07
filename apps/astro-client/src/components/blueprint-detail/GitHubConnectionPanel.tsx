@@ -69,7 +69,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   if (statusLoading) {
     return (
-      <SidebarSection title="GitHub">
+      <SidebarSection title="GitHub" badge="alpha">
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
           <Spinner size={14} />
           <span>Loading…</span>
@@ -80,7 +80,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   return (
     <>
-      <SidebarSection title="GitHub">
+      <SidebarSection title="GitHub" badge="alpha">
         {status?.connected ? (
           <ConnectedRepoView
             account={account}
