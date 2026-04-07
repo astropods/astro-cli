@@ -554,6 +554,18 @@ func (a *Applier) ApplyDeploymentSpec(
 				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
 			if host != "" {
+				// Create OIDC credentials secret in agent namespace when auth is configured
+				if a.messagingOIDCAuth != nil {
+					oidcSecret := buildMessagingOIDCSecret(a.namespace, a.messagingOIDCAuth)
+					secretStatus, secretErr := a.applySecret(ctx, oidcSecret)
+					result.Resources = append(result.Resources, secretStatus)
+					if secretErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: oidcSecret.Name, Kind: "Secret", Error: secretErr.Error(),
+						})
+					}
+				}
+
 				ingress := BuildIngress(IngressConfig{
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: "messaging",
@@ -1056,3 +1068,19 @@ func (a *Applier) applyServiceAndRecord(ctx context.Context, svc *corev1.Service
 
 func protocolPtr(p corev1.Protocol) *corev1.Protocol   { return &p }
 func portPtr(p intstr.IntOrString) *intstr.IntOrString { return &p }
+
+// buildMessagingOIDCSecret builds a Kubernetes Secret holding the OIDC client
+// credentials for the ALB controller to use with the messaging ingress.
+func buildMessagingOIDCSecret(namespace string, cfg *OIDCAuthConfig) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      messagingOIDCSecretName,
+			Namespace: namespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"clientId":     []byte(cfg.ClientID),
+			"clientSecret": []byte(cfg.ClientSecret),
+		},
+	}
+}

@@ -55,7 +55,8 @@ type ApplierConfig struct {
 	// injected into pods for the anthropic-managed provider.
 	ManagedAnthropicAPIKey string
 	// MessagingOIDCAuth configures ALB OIDC authentication for messaging ingresses.
-	// When nil, no auth annotations are added.
+	// When non-nil, a K8s secret is created in the agent namespace and auth
+	// annotations are added to the messaging ingress.
 	MessagingOIDCAuth *OIDCAuthConfig
 }
 

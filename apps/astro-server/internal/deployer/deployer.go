@@ -84,11 +84,11 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	oidcAuth := messagingOIDCAuthFromConfig(d.Cfg)
 	if oidcAuth == nil {
 		d.Log.Info("Messaging OIDC auth disabled — MESSAGING_OIDC_ISSUER not set, ingress will be unauthenticated")
-	} else if oidcAuth.SecretsManagerARN == "" {
-		d.Log.Warn("Messaging OIDC auth misconfigured — MESSAGING_OIDC_SECRET_ARN not set, skipping OIDC annotations")
+	} else if oidcAuth.ClientID == "" || oidcAuth.ClientSecret == "" {
+		d.Log.Warn("Messaging OIDC auth misconfigured — MESSAGING_OIDC_CLIENT_ID or MESSAGING_OIDC_CLIENT_SECRET not set, skipping OIDC annotations")
 		oidcAuth = nil
 	} else {
-		d.Log.Info("Messaging OIDC auth enabled", "issuer", oidcAuth.Issuer, "secret_arn", oidcAuth.SecretsManagerARN)
+		d.Log.Info("Messaging OIDC auth enabled", "issuer", oidcAuth.Issuer)
 	}
 
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
@@ -228,7 +228,8 @@ func messagingOIDCAuthFromConfig(cfg *config.Config) *k8s.OIDCAuthConfig {
 		AuthorizationEndpoint: d.MessagingOIDCAuthEndpoint,
 		TokenEndpoint:         d.MessagingOIDCTokenEndpoint,
 		UserInfoEndpoint:      d.MessagingOIDCUserInfoEndpoint,
-		SecretsManagerARN:     d.MessagingOIDCSecretARN,
+		ClientID:              d.MessagingOIDCClientID,
+		ClientSecret:          d.MessagingOIDCClientSecret,
 		SessionTimeoutSeconds: d.MessagingOIDCSessionTimeout,
 	}
 }

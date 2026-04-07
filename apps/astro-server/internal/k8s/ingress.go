@@ -12,6 +12,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// messagingOIDCSecretName is the Kubernetes secret name created in the agent
+// namespace holding the OIDC client credentials (clientId/clientSecret).
+const messagingOIDCSecretName = "messaging-oidc"
+
 // OIDCAuthConfig holds ALB OIDC authentication configuration for an ingress.
 // When set on IngressConfig, BuildIngress adds the ALB authenticate-oidc annotations.
 type OIDCAuthConfig struct {
@@ -19,7 +23,8 @@ type OIDCAuthConfig struct {
 	AuthorizationEndpoint string // OIDC authorization endpoint
 	TokenEndpoint         string // OIDC token endpoint
 	UserInfoEndpoint      string // OIDC userinfo endpoint
-	SecretsManagerARN     string // ARN of Secrets Manager secret holding clientId/clientSecret
+	ClientID              string // OIDC client ID (used to create the K8s credentials secret)
+	ClientSecret          string // OIDC client secret (used to create the K8s credentials secret)
 	Scope                 string // OAuth scopes (default: "openid email")
 	SessionTimeoutSeconds int    // Session duration in seconds (default: 3600)
 }
@@ -80,7 +85,7 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 			"authorizationEndpoint": cfg.OIDCAuth.AuthorizationEndpoint,
 			"tokenEndpoint":         cfg.OIDCAuth.TokenEndpoint,
 			"userInfoEndpoint":      cfg.OIDCAuth.UserInfoEndpoint,
-			"secretName":            cfg.OIDCAuth.SecretsManagerARN,
+			"secretName":            messagingOIDCSecretName,
 		})
 		if err != nil {
 			panic(fmt.Sprintf("failed to marshal OIDC config: %v", err))

@@ -182,7 +182,8 @@ type DeploymentConfig struct {
 	MessagingOIDCAuthEndpoint     string // MESSAGING_OIDC_AUTH_ENDPOINT — authorization endpoint
 	MessagingOIDCTokenEndpoint    string // MESSAGING_OIDC_TOKEN_ENDPOINT — token endpoint
 	MessagingOIDCUserInfoEndpoint string // MESSAGING_OIDC_USERINFO_ENDPOINT — userinfo endpoint
-	MessagingOIDCSecretARN        string // MESSAGING_OIDC_SECRET_ARN — Secrets Manager ARN for client credentials
+	MessagingOIDCClientID         string // MESSAGING_OIDC_CLIENT_ID — OIDC client ID
+	MessagingOIDCClientSecret     string // MESSAGING_OIDC_CLIENT_SECRET — OIDC client secret
 	MessagingOIDCSessionTimeout   int    // MESSAGING_OIDC_SESSION_TIMEOUT — session duration in seconds (default 3600)
 }
 
@@ -238,7 +239,8 @@ func Load() (*Config, error) {
 			MessagingOIDCAuthEndpoint:     getEnv("MESSAGING_OIDC_AUTH_ENDPOINT", ""),
 			MessagingOIDCTokenEndpoint:    getEnv("MESSAGING_OIDC_TOKEN_ENDPOINT", ""),
 			MessagingOIDCUserInfoEndpoint: getEnv("MESSAGING_OIDC_USERINFO_ENDPOINT", ""),
-			MessagingOIDCSecretARN:        getEnv("MESSAGING_OIDC_SECRET_ARN", ""),
+			MessagingOIDCClientID:         getEnv("MESSAGING_OIDC_CLIENT_ID", ""),
+			MessagingOIDCClientSecret:     getEnv("MESSAGING_OIDC_CLIENT_SECRET", ""),
 			MessagingOIDCSessionTimeout:   getEnvInt("MESSAGING_OIDC_SESSION_TIMEOUT", 3600),
 		},
 		Auth: AuthConfig{
