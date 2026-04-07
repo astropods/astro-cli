@@ -271,6 +271,104 @@ func TestBuildIngress(t *testing.T) {
 	})
 }
 
+func TestBuildIngress_OIDCAuth(t *testing.T) {
+	t.Run("OIDC annotations added when OIDCAuth is set", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name:        "my-agent-ingress-messaging",
+			Namespace:   "default",
+			AgentName:   "my-agent",
+			BuildID:     "1.0",
+			Component:   "messaging",
+			ServiceName: "my-agent-messaging",
+			ServicePort: 8080,
+			Host:        "my-agent-abc123.agents.example.com",
+			OIDCAuth: &OIDCAuthConfig{
+				Issuer:                "https://auth.example.com",
+				AuthorizationEndpoint: "https://auth.example.com/oauth2/authorize",
+				TokenEndpoint:         "https://auth.example.com/oauth2/token",
+				UserInfoEndpoint:      "https://auth.example.com/oauth2/userinfo",
+				ClientID:              "client-id",
+				ClientSecret:          "client-secret",
+			},
+		}
+
+		ing := BuildIngress(cfg)
+		annotations := ing.Annotations
+
+		if annotations["alb.ingress.kubernetes.io/auth-type"] != "oidc" {
+			t.Errorf("expected auth-type oidc, got %q", annotations["alb.ingress.kubernetes.io/auth-type"])
+		}
+		if annotations["alb.ingress.kubernetes.io/auth-on-unauthenticated-request"] != "authenticate" {
+			t.Error("expected auth-on-unauthenticated-request: authenticate")
+		}
+		if annotations["alb.ingress.kubernetes.io/auth-scope"] != "openid email" {
+			t.Errorf("expected default scope openid email, got %q", annotations["alb.ingress.kubernetes.io/auth-scope"])
+		}
+		if annotations["alb.ingress.kubernetes.io/auth-session-timeout"] != "3600" {
+			t.Errorf("expected default timeout 3600, got %q", annotations["alb.ingress.kubernetes.io/auth-session-timeout"])
+		}
+		idpOIDC := annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]
+		if !strings.Contains(idpOIDC, "https://auth.example.com") {
+			t.Errorf("expected issuer in auth-idp-oidc, got %q", idpOIDC)
+		}
+		if !strings.Contains(idpOIDC, messagingOIDCSecretName) {
+			t.Errorf("expected secret name %q in auth-idp-oidc, got %q", messagingOIDCSecretName, idpOIDC)
+		}
+	})
+
+	t.Run("no OIDC annotations when OIDCAuth is nil", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name:        "my-agent-ingress-messaging",
+			Namespace:   "default",
+			AgentName:   "my-agent",
+			BuildID:     "1.0",
+			Component:   "messaging",
+			ServiceName: "my-agent-messaging",
+			ServicePort: 8080,
+			Host:        "my-agent-abc123.agents.example.com",
+		}
+
+		ing := BuildIngress(cfg)
+		annotations := ing.Annotations
+
+		if _, ok := annotations["alb.ingress.kubernetes.io/auth-type"]; ok {
+			t.Error("expected no auth-type annotation when OIDCAuth is nil")
+		}
+		if _, ok := annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]; ok {
+			t.Error("expected no auth-idp-oidc annotation when OIDCAuth is nil")
+		}
+	})
+
+	t.Run("custom scope and timeout respected", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name:        "my-agent-ingress-messaging",
+			Namespace:   "default",
+			AgentName:   "my-agent",
+			BuildID:     "1.0",
+			Component:   "messaging",
+			ServiceName: "my-agent-messaging",
+			ServicePort: 8080,
+			Host:        "my-agent-abc123.agents.example.com",
+			OIDCAuth: &OIDCAuthConfig{
+				Issuer:                "https://auth.example.com",
+				AuthorizationEndpoint: "https://auth.example.com/oauth2/authorize",
+				TokenEndpoint:         "https://auth.example.com/oauth2/token",
+				UserInfoEndpoint:      "https://auth.example.com/oauth2/userinfo",
+				Scope:                 "openid email profile",
+				SessionTimeoutSeconds: 7200,
+			},
+		}
+
+		ing := BuildIngress(cfg)
+		if ing.Annotations["alb.ingress.kubernetes.io/auth-scope"] != "openid email profile" {
+			t.Errorf("expected custom scope, got %q", ing.Annotations["alb.ingress.kubernetes.io/auth-scope"])
+		}
+		if ing.Annotations["alb.ingress.kubernetes.io/auth-session-timeout"] != "7200" {
+			t.Errorf("expected timeout 7200, got %q", ing.Annotations["alb.ingress.kubernetes.io/auth-session-timeout"])
+		}
+	})
+}
+
 // TestGenerateIngestionIngressHost verifies that GenerateIngestionIngressHost
 // produces a hostname in the format {agent}-{ingestion}-{hash}.{domain}, with
 // the DNS label not exceeding 63 characters, deterministic hashing, and proper

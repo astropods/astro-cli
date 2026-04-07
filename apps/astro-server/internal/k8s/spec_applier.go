@@ -554,9 +554,15 @@ func (a *Applier) ApplyDeploymentSpec(
 				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
 			if host != "" {
-				// Create OIDC credentials secret in agent namespace when auth is configured
-				if a.messagingOIDCAuth != nil {
-					oidcSecret := buildMessagingOIDCSecret(a.namespace, a.messagingOIDCAuth)
+				// Resolve effective OIDC config: only apply when deployment opts in via auth.web.type: oidc
+				var effectiveOIDCAuth *OIDCAuthConfig
+				if ds.Interfaces.Auth != nil && ds.Interfaces.Auth.Web != nil && ds.Interfaces.Auth.Web.Type == "oidc" {
+					effectiveOIDCAuth = a.messagingOIDCAuth
+				}
+
+				// Create OIDC credentials secret in agent namespace when auth is enabled
+				if effectiveOIDCAuth != nil {
+					oidcSecret := buildMessagingOIDCSecret(a.namespace, effectiveOIDCAuth)
 					secretStatus, secretErr := a.applySecret(ctx, oidcSecret)
 					result.Resources = append(result.Resources, secretStatus)
 					if secretErr != nil {
@@ -571,7 +577,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
 					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
-					OIDCAuth: a.messagingOIDCAuth,
+					OIDCAuth: effectiveOIDCAuth,
 				})
 				status, err := a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)

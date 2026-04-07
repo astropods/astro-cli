@@ -75,3 +75,104 @@ func TestCollectorResources(t *testing.T) {
 		t.Errorf("expected 256Mi, got %s", r.MemoryLimit)
 	}
 }
+
+func TestDeploymentInterfacesAuth_ParseYAML(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  account: acme
+  name: my-agent
+  build: abc123
+  registry: registry.example.com
+target:
+  runtime: kubernetes
+agent:
+  image: registry.example.com/my-agent:abc123
+  endpoints:
+    http:
+      port: 8080
+  replicas: 1
+  update:
+    strategy: rolling
+interfaces:
+  adapters: [web]
+  image: registry.example.com/messaging:latest
+  endpoints:
+    grpc:
+      port: 9090
+      protocol: grpc
+    http:
+      port: 8081
+      protocol: http
+      expose:
+        enabled: true
+  resources:
+    cpu: "100m"
+    memory: "128Mi"
+  auth:
+    web:
+      type: oidc
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if ds.Interfaces == nil {
+		t.Fatal("expected interfaces to be set")
+	}
+	if ds.Interfaces.Auth == nil {
+		t.Fatal("expected auth to be set")
+	}
+	if ds.Interfaces.Auth.Web == nil {
+		t.Fatal("expected auth.web to be set")
+	}
+	if ds.Interfaces.Auth.Web.Type != "oidc" {
+		t.Errorf("expected auth.web.type oidc, got %s", ds.Interfaces.Auth.Web.Type)
+	}
+}
+
+func TestDeploymentInterfacesAuth_NilWhenAbsent(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  account: acme
+  name: my-agent
+  build: abc123
+  registry: registry.example.com
+target:
+  runtime: kubernetes
+agent:
+  image: registry.example.com/my-agent:abc123
+  endpoints:
+    http:
+      port: 8080
+  replicas: 1
+  update:
+    strategy: rolling
+interfaces:
+  adapters: [web]
+  image: registry.example.com/messaging:latest
+  endpoints:
+    grpc:
+      port: 9090
+      protocol: grpc
+    http:
+      port: 8081
+      protocol: http
+      expose:
+        enabled: true
+  resources:
+    cpu: "100m"
+    memory: "128Mi"
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if ds.Interfaces == nil {
+		t.Fatal("expected interfaces to be set")
+	}
+	if ds.Interfaces.Auth != nil {
+		t.Errorf("expected auth to be nil when not specified, got %+v", ds.Interfaces.Auth)
+	}
+}

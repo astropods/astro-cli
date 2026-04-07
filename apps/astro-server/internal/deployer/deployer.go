@@ -83,12 +83,12 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 
 	oidcAuth := messagingOIDCAuthFromConfig(d.Cfg)
 	if oidcAuth == nil {
-		d.Log.Info("Messaging OIDC auth disabled — MESSAGING_OIDC_ISSUER not set, ingress will be unauthenticated")
+		d.Log.Info("Messaging OIDC not configured — MESSAGING_OIDC_ISSUER not set, deployments with auth:oidc will have no auth")
 	} else if oidcAuth.ClientID == "" || oidcAuth.ClientSecret == "" {
-		d.Log.Warn("Messaging OIDC auth misconfigured — MESSAGING_OIDC_CLIENT_ID or MESSAGING_OIDC_CLIENT_SECRET not set, skipping OIDC annotations")
+		d.Log.Warn("Messaging OIDC misconfigured — MESSAGING_OIDC_CLIENT_ID or MESSAGING_OIDC_CLIENT_SECRET not set, auth:oidc will have no effect")
 		oidcAuth = nil
 	} else {
-		d.Log.Info("Messaging OIDC auth enabled", "issuer", oidcAuth.Issuer)
+		d.Log.Info("Messaging OIDC configured", "issuer", oidcAuth.Issuer)
 	}
 
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{

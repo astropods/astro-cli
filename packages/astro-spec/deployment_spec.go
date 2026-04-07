@@ -137,12 +137,26 @@ type DeploymentTrigger struct {
 
 // DeploymentInterfaces describes the messaging sidecar.
 type DeploymentInterfaces struct {
-	Adapters    []string            `json:"adapters" yaml:"adapters"`
-	Image       string              `json:"image" yaml:"image"`
-	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
-	Resources   DeploymentResources `json:"resources" yaml:"resources"`
-	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
-	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
+	Adapters    []string                  `json:"adapters" yaml:"adapters"`
+	Image       string                    `json:"image" yaml:"image"`
+	Endpoints   map[string]Endpoint       `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
+	Resources   DeploymentResources       `json:"resources" yaml:"resources"`
+	Environment map[string]string         `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Healthcheck *Healthcheck              `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
+	Auth        *DeploymentInterfacesAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
+}
+
+// DeploymentInterfacesAuth controls authentication per interface type.
+type DeploymentInterfacesAuth struct {
+	// Web controls auth for the web adapter ingress. Nil means no auth.
+	Web *DeploymentWebAuth `json:"web,omitempty" yaml:"web,omitempty"`
+}
+
+// DeploymentWebAuth configures authentication for the web adapter ingress.
+type DeploymentWebAuth struct {
+	// Type of authentication: "oidc" uses server-level OIDC config;
+	// "oidc-custom" is reserved for future per-deployment credentials.
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 }
 
 // DeploymentObservability controls the observability collector sidecar.
