@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { KeyRound, X } from 'lucide-react'
+import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Link } from 'react-router'
 import { Input } from '@/components/ui/input'
@@ -84,20 +85,23 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
               <div className="px-3 pt-3 pb-2">
                 <p className="text-xs font-semibold text-foreground">Reference an existing value</p>
                 {accountName && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    From <span className="font-medium">{accountName}</span> vault
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    From <span className="font-medium">{accountName}</span>
                   </p>
                 )}
               </div>
 
               <div className="px-2 pb-2 border-b border-border">
-                <Input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search variables and secrets..."
-                  className="h-8 text-sm"
-                  autoFocus
-                />
+                <div className="relative">
+                  <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Find..."
+                    className="h-8 text-sm pl-7"
+                    autoFocus
+                  />
+                </div>
               </div>
 
               <div className="max-h-[240px] overflow-y-auto py-1">
@@ -114,7 +118,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
                       <div className="flex-1 min-w-0">
                         <p className="font-mono text-xs font-medium text-foreground truncate">{entry.name}</p>
                         {entry.description && (
-                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
+                          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
                         )}
                       </div>
                     </button>
@@ -133,11 +137,10 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
 // invalid=true means the referenced variable doesn't exist in the target account.
 export function VaultRefChip({ token, onClear, invalid }: { token: string; onClear: () => void; invalid?: boolean }) {
   const parsed = parseVaultToken(token)
-  const [hovered, setHovered] = useState(false)
   if (!parsed) return null
 
   const chipClass = cn(
-    "flex items-center gap-1.5 rounded px-2 py-0.5 border transition-colors",
+    "group flex items-center rounded px-2 py-0.5 border transition-colors",
     invalid
       ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 hover:border-red-400"
       : "border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 hover:border-teal-300"
@@ -156,13 +159,13 @@ export function VaultRefChip({ token, onClear, invalid }: { token: string; onCle
       <button
         type="button"
         onClick={onClear}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         className={chipClass}
         aria-label="Clear vault reference"
       >
         <span className={textClass}>{parsed.name}</span>
-        {hovered && <X className={iconClass} />}
+        <span className="w-0 ml-0 overflow-hidden opacity-0 group-hover:w-3 group-hover:ml-1.5 group-hover:opacity-100 transition-all duration-150">
+          <X className={iconClass} />
+        </span>
       </button>
     </div>
   )
