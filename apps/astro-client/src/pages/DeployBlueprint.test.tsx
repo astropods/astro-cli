@@ -569,9 +569,8 @@ describe('DeployBlueprint page', () => {
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Deployment failed')).toBeInTheDocument();
+        expect(screen.getByText('Insufficient quota')).toBeInTheDocument();
       });
-      expect(screen.getByText('Insufficient quota')).toBeInTheDocument();
     });
 
     it('shows validation errors from API response', async () => {

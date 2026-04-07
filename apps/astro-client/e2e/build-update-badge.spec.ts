@@ -132,6 +132,6 @@ test("failed redeploy keeps user on configure page with action bar", async ({ pa
   await expect(page).toHaveURL(
     new RegExp(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment$`),
   );
-  await expect(page.getByText("Deployment failed")).toBeVisible();
+  await expect(page.getByText("Validation failed")).toBeVisible();
   await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
 });

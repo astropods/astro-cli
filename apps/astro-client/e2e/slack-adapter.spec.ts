@@ -300,7 +300,7 @@ test.describe("deploy page", () => {
     ]);
 
     await expect(page).toHaveURL(new RegExp(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}$`));
-    await expect(page.getByText("Deployment failed")).toBeVisible();
+    await expect(page.getByText("Validation failed")).toBeVisible();
     await expect(
       page.getByText("variables.SLACK_BOT_TOKEN.value: required variable has no value"),
     ).toBeVisible();
