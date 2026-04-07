@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 export interface SidebarSectionProps {
   title: string;
   badge?: ReactNode;
+  badgeTooltip?: string;
   children: ReactNode;
   className?: string;
   headerClassName?: string;
@@ -13,6 +15,7 @@ export interface SidebarSectionProps {
 export function SidebarSection({
   title,
   badge,
+  badgeTooltip,
   children,
   className,
   headerClassName,
@@ -25,9 +28,18 @@ export function SidebarSection({
           {title}
         </span>
         {badge && (
-          <span className="text-amber-500 dark:text-amber-400">
-            {badge}
-          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-amber-500 dark:text-amber-400 cursor-default">
+                  {badge}
+                </span>
+              </TooltipTrigger>
+              {badgeTooltip && (
+                <TooltipContent>{badgeTooltip}</TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         )}
       </header>
       <div className={cn("px-4 py-3", bodyClassName)}>

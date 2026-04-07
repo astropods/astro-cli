@@ -69,7 +69,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   if (statusLoading) {
     return (
-      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />}>
+      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
           <Spinner size={14} />
           <span>Loading…</span>
@@ -80,7 +80,7 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
 
   return (
     <>
-      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />}>
+      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
         {status?.connected ? (
           <ConnectedRepoView
             account={account}
