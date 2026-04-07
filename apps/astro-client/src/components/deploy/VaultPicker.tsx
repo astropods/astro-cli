@@ -67,15 +67,15 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
           {entries.length === 0 ? (
             <div className="px-4 py-5 text-center">
               <KeyRound className="size-5 text-muted-foreground/50 mx-auto mb-2" />
-              <p className="text-sm font-medium text-foreground">No secrets or variables yet</p>
+              <p className="text-sm font-medium text-foreground">No variables yet</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Create reusable values in{' '}
                 {vaultSettingsUrl ? (
                   <Link to={vaultSettingsUrl} className="text-teal-700 dark:text-teal-400 hover:underline">
-                    vault settings
+                    settings
                   </Link>
                 ) : (
-                  'vault settings'
+                  'settings'
                 )}
                 {' '}to share across deployments.
               </p>

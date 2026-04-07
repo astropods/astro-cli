@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Lock, Plus, Pencil, Trash2, Upload, MoreHorizontal, Loader2 } from 'lucide-react'
+import { KeyRound, Plus, Pencil, Trash2, Upload, MoreHorizontal, Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import {
@@ -332,11 +332,11 @@ function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
       <div className="flex justify-center mb-3 text-muted-foreground">
-        <Lock className="size-6" />
+        <KeyRound className="size-6" />
       </div>
       <p className="text-sm font-medium text-foreground">No variables yet</p>
       <p className="text-xs text-muted-foreground mt-1 mb-4">
-        Add credentials and configuration values for your agents
+        Create a new variable to get started.
       </p>
       <Button size="sm" onClick={onNew}>
         <Plus className="size-3.5" />
