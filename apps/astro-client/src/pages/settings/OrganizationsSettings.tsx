@@ -1,5 +1,5 @@
 import { Link } from 'react-router'
-import { Settings, Plus, UserPlus } from 'lucide-react'
+import { Settings, Plus } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { InlineBadge } from '@/components/InlineBadge'
