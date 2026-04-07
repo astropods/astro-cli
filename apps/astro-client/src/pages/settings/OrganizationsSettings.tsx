@@ -26,12 +26,6 @@ export default function OrganizationsSettings() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/organization/new">
-              <UserPlus className="size-3.5" />
-              Join organization
-            </Link>
-          </Button>
           <Button size="sm" asChild>
             <Link to="/organization/new">
               <Plus className="size-3.5" />

@@ -14,25 +14,28 @@ import { Loader2, Eye, EyeOff } from 'lucide-react'
 
 interface OverwriteSecretDialogProps {
   secretName: string
+  description?: string
   open: boolean
   isPending?: boolean
   onClose: () => void
-  onConfirm: (value: string) => void
+  onConfirm: (data: { value: string; description: string }) => void
 }
 
-export function OverwriteSecretDialog({ secretName, open, isPending, onClose, onConfirm }: OverwriteSecretDialogProps) {
+export function OverwriteSecretDialog({ secretName, description: initialDescription = '', open, isPending, onClose, onConfirm }: OverwriteSecretDialogProps) {
   const [value, setValue] = useState('')
+  const [description, setDescription] = useState(initialDescription)
   const [revealed, setRevealed] = useState(false)
 
   const handleClose = () => {
     setValue('')
+    setDescription(initialDescription)
     setRevealed(false)
     onClose()
   }
 
   const handleConfirm = () => {
     if (!value.trim()) return
-    onConfirm(value)
+    onConfirm({ value, description: description.trim() })
   }
 
   return (
@@ -40,35 +43,49 @@ export function OverwriteSecretDialog({ secretName, open, isPending, onClose, on
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
           <DialogTitle>
-            Update secret for{' '}
+            Change value for{' '}
             <span className="font-mono text-sm font-medium">{secretName}</span>
           </DialogTitle>
           <DialogDescription>
-            The current value will be permanently replaced. The previous value cannot be recovered.
+            The current value will be permanently replaced. The previous value can't be recovered.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-1">
-          <Label size="md" htmlFor="overwrite-value">New value</Label>
-          <div className="relative mt-1.5">
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label size="md" htmlFor="overwrite-value">Value</Label>
+            <div className="relative">
+              <Input
+                id="overwrite-value"
+                type={revealed ? 'text' : 'password'}
+                value={value}
+                onChange={e => setValue(e.target.value)}
+                placeholder="••••••••••••"
+                autoComplete="off"
+                data-1p-ignore
+                autoFocus
+                className="pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setRevealed(r => !r)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={revealed ? 'Hide value' : 'Reveal value'}
+              >
+                {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label size="md" htmlFor="overwrite-description">
+              Description <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
             <Input
-              id="overwrite-value"
-              type={revealed ? 'text' : 'password'}
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              placeholder="••••••••••••"
-              autoComplete="off"
-              autoFocus
-              className="pr-9"
+              id="overwrite-description"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="What is this used for?"
             />
-            <button
-              type="button"
-              onClick={() => setRevealed(r => !r)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              aria-label={revealed ? 'Hide value' : 'Reveal value'}
-            >
-              {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
           </div>
         </div>
 
@@ -76,7 +93,7 @@ export function OverwriteSecretDialog({ secretName, open, isPending, onClose, on
           <Button variant="outline" onClick={handleClose} disabled={isPending}>Cancel</Button>
           <Button onClick={handleConfirm} disabled={!value.trim() || isPending}>
             {isPending && <Loader2 className="size-3.5 animate-spin" />}
-            Update secret
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>

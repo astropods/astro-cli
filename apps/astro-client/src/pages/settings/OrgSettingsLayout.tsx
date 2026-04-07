@@ -54,7 +54,7 @@ function OrgSettingsContent() {
           <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
             <span className="flex items-center gap-2">
               <KeyRound className="size-3.5" />
-              Secrets & Variables
+              Variables & Secrets
             </span>
           </SidebarNavItem>
         </SidebarNav>

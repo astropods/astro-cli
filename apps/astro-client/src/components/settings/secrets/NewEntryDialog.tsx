@@ -67,7 +67,7 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
       <DialogContent className="max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>New secret or variable</DialogTitle>
+          <DialogTitle>New variable</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -100,8 +100,9 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
                   type={isSecret && !revealed ? 'password' : 'text'}
                   value={value}
                   onChange={e => setValue(e.target.value)}
-                  placeholder={isSecret ? 'Your secret value...' : 'Enter value'}
+                  placeholder="Enter value..."
                   autoComplete="off"
+                  data-1p-ignore
                   className={isSecret ? 'pr-9' : ''}
                 />
                 {isSecret && (
@@ -122,8 +123,8 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
                     <TooltipTrigger asChild>
                       <Info className="size-3.5 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      Encrypted at rest. Value can't be read after saving.
+                    <TooltipContent side="top" className="max-w-[200px] text-xs text-center">
+                      Hides the value permanently after saving. Can't be read or recovered.
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -134,9 +135,6 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
                 />
               </div>
             </div>
-            {isSecret && (
-              <p className="text-xs text-muted-foreground">This value can't be read after saving</p>
-            )}
           </div>
 
           {/* Description */}
@@ -157,7 +155,7 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
           <Button variant="outline" onClick={handleClose} disabled={isPending}>Cancel</Button>
           <Button onClick={handleCreate} disabled={!isValid || isPending}>
             {isPending && <Loader2 className="size-3.5 animate-spin" />}
-            Create {isSecret ? 'secret' : 'variable'}
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>

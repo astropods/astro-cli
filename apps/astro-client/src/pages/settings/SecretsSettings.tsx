@@ -71,10 +71,10 @@ export function VaultSettings({ account: accountName }: { account: string }) {
     })
   }
 
-  const handleOverwrite = (value: string) => {
+  const handleOverwrite = (data: { value: string; description: string }) => {
     if (!overwriteEntry) return
     updateMutation.mutate(
-      { name: overwriteEntry.name, data: { value, secret: true } },
+      { name: overwriteEntry.name, data: { value: data.value, secret: true, description: data.description } },
       { onSuccess: () => setOverwriteEntry(null) }
     )
   }
@@ -109,7 +109,7 @@ export function VaultSettings({ account: accountName }: { account: string }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-heading-2 text-foreground">Secrets & Variables</h2>
+          <h2 className="text-heading-2 text-foreground">Variables & Secrets</h2>
           <p className="text-[13px] text-muted-foreground mt-1">
             Set and manage reusable credentials and configuration values for your agents
           </p>
@@ -121,7 +121,7 @@ export function VaultSettings({ account: accountName }: { account: string }) {
           </Button>
           <Button size="sm" onClick={() => setNewDialogOpen(true)}>
             <Plus className="size-3.5" />
-            New
+            New variable
           </Button>
         </div>
       </div>
@@ -173,6 +173,7 @@ export function VaultSettings({ account: accountName }: { account: string }) {
       {overwriteEntry && (
         <OverwriteSecretDialog
           secretName={overwriteEntry.name}
+          description={overwriteEntry.description}
           open
           isPending={updateMutation.isPending}
           onClose={() => setOverwriteEntry(null)}
@@ -304,12 +305,12 @@ function EntryRow({
             {isSecret ? (
               <DropdownMenuItem onClick={onOverwrite}>
                 <Pencil className="size-3.5" />
-                Update value
+                Edit
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem onClick={onEditVariable}>
                 <Pencil className="size-3.5" />
-                Edit variable
+                Edit
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -339,7 +340,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
       </p>
       <Button size="sm" onClick={onNew}>
         <Plus className="size-3.5" />
-        New
+        New variable
       </Button>
     </div>
   )

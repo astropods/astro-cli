@@ -29,7 +29,7 @@ function SettingsContent() {
           <SidebarNavItem to="/settings/secrets">
             <span className="flex items-center gap-2">
               <KeyRound className="size-3.5" />
-              Secrets & Variables
+              Variables & Secrets
             </span>
           </SidebarNavItem>
           <SidebarNavItem to="/settings/organizations">

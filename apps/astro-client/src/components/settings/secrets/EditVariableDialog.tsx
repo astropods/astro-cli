@@ -36,27 +36,28 @@ export function EditVariableDialog({ entry, open, isPending, onClose, onSave }: 
 
   return (
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
-      <DialogContent className="max-w-[480px]">
+      <DialogContent className="max-w-[420px]">
         <DialogHeader>
           <DialogTitle>
-            Edit variable —{' '}
+            Edit{' '}
             <span className="font-mono text-sm font-medium">{entry.name}</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
-            <Label htmlFor="edit-value">Value</Label>
+            <Label size="md" htmlFor="edit-value">Value</Label>
             <Input
               id="edit-value"
               value={value}
               onChange={e => setValue(e.target.value)}
               autoFocus
               autoComplete="off"
+              data-1p-ignore
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="edit-description">
+            <Label size="md" htmlFor="edit-description">
               Description <span className="text-muted-foreground font-normal">(optional)</span>
             </Label>
             <Input
@@ -72,7 +73,7 @@ export function EditVariableDialog({ entry, open, isPending, onClose, onSave }: 
           <Button variant="outline" onClick={handleClose} disabled={isPending}>Cancel</Button>
           <Button onClick={handleSave} disabled={isPending}>
             {isPending && <Loader2 className="size-3.5 animate-spin" />}
-            Save variable
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
