@@ -204,27 +204,15 @@ export function ActiveDetailView({
               : (pausing || pauseMutation.isPending ? <Loader2 className="animate-spin" /> : <PauseCircleIcon className="size-4" />)}
             {isPaused || isResuming ? "Resume" : "Pause"}
           </Button>
-          <TooltipProvider delayDuration={100}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => window.open(messagingUrl, '_blank', 'noopener,noreferrer')}
-                    disabled={!deployment.messaging_available || !messagingUrl}
-                  >
-                    <ChatBubbleLeftRightIcon className="size-4" /> Chat
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!deployment.messaging_available && (
-                <TooltipContent side="bottom" sideOffset={6}>
-                  This agent doesn't support messaging
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+          {messagingUrl && (
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => window.open(messagingUrl, '_blank', 'noopener,noreferrer')}
+            >
+              <ChatBubbleLeftRightIcon className="size-4" /> Chat
+            </Button>
+          )}
           <Button
             variant="outline"
             size="default"
