@@ -955,8 +955,8 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	if hasWebInterface {
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000"))
-		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000")+"  "+dim.Render("(playground)"))
+		lines = append(lines, dim.Render("   http://localhost:3100  (messaging API)"))
 	}
 
 	// Webhook endpoints
