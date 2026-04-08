@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'packages/astro-theme/**'
+  workflow_dispatch:
 
 jobs:
   publish:
