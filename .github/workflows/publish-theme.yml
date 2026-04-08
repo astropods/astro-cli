@@ -53,12 +53,6 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: bun x moon run astro-theme:build
 
-      - name: Setup Node (for npm OIDC publish)
-        if: steps.check.outputs.skip == 'false'
-        uses: actions/setup-node@v4
-        with:
-          registry-url: 'https://registry.npmjs.org'
-
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
         working-directory: packages/astro-theme
