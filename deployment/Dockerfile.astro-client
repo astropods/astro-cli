@@ -26,10 +26,10 @@ COPY packages ./packages
 RUN rm -f apps/astro-client/public/assets
 
 # Build workspace packages first
-WORKDIR /app/packages/astro-identity-gen
+WORKDIR /app/packages/astro-theme
 RUN bun run build
 
-WORKDIR /app/packages/astro-theme
+WORKDIR /app/packages/astro-identity-gen
 RUN bun run build
 
 WORKDIR /app/packages/astro-trading-card
