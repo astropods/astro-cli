@@ -161,18 +161,21 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Fatalf("BuildProject() error = %v", err)
 	}
 
-	// Should create messaging sidecar and playground
+	// Should create messaging sidecar (playground is bundled into messaging, not a separate service)
 	if _, ok := project.Services["astro-messaging"]; !ok {
 		t.Error("missing astro-messaging service")
 	}
-	if _, ok := project.Services["playground"]; !ok {
-		t.Error("missing playground service for web interface")
+	if _, ok := project.Services["playground"]; ok {
+		t.Error("playground should not be a separate service — it is bundled into messaging")
 	}
 
-	// Messaging should have WEB_ENABLED
+	// Messaging should have WEB_ENABLED and WEB_SERVE_PLAYGROUND
 	messaging := project.Services["astro-messaging"]
 	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
 		t.Error("WEB_ENABLED should be true")
+	}
+	if envVal(messaging.Environment, "WEB_SERVE_PLAYGROUND") != "true" {
+		t.Error("WEB_SERVE_PLAYGROUND should be true")
 	}
 
 	// Messaging should expose both gRPC (19090->9090) and HTTP (3100->8080) ports
