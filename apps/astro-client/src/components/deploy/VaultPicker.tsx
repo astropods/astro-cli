@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { X, Plus } from 'lucide-react'
 import { MagnifyingGlassIcon, KeyIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
-import { Link } from 'react-router'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { AccountVariable } from '@/lib/api'
+import { NewEntryDialog } from '@/components/settings/secrets/NewEntryDialog'
+import { useCreateAccountVariable } from '@/api/queries/variables'
 
 // Parse a token like {{secrets.FOO}} or {{vars.BAR}} into its parts
 export function parseVaultToken(token: string): { type: 'secret' | 'variable'; name: string } | null {
@@ -22,9 +23,11 @@ interface VaultPickerProps {
   vaultSettingsUrl?: string
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], accountName }: VaultPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [newVarOpen, setNewVarOpen] = useState(false)
+  const createMutation = useCreateAccountVariable(accountName ?? '')
 
   const filtered = entries.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -42,6 +45,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
   }
 
   return (
+    <>
     <PopoverPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
       <PopoverPrimitive.Trigger asChild>
         <Button
@@ -68,22 +72,30 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
             <div className="px-4 py-5 text-center">
               <KeyIcon className="size-5 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">No variables yet</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Create reusable values in{' '}
-                {vaultSettingsUrl ? (
-                  <Link to={vaultSettingsUrl} className="text-teal-700 dark:text-teal-400 hover:underline">
-                    settings
-                  </Link>
-                ) : (
-                  'settings'
-                )}
-                {' '}to share across deployments.
+              <p className="text-xs text-muted-foreground mt-1 mb-3">
+                Set and manage reusable credentials and configuration values for your agents
               </p>
+              <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
+                <Plus className="size-3.5" />
+                New variable
+              </Button>
             </div>
           ) : (
             <>
               <div className="px-3 pt-3 pb-2">
-                <p className="text-xs font-semibold text-foreground">Reference an existing value</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-foreground">Select a reference</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs shrink-0"
+                    onClick={() => { setOpen(false); setNewVarOpen(true) }}
+                  >
+                    <Plus className="size-3" />
+                    New
+                  </Button>
+                </div>
                 {accountName && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     From <span className="font-medium">{accountName}</span>
@@ -130,6 +142,15 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
+
+    <NewEntryDialog
+      open={newVarOpen}
+      isPending={createMutation.isPending}
+      accountName={accountName}
+      onClose={() => setNewVarOpen(false)}
+      onCreate={input => createMutation.mutate(input, { onSuccess: () => setNewVarOpen(false) })}
+    />
+    </>
   )
 }
 

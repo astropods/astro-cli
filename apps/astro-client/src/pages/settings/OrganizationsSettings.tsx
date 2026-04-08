@@ -1,16 +1,10 @@
 import { Link } from 'react-router'
 import { Settings, Plus } from 'lucide-react'
+import { BuildingOffice2Icon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { InlineBadge } from '@/components/InlineBadge'
 import { useAuth } from '@/lib/auth'
-
-function orgColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  const hue = ((hash % 360) + 360) % 360
-  return `hsl(${hue} 55% 45%)`
-}
 
 export default function OrganizationsSettings() {
   const { accounts } = useAuth()
@@ -22,7 +16,7 @@ export default function OrganizationsSettings() {
         <div>
           <h2 className="text-heading-2 text-foreground">Organizations</h2>
           <p className="text-[13px] text-muted-foreground mt-1">
-            Manage your organizations and team memberships
+            Manage your organizations and access settings
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -44,13 +38,10 @@ export default function OrganizationsSettings() {
           {orgs.map(org => (
             <div
               key={org.name}
-              className="flex items-center gap-4 px-5 py-4 rounded-lg border border-border bg-white dark:bg-surface"
+              className="flex items-center gap-4 px-5 py-4 rounded-lg border border-border"
             >
-              <div
-                className="size-9 rounded-md shrink-0 flex items-center justify-center text-white text-sm font-bold"
-                style={{ background: orgColor(org.name) }}
-              >
-                {(org.display_name || org.name || '?')[0].toUpperCase()}
+              <div className="size-9 rounded-md shrink-0 flex items-center justify-center bg-stone-200 dark:bg-stone-700">
+                <BuildingOffice2Icon className="size-4 text-stone-500 dark:text-stone-400" />
               </div>
 
               <div className="flex-1 min-w-0">

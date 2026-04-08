@@ -18,12 +18,13 @@ import { VARIABLE_NAME_PATTERN } from '@/lib/vault'
 interface NewEntryDialogProps {
   open: boolean
   isPending?: boolean
+  accountName?: string
   onClose: () => void
   onCreate: (data: CreateAccountVariableInput) => void
 }
 
 
-export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryDialogProps) {
+export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate }: NewEntryDialogProps) {
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [description, setDescription] = useState('')
@@ -79,6 +80,9 @@ export function NewEntryDialog({ open, isPending, onClose, onCreate }: NewEntryD
       <DialogContent className="max-w-[480px]">
         <DialogHeader>
           <DialogTitle>New variable</DialogTitle>
+          {accountName && (
+            <p className="text-xs text-muted-foreground">Saving to <span className="font-medium text-foreground">{accountName}</span></p>
+          )}
         </DialogHeader>
 
         <div className="space-y-4 py-1">
