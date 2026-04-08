@@ -62,9 +62,30 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.skip == 'false'
+        id: publish
         working-directory: packages/astro-theme
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           npm publish --access public
           echo "::notice::Published @astropods/theme@${VERSION}"
+
+      - name: Notify Slack
+        if: always() && steps.check.outputs.skip == 'false'
+        uses: slackapi/slack-github-action@v3
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ vars.SLACK_ASTRO_OPS_CHANNEL_ID }}
+            text: "*Publish Theme* — ${{ steps.publish.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: |
+                    *Publish Theme* — ${{ steps.publish.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+                    *Version:* `@astropods/theme@${{ steps.vars.outputs.version }}`
+                    *Commit:* `${{ github.sha }}`
+                    *Triggered by:* ${{ github.actor }}
+                    *Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View>
