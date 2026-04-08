@@ -1,20 +1,21 @@
 ## Summary
 
-Playground was a separate Docker image and submodule that proxied API requests to the messaging service via nginx. This split deployment added operational overhead and required coordinating two images whenever either service changed. The playground is now bundled directly into the messaging binary and served from its root when web mode is enabled.
+Playground was a separate submodule, Docker image, and CLI command that ran alongside the messaging service. This split required coordinating two containers and exposed the playground on a different port (3000) from the API (3100). The playground is now bundled into the messaging binary and served from the same origin — this removes the standalone submodule, the `ast playground` command, and the separate container from both local dev and production deployments.
 
 ## Design
 
-The playground source lives in its own repo (`astropods/playground`) and is referenced as a git submodule inside the messaging repo. During the Docker build, a Bun stage compiles the playground's `dist/`, which is then copied into the Go build context before `go build`. Go's `//go:embed` bakes the assets into the binary at compile time — no runtime file serving or external volume needed.
+**`modules/playground` removed as standalone submodule.** The playground source still lives in `astropods/playground.git` but is now a nested submodule inside `astropods/messaging.git`. The monorepo no longer tracks it directly.
 
-The web adapter gains two new routes, registered after all `/api/*` routes:
+**`deployment:playground` Moon task removed.** The `deployment:messaging` task now runs `git -C modules/messaging submodule update --init` before the Docker build to ensure the playground submodule is populated in the build context.
 
-- `GET /env-config.js` — served inline with `API_URL: ""` since the UI and API share the same origin
-- `GET /` (catch-all) — serves static assets directly; any path without a matching file falls back to `index.html` for client-side routing
+**`ast playground` command removed from astro-cli.** The command pulled `astropods/playground:latest` and ran it as a container pointing at a messaging URL. Since the UI is now served from messaging itself, navigating directly to the messaging HTTP endpoint is sufficient.
 
-A new env var `WEB_SERVE_PLAYGROUND=true` gates the UI routes, so the image can still be used as a pure API server with no change in behavior by default.
+**Compose builder updated (astro-cli).** The standalone `playground` service is no longer added to the Docker Compose project. Instead, `WEB_SERVE_PLAYGROUND=true` is set on the `astro-messaging` service when the web adapter is enabled. The playground URL in the ready block and auto-open changes from `localhost:3000` to `localhost:3100`.
 
-The monorepo removes `modules/playground` as a standalone submodule and its dedicated `deployment:playground` Moon task. The `deployment:messaging` task now runs `git -C modules/messaging submodule update --init` before the Docker build to ensure the nested playground submodule is populated.
+**K8s deployment updated (astro-server).** `WEB_SERVE_PLAYGROUND=true` is now injected alongside `WEB_ENABLED=true` on the messaging init container when the web adapter is configured.
 
 ## Migration
 
-No action required for existing deployments — `WEB_SERVE_PLAYGROUND` defaults to `false`. To enable the bundled UI, set both `WEB_ENABLED=true` and `WEB_SERVE_PLAYGROUND=true` on the messaging container and remove the separate playground container.
+- **`ast dev`** — no change needed in `astropods.yml`. The compose project will automatically serve the playground from the messaging container at `http://localhost:3100`.
+- **Production** — remove the standalone playground container. If the messaging container has `WEB_ENABLED=true`, add `WEB_SERVE_PLAYGROUND=true` to serve the UI. Existing deployments without this flag are unaffected.
+- **`ast playground` command** — remove any scripts or docs that call it; open the messaging HTTP endpoint directly instead.
