@@ -698,7 +698,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ marginBottom: 8 }}>
-                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text }}>Request volume</span>
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text }}>Request volume</span>
               </div>
               <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
                 {[
@@ -764,7 +764,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
 
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text }}>Token usage</span>
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text }}>Token usage</span>
                 <div style={{ transform: "scale(0.9)", transformOrigin: "right center" }}>
                   <ToggleGroup
                     type="single"
@@ -831,7 +831,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
 
           <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text, flex: 1 }}>Traces</span>
+              <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, flex: 1 }}>Traces</span>
               <MultiSelect value={traceStatuses} onValueChange={setTraceStatuses}>
                 <MultiSelectTrigger className="w-36">
                   <MultiSelectValue placeholder="All statuses" options={[
@@ -889,7 +889,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
               )}
               {!tracesLoading && traces.length === 0 && (
                 <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 8, background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                     <Activity size={I.lg} color={C.stone} />
                   </div>
                   <p style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, margin: "0 0 6px" }}>Monitoring just started</p>
