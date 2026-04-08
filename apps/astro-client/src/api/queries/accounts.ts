@@ -101,3 +101,62 @@ export function useResetAvatar() {
     mutationFn: (account: string) => api.resetAvatar(account),
   });
 }
+
+// No query invalidation — callers refresh the session via useAuth().refresh()
+export function useUpdateAccountDisplayName() {
+  return useMutation({
+    mutationFn: ({ account, displayName }: { account: string; displayName: string }) =>
+      api.updateAccountDisplayName(account, displayName),
+  });
+}
+
+export function useUpdateMemberRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, userId, role }: { account: string; userId: string; role: string }) =>
+      api.updateMemberRole(account, userId, role),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
+    },
+  });
+}
+
+export function useRemoveAccountMember() {
+  return useMutation({
+    mutationFn: ({ account, userId }: { account: string; userId: string }) =>
+      api.removeAccountMember(account, userId),
+  });
+}
+
+export function useInvitations(account: string) {
+  return useQuery({
+    queryKey: accountKeys.invitations(account),
+    queryFn: () => api.listInvitations(account),
+    enabled: !!account,
+  });
+}
+
+export function useCreateInvitations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, invitations }: { account: string; invitations: { value: string; kind: 'email' | 'account'; role: string }[] }) =>
+      api.createInvitations(account, invitations),
+    onSuccess: (_data, variables) => {
+      // Invalidate both: WorkOS may auto-accept for existing users, adding them as members directly
+      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
+      queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
+    },
+  });
+}
+
+export function useRevokeInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, invitationId }: { account: string; invitationId: string }) =>
+      api.revokeInvitation(account, invitationId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
+      queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
+    },
+  });
+}

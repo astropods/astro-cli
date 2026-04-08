@@ -43,8 +43,20 @@ type ChangeMemberRoleRequest struct {
 	Role string `json:"role" binding:"required"`
 }
 
+// MemberResponse is a member with role and profile information included.
+type MemberResponse struct {
+	AccountID     string `json:"account_id"`
+	UserID        string `json:"user_id"`
+	Role          string `json:"role"`
+	Status        string `json:"status"`
+	Username      string `json:"username"`
+	DisplayName   string `json:"display_name"`
+	AvatarVersion int    `json:"avatar_version"`
+	CreatedAt     string `json:"created_at"`
+}
+
 // ListMembers handles GET /api/v1/accounts/:account/members
-func ListMembers(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -71,7 +83,76 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore) gin.Han
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"members": members})
+		// Build role + status lookups from WorkOS memberships for org accounts
+		type memberInfo struct {
+			Role   string
+			Status string
+		}
+		infoByUserID := map[string]memberInfo{}
+		if acct.WorkOSOrganizationID != "" && orgClient != nil {
+			memberships, err := orgClient.ListMemberships(c.Request.Context(), acct.WorkOSOrganizationID, org.ListOpts{Limit: 100})
+			if err != nil {
+				log.Error("Failed to fetch WorkOS memberships", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error":   "failed to fetch member roles from identity provider",
+					"details": err.Error(),
+				})
+				return
+			}
+			for _, m := range memberships {
+				infoByUserID[m.UserID] = memberInfo{Role: m.RoleSlug, Status: m.Status}
+			}
+		}
+
+		// Build a profile lookup from each member's personal account
+		type profile struct {
+			Name          string
+			DisplayName   string
+			AvatarVersion int
+		}
+		profileByUserID := map[string]profile{}
+		for _, m := range members {
+			accounts, err := accountStore.GetAccountsForUser(m.UserID)
+			if err != nil {
+				continue
+			}
+			for _, a := range accounts {
+				if a.Type == "personal" {
+					profileByUserID[m.UserID] = profile{
+						Name:          a.Name,
+						DisplayName:   a.DisplayName,
+						AvatarVersion: a.AvatarVersion,
+					}
+					break
+				}
+			}
+		}
+
+		result := make([]MemberResponse, 0, len(members))
+		for _, m := range members {
+			info := infoByUserID[m.UserID]
+			role := info.Role
+			if role == "" {
+				role = "member"
+			}
+			status := info.Status
+			if status == "" {
+				status = "active"
+			}
+			p := profileByUserID[m.UserID]
+			result = append(result, MemberResponse{
+				AccountID:     m.AccountID,
+				UserID:        m.UserID,
+				Role:          role,
+				Status:        status,
+				Username:      p.Name,
+				DisplayName:   p.DisplayName,
+				AvatarVersion: p.AvatarVersion,
+				CreatedAt:     m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"members": result})
 	}
 }
 
@@ -170,7 +251,8 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 }
 
 // RemoveMember handles DELETE /api/v1/accounts/:account/members/:user_id
-func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+// Self-removal (leaving) is allowed for any member; removing others requires org:manage.
+func RemoveMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -178,7 +260,21 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Cli
 			return
 		}
 
+		user, ok := middleware.GetUser(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
 		userID := c.Param("user_id")
+
+		// Self-removal only requires membership; removing others requires org:manage.
+		if userID != user.ID {
+			if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:manage") {
+				c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions to remove other members"})
+				return
+			}
+		}
 
 		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID); err != nil {
 			log.Error("Failed to remove member", "error", err, "account_id", acct.ID, "user_id", userID)

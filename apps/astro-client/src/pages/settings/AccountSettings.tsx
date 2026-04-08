@@ -1,174 +1,33 @@
-import { useState, useEffect, useRef } from "react";
-import { useBlocker } from "react-router";
-import { CheckIcon } from "@heroicons/react/24/outline";
-import { Camera, Loader2 } from "lucide-react";
-import { UserAvatar } from "@/components/UserAvatar";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { bustAvatar } from "@/lib/avatar-bust";
-import { useUpdateProfile, useUploadAvatar } from "@/api/queries";
+import { useUpdateProfile } from "@/api/queries";
+import { useSavedFlash } from "@/hooks/use-saved-flash";
+import { SectionHeader, SavedIndicator } from "@/components/settings/SettingsShared";
+import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
-import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
-import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
-
-const headingClass = {
-  h1: "text-heading-1",
-  h2: "text-heading-2",
-} as const;
-
-function SectionHeader({
-  as: Heading = "h2",
-  title,
-  subtitle,
-}: {
-  as?: "h1" | "h2";
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
-      <p className="text-[13px] text-muted-foreground">{subtitle}</p>
-    </div>
-  );
-}
-
-function SavedIndicator({ visible }: { visible: boolean }) {
-  if (!visible) return null;
-  return (
-    <span className="flex items-center gap-1 text-[13px] text-muted-foreground">
-      <CheckIcon className="size-3.5" />
-      Saved
-    </span>
-  );
-}
-
-function useSavedFlash() {
-  const [showSaved, setShowSaved] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  const flash = () => {
-    setShowSaved(true);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setShowSaved(false), 2000);
-  };
-
-  return { showSaved, flash };
-}
+import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 
 function ProfileSection() {
-  const { user, personalAccount, refresh } = useAuth();
+  const { personalAccount, refresh } = useAuth();
   const updateProfile = useUpdateProfile();
-  const uploadAvatar = useUploadAvatar();
-  const initialName = personalAccount?.display_name ?? "";
-  const [displayName, setDisplayName] = useState(initialName);
-  const [savedName, setSavedName] = useState(initialName);
-  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
-  const { showSaved, flash } = useSavedFlash();
 
-  const isDirty = displayName !== savedName;
-
-  const blocker = useBlocker(isDirty);
-
-  useEffect(() => {
-    if (blocker.state === "blocked") {
-      const leave = window.confirm("You have unsaved changes. Are you sure you want to leave?");
-      if (leave) {
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    }
-  }, [blocker]);
-
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
-
-  const handleSave = () => {
-    updateProfile.mutate({ display_name: displayName }, {
-      onSuccess: () => {
-        setSavedName(displayName);
-        refresh();
-        flash();
-      },
-    });
-  };
-
-  const accountDisplayName = personalAccount?.display_name || personalAccount?.name || "";
+  if (!personalAccount) return null;
 
   return (
-    <div className="flex flex-col gap-5">
-      {user && (
-        <>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              className="group relative cursor-pointer"
-              onClick={() => setAvatarDialogOpen(true)}
-            >
-              <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} className="size-[72px] text-2xl" />
-              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                <Camera className="size-5 text-white" />
-              </div>
-            </button>
-            <div>
-              <div className="text-sm font-semibold text-foreground">
-                {accountDisplayName}
-              </div>
-              {personalAccount && (
-                <div className="font-mono text-xs text-faint-foreground">
-                  @{personalAccount.name}
-                </div>
-              )}
-            </div>
-          </div>
-          {personalAccount && (
-            <AvatarUploadDialog
-              open={avatarDialogOpen}
-              onOpenChange={setAvatarDialogOpen}
-              onUpload={async (file) => {
-                await uploadAvatar.mutateAsync({ account: personalAccount.name, file });
-              }}
-              isPending={uploadAvatar.isPending}
-              title="Upload profile image"
-              onSuccess={(blob) => { bustAvatar(personalAccount.name, blob); refresh(); flash(); }}
-            />
-          )}
-
-          <div>
-            <Label size="md">Display name</Label>
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              maxLength={DISPLAY_NAME_MAX_LENGTH}
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={!isDirty || updateProfile.isPending}
-              onClick={handleSave}
-              className="self-start"
-            >
-              {updateProfile.isPending && (
-                <Loader2 size={14} className="spinner-delayed" />
-              )}
-              Save changes
-            </Button>
-            <SavedIndicator visible={showSaved} />
-          </div>
-        </>
-      )}
-    </div>
+    <ProfileEditor
+      accountName={personalAccount.name}
+      currentDisplayName={personalAccount.display_name ?? ""}
+      avatarVersion={personalAccount.avatar_version}
+      avatarDialogTitle="Upload profile image"
+      onSave={async (displayName) => {
+        await updateProfile.mutateAsync({ display_name: displayName });
+        refresh();
+      }}
+      isSaving={updateProfile.isPending}
+    />
   );
 }
 
@@ -186,7 +45,7 @@ function AccountSection() {
   return (
     <div className="flex flex-col gap-5">
       {user && (
-        <div>
+        <div className="max-w-sm">
           <Label size="md">Email</Label>
           <Input defaultValue={user.email} disabled />
         </div>
@@ -216,23 +75,15 @@ function DangerZone() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 px-5 py-4">
-      <div>
-        <div className="text-[13px] font-semibold text-foreground">Delete account</div>
-        <p className="text-[12px] text-muted-foreground">
-          Permanently delete your account and all associated data. This cannot
-          be undone.
-        </p>
-      </div>
-      <Button
-        variant="outline"
-        className="shrink-0 border-destructive/30 bg-surface text-destructive hover:bg-destructive/[0.08] hover:text-destructive active:bg-destructive/15 active:text-destructive"
-        onClick={() => setOpen(true)}
-      >
-        Delete account
-      </Button>
+    <>
+      <DangerZoneItem
+        title="Delete account"
+        description="Permanently delete your account and all associated data. This cannot be undone."
+        actionLabel="Delete account"
+        onAction={() => setOpen(true)}
+      />
       <DeleteAccountDialog open={open} onOpenChange={setOpen} />
-    </div>
+    </>
   );
 }
 

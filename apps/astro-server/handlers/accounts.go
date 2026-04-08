@@ -164,12 +164,18 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			// Create WorkOS membership for creator as owner
 			m, err := orgClient.CreateMembership(ctx, workosOrg.ID, user.ID, "owner")
 			if err != nil {
-				log.Warn("Failed to create WorkOS membership for org creator", "error", err)
-				// Non-fatal: local membership already exists from Create()
-			} else {
-				// Update local member with WorkOS membership ID
-				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
+				log.Error("Failed to create WorkOS membership for org creator", "error", err, "account_id", acct.ID)
+				// Compensating action: clean up WorkOS org and local account
+				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
+				_ = accountStore.DeleteByID(acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "failed to create organization membership",
+					"details": err.Error(),
+				})
+				return
 			}
+			// Update local member with WorkOS membership ID
+			_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
 		}
 
 		// Create OpenMeter customer (non-blocking — failure is logged, not fatal)
@@ -335,13 +341,71 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 	}
 }
 
+// UpdateAccountRequest represents the request body for updating account fields (e.g. display name).
+type UpdateAccountRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+// UpdateAccount handles PATCH /api/v1/accounts/:account (admin only)
+// Updates mutable account fields such as display_name.
+func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		var req UpdateAccountRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid request body",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		req.DisplayName = strings.TrimSpace(req.DisplayName)
+		if req.DisplayName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "display name is required"})
+			return
+		}
+		if len(req.DisplayName) > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
+			return
+		}
+
+		if err := accountStore.UpdateDisplayName(acct.ID, req.DisplayName); err != nil {
+			log.Error("Failed to update account display name", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
+			return
+		}
+
+		log.Info("Account display name updated", "account_id", acct.ID, "display_name", req.DisplayName)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.ProfileUpdate
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Updated account display name"
+		evt.Metadata = map[string]any{"display_name": req.DisplayName}
+		auditStore.LogAsync(log, evt)
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":      "display name updated",
+			"display_name": req.DisplayName,
+		})
+	}
+}
+
 // RenameAccountRequest represents the request body for renaming an account
 type RenameAccountRequest struct {
 	Name string `json:"name" binding:"required"`
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -365,6 +429,13 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Sync the name to WorkOS for organization accounts
+		if acct.WorkOSOrganizationID != "" && orgClient != nil {
+			if err := orgClient.UpdateOrganizationName(c.Request.Context(), acct.WorkOSOrganizationID, req.Name); err != nil {
+				log.Warn("Failed to update WorkOS organization name", "error", err, "account_id", acct.ID)
+			}
 		}
 
 		// Move avatars in storage to match the new account name
@@ -420,6 +491,11 @@ func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore, audit
 			return
 		}
 
+		req.DisplayName = strings.TrimSpace(req.DisplayName)
+		if req.DisplayName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "display name is required"})
+			return
+		}
 		if len(req.DisplayName) > 64 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
 			return

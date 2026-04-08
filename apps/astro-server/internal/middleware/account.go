@@ -33,6 +33,26 @@ func ResolveAccount(accountStore *account.AccountStore) gin.HandlerFunc {
 	}
 }
 
+// HasAccountPermission checks whether a user holds a given permission on the
+// resolved account. It mirrors the logic of RequireAccountPermission but
+// returns a bool instead of aborting the request, so handlers can branch on it.
+func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, acct *account.Account, user *auth.User, permission string) bool {
+	if acct.Type == "personal" {
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		return err == nil && isMember
+	}
+	session, ok := GetSession(c)
+	if !ok || acct.WorkOSOrganizationID == "" || session.OrganizationID != acct.WorkOSOrganizationID {
+		return false
+	}
+	for _, p := range session.Permissions {
+		if p == permission {
+			return true
+		}
+	}
+	return false
+}
+
 // RequireAccountPermission checks authorization based on account type:
 //   - Personal account: owner has all permissions implicitly
 //   - Organization account: JWT must be scoped to the target org via

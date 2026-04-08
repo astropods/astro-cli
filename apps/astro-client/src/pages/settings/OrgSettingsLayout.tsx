@@ -1,7 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
-import { useEffect, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
-import { KeyIcon } from '@heroicons/react/24/outline'
+import { useEffect, useRef, useState } from 'react'
+import { KeyRound, ArrowLeft, Settings, Loader2, Users } from 'lucide-react'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import {
   SidebarLayout,
@@ -15,50 +14,120 @@ function OrgSettingsContent() {
   const { orgSlug = '' } = useParams()
   const { accounts, organizationId, switchOrg } = useAuth()
   const org = accounts.find(a => a.name === orgSlug)
-  const displayName = org?.display_name ?? orgSlug
-  const [switching, setSwitching] = useState(false)
+  const needsSwitch = !!org?.organization_id && org.organization_id !== organizationId
+  const [switchFailed, setSwitchFailed] = useState(false)
+
+  // Track whether we've ever resolved a valid org in this component instance.
+  // If org disappears after being valid (e.g. during a rename), render nothing
+  // instead of flashing the 403 page during the transition.
+  const hasResolvedOrg = useRef(false)
+  if (org) hasResolvedOrg.current = true
 
   useEffect(() => {
-    if (!org?.organization_id || org.organization_id === organizationId) return
-    let mounted = true
-    setSwitching(true)
-    switchOrg(org.organization_id)
-      .catch(() => { /* org switch unavailable — continue with current context */ })
-      .finally(() => { if (mounted) setSwitching(false) })
-    return () => { mounted = false }
-  }, [org?.organization_id, organizationId, switchOrg])
+    if (!needsSwitch || !org?.organization_id) return
+    setSwitchFailed(false)
+    switchOrg(org.organization_id).catch(() => {
+      // Switch failed (e.g. new org not yet ready in WorkOS) — render anyway
+      setSwitchFailed(true)
+    })
+  }, [needsSwitch, org?.organization_id, switchOrg])
 
-  if (switching) {
+  if (!org) {
+    // Transitional state (e.g. rename in progress)
+    if (hasResolvedOrg.current) {
+      return (
+        <div className="flex items-center justify-center flex-1">
+          <Loader2 size={20} className="animate-spin text-muted-foreground" />
+        </div>
+      )
+    }
+
     return (
-      <div className="flex items-center gap-2 py-8 px-6 text-[13px] text-muted-foreground">
-        <Loader2 size={14} className="animate-spin" />
-        Switching organization context...
+      <div className="flex items-center justify-center flex-1">
+        <div className="text-center">
+          <h1 className="text-7xl font-extrabold mb-2">403</h1>
+          <p className="text-xl font-semibold mb-2">Access denied</p>
+          <p className="text-stone-600 text-sm mb-6">
+            You don't have permission to view this organization's settings.
+          </p>
+          <Link
+            to="/settings/organizations"
+            className="inline-block px-4 py-2 bg-stone-800 text-white border border-stone-800 text-sm no-underline"
+          >
+            Back to organizations
+          </Link>
+        </div>
       </div>
     )
   }
 
+  if (needsSwitch && !switchFailed) return null
+
+  if (switchFailed) {
+    return (
+      <div className="flex items-center justify-center flex-1">
+        <div className="text-center">
+          <p className="text-xl font-semibold mb-2">Something went wrong</p>
+          <p className="text-stone-600 text-sm mb-6">
+            Failed to load this organization's context. This can happen if the
+            organization was just created. Try refreshing the page.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="inline-block px-4 py-2 bg-stone-800 text-white border border-stone-800 text-sm no-underline cursor-pointer"
+            >
+              Refresh
+            </button>
+            <Link
+              to="/settings/organizations"
+              className="inline-block px-4 py-2 border border-stone-300 text-stone-800 text-sm no-underline"
+            >
+              Back to organizations
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const displayName = org.display_name ?? orgSlug
+
   return (
     <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
-      <div className="mb-6">
-        <Link
-          to="/settings/account"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-3"
-        >
-          <ArrowLeft className="size-3" />
-          Settings
-        </Link>
-        <h1 className="text-heading-2 text-foreground">{displayName}</h1>
-      </div>
-
       <SidebarLayout>
-        <SidebarNav label="Org settings" className="md:w-48">
-          <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
-            <span className="flex items-center gap-2">
-              <KeyIcon className="size-3.5" />
-              Variables & Secrets
-            </span>
-          </SidebarNavItem>
-        </SidebarNav>
+        <div className="flex w-full flex-col md:w-48 md:shrink-0">
+          <div className="mb-4">
+            <Link
+              to="/settings/account"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              <ArrowLeft className="size-3" />
+              Settings
+            </Link>
+            <h1 className="text-heading-2 text-foreground break-words">{displayName}</h1>
+          </div>
+          <SidebarNav label="Org settings" className="md:w-48">
+            <SidebarNavItem to={`/settings/org/${orgSlug}/general`}>
+              <span className="flex items-center gap-2">
+                <Settings className="size-3.5" />
+                General
+              </span>
+            </SidebarNavItem>
+            <SidebarNavItem to={`/settings/org/${orgSlug}/members`}>
+              <span className="flex items-center gap-2">
+                <Users className="size-3.5" />
+                Members
+              </span>
+            </SidebarNavItem>
+            <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
+              <span className="flex items-center gap-2">
+                <KeyRound className="size-3.5" />
+                Secrets & Variables
+              </span>
+            </SidebarNavItem>
+          </SidebarNav>
+        </div>
         <SidebarBody>
           <Outlet />
         </SidebarBody>

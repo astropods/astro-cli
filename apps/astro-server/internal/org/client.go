@@ -59,6 +59,18 @@ func (c *Client) DeleteOrganization(ctx context.Context, workosOrgID string) err
 	return nil
 }
 
+// UpdateOrganizationName renames a WorkOS organization.
+func (c *Client) UpdateOrganizationName(ctx context.Context, workosOrgID, name string) error {
+	_, err := c.orgs.UpdateOrganization(ctx, organizations.UpdateOrganizationOpts{
+		Organization: workosOrgID,
+		Name:         name,
+	})
+	if err != nil {
+		return fmt.Errorf("workos: update organization name: %w", err)
+	}
+	return nil
+}
+
 // UpdateOrganizationExternalID sets the external_id on a WorkOS organization.
 func (c *Client) UpdateOrganizationExternalID(ctx context.Context, workosOrgID, externalID string) error {
 	_, err := c.orgs.UpdateOrganization(ctx, organizations.UpdateOrganizationOpts{
@@ -87,9 +99,12 @@ func (c *Client) CreateMembership(ctx context.Context, workosOrgID, userID, role
 }
 
 // ListMemberships lists memberships for an organization.
+// Includes both active and pending memberships so that invited users
+// whose membership hasn't been activated yet are still visible.
 func (c *Client) ListMemberships(ctx context.Context, workosOrgID string, opts ListOpts) ([]Membership, error) {
 	resp, err := c.um.ListOrganizationMemberships(ctx, usermanagement.ListOrganizationMembershipsOpts{
 		OrganizationID: workosOrgID,
+		Statuses:       []usermanagement.OrganizationMembershipStatus{usermanagement.Active, usermanagement.PendingOrganizationMembership},
 		Limit:          opts.Limit,
 		After:          opts.After,
 		Before:         opts.Before,

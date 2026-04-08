@@ -59,7 +59,7 @@ export default function OrganizationsSettings() {
               </div>
 
               <Button variant="outline" size="sm" asChild>
-                <Link to={`/settings/org/${org.name}/secrets`}>
+                <Link to={`/settings/org/${org.name}/general`}>
                   <Settings className="size-3.5" />
                   Settings
                 </Link>

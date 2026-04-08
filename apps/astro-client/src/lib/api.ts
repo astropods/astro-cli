@@ -53,6 +53,11 @@ export interface AccountSearchResult {
 export interface AccountMember {
   account_id: string;
   user_id: string;
+  role: string;
+  status: string;
+  username: string;
+  display_name: string;
+  avatar_version: number;
   created_at: string;
 }
 
@@ -259,6 +264,56 @@ class ApiClient {
         method: 'PUT',
         body: JSON.stringify({ name: newName }),
       }
+    );
+  }
+
+  async updateAccountDisplayName(account: string, displayName: string): Promise<{ message: string; display_name: string }> {
+    return this.request<{ message: string; display_name: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ display_name: displayName }),
+      }
+    );
+  }
+
+  async updateMemberRole(account: string, userId: string, role: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      }
+    );
+  }
+
+  async removeAccountMember(account: string, userId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async createInvitations(account: string, invitations: InviteEntry[]): Promise<{ results: InviteResultResponse[] }> {
+    return this.request<{ results: InviteResultResponse[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ invitations }),
+      }
+    );
+  }
+
+  async listInvitations(account: string): Promise<{ invitations: Invitation[] }> {
+    return this.request<{ invitations: Invitation[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`
+    );
+  }
+
+  async revokeInvitation(account: string, invitationId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations/${encodeURIComponent(invitationId)}`,
+      { method: 'DELETE' }
     );
   }
 

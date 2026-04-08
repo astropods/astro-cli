@@ -71,7 +71,7 @@ func TestListMembers_Success(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -102,7 +102,7 @@ func TestListMembers_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store))
+	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestListMembers_DBError(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func TestRemoveMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil, nil))
+	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -503,7 +503,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	memberRoutes := router.Group("/accounts/:account/members")
 	memberRoutes.Use(middleware.ResolveAccount(store))
 	memberRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
-	memberRoutes.GET("", ListMembers(log, store))
+	memberRoutes.GET("", ListMembers(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
 	rec := httptest.NewRecorder()

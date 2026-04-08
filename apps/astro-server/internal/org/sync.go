@@ -56,10 +56,21 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole 
 	if acct.Type == "personal" {
 		return fmt.Errorf("cannot change role on personal account")
 	}
+	if acct.WorkOSOrganizationID == "" {
+		return fmt.Errorf("organization has no WorkOS link")
+	}
+
+	// Verify the WorkOS organization is accessible
+	if _, err := s.client.GetOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
+		return fmt.Errorf("WorkOS organization not reachable: %w", err)
+	}
 
 	member, err := s.accountStore.GetMember(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("member not found: %w", err)
+	}
+	if member.WorkOSMembershipID == "" {
+		return fmt.Errorf("member has no WorkOS membership")
 	}
 
 	currentMembership, err := s.client.GetMembership(ctx, member.WorkOSMembershipID)
@@ -83,8 +94,14 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole 
 		}
 	}
 
-	if _, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole); err != nil {
+	updated, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole)
+	if err != nil {
 		return fmt.Errorf("failed to update WorkOS membership role: %w", err)
+	}
+
+	// Verify WorkOS actually applied the new role
+	if updated.RoleSlug != newRole {
+		return fmt.Errorf("role update was not applied: expected %q but got %q", newRole, updated.RoleSlug)
 	}
 
 	return nil
@@ -99,10 +116,17 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 	if acct.Type == "personal" {
 		return fmt.Errorf("cannot remove members from personal accounts")
 	}
+	if acct.WorkOSOrganizationID == "" {
+		return fmt.Errorf("organization has no WorkOS link")
+	}
 
 	member, err := s.accountStore.GetMember(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("member not found: %w", err)
+	}
+	if member.WorkOSMembershipID == "" {
+		// No WorkOS membership — just remove locally
+		return s.accountStore.RemoveMember(accountID, userID)
 	}
 
 	// Last-owner guard via WorkOS
