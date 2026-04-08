@@ -30,7 +30,8 @@
     "directory": "packages/astro-theme"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
