@@ -148,26 +148,6 @@ Without `--all`, clears credentials for the current profile only.
 
 ---
 
-## playground
-
-Open the Astropods playground UI connected to a running agent.
-
-```bash
-ast playground <url> [flags]
-```
-
-`<url>` is the base URL of the agent's messaging HTTP API (e.g. `http://localhost:3100`).
-
-| Flag | Description |
-|------|-------------|
-| `--port <port>` | Local port for the playground UI (default: `3737`) |
-| `--no-pull` | Skip pulling the playground image |
-| `--no-open` | Don't open the browser automatically |
-
-Starts a local playground container and opens it in the browser, connected to the agent at `<url>`.
-
----
-
 ## push
 
 Build and push the agent to the Astropods registry.
