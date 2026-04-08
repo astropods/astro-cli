@@ -7,7 +7,7 @@ The `@astropods/theme` package is published to npm automatically when a change t
 1. A merge to `main` that touches `packages/astro-theme/**` triggers the **Publish Theme** workflow.
 2. The workflow reads the `version` field from `packages/astro-theme/package.json`.
 3. It checks whether that version already exists on npm (`npm view @astropods/theme@<version>`).
-4. If not yet published, it builds the package and runs `npm publish --provenance`.
+4. If not yet published, it builds the package and runs `npm publish --access public`.
 5. If already published, it exits cleanly with a notice — no error, no re-publish.
 
 ## Releasing a new version
@@ -25,13 +25,4 @@ To trigger a publish manually (e.g. if the automatic run was skipped), go to **A
 
 ## Prerequisites (one-time setup)
 
-npm trusted publishing must be configured for the package before OIDC auth will work:
-
-1. Log in to npmjs.com and open the `@astropods/theme` package settings.
-2. Go to **Access → Trusted Publishers** and add a new publisher:
-   - **Owner:** `astropods`
-   - **Repository:** `astro`
-   - **Workflow:** `publish-theme.yml`
-3. Leave **Environment** blank.
-
-Once configured, the workflow authenticates via the GitHub OIDC token — no stored secrets needed.
+The workflow uses OIDC (`id-token: write`) for authentication. No npm token secret needs to be stored in GitHub — the runner authenticates via the GitHub OIDC identity.
