@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
 	"sort"
+	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -287,5 +289,45 @@ func TestConfigureNonSecretVars_UnreferencedProviderExcluded(t *testing.T) {
 	}
 	if _, ok := keys["UNUSED_Y"]; ok {
 		t.Error("UNUSED_Y must not appear — provider is unreferenced")
+	}
+}
+
+// ─── formatVars ──────────────────────────────────────────────────────────────
+
+func TestFormatVars_Env(t *testing.T) {
+	vars := map[string]string{"FOO": "bar", "BAZ": "qux"}
+	out, err := formatVars("env", vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{`FOO="bar"`, `BAZ="qux"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("env output missing %q\ngot:\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatVars_JSON(t *testing.T) {
+	vars := map[string]string{"KEY": "value"}
+	out, err := formatVars("json", vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if got["KEY"] != "value" {
+		t.Errorf("got KEY=%q, want %q", got["KEY"], "value")
+	}
+}
+
+func TestFormatVars_UnknownFormat(t *testing.T) {
+	_, err := formatVars("yaml", map[string]string{"X": "1"})
+	if err == nil {
+		t.Fatal("expected error for unknown format")
+	}
+	if !strings.Contains(err.Error(), "yaml") {
+		t.Errorf("error should mention the bad format, got: %v", err)
 	}
 }

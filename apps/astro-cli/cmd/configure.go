@@ -223,6 +223,21 @@ func runConfigureTelemetry(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+func formatVars(format string, vars map[string]string) (string, error) {
+	switch format {
+	case "env":
+		return godotenv.Marshal(vars)
+	case "json":
+		out, err := json.MarshalIndent(vars, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(out), nil
+	default:
+		return "", fmt.Errorf("unknown format %q: use env or json", format)
+	}
+}
+
 func runConfigureOut(format string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -235,22 +250,11 @@ func runConfigureOut(format string) error {
 		return nil
 	}
 
-	switch format {
-	case "env":
-		out, err := godotenv.Marshal(vars)
-		if err != nil {
-			return fmt.Errorf("failed to marshal env: %w", err)
-		}
-		fmt.Println(out)
-	case "json":
-		out, err := json.MarshalIndent(vars, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal json: %w", err)
-		}
-		fmt.Println(string(out))
-	default:
-		return fmt.Errorf("unknown format %q: use env or json", format)
+	out, err := formatVars(format, vars)
+	if err != nil {
+		return err
 	}
+	fmt.Println(out)
 	return nil
 }
 
