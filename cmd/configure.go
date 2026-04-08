@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -66,6 +67,8 @@ loaded by '%s dev'.`, binaryName, binaryName)
 	// Also allow --no-telemetry / --telemetry directly on configure
 	configureCmd.Flags().Bool("no-telemetry", false, "Disable anonymous telemetry")
 	configureCmd.Flags().Bool("telemetry", false, "Enable anonymous telemetry")
+
+	configureCmd.Flags().String("save", "", "Export stored config vars to a .env file (KEY=VALUE format)")
 }
 
 // varEntry describes one configurable variable.
@@ -219,8 +222,31 @@ func runConfigureTelemetry(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+func runConfigureSave(saveFile string) error {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	vars := config.GetProjectVars(binaryName, workingDir)
+	if len(vars) == 0 {
+		fmt.Println("ℹ️  No stored config variables found for this project.")
+		return nil
+	}
+
+	if err := godotenv.Write(vars, saveFile); err != nil {
+		return fmt.Errorf("failed to write %s: %w", saveFile, err)
+	}
+
+	fmt.Printf("✅ Exported %d variable(s) to %s\n", len(vars), saveFile)
+	return nil
+}
+
 func runConfigure(cmd *cobra.Command, args []string) error {
-	// Handle telemetry shortcut flags
+	if saveFile, _ := cmd.Flags().GetString("save"); saveFile != "" {
+		return runConfigureSave(saveFile)
+	}
+
 	noTelemetry, _ := cmd.Flags().GetBool("no-telemetry")
 	enableTelemetry, _ := cmd.Flags().GetBool("telemetry")
 	if noTelemetry || enableTelemetry {
