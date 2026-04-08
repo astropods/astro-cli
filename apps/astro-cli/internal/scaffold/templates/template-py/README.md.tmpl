@@ -78,7 +78,7 @@ Self-hosted **{{.ModelProvider}}** provider{{if ne .Model ""}} running `{{.Model
 
 {{- range .Interfaces}}
 {{- if eq . "web"}}
-- **Web** — HTTP/SSE endpoint (playground available at `localhost:3000` during dev)
+- **Web** — HTTP/SSE endpoint (playground available at `localhost:3100` during dev)
 {{- else if eq . "slack"}}
 - **Slack** — bot integration via Socket Mode
 {{- end}}

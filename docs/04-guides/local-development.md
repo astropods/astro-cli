@@ -66,7 +66,7 @@ ast-dev dev stop               # tear down
 
 ### With `--local`
 
-The agent runs as a **host process** with hot-reload. Infrastructure services (messaging, playground) still run in Docker.
+The agent runs as a **host process** with hot-reload. Infrastructure services (messaging) still run in Docker.
 
 ```bash
 export ASTRO_ROOT=$HOME/code/astro    # path to astro monorepo
@@ -99,17 +99,15 @@ pip install -r requirements.txt  # restore normal deps (Py)
 Use `moon run deployment:<target>` to build infrastructure images from source:
 
 ```bash
-moon run deployment:messaging      # builds messaging:latest
-moon run deployment:playground     # builds playground:latest
+moon run deployment:messaging      # builds messaging:latest (includes playground UI)
 ```
 
-Then override the default images in your agent's `astropods.yml`:
+Then override the default image in your agent's `astropods.yml`:
 
 ```yaml
 dev:
   overrides:
     messagingImage: "messaging:latest"
-    playgroundImage: "playground:latest"
 ```
 
 When an override is set, the CLI uses that image directly and skips pulling from the remote registry.
