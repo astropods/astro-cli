@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
-import { StatusIndicator } from "@/components/StatusIndicator";
+import { DeploymentStatusBadge } from "@/components/DeploymentStatusBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { InlineBadge } from "@/components/InlineBadge";
-import { deploymentStatusVariant, deploymentStatusLabel, formatRelativeTime, formatDaysActive } from "@/lib/deployment-utils";
+import { formatRelativeTime, formatDaysActive } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -177,13 +177,7 @@ export function DeployedAgentCard({
             {displayName || name}
           </p>
           <div className="mt-1 flex items-center gap-2">
-            <StatusIndicator
-              variant={deploymentStatusVariant[status]}
-              pulse={status === "deploying"}
-              spinner={status === "deploying" || status === "restarting" || status === "pausing" || status === "resuming" || status === "undeploying"}
-            >
-              {deploymentStatusLabel[status]}
-            </StatusIndicator>
+            <DeploymentStatusBadge status={status} />
             {hasNewBuildAvailable && (
               <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
                 update
