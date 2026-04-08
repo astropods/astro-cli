@@ -943,7 +943,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		_, svcErr := k8sClient.Clientset().CoreV1().Services(dbDep.Namespace).Get(
 			c.Request.Context(), messagingServiceName, metav1.GetOptions{},
 		)
-		result.MessagingAvailable = svcErr == nil || cfg.Deployment.MessagingBaseURLOverride != ""
+		result.MessagingAvailable = svcErr == nil
 
 		c.JSON(http.StatusOK, gin.H{"deployment": result})
 	}

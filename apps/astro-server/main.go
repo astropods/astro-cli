@@ -1100,25 +1100,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.SecretKeysResponse{}),
 			)
-			// Playground proxy endpoints
-			api.POST(protected, "/deployments/:id/playground/conversations", "Create playground conversation", handlers.PlaygroundCreateConversation(log, accountStore, deploymentStore, cfg),
-				oapispec.Tags("Playground"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(200, nil),
-			)
-			api.POST(protected, "/deployments/:id/playground/conversations/:convId/messages", "Send playground message", handlers.PlaygroundSendMessage(log, accountStore, deploymentStore, cfg),
-				oapispec.Tags("Playground"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(200, nil),
-			)
-			api.GET(protected, "/deployments/:id/playground/conversations/:convId/stream", "Stream playground conversation", handlers.PlaygroundStreamConversation(log, accountStore, deploymentStore, cfg),
-				oapispec.Tags("Playground"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(200, nil),
-			)
 			// Observability endpoints (deployment-scoped, backed by Langfuse)
 			langfuseStore := langfuse.NewStore(db)
 			api.GET(protected, "/deployments/:id/observability/metrics", "Get deployment metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, deploymentStore, langfuseStore),

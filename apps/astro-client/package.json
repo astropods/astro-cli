@@ -25,6 +25,7 @@
   "dependencies": {
     "@amplitude/analytics-browser": "^2.36.1",
     "@amplitude/plugin-session-replay-browser": "^1.25.18",
+    "@astropods/theme": "workspace:*",
     "@dagrejs/dagre": "^1.1.8",
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
@@ -37,7 +38,6 @@
     "@tanstack/react-virtual": "^3.13.20",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xyflow/react": "^12.10.0",
-    "@astropods/theme": "workspace:*",
     "astro-trading-card": "workspace:*",
     "change-case": "^5.4.4",
     "class-variance-authority": "^0.7.1",
