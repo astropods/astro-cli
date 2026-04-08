@@ -4,6 +4,8 @@ type: "library"
 tasks:
   build:
     command: "bun run tsc"
+    deps:
+      - "astro-theme:build"
     inputs:
       - "src/**/*"
       - "tsconfig.json"
