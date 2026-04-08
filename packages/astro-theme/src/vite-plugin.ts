@@ -20,7 +20,7 @@ const TYPOGRAPHY_SRC = resolve(__dirname, "typography.ts");
 const THEME_SOURCES = new Set([COLORS_SRC, SEMANTIC_SRC, TYPOGRAPHY_SRC]);
 
 function buildCSS() {
-  execSync("bun run src/build-css.ts", { cwd: PACKAGE_ROOT, stdio: "inherit" });
+  execSync("bun run build-css.ts", { cwd: PACKAGE_ROOT, stdio: "inherit" });
 }
 
 export function astroThemeColors(): Plugin {

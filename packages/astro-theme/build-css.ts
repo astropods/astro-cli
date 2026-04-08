@@ -1,16 +1,16 @@
 /**
  * Generates dist/colors.css and dist/semantic.css from TypeScript sources.
- * Run: bun run src/build-css.ts
+ * Run: bun run build-css.ts
  */
 import { writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { palettes } from "./colors";
-import { lightTheme, darkTheme } from "./semantic";
-import { typography } from "./typography";
+import { palettes } from "./src/colors";
+import { lightTheme, darkTheme } from "./src/semantic";
+import { typography } from "./src/typography";
 
 const __filename = fileURLToPath(import.meta.url);
-const packageRoot = dirname(dirname(__filename));
+const packageRoot = dirname(__filename);
 const outDir = join(packageRoot, "dist");
 
 const steps = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const;

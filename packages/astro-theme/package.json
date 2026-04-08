@@ -21,12 +21,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && bun run src/build-css.ts",
+    "build": "tsc && bun run build-css.ts",
     "dev": "vite"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/astropods/astro.git",
+    "url": "git+https://github.com/astropods/astro.git",
     "directory": "packages/astro-theme"
   },
   "publishConfig": {
