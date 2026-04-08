@@ -3,7 +3,7 @@
  * when colors.ts or semantic.ts change.
  *
  * Usage:
- *   import { astroThemeColors } from "astro-theme/plugin";
+ *   import { astroThemeColors } from "@astropods/theme/plugin";
  *   plugins: [astroThemeColors(), ...]
  */
 import type { Plugin } from "vite";

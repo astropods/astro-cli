@@ -15,4 +15,4 @@ export {
   purple,
   pink,
   coral,
-} from "astro-theme";
+} from "@astropods/theme";

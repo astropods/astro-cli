@@ -1,7 +1,7 @@
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, loadEnv } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import { astroThemeColors } from "astro-theme/plugin";
+import { astroThemeColors } from "@astropods/theme/plugin";
 import fs from "fs";
 import path from "path";
 // Local development domain (must match what's in /etc/hosts)

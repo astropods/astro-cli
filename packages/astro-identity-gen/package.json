@@ -28,7 +28,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "astro-theme": "workspace:*"
+    "@astropods/theme": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.0"
