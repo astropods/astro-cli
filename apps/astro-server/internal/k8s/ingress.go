@@ -14,7 +14,7 @@ import (
 
 // messagingOIDCSecretName is the Kubernetes secret name created in the agent
 // namespace holding the OIDC client credentials (clientId/clientSecret).
-const messagingOIDCSecretName = "messaging-oidc"
+const messagingOIDCSecretName = "messaging-oidc" //nolint:gosec // G101 false positive: this is a K8s secret name, not a credential
 
 // OIDCAuthConfig holds ALB OIDC authentication configuration for an ingress.
 // When set on IngressConfig, BuildIngress adds the ALB authenticate-oidc annotations.
