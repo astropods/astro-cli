@@ -58,7 +58,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
   const backPath = state?.backPath;
 
   return (
-    <div className="dp-fadein" style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+    <div className="dp-fadein flex flex-col h-[calc(100vh-56px)] overflow-hidden">
       <ActiveDetailView
         deployment={deployment}
         account={account}

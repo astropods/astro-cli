@@ -7,12 +7,11 @@ import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/de
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
-import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
 import { InlineBadge } from "@/components/InlineBadge";
 import type { AgentDeployment } from "@/lib/api";
 
 const PANEL_FORM_ID = "configure-side-panel-form";
-const PANEL_SHELL_CLASS = "flex h-full w-[420px] flex-col border-l border-border bg-surface dark:bg-background";
+const PANEL_SHELL_CLASS = "flex h-full w-full flex-col";
 const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
 
 interface ConfigurePanelProps {
@@ -47,21 +46,6 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
 
-  const trackedState: TrackedFormState = {
-    deployName: form.deployName,
-    variableValues: form.variableValues,
-    selectedAdapters: form.selectedAdapters,
-    adapterCredentials: form.adapterCredentials,
-    ingestionSchedules: form.ingestionSchedules,
-  };
-  const initialTrackedState: TrackedFormState = {
-    deployName: initialValues.deployName ?? "",
-    variableValues: initialValues.variableValues ?? {},
-    selectedAdapters: initialValues.selectedAdapters ?? ["web"],
-    adapterCredentials: initialValues.adapterCredentials ?? {},
-    ingestionSchedules: initialValues.ingestionSchedules ?? {},
-  };
-  const changes = useChangeTracking(initialTrackedState, trackedState);
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -195,7 +179,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
               <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={form.isDeploying}>
                 Discard
               </Button>
-              <Button type="submit" form={PANEL_FORM_ID} variant="default" disabled={form.isDeploying || (!changes.isDirty && !isNewBuild && !rollbackContext)} className="flex-1">
+              <Button type="submit" form={PANEL_FORM_ID} variant="default" disabled={form.isDeploying} className="flex-1">
                 {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
                 {form.isDeploying ? "Redeploying…" : "Redeploy"}
               </Button>

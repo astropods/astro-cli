@@ -412,6 +412,7 @@ class ApiClient {
     );
   }
 
+
   // Fetch logs for a workload's containers
   async getDeploymentLogs(
     deploymentId: string,
@@ -1001,6 +1002,7 @@ export interface AgentDeployment {
   components: string[];
   manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];
+  messaging_available?: boolean;
   workloads?: WorkloadDetail[];
   jobs?: JobDetail[];
 }

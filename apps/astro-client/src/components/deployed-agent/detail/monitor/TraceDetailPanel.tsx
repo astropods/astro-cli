@@ -7,7 +7,7 @@ import { InlineBadge } from "@/components/InlineBadge";
 import type { TraceRow } from "./MonitorTab";
 import { TRACE_STATUS_STYLE, formatLatencyMs } from "./MonitorTab";
 
-const PANEL_SHELL_CLASS = "flex h-full w-[420px] flex-col border-l border-border bg-surface dark:bg-background";
+const PANEL_SHELL_CLASS = "flex h-full w-full flex-col";
 const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
 
 interface TraceDetailPanelProps {

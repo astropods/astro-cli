@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { Square2StackIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useContainerSelection } from "@/hooks/use-container-selection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusIndicator } from "@/components/StatusIndicator";
@@ -18,8 +17,6 @@ export interface ActiveContainerAccordionProps {
   podName?: string;
   title: string;
   isCompact?: boolean;
-  isAgentService?: boolean;
-  url?: string;
   urls?: DomainUrl[];
   readyText: string;
   uptime: string;
@@ -39,8 +36,6 @@ export function ActiveContainerAccordion({
   podName,
   title,
   isCompact = false,
-  isAgentService = false,
-  url,
   urls,
   readyText,
   uptime,
@@ -53,7 +48,6 @@ export function ActiveContainerAccordion({
   onPodRestartStateChange,
 }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars" | "domains">("logs");
-  const { copy: copyPlayground, copied: copiedPlaygroundCommand } = useCopyToClipboard();
   const restartMutation = useRestartPod();
   const [isLocallyRestarting, setIsLocallyRestarting] = useState(false);
   // canClear is unlocked 8s after mutation success — prevents instant clearing if pod restarts fast
@@ -92,15 +86,6 @@ export function ActiveContainerAccordion({
 
   const effectiveView = (!canShowVars && view === "vars") || (!canShowDomains && view === "domains") ? "logs" : view;
 
-  const hasPublicUrl = !!url;
-  const playgroundCommand = hasPublicUrl ? `ast playground ${url}` : "ast playground <deployment-url>";
-
-  const handleCopyPlaygroundCommand = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!hasPublicUrl) return;
-    void copyPlayground(playgroundCommand);
-  };
-
   const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
   const isTransitioning = effectiveStatus === "deploying" || effectiveStatus === "undeploying" || effectiveStatus === "restarting" || effectiveStatus === "pausing" || effectiveStatus === "resuming";
   const variant = isTransitioning
@@ -134,32 +119,6 @@ export function ActiveContainerAccordion({
           {title}
         </span>
         <span className="flex-1" />
-        {isAgentService && (
-          <div className="flex items-center gap-2 shrink-0 min-w-0" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-1.5 min-w-0 text-foreground">
-              <span className="font-sans text-body-sm whitespace-nowrap">
-                To chat, run:
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyPlaygroundCommand}
-                title={hasPublicUrl ? playgroundCommand : "Public URL not available yet"}
-                disabled={!hasPublicUrl}
-                className={cn(
-                  "inline-flex items-center gap-[5px] border border-border rounded px-2 py-0.5 bg-muted cursor-pointer",
-                  isCompact ? "max-w-[min(430px,50vw)]" : "max-w-[min(430px,55vw)]",
-                  !hasPublicUrl && "cursor-not-allowed opacity-70",
-                  !hasPublicUrl ? "text-faint-foreground" : copiedPlaygroundCommand ? "text-primary" : "text-muted-foreground",
-                )}
-              >
-                <span className="font-mono text-mono-sm truncate">
-                  {playgroundCommand}
-                </span>
-                {hasPublicUrl ? (copiedPlaygroundCommand ? <CheckIcon className="size-3 shrink-0" /> : <Square2StackIcon className="size-3 shrink-0" />) : null}
-              </button>
-            </div>
-          </div>
-        )}
         <span
           className={cn(
             "font-mono text-mono-sm text-foreground shrink-0",

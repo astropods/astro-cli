@@ -167,6 +167,10 @@ type DeploymentConfig struct {
 	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
 	// Managed provider credentials — injected by the server for managed providers
 	ManagedAnthropicAPIKey string // MANAGED_ANTHROPIC_API_KEY — Anthropic API key for the anthropic-managed provider
+	// Playground proxy — override messaging ClusterIP URL for local dev
+	// (e.g. "http://localhost:8090" when port-forwarding the messaging service).
+	MessagingBaseURLOverride string // MESSAGING_BASE_URL_OVERRIDE
+
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
 	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
 	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
@@ -199,30 +203,31 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:            getEnv("REGISTRY_URL", ""),
-			ProxyRegistryHost:      getEnv("PROXY_REGISTRY_HOST", ""),
-			Environment:            getEnv("ENVIRONMENT", ""),
-			EKSClusterName:         getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:           getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:              getEnv("AWS_REGION", ""),
-			K8sClientMode:          getEnv("K8S_CLIENT_MODE", "eks"),
-			KubeconfigPath:         getEnv("KUBECONFIG", ""),
-			KubeContext:            getEnv("KUBE_CONTEXT", ""),
-			IngressDomain:          getEnv("INGRESS_DOMAIN", ""),
-			ACMCertificateARN:      getEnv("ACM_CERTIFICATE_ARN", ""),
-			ALBGroupName:           getEnv("ALB_GROUP_NAME", "astro-agents"),
-			IngestionIngressDomain: getEnv("INGESTION_INGRESS_DOMAIN", ""),
-			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
-			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
-			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
-			KMSKeyARN:              getEnv("KMS_KEY_ARN", ""),
-			ManagedAnthropicAPIKey: getEnv("MANAGED_ANTHROPIC_API_KEY", ""),
-			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
-			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
-			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
-			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
-			LangfuseBaseURLExt:     getEnv("LANGFUSE_BASE_URL_EXT", ""),
-			LangfuseVPCEIPs:        getEnvSlice("LANGFUSE_VPCE_IPS", nil),
+			RegistryURL:              getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost:        getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:              getEnv("ENVIRONMENT", ""),
+			EKSClusterName:           getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:             getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:                getEnv("AWS_REGION", ""),
+			K8sClientMode:            getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:           getEnv("KUBECONFIG", ""),
+			KubeContext:              getEnv("KUBE_CONTEXT", ""),
+			IngressDomain:            getEnv("INGRESS_DOMAIN", ""),
+			ACMCertificateARN:        getEnv("ACM_CERTIFICATE_ARN", ""),
+			ALBGroupName:             getEnv("ALB_GROUP_NAME", "astro-agents"),
+			IngestionIngressDomain:   getEnv("INGESTION_INGRESS_DOMAIN", ""),
+			IngestionACMCertARN:      getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
+			IngestionALBGroupName:    getEnv("INGESTION_ALB_GROUP_NAME", ""),
+			PodSubnetCIDRs:           getEnvSlice("POD_SUBNET_CIDRS", nil),
+			KMSKeyARN:                getEnv("KMS_KEY_ARN", ""),
+			ManagedAnthropicAPIKey:   getEnv("MANAGED_ANTHROPIC_API_KEY", ""),
+			LangfuseDBURL:            getEnv("LANGFUSE_DB_URL", ""),
+			LangfuseSalt:             getEnv("LANGFUSE_SALT", ""),
+			LangfuseOrgID:            getEnv("LANGFUSE_ORG_ID", "astro"),
+			LangfuseBaseURL:          getEnv("LANGFUSE_BASE_URL", ""),
+			LangfuseBaseURLExt:       getEnv("LANGFUSE_BASE_URL_EXT", ""),
+			LangfuseVPCEIPs:          getEnvSlice("LANGFUSE_VPCE_IPS", nil),
+			MessagingBaseURLOverride: getEnv("MESSAGING_BASE_URL_OVERRIDE", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

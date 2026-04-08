@@ -177,8 +177,7 @@ export function DeploymentHistoryTable({
                   podName={svc.podName}
                   title={svc.title}
                   isCompact={isCompact}
-                  isAgentService={svc.isAgentService}
-                  url={svc.url}
+
                   urls={svc.urls}
                   readyText={svc.readyText}
                   uptime={svc.uptime}

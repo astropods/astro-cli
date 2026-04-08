@@ -711,23 +711,24 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	ID               string                `json:"id"`
-	Name             string                `json:"name"`
-	DisplayName      string                `json:"display_name,omitempty"`
-	AvatarURL        string                `json:"avatar_url,omitempty"`
-	BuildID          string                `json:"build_id"`
-	Namespace        string                `json:"namespace"`
-	Status           string                `json:"status"`
-	Replicas         int32                 `json:"replicas"`
-	Ready            int32                 `json:"ready"`
-	CreatedAt        string                `json:"created_at"`
-	UpdatedAt        string                `json:"updated_at,omitempty"`
-	UpdatedBy        string                `json:"updated_by,omitempty"`
-	Components       []string              `json:"components"`
-	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
-	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Workloads        []WorkloadDetail      `json:"workloads,omitempty"`
-	Jobs             []JobDetail           `json:"jobs,omitempty"`
+	ID                 string                `json:"id"`
+	Name               string                `json:"name"`
+	DisplayName        string                `json:"display_name,omitempty"`
+	AvatarURL          string                `json:"avatar_url,omitempty"`
+	BuildID            string                `json:"build_id"`
+	Namespace          string                `json:"namespace"`
+	Status             string                `json:"status"`
+	Replicas           int32                 `json:"replicas"`
+	Ready              int32                 `json:"ready"`
+	CreatedAt          string                `json:"created_at"`
+	UpdatedAt          string                `json:"updated_at,omitempty"`
+	UpdatedBy          string                `json:"updated_by,omitempty"`
+	Components         []string              `json:"components"`
+	ManualIngestions   []string              `json:"manual_ingestions,omitempty"`
+	ExternalURLs       []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	MessagingAvailable bool                  `json:"messaging_available,omitempty"`
+	Workloads          []WorkloadDetail      `json:"workloads,omitempty"`
+	Jobs               []JobDetail           `json:"jobs,omitempty"`
 }
 
 // CountDeployments returns a handler that returns the number of visible deployments for an account.
@@ -934,6 +935,15 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		if avatarStore != nil && dbDep.AvatarVersion > 0 {
 			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID, dbDep.AvatarVersion)
 		}
+
+		// Check if the messaging ClusterIP service exists in K8s.
+		// ExternalURLs only contains Ingress-exposed endpoints, so an internal-only
+		// messaging sidecar would never appear there.
+		messagingServiceName := deployment.GenerateAgentResourceName(dbDep.AgentName, "messaging")
+		_, svcErr := k8sClient.Clientset().CoreV1().Services(dbDep.Namespace).Get(
+			c.Request.Context(), messagingServiceName, metav1.GetOptions{},
+		)
+		result.MessagingAvailable = svcErr == nil || cfg.Deployment.MessagingBaseURLOverride != ""
 
 		c.JSON(http.StatusOK, gin.H{"deployment": result})
 	}

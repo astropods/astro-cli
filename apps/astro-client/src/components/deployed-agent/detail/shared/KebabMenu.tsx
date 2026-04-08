@@ -45,9 +45,10 @@ interface KebabMenuProps {
   avatarUrl?: string;
   onDeleted?: () => void;
   onRestart?: () => void;
+  hideDestructive?: boolean;
 }
 
-export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarUrl, onDeleted, onRestart }: KebabMenuProps) {
+export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarUrl, onDeleted, onRestart, hideDestructive = false }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -184,7 +185,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
             {copied ? "Copied!" : "Copy deploy ID"}
           </button>
 
-          {onRestart && (
+          {!hideDestructive && onRestart && (
             <>
               <div style={{ height: 1, background: C.border }} />
               <button
@@ -198,16 +199,20 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
               </button>
             </>
           )}
-          <div style={{ height: 1, background: C.border }} />
-          <button
-            style={{ ...buttonStyle, color: C.coral }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-            onClick={() => { setOpen(false); setDeleteOpen(true); }}
-          >
-            <TrashIcon style={{ width: I.md, height: I.md }} />
-            Delete agent
-          </button>
+          {!hideDestructive && (
+            <>
+              <div style={{ height: 1, background: C.border }} />
+              <button
+                style={{ ...buttonStyle, color: C.coral }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+                onClick={() => { setOpen(false); setDeleteOpen(true); }}
+              >
+                <TrashIcon style={{ width: I.md, height: I.md }} />
+                Delete agent
+              </button>
+            </>
+          )}
         </div>
       )}
       <Dialog open={restartConfirm} onOpenChange={(o) => { if (!o) setRestartConfirm(false); }}>

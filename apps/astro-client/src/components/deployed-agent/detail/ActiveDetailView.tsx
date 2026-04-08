@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
+import { ChatBubbleLeftRightIcon, Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { dashboardPath } from "@/lib/routes";
@@ -13,6 +13,8 @@ import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { InlineBadge } from "@/components/InlineBadge";
+import { SidePanel } from "./SidePanel";
+import { DeploymentStatusBadge } from "@/components/deployed-agent/DeploymentStatusBadge";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import type { TraceRow } from "./monitor/MonitorTab";
@@ -20,52 +22,7 @@ import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 import { ActionPanel } from "@/components/ui/status-panel";
-
-const C = {
-  bg: "var(--muted)",
-  bgDeep: "var(--muted)",
-  panel: "var(--surface)",
-  border: "var(--border)",
-  teal: "var(--primary)",
-  tealMid: "var(--color-teal-600)",
-  text: "var(--foreground)",
-  muted: "var(--muted-foreground)",
-  faint: "var(--faint-foreground)",
-  amber: "var(--color-amber-700)",
-  amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
-  amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
-  warning: "var(--color-yellow-500)",
-  warningBg: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
-  warningBdr: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
-  coral: "var(--color-coral-600)",
-  coralBg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
-  coralBdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
-} as const;
-
-const S = {
-  body: "var(--font-sans), sans-serif",
-  mono: "var(--font-mono), monospace",
-} as const;
-
-const T = {
-  heading2: "var(--text-heading-2)",
-  heading4: "var(--text-heading-4)",
-  body: "var(--text-body)",
-  bodySm: "var(--text-body-sm)",
-  label: "var(--text-label)",
-  monoSm: "var(--text-mono-sm)",
-} as const;
-
-const I = {
-  sm: 12,
-  md: 14,
-  lg: 16,
-} as const;
-
-const DETAIL_LEFT_ALIGN_PX = 108;
-const TOP_BAR_HEIGHT_PX = 63;
-const CONFIG_PANEL_WIDTH_PX = 420;
-const DETAIL_HORIZONTAL_PAD = `clamp(16px, 4vw, ${DETAIL_LEFT_ALIGN_PX}px)`;
+import { cn } from "@/lib/utils";
 
 // ─── main component ───────────────────────────────────────────────────────────
 interface ActiveDetailViewProps {
@@ -97,6 +54,9 @@ export function ActiveDetailView({
   const [configRevision, setConfigRevision] = useState<number | null>(null)
   const [configIsNewBuild, setConfigIsNewBuild] = useState(false)
   const [configRollbackBuildId, setConfigRollbackBuildId] = useState<string | null>(null)
+  const messagingUrl = deployment.external_urls?.find(u => u.type === 'messaging')?.url;
+
+  const [panelWidth, setPanelWidth] = useState(420);
   const [selectedTrace, setSelectedTrace] = useState<TraceRow | null>(null)
   const [navTraces, setNavTraces] = useState<TraceRow[]>([])
   const selectedIndex = navTraces.findIndex((t) => t.id === selectedTrace?.id)
@@ -186,108 +146,48 @@ export function ActiveDetailView({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Lock page-level scroll while this view is mounted — all scrolling is handled internally
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
-
-
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: C.bg }}>
-      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+    <div className="flex flex-1 min-h-0 overflow-hidden relative bg-muted">
+      <div className="flex flex-1 flex-col min-w-0 min-h-0">
+
       {/* ── TOP BAR ── */}
-      <header style={{
-        background: C.panel,
-        borderBottom: `1px solid ${C.border}`,
-        position: 'sticky', top: 0, zIndex: 40,
-        display: 'flex', alignItems: 'center', justifyContent: isCompact ? 'flex-start' : 'space-between', flexWrap: isCompact ? 'wrap' : 'nowrap',
-        padding: isCompact ? '10px clamp(12px, 3vw, 40px)' : '0 clamp(12px, 3vw, 40px)',
-        height: isCompact ? 'auto' : TOP_BAR_HEIGHT_PX,
-        rowGap: isCompact ? 8 : 0,
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: isCompact ? 'wrap' : 'nowrap' }}>
+      <header
+        className={cn(
+          "bg-surface border-b border-border sticky top-0 z-40 flex items-center shrink-0 px-[clamp(12px,3vw,40px)]",
+          isCompact ? "flex-wrap justify-start py-[10px] h-auto gap-y-2" : "flex-nowrap justify-between py-0 h-[63px] gap-y-0",
+        )}
+      >
+        <div className={cn("flex items-center gap-2.5 min-w-0", isCompact ? "flex-wrap" : "flex-nowrap")}>
           <button
             onClick={() => navigate(backPath)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.faint, display: 'flex', padding: 4 }}
+            className="bg-transparent border-0 cursor-pointer text-faint-foreground flex p-1"
           >
-            <ArrowLeft size={I.md} />
+            <ArrowLeft size={14} />
           </button>
-          <div style={{ borderRadius: 4, overflow: 'hidden', flexShrink: 0, lineHeight: 0 }}>
+          <div className="rounded overflow-hidden shrink-0 leading-none">
             <BlueprintIdentity account={account} name={deployment.name} size={26} avatarUrl={deployment.avatar_url} className="rounded-sm" />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <h1
-              style={{
-                fontFamily: S.body,
-                fontSize: T.heading4,
-                fontWeight: 600,
-                color: C.text,
-                margin: 0,
-                lineHeight: 1.2,
-              }}
-            >
+          <div className="flex items-center gap-1.5">
+            <h1 className="font-sans text-heading-4 font-semibold text-foreground m-0 leading-tight">
               {displayName}
             </h1>
             <KebabMenu
-            deploymentId={deployment.id}
-            deploymentName={deployment.name}
-            displayName={deployment.display_name}
-            account={account}
-            installedAt={formatDate(deployment.created_at)}
-            onRestart={!isPaused && !isDeploying ? () => { setIsGloballyRestarting(true); restartAllMutation.mutate({ deploymentId: renderedDeployment.id }); } : undefined}
+              deploymentId={deployment.id}
+              deploymentName={deployment.name}
+              displayName={deployment.display_name}
+              account={account}
+              avatarUrl={deployment.avatar_url}
+              installedAt={formatDate(deployment.created_at)}
+              onRestart={!isPaused && !isDeploying ? () => { setIsGloballyRestarting(true); restartAllMutation.mutate({ deploymentId: renderedDeployment.id }); } : undefined}
             />
           </div>
-          {(() => {
-            const ds = isRestarting ? 'restarting'
-              : isPausing ? 'pausing'
-              : isResuming ? 'resuming'
-              : mapDeploymentStatus(renderedDeployment)
-            const badge =
-              ds === 'restarting'
-                ? { bg: 'color-mix(in oklch, var(--color-yellow-500) 12%, transparent)', bdr: 'color-mix(in oklch, var(--color-yellow-500) 30%, transparent)', dot: 'var(--color-yellow-600)', label: 'Restarting', spinning: true }
-              : ds === 'pausing'
-                ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Pausing', spinning: true }
-              : ds === 'resuming'
-                ? { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Resuming', spinning: true }
-              : ds === 'error'
-                ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Error', spinning: false }
-              : ds === 'undeploying'
-                ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Undeploying', spinning: true }
-              : ds === 'deploying'
-                ? { bg: C.warningBg, bdr: C.warningBdr, dot: C.warning, label: 'Deploying', spinning: true }
-              : ds === 'inactive'
-                ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
-              : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Active', spinning: false }
-            return (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '2px 10px', borderRadius: 99,
-                background: badge.bg, border: `1px solid ${badge.bdr}`,
-                fontFamily: S.mono, fontSize: T.label, letterSpacing: '0.06em', color: badge.dot,
-              }}>
-                {badge.spinning ? (
-                  <Loader2 size={I.sm} style={{ color: badge.dot, animation: "dp-spin 1.2s linear infinite" }} />
-                ) : (
-                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: badge.dot, display: 'inline-block' }} />
-                )}
-                {badge.label}
-              </span>
-            )
-          })()}
+          <DeploymentStatusBadge status={isRestarting ? 'restarting' : isPausing ? 'pausing' : isResuming ? 'resuming' : mapDeploymentStatus(renderedDeployment)} />
         </div>
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: isCompact ? 'flex-start' : 'flex-end',
-            flexWrap: isCompact ? 'wrap' : 'nowrap',
-            gap: 8,
-            width: isCompact ? '100%' : 'auto',
-            marginTop: isCompact ? 2 : 0,
-          }}
+          className={cn(
+            "flex items-center gap-2",
+            isCompact ? "justify-start flex-wrap w-full mt-0.5" : "justify-end flex-nowrap w-auto",
+          )}
         >
           <Button
             variant="outline"
@@ -304,6 +204,27 @@ export function ActiveDetailView({
               : (pausing || pauseMutation.isPending ? <Loader2 className="animate-spin" /> : <PauseCircleIcon className="size-4" />)}
             {isPaused || isResuming ? "Resume" : "Pause"}
           </Button>
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={() => window.open(messagingUrl, '_blank', 'noopener,noreferrer')}
+                    disabled={!deployment.messaging_available || !messagingUrl}
+                  >
+                    <ChatBubbleLeftRightIcon className="size-4" /> Chat
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!deployment.messaging_available && (
+                <TooltipContent side="bottom" sideOffset={6}>
+                  This agent doesn't support messaging
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
           <Button
             variant="outline"
             size="default"
@@ -317,35 +238,23 @@ export function ActiveDetailView({
       </header>
 
       {/* ── MAIN AREA (tab bar + content) ── */}
-      <div
-        style={{
-          display: 'flex',
-          flex: 1,
-          minHeight: 0,
-        }}
-      >
+      <div className="flex flex-1 min-h-0">
 
         {/* left: tabs + content */}
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
+        <div className="flex flex-col flex-1 min-w-0 min-h-0">
 
           {/* tab bar */}
           <div
-            style={{
-              display: 'flex',
-              padding: `0 ${DETAIL_HORIZONTAL_PAD}`,
-              background: C.bg,
-              borderBottom: `1px solid ${C.border}`,
-              flexShrink: 0,
-            }}
+            className="flex bg-muted border-b border-border shrink-0 px-[clamp(16px,4vw,108px)] py-0"
           >
             {([
               { id: 'monitor' as const, label: 'Monitor', icon: (
-                <svg style={{ width: I.md, height: I.md, flexShrink: 0 }} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
                 </svg>
               )},
-{ id: 'deployments' as const, label: 'Deployments', icon: (
-                <svg style={{ width: I.md, height: I.md, flexShrink: 0 }} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              { id: 'deployments' as const, label: 'Deployments', icon: (
+                <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
                 </svg>
               )},
@@ -362,18 +271,15 @@ export function ActiveDetailView({
                       return next;
                     }, { replace: true });
                   }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'none', border: 'none', cursor: isLockedMonitor ? 'not-allowed' : 'pointer',
-                    fontFamily: S.body, fontSize: T.heading4,
-                    fontWeight: tab === id ? 500 : 400,
-                    color: isLockedMonitor ? C.faint : (tab === id ? C.text : C.faint),
-                    padding: '11px 16px',
-                    paddingLeft: id === 'monitor' ? 0 : 16,
-                    borderBottom: tab === id && !isLockedMonitor ? `2px solid ${C.tealMid}` : '2px solid transparent',
-                    opacity: isLockedMonitor ? 0.65 : 1,
-                    transition: 'color 0.15s',
-                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-4 border-b-2 transition-colors duration-150",
+                    id === 'monitor' && "pl-0",
+                    isLockedMonitor
+                      ? "cursor-not-allowed opacity-65 text-faint-foreground border-b-transparent"
+                      : tab === id
+                        ? "cursor-pointer font-medium text-foreground border-b-[var(--color-teal-600)]"
+                        : "cursor-pointer font-normal text-faint-foreground border-b-transparent",
+                  )}
                 >
                   {icon}
                   {label}
@@ -399,14 +305,7 @@ export function ActiveDetailView({
 
           {/* tab content */}
           <div
-            className="dp-scroll"
-            style={{
-              flex: 1,
-              minHeight: 0,
-              overflowY: 'auto',
-              overflowX: 'auto',
-              padding: `24px calc(${DETAIL_HORIZONTAL_PAD} + 4px) 24px`,
-            }}
+            className="dp-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto py-6 px-[calc(clamp(16px,4vw,108px)+4px)]"
           >
             <div>
               {hasNewBuildAvailable && !showConfigureAsPage && !showTraceAsPage && (
@@ -415,7 +314,7 @@ export function ActiveDetailView({
                     tone="warning"
                     title={
                       <span>
-                        <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                        <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2 text-yellow-700" style={{ borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
                           Update
                         </InlineBadge>
                         A new build is available for this agent.
@@ -459,6 +358,7 @@ export function ActiveDetailView({
                   selectedTraceId={selectedTrace?.id ?? null}
                   onSelectTrace={(trace) => { setSelectedTrace((prev) => prev?.id === trace.id ? null : trace); setConfigOpen(false); }}
                   onVisibleTracesChange={setNavTraces}
+                  compactCharts={panelOpen && panelWidth > 420}
                 />
               ) : (
                 <DeploymentsTab
@@ -479,49 +379,33 @@ export function ActiveDetailView({
       </div>
       </div>
 
-      {/* right panel — configure or trace detail */}
+      {/* right panel */}
       {!isCompact && (
-        <>
-          {/* in-flow spacer — drives the left content push animation without affecting panel position */}
-          <div style={{ flexShrink: 0, width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0, transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }} />
-          {/* fixed panel — viewport-anchored below AppHeader (h-14 = 56px), immune to any ancestor scroll */}
-          <div
-            style={{
-              position: 'fixed',
-              top: 56,
-              right: 0,
-              height: 'calc(100vh - 56px)',
-              width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0,
-              overflowX: 'clip',
-              transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-              zIndex: 45,
-            }}
-          >
-            {configOpen && (
-              <ConfigurePanel
-                deployment={renderedDeployment}
-                account={account}
-                onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
-                onRedeployStart={() => { setOptimisticDeploying(true); }}
-                onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
-                revisionOverride={configRevision ?? undefined}
-                readOnly={configRevision !== null && configRollbackBuildId === null}
-                isNewBuild={configIsNewBuild}
-                newBuildId={configIsNewBuild ? latestBuildId : undefined}
-                rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
-              />
-            )}
-            {selectedTrace && !configOpen && (
-              <TraceDetailPanel
-                trace={selectedTrace}
-                canGoPrev={canGoPrev}
-                canGoNext={canGoNext}
-                onNavigate={handleNavigate}
-                onClose={() => setSelectedTrace(null)}
-              />
-            )}
-          </div>
-        </>
+        <SidePanel open={panelOpen} onWidthChange={setPanelWidth}>
+          {configOpen && (
+            <ConfigurePanel
+              deployment={renderedDeployment}
+              account={account}
+              onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
+              onRedeployStart={() => { setOptimisticDeploying(true); }}
+              onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
+              revisionOverride={configRevision ?? undefined}
+              readOnly={configRevision !== null && configRollbackBuildId === null}
+              isNewBuild={configIsNewBuild}
+              newBuildId={configIsNewBuild ? latestBuildId : undefined}
+              rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
+            />
+          )}
+          {selectedTrace && !configOpen && (
+            <TraceDetailPanel
+              trace={selectedTrace}
+              canGoPrev={canGoPrev}
+              canGoNext={canGoNext}
+              onNavigate={handleNavigate}
+              onClose={() => setSelectedTrace(null)}
+            />
+          )}
+        </SidePanel>
       )}
     </div>
   )

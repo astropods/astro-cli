@@ -369,11 +369,12 @@ function buildRequestVolumeSeries(
   });
 }
 
-export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisibleTracesChange }: {
+export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisibleTracesChange, compactCharts = false }: {
   deployment: AgentDeployment;
   selectedTraceId?: string | null;
   onSelectTrace?: (trace: TraceRow) => void;
   onVisibleTracesChange?: (traces: TraceRow[]) => void;
+  compactCharts?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [isCompact, setIsCompact] = useState<boolean>(() => {
@@ -756,7 +757,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                   reqVisible={series.req}
                   avgLatVisible={series.avgLat}
                   win={win}
-                  hideXAxisLabels={isCompact}
+                  hideXAxisLabels={isCompact || compactCharts}
                   animate={animateChart}
                 />
               )}
