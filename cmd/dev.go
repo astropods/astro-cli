@@ -483,7 +483,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	if hasWebInterface {
 		go func() {
 			time.Sleep(2 * time.Second)
-			openBrowser("http://localhost:3000")
+			openBrowser("http://localhost:3100")
 		}()
 	}
 
@@ -955,8 +955,7 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	if hasWebInterface {
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000")+"  "+dim.Render("(playground)"))
-		lines = append(lines, dim.Render("   http://localhost:3100  (messaging API)"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3100")+"  "+dim.Render("(playground)"))
 	}
 
 	// Webhook endpoints

@@ -464,13 +464,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	if s.Dev.HasMessagingAdapters() {
 		adapters := s.Dev.MessagingAdapters()
 		hasMessagingAdapter := false
-		hasWebAdapter := false
 		for _, name := range adapters {
 			if name == "slack" || name == "web" {
 				hasMessagingAdapter = true
-			}
-			if name == "web" {
-				hasWebAdapter = true
 			}
 		}
 
@@ -494,41 +490,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			project.Services["astro-messaging"] = messagingService
 		}
 
-		if hasWebAdapter {
-			// Add playground for web interface
-			// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
-			apiURL := ""
-			playgroundImage := "astropods/playground:latest"
-			playgroundPull := types.PullPolicyAlways
-			if s.Dev.Overrides != nil && s.Dev.Overrides.PlaygroundImage != "" {
-				playgroundImage = s.Dev.Overrides.PlaygroundImage
-				playgroundPull = ""
-			}
-			playgroundService := types.ServiceConfig{
-				Name:       "playground",
-				Image:      playgroundImage,
-				PullPolicy: playgroundPull,
-				Networks: map[string]*types.ServiceNetworkConfig{
-					"astro-dev": nil,
-				},
-				Environment: types.MappingWithEquals{
-					"API_URL": &apiURL,
-				},
-				Ports: []types.ServicePortConfig{
-					{
-						Target:    80,
-						Published: "3000",
-					},
-				},
-				DependsOn: types.DependsOnConfig{
-					"astro-messaging": types.ServiceDependency{
-						Condition: types.ServiceConditionStarted,
-						Required:  true,
-					},
-				},
-			}
-			project.Services["playground"] = playgroundService
-		}
 	}
 
 	// Collector is not included in dev mode — it runs as a K8s sidecar in
@@ -941,11 +902,14 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			}
 
 		case "web":
-			// Enable Web adapter for HTTP/SSE access
+			// Enable Web adapter for HTTP/SSE access; playground UI is bundled
+			// into the messaging binary and served from / on the same port.
 			enabled := "true"
 			env["WEB_ENABLED"] = &enabled
 			listenAddr := ":8080"
 			env["WEB_LISTEN_ADDR"] = &listenAddr
+			servePlayground := "true"
+			env["WEB_SERVE_PLAYGROUND"] = &servePlayground
 		}
 	}
 
