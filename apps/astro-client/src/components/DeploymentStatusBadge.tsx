@@ -30,7 +30,7 @@ export function DeploymentStatusBadge({
     <span
       className={cn(
         "inline-flex items-center gap-[5px] rounded-full border px-2.5 py-0.5",
-        "font-mono text-xs tracking-[0.06em]",
+        "font-mono text-[11px] tracking-[0.06em]",
         badgeVariants[status],
         className,
       )}
