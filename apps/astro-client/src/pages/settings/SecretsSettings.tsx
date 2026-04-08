@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, Upload, MoreHorizontal, Loader2, Lock } from 'lucide-react'
-import { KeyIcon } from '@heroicons/react/24/outline'
+import { Pencil, Trash2, Upload, MoreHorizontal, Loader2, Lock } from 'lucide-react'
+import { KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import {
@@ -121,7 +121,7 @@ export function VaultSettings({ account: accountName }: { account: string }) {
             Import .env
           </Button>
           <Button size="sm" onClick={() => setNewDialogOpen(true)}>
-            <Plus className="size-3.5" />
+            <PlusIcon className="size-3.5" />
             New variable
           </Button>
         </div>
@@ -340,7 +340,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         Create a new variable to get started.
       </p>
       <Button size="sm" onClick={onNew}>
-        <Plus className="size-3.5" />
+        <PlusIcon className="size-3.5" />
         New variable
       </Button>
     </div>

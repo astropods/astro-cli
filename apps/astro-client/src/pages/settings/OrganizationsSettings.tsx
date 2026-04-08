@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
-import { Settings, Plus } from 'lucide-react'
-import { BuildingOffice2Icon } from '@heroicons/react/24/outline'
+import { Settings } from 'lucide-react'
+import { BuildingOffice2Icon, PlusIcon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { InlineBadge } from '@/components/InlineBadge'
@@ -22,7 +22,7 @@ export default function OrganizationsSettings() {
         <div className="flex items-center gap-2 shrink-0">
           <Button size="sm" asChild>
             <Link to="/organization/new">
-              <Plus className="size-3.5" />
+              <PlusIcon className="size-3.5" />
               Create organization
             </Link>
           </Button>

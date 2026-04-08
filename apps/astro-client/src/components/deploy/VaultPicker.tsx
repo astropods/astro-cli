@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { X, Plus } from 'lucide-react'
-import { MagnifyingGlassIcon, KeyIcon } from '@heroicons/react/24/outline'
+import { X } from 'lucide-react'
+import { MagnifyingGlassIcon, KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -76,7 +76,7 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
                 Set and manage reusable credentials and configuration values for your agents
               </p>
               <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
-                <Plus className="size-3.5" />
+                <PlusIcon className="size-3.5" />
                 New variable
               </Button>
             </div>
@@ -92,7 +92,7 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
                     className="h-6 px-2 text-xs shrink-0"
                     onClick={() => { setOpen(false); setNewVarOpen(true) }}
                   >
-                    <Plus className="size-3" />
+                    <PlusIcon className="size-3" />
                     New
                   </Button>
                 </div>
