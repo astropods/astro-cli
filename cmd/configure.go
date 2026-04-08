@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ loaded by '%s dev'.`, binaryName, binaryName)
 	configureCmd.Flags().Bool("no-telemetry", false, "Disable anonymous telemetry")
 	configureCmd.Flags().Bool("telemetry", false, "Enable anonymous telemetry")
 
-	configureCmd.Flags().String("save", "", "Export stored config vars to a .env file (KEY=VALUE format)")
+	configureCmd.Flags().String("out", "", "Print stored config vars in the given format: env or json")
 }
 
 // varEntry describes one configurable variable.
@@ -222,7 +223,7 @@ func runConfigureTelemetry(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runConfigureSave(saveFile string) error {
+func runConfigureOut(format string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
@@ -230,21 +231,32 @@ func runConfigureSave(saveFile string) error {
 
 	vars := config.GetProjectVars(binaryName, workingDir)
 	if len(vars) == 0 {
-		fmt.Println("ℹ️  No stored config variables found for this project.")
+		fmt.Fprintln(os.Stderr, "ℹ️  No stored config variables found for this project.")
 		return nil
 	}
 
-	if err := godotenv.Write(vars, saveFile); err != nil {
-		return fmt.Errorf("failed to write %s: %w", saveFile, err)
+	switch format {
+	case "env":
+		out, err := godotenv.Marshal(vars)
+		if err != nil {
+			return fmt.Errorf("failed to marshal env: %w", err)
+		}
+		fmt.Println(out)
+	case "json":
+		out, err := json.MarshalIndent(vars, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal json: %w", err)
+		}
+		fmt.Println(string(out))
+	default:
+		return fmt.Errorf("unknown format %q: use env or json", format)
 	}
-
-	fmt.Printf("✅ Exported %d variable(s) to %s\n", len(vars), saveFile)
 	return nil
 }
 
 func runConfigure(cmd *cobra.Command, args []string) error {
-	if saveFile, _ := cmd.Flags().GetString("save"); saveFile != "" {
-		return runConfigureSave(saveFile)
+	if format, _ := cmd.Flags().GetString("out"); format != "" {
+		return runConfigureOut(format)
 	}
 
 	noTelemetry, _ := cmd.Flags().GetBool("no-telemetry")
