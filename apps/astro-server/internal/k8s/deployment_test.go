@@ -589,6 +589,9 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		if envMap["WEB_ENABLED"] != "true" {
 			t.Errorf("expected WEB_ENABLED=true, got %q", envMap["WEB_ENABLED"])
 		}
+		if envMap["WEB_SERVE_PLAYGROUND"] != "true" {
+			t.Errorf("expected WEB_SERVE_PLAYGROUND=true, got %q", envMap["WEB_SERVE_PLAYGROUND"])
+		}
 
 		foundHTTP := false
 		for _, p := range msg.Ports {
