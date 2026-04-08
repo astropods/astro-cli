@@ -15,8 +15,6 @@ Clicking either opens the existing `NewEntryDialog` modal. The popover closes fi
 
 **NewEntryDialog — account context:** Added an optional `accountName` prop. When provided, a "Saving to [account]" line renders below the modal title to communicate where the variable will be saved.
 
-**NewEntryDialog — form reset fix:** Form state (name, value, description, secret toggle) was not resetting when the dialog was closed programmatically after a successful save. Radix UI's `onOpenChange` doesn't fire on prop-driven closes, so state persisted into the next open. Fixed with a `useEffect` that resets all fields when `open` transitions to `false`.
-
 **Organizations settings:** Replaced the colored initial avatar with a `BuildingOffice2Icon` on a stone background, matching the profile dropdown treatment. Updated subtext to "Manage your organizations and access settings".
 
 ## Migration
