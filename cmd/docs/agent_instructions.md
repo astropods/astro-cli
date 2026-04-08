@@ -173,4 +173,4 @@ ast dev          # Start agent and messaging
 ast dev logs     # Tail logs
 ```
 
-Open the playground at http://localhost:3000 to chat with your agent.
+Open the playground at http://localhost:3100 to chat with your agent.
