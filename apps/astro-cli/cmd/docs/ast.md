@@ -104,24 +104,8 @@ The push command requires an Astro AI account. Use `ast login` to get the requir
 
 **Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. You can also set `meta.visibility` in `astropods.yml` to skip the prompt. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. If you change `meta.visibility` in the spec after the first push, the CLI will ask you to confirm the change.
 
-After pushing, **navigate to the Astro AI platform** to see your agent and deploy it. As an agent builder/operator, you'll see it in your **operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack, open in the Astro playground, or call as an API.
+After pushing, **navigate to the Astro AI platform** to see your agent and deploy it. As an agent builder/operator, you’ll see it in your **operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack or call as an API.
 
 ### `build` — Build containers (optional)
 
 Build agent and custom component containers from the spec. This step is optional: when you run `ast push`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without pushing.
-
-### `playground` — Astropods playground
-
-The **Astropods playground** is a local web UI to chat with your agent and try prompts. You can point it at a local agent (e.g. while running `ast dev`) or at a deployed agent’s hostname.
-
-**Against a local agent** (messaging API on port 3100):
-
-```bash
-ast playground http://localhost:3100
-```
-
-This pulls the playground image (if needed), runs it, and opens the UI in your browser. You can override the local port with `--port` (default 3737) or use `--no-open` to avoid opening the browser.
-
-**Against a deployed agent:** use the dedicated hostname that the Astro AI platform gives the agent after deployment, e.g. `ast playground https://example.agent.astropods.ai`.
-
-The playground is useful for quick iteration during development and for testing a deployed agent before connecting Slack or other interfaces.

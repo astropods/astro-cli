@@ -48,7 +48,7 @@ var devStartCmd = &cobra.Command{
 var devLogsCmd = &cobra.Command{
 	Use:   "logs [service]",
 	Short: "Tail container logs",
-	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Use --all to tail all services. Optionally specify a service name (e.g. astro-messaging, playground) to tail a different container.`,
+	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Use --all to tail all services. Optionally specify a service name (e.g. astro-messaging) to tail a different container.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDevLogs,
 }

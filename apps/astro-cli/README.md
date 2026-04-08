@@ -71,7 +71,6 @@ apps/astro-cli/
 │   ├── push.go              # ast push — version logic, registry push, register
 │   ├── push_streaming.go    # Push progress, multi-platform
 │   ├── login.go / logout.go # Auth
-│   ├── playground.go       # ast playground
 │   ├── create.go            # ast create — scaffold new agent
 │   └── version.go           # version/commit (ldflags-injected)
 ├── internal/
