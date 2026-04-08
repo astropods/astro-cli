@@ -1,0 +1,68 @@
+name: Publish Theme
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/astro-theme/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: vars
+        working-directory: packages/astro-theme
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check version not already published
+        id: check
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          PUBLISHED=$(npm view @astropods/theme@"${VERSION}" version 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$VERSION" ]; then
+            echo "::notice::@astropods/theme@${VERSION} is already published — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::@astropods/theme@${VERSION} not yet published, proceeding."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.check.outputs.skip == 'false'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip == 'false'
+        run: bun install
+
+      - name: Build
+        if: steps.check.outputs.skip == 'false'
+        run: bun x moon run astro-theme:build
+
+      - name: Setup Node (for npm OIDC publish)
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        if: steps.check.outputs.skip == 'false'
+        working-directory: packages/astro-theme
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          npm publish --provenance
+          echo "::notice::Published @astropods/theme@${VERSION}"
