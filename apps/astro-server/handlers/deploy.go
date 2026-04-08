@@ -945,6 +945,13 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		)
 		result.MessagingAvailable = svcErr == nil
 
+		if override := cfg.Deployment.MessagingURLOverride; override != "" {
+			result.MessagingAvailable = true
+			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
+				Name: "messaging", Type: "messaging", URL: override,
+			})
+		}
+
 		c.JSON(http.StatusOK, gin.H{"deployment": result})
 	}
 }

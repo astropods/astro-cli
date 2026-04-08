@@ -167,6 +167,8 @@ type DeploymentConfig struct {
 	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
 	// Managed provider credentials — injected by the server for managed providers
 	ManagedAnthropicAPIKey string // MANAGED_ANTHROPIC_API_KEY — Anthropic API key for the anthropic-managed provider
+	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
+	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
 	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
 	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
@@ -217,6 +219,7 @@ func Load() (*Config, error) {
 			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
 			KMSKeyARN:              getEnv("KMS_KEY_ARN", ""),
 			ManagedAnthropicAPIKey: getEnv("MANAGED_ANTHROPIC_API_KEY", ""),
+			MessagingURLOverride:   getEnv("MESSAGING_URL_OVERRIDE", ""),
 			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
