@@ -23,18 +23,19 @@ func TestStore_Upsert(t *testing.T) {
 	store, mock := newTestStore(t)
 
 	mock.ExpectExec("INSERT INTO github_connections").
-		WithArgs("acct-1", "myorg", "my-agent", "user-1", "owner/repo", "main", int64(42), "secret123").
+		WithArgs("acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(42), "secret123").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(context.Background(), &Connection{
-		AccountID:     "acct-1",
-		AccountName:   "myorg",
-		AgentName:     "my-agent",
-		WorkOSUserID:  "user-1",
-		RepoFullName:  "owner/repo",
-		Branch:        "main",
-		WebhookID:     42,
-		WebhookSecret: "secret123",
+		AccountID:            "acct-1",
+		AccountName:          "myorg",
+		AgentName:            "my-agent",
+		WorkOSUserID:         "user-1",
+		WorkOSOrganizationID: "org-1",
+		RepoFullName:         "owner/repo",
+		Branch:               "main",
+		WebhookID:            42,
+		WebhookSecret:        "secret123",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -51,9 +52,9 @@ func TestStore_Get_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name", "workos_user_id",
+			"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
 			"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-1", "acct-1", "myorg", "my-agent", "user-1", "owner/repo", "main", int64(42), "s3cr3t", now, now))
+		}).AddRow("conn-1", "acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(42), "s3cr3t", now, now))
 
 	conn, err := store.Get(context.Background(), "acct-1", "my-agent")
 	if err != nil {
@@ -93,9 +94,9 @@ func TestStore_GetByRepo_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
 		WithArgs("owner/repo").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name", "workos_user_id",
+			"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
 			"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-2", "acct-1", "myorg", "my-agent", "user-1", "owner/repo", "main", int64(7), "tok", now, now))
+		}).AddRow("conn-2", "acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(7), "tok", now, now))
 
 	conn, err := store.GetByRepo(context.Background(), "owner/repo")
 	if err != nil {
