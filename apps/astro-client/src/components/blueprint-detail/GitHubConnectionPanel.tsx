@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, FlaskConical } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, FlaskConical, ChevronDown, ChevronRight, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -185,7 +185,7 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
         <div className="space-y-1.5">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-mono">Recent Builds</p>
           <div className="space-y-1">
-            {status.builds.slice(0, 5).map((build) => (
+            {status.builds.slice(0, 2).map((build) => (
               <BuildRow key={build.id} build={build} account={account} name={name} />
             ))}
           </div>
@@ -201,30 +201,71 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
   );
 }
 
+// Build pipeline steps in order.
+const BUILD_STEPS = [
+  { key: "fetching-spec", label: "Fetch spec" },
+  { key: "building",      label: "Build"      },
+  { key: "registering",   label: "Register"   },
+] as const;
+
+function elapsedLabel(from: string, to?: string | null): string {
+  const start = new Date(from).getTime();
+  const end = to ? new Date(to).getTime() : Date.now();
+  const s = Math.floor((end - start) / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
 function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
   const shortSha = build.commit_sha?.slice(0, 7) ?? "unknown";
   const [logsOpen, setLogsOpen] = useState(false);
+  const isActive = build.status === "pending" || build.status === "building";
+
+  const title = build.commit_message
+    ? build.commit_message.split("\n")[0]
+    : build.build_id;
 
   return (
     <>
-      <div className="flex items-center gap-2 text-xs">
-        <BuildStatusIcon status={build.status} />
-        <span className="font-mono text-foreground">{build.build_id}</span>
-        <span className="font-mono text-muted-foreground">·{shortSha}</span>
-        <span className={cn(
-          "capitalize flex-1",
-          build.status === "failed" && "text-destructive",
-          build.status === "registered" && "text-green-600 dark:text-green-400",
-        )}>
-          {build.status}
-        </span>
-        <button
-          onClick={() => setLogsOpen(true)}
-          className="text-muted-foreground hover:text-foreground"
-          title="View logs"
-        >
-          <ScrollText className="h-3 w-3" />
-        </button>
+      <div className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs">
+        {/* Top row: status icon + title + logs button */}
+        <div className="flex items-start gap-1.5">
+          <BuildStatusIcon status={build.status} className="mt-0.5 shrink-0" />
+          <span className={cn(
+            "flex-1 leading-snug font-medium truncate",
+            build.status === "failed" && "text-destructive",
+          )}>
+            {title}
+          </span>
+          <button
+            onClick={() => setLogsOpen(true)}
+            className="text-muted-foreground hover:text-foreground shrink-0 ml-1"
+            title="View logs"
+          >
+            <ScrollText className="h-3 w-3" />
+          </button>
+        </div>
+
+        {/* Meta row: sha + author + elapsed */}
+        <div className="flex items-center gap-1.5 text-muted-foreground font-mono pl-5">
+          <span>{shortSha}</span>
+          {build.commit_author && (
+            <><span>·</span><span className="font-sans truncate max-w-[100px]">{build.commit_author}</span></>
+          )}
+          <span className="ml-auto">{elapsedLabel(build.enqueued_at, build.completed_at)}</span>
+        </div>
+
+        {/* Step pipeline — shown for active builds */}
+        {isActive && (
+          <StepPipeline currentStep={build.step} />
+        )}
+
+        {/* Error — shown for failed builds */}
+        {build.status === "failed" && build.error && (
+          <p className="text-destructive pl-5 leading-snug break-words">{build.error}</p>
+        )}
       </div>
 
       <BuildLogsDialog
@@ -239,6 +280,58 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
   );
 }
 
+function StepPipeline({ currentStep }: { currentStep?: string }) {
+  const currentIdx = BUILD_STEPS.findIndex((s) => s.key === currentStep);
+
+  return (
+    <div className="flex items-center gap-0 pl-5">
+      {BUILD_STEPS.map((step, i) => {
+        const isDone = currentIdx > i;
+        const isActive = currentIdx === i;
+        return (
+          <div key={step.key} className="flex items-center">
+            <div className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              isActive && "text-blue-600 dark:text-blue-400",
+              isDone && "text-green-600 dark:text-green-400",
+              !isActive && !isDone && "text-muted-foreground",
+            )}>
+              {isDone && <CheckCircle2 className="h-2.5 w-2.5" />}
+              {isActive && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+              {!isDone && !isActive && <CircleDot className="h-2.5 w-2.5 opacity-30" />}
+              {step.label}
+            </div>
+            {i < BUILD_STEPS.length - 1 && (
+              <span className="text-muted-foreground/40 mx-0.5">›</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Parses "=== container ===\n..." sections from raw log output.
+function parseLogSections(raw: string): { name: string; content: string }[] {
+  const sections: { name: string; content: string }[] = [];
+  const parts = raw.split(/^=== .+? ===$\n?/m);
+  const headers = [...raw.matchAll(/^=== (.+?) ===/gm)].map((m) => m[1]);
+
+  // First part before any header — attach as unnamed if non-empty
+  if (parts[0]?.trim()) {
+    sections.push({ name: "output", content: parts[0] });
+  }
+  headers.forEach((name, i) => {
+    sections.push({ name, content: parts[i + 1] ?? "" });
+  });
+
+  // Fallback: no headers found
+  if (sections.length === 0 && raw.trim()) {
+    sections.push({ name: "output", content: raw });
+  }
+  return sections;
+}
+
 function BuildLogsDialog({
   account, name, buildId, commitSha, open, onOpenChange,
 }: {
@@ -246,44 +339,86 @@ function BuildLogsDialog({
   open: boolean; onOpenChange: (v: boolean) => void;
 }) {
   const { data, isLoading, isError } = useGitHubBuildLogs(account, name, buildId, { enabled: open });
+  const sections = data?.logs ? parseLogSections(data.logs) : [];
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Auto-expand all sections when data arrives.
+  useEffect(() => {
+    if (sections.length > 0) {
+      setExpanded(new Set(sections.map((s) => s.name)));
+    }
+  }, [data?.logs]);
+
+  function toggle(name: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>Build logs — <span className="font-mono">{buildId}</span> <span className="text-muted-foreground font-normal text-sm">·{commitSha}</span></DialogTitle>
-          <DialogDescription>Last 500 lines per container</DialogDescription>
+      <DialogContent className="sm:max-w-3xl gap-0 p-0">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b">
+          <DialogTitle className="text-sm font-medium">
+            Build logs — <span className="font-mono">{buildId}</span>{" "}
+            <span className="text-muted-foreground font-normal">·{commitSha}</span>
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {data?.pod ? `Pod: ${data.pod}` : "Last 500 lines per container"}
+          </DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-auto">
+
+        <div className="overflow-y-auto max-h-[65vh] bg-zinc-950 text-zinc-100 rounded-b-lg">
           {isLoading && (
-            <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
+            <div className="flex items-center justify-center py-10 gap-2 text-zinc-400 text-sm">
               <Spinner size={16} /><span>Loading logs…</span>
             </div>
           )}
           {isError && (
-            <p className="text-sm text-destructive p-4">Failed to load logs. The pod may have been cleaned up.</p>
+            <p className="text-sm text-red-400 p-4">Pod logs unavailable — the pod may have been cleaned up.</p>
           )}
-          {data && (
-            <pre className="text-xs font-mono whitespace-pre-wrap break-all bg-muted/50 rounded p-4 leading-5">
-              {data.logs || "(no output)"}
-            </pre>
+          {data && sections.length === 0 && (
+            <p className="text-zinc-500 text-xs p-4 font-mono">(no output)</p>
           )}
+          {sections.map((section) => {
+            const isOpen = expanded.has(section.name);
+            return (
+              <div key={section.name} className="border-b border-zinc-800 last:border-0">
+                <button
+                  onClick={() => toggle(section.name)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono text-zinc-300 hover:bg-zinc-900 text-left"
+                >
+                  {isOpen
+                    ? <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
+                    : <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />}
+                  <span className="text-zinc-400">{section.name}</span>
+                </button>
+                {isOpen && section.content.trim() && (
+                  <pre className="text-[11px] font-mono whitespace-pre-wrap break-all leading-[1.6] px-4 pb-3 pt-1 text-zinc-300">
+                    {section.content}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function BuildStatusIcon({ status }: { status: GitHubBuild["status"] }) {
+function BuildStatusIcon({ status, className }: { status: GitHubBuild["status"]; className?: string }) {
   switch (status) {
     case "registered":
-      return <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />;
+      return <CheckCircle2 className={cn("h-3.5 w-3.5 text-green-600 dark:text-green-400", className)} />;
     case "failed":
-      return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
+      return <XCircle className={cn("h-3.5 w-3.5 text-destructive", className)} />;
     case "building":
-      return <Loader2 className="h-3.5 w-3.5 text-blue-500 shrink-0 animate-spin" />;
+      return <Loader2 className={cn("h-3.5 w-3.5 text-blue-500 animate-spin", className)} />;
     default:
-      return <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+      return <Clock className={cn("h-3.5 w-3.5 text-muted-foreground", className)} />;
   }
 }
 

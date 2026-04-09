@@ -1157,6 +1157,9 @@ export interface GitHubBuild {
   commit_sha: string;
   branch: string;
   status: 'pending' | 'building' | 'registered' | 'failed';
+  step?: string;
+  commit_message?: string;
+  commit_author?: string;
   error?: string;
   enqueued_at: string;
   completed_at?: string;

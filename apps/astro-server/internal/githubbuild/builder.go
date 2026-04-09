@@ -225,7 +225,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	if destination != "" {
 		registryHost := strings.TrimPrefix(b.cfg.Deployment.RegistryURL, "https://")
 		ecrLoginCmd := fmt.Sprintf(
-			`TOKEN=$(aws ecr get-login-password --region %s); AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json`,
+			`HOME=/tmp TOKEN=$(aws ecr get-login-password --region %s); AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json`,
 			b.cfg.Deployment.AWSRegion, registryHost,
 		)
 		volumes = append(volumes, corev1.Volume{
