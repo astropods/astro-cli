@@ -21,7 +21,7 @@ export function PrivacyBadge({ className, onClick }: PrivacyBadgeProps) {
             variant="soft"
             className={cn("cursor-default", className)}
             style={{
-              color: "var(--color-stone-500)",
+              color: "var(--color-foreground)",
               background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
             }}
           >

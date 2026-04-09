@@ -150,15 +150,17 @@ export const BooleanField: Story = {
   args: {
     variables: [
       [
-        "ENABLE_LOGGING",
+        "WEB_REQUIRE_AUTH",
         {
-          description: "Enable verbose logging",
+          label: "Require authentication",
+          description: "Restrict access to signed-in users only",
+          icon: "shield",
           optional: false,
           datatype: "boolean",
         },
       ],
     ],
-    values: { ENABLE_LOGGING: "false" },
+    values: { WEB_REQUIRE_AUTH: "true" },
     onChange: () => {},
   },
 };

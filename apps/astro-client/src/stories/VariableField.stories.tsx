@@ -71,9 +71,14 @@ export const SelectDropdown: Story = {
 
 export const BooleanToggle: Story = {
   args: {
-    fieldKey: "VERBOSE_LOGGING",
-    meta: { description: "Enable verbose logging", datatype: "boolean" },
-    initialValue: "false",
+    fieldKey: "WEB_REQUIRE_AUTH",
+    meta: {
+      label: "Require authentication",
+      description: "Restrict access to signed-in users only",
+      icon: "shield",
+      datatype: "boolean",
+    },
+    initialValue: "true",
   },
 }
 

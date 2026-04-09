@@ -384,7 +384,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
             return [key, {
               ...display,
               description: meta?.description ?? display.description,
-              defaultValue: display.defaultValue ?? meta?.defaultValue,
+              defaultValue: meta?.defaultValue ?? display.defaultValue,
               secret: display.secret ?? meta?.secret,
               label: meta?.label,
               icon: meta?.icon,

@@ -8,7 +8,17 @@ import type { VariableDisplay } from "@/components/deploy/VariableFields";
 const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = Object.fromEntries(
   AVAILABLE_ADAPTERS.map((a) => [
     a.id,
-    adapterFields(a.id).map((f) => [f.key, { description: f.description, optional: false, secret: f.secret, label: f.label, placeholder: f.placeholder, helpUrl: f.helpUrl }]),
+    adapterFields(a.id).map((f) => [f.key, {
+      description: f.description,
+      optional: false,
+      secret: f.secret,
+      label: f.label,
+      icon: f.icon,
+      defaultValue: f.defaultValue,
+      placeholder: f.placeholder,
+      helpUrl: f.helpUrl,
+      datatype: f.key === "WEB_REQUIRE_AUTH" ? "boolean" : undefined,
+    }]),
   ]),
 );
 
@@ -48,8 +58,9 @@ export const WebSelected: Story = {
     selected: ["web"],
     onChange: () => {},
     adapterCredDefs: defaultAdapterFieldDefs,
-    adapterCredentials: {},
+    adapterCredentials: { WEB_REQUIRE_AUTH: "true" },
     onAdapterCredentialsChange: () => {},
+    credentialLayoutByAdapter: { web: "inline-card", slack: "inline-card" },
   },
 };
 
@@ -70,8 +81,9 @@ export const BothSelected: Story = {
     selected: ["slack", "web"],
     onChange: () => {},
     adapterCredDefs: defaultAdapterFieldDefs,
-    adapterCredentials: {},
+    adapterCredentials: { WEB_REQUIRE_AUTH: "true" },
     onAdapterCredentialsChange: () => {},
+    credentialLayoutByAdapter: { web: "inline-card", slack: "inline-card" },
   },
 };
 
@@ -83,5 +95,6 @@ export const SlackWithCredentials: Story = {
     adapterCredDefs: defaultAdapterFieldDefs,
     adapterCredentials: {},
     onAdapterCredentialsChange: () => {},
+    credentialLayoutByAdapter: { web: "inline-card", slack: "inline-card" },
   },
 };

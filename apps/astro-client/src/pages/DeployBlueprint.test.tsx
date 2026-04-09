@@ -50,7 +50,7 @@ async function waitForForm() {
   });
   // Also wait for template-driven sections to appear
   await waitFor(() => {
-    expect(screen.getByText('Messaging')).toBeInTheDocument();
+    expect(screen.getByText('Chat interface')).toBeInTheDocument();
   });
 }
 
