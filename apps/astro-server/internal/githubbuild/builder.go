@@ -152,6 +152,13 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	}
 	if destination != "" {
 		buildctlArgs = append(buildctlArgs, "--output", "type=image,name="+destination+",push=true")
+		// Use a stable :cache tag in the same ECR repo for layer caching.
+		// import-cache is best-effort — BuildKit ignores it if no cache exists yet.
+		cacheRef := destination[:strings.LastIndex(destination, ":")] + ":cache"
+		buildctlArgs = append(buildctlArgs,
+			"--import-cache", "type=registry,ref="+cacheRef,
+			"--export-cache", "type=registry,ref="+cacheRef+",mode=max,image-manifest=true,oci-mediatypes=true",
+		)
 	}
 
 	runAsUser := int64(1000)
@@ -232,8 +239,16 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 				Spec: corev1.PodSpec{
 					ServiceAccountName: sa,
 					RestartPolicy:      corev1.RestartPolicyNever,
-					Volumes:            volumes,
-					InitContainers:     initContainers,
+					NodeSelector: map[string]string{
+						"workload-type": "build",
+					},
+					Tolerations: []corev1.Toleration{{
+						Key:      "astro.dev/build",
+						Operator: corev1.TolerationOpExists,
+						Effect:   corev1.TaintEffectNoSchedule,
+					}},
+					Volumes:        volumes,
+					InitContainers: initContainers,
 					Containers: []corev1.Container{
 						{
 							Name:            "buildkit",
