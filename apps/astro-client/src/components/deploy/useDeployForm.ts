@@ -61,6 +61,7 @@ export interface AdapterFieldDef {
   label: string;
   description: string;
   icon?: string;
+  datatype?: string;
   defaultValue?: string;
   secret?: boolean;
   optional?: boolean;
@@ -87,7 +88,7 @@ export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
       label: "Require authentication",
       description: "Restrict access to signed-in users only",
       icon: "shield",
-      defaultValue: "true",
+      datatype: "boolean",
     },
   ],
 };
@@ -384,7 +385,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
             return [key, {
               ...display,
               description: meta?.description ?? display.description,
-              defaultValue: meta?.defaultValue ?? display.defaultValue,
+              defaultValue: display.defaultValue ?? meta?.defaultValue,
+              datatype: meta?.datatype ?? display.datatype,
               secret: display.secret ?? meta?.secret,
               label: meta?.label,
               icon: meta?.icon,
@@ -400,6 +402,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       const fallback: [string, VariableDisplay][] = hardcoded.map((c) => [c.key, {
         description: c.description,
         defaultValue: c.defaultValue,
+        datatype: c.datatype,
         optional: c.optional ?? false,
         secret: c.secret,
         label: c.label,
@@ -491,7 +494,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
       const creds = adapterDisplayFields[adapterId] ?? [];
       return creds
-        .filter(([key, def]) => !def.optional && !allFormValues[key]?.trim())
+        .filter(([key, def]) => !def.optional && !isVariableFilled(def, allFormValues[key]))
         .map(([key]) => key);
     });
     if (emptyAdapterCreds.length > 0) {
@@ -523,7 +526,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, allFormValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = adapterDisplayFields[adapterId] ?? [];
-      return creds.every(([key, def]) => def.optional || allFormValues[key]?.trim());
+      return creds.every(([key, def]) => def.optional || isVariableFilled(def, allFormValues[key]));
     });
     const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
     const vaultRefsValid = invalidVaultRefKeys.length === 0;

@@ -160,7 +160,7 @@ export const BooleanField: Story = {
         },
       ],
     ],
-    values: { WEB_REQUIRE_AUTH: "true" },
+    values: { WEB_REQUIRE_AUTH: "false" },
     onChange: () => {},
   },
 };

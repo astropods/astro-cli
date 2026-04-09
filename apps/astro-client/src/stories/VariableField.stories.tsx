@@ -78,7 +78,7 @@ export const BooleanToggle: Story = {
       icon: "shield",
       datatype: "boolean",
     },
-    initialValue: "true",
+    initialValue: "false",
   },
 }
 
