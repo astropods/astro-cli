@@ -3,6 +3,8 @@ import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
+import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
+import { useExperiments } from "@/lib/experiments";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarRepository } from "./SidebarRepository";
 import { SidebarStats } from "./SidebarStats";
@@ -22,6 +24,7 @@ export interface SidebarCardProps {
   installs?: number;
   recommendedAgents?: BlueprintCardProps[];
   initialAccountData?: AccountPublic;
+  canEdit?: boolean;
 }
 
 export function SidebarCard({
@@ -33,6 +36,7 @@ export function SidebarCard({
   installs,
   recommendedAgents = [],
   initialAccountData,
+  canEdit,
 }: SidebarCardProps) {
   const latestVersion = agent.versions[0];
   const version = latestVersion?.version ?? latestVersion?.build_id?.slice(0, 8);
@@ -49,6 +53,7 @@ export function SidebarCard({
     : agent.account;
 
   const repository = getBlueprintRepository(agent);
+  const { experiments } = useExperiments();
 
   return (
     <div className="space-y-4">
@@ -83,6 +88,10 @@ export function SidebarCard({
 
       {capabilities.length > 0 && (
         <CapabilitiesList capabilities={capabilities} />
+      )}
+
+      {canEdit && experiments.githubAutoBuild && (
+        <GitHubConnectionPanel account={agent.account} name={agent.name} />
       )}
 
       {recommendedAgents.length > 0 && (

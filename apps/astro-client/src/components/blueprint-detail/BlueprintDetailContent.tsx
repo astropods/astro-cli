@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { FileText } from "lucide-react";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { BlueprintDetailHeader } from "./BlueprintDetailHeader";
-import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
 
 export interface BlueprintDetailContentProps {
   account: string;
@@ -41,13 +40,6 @@ export function BlueprintDetailContent({
       {/* Sidebar content inlined on mobile */}
       {mobileSidebar && (
         <div className="min-[900px]:hidden mb-8">{mobileSidebar}</div>
-      )}
-
-      {/* GitHub connection — only visible to the owner */}
-      {canEdit && (
-        <div className="mb-8">
-          <GitHubConnectionPanel account={account} name={name} />
-        </div>
       )}
 
       {/* README */}
