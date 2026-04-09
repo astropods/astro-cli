@@ -229,6 +229,12 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			}
 		}
 
+		// Reject if the repo is already connected to a different agent in this account.
+		if conflict, err := ghStore.GetByRepoForAccount(c.Request.Context(), acct.ID, req.RepoFullName); err == nil && conflict.AgentName != agentName {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("repo %q is already connected to agent %q", req.RepoFullName, conflict.AgentName)})
+			return
+		}
+
 		// Generate webhook secret.
 		secretBytes := make([]byte, 32)
 		if _, err := rand.Read(secretBytes); err != nil {

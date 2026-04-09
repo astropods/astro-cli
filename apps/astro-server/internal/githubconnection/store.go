@@ -113,6 +113,27 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 	return &c, nil
 }
 
+// GetByRepoForAccount returns the connection for a given account + repo, or sql.ErrNoRows if none.
+// Used to prevent the same repo being linked to multiple agents within an account.
+func (s *Store) GetByRepoForAccount(ctx context.Context, accountID, repoFullName string) (*Connection, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
+		       webhook_id, webhook_secret, created_at, updated_at
+		FROM github_connections
+		WHERE account_id = $1 AND repo_full_name = $2
+	`, accountID, repoFullName)
+
+	var c Connection
+	if err := row.Scan(
+		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
+		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+		&c.CreatedAt, &c.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
 // GetByRepo returns the connection for a given repo full name (used by webhook handler).
 func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `

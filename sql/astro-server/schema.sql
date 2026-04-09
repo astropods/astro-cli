@@ -455,6 +455,7 @@ CREATE TABLE public.github_connections (
 
 CREATE INDEX idx_github_connections_account ON public.github_connections (account_id);
 CREATE INDEX idx_github_connections_repo ON public.github_connections (repo_full_name);
+CREATE UNIQUE INDEX idx_github_connections_account_repo ON public.github_connections (account_id, repo_full_name);
 
 CREATE TABLE public.github_builds (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
