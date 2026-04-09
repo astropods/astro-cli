@@ -41,11 +41,12 @@ export function useGitHubRebuild(account: string, name: string) {
   });
 }
 
-export function useGitHubBuildLogs(account: string, name: string, buildId: string, opts?: { enabled?: boolean }) {
+export function useGitHubBuildLogs(account: string, name: string, buildId: string, opts?: { enabled?: boolean; refetchInterval?: number | false }) {
   return useQuery({
     queryKey: ['github', account, name, 'builds', buildId, 'logs'],
     queryFn: () => api.getGitHubBuildLogs(account, name, buildId),
     enabled: (opts?.enabled ?? false) && !!buildId,
+    refetchInterval: opts?.refetchInterval,
     retry: false,
   });
 }

@@ -273,6 +273,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
         name={name}
         buildId={build.build_id}
         commitSha={shortSha}
+        isActive={isActive}
         open={logsOpen}
         onOpenChange={setLogsOpen}
       />
@@ -333,12 +334,15 @@ function parseLogSections(raw: string): { name: string; content: string }[] {
 }
 
 function BuildLogsDialog({
-  account, name, buildId, commitSha, open, onOpenChange,
+  account, name, buildId, commitSha, isActive, open, onOpenChange,
 }: {
   account: string; name: string; buildId: string; commitSha: string;
-  open: boolean; onOpenChange: (v: boolean) => void;
+  isActive: boolean; open: boolean; onOpenChange: (v: boolean) => void;
 }) {
-  const { data, isLoading, isError } = useGitHubBuildLogs(account, name, buildId, { enabled: open });
+  const { data, isLoading, isError } = useGitHubBuildLogs(account, name, buildId, {
+    enabled: open,
+    refetchInterval: open && isActive ? 3000 : false,
+  });
   const sections = data?.logs ? parseLogSections(data.logs) : [];
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
