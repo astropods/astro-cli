@@ -2060,13 +2060,14 @@ func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 	for _, name := range names {
 		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 			WithArgs(
-				sqlmock.AnyArg(),
-				name,
-				sqlmock.AnyArg(),
-				sqlmock.AnyArg(),
-				sqlmock.AnyArg(),
-				sqlmock.AnyArg(),
-				sqlmock.AnyArg(),
+				sqlmock.AnyArg(), // deployment_id
+				name,             // name
+				sqlmock.AnyArg(), // value
+				sqlmock.AnyArg(), // ref
+				sqlmock.AnyArg(), // secret
+				sqlmock.AnyArg(), // optional
+				sqlmock.AnyArg(), // targets
+				sqlmock.AnyArg(), // nonce
 			).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
