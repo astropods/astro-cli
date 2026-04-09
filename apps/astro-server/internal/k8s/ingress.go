@@ -221,6 +221,13 @@ func truncateLabel(s string, max int) string {
 	return strings.TrimRight(s[:max], "-")
 }
 
+// GenerateMessagingIngressHost generates the hostname for the messaging (web adapter) ingress.
+// Uses "chat" as a fixed component so the hostname is distinct from the agent ingress even
+// when both use the same server-default domain.
+func GenerateMessagingIngressHost(agentName, namespace, domain string) string {
+	return GenerateIngestionIngressHost(agentName, namespace, "chat", domain)
+}
+
 // GenerateIngestionExternalURL generates the full external URL for an ingestion webhook
 func GenerateIngestionExternalURL(agentName, namespace, ingestionName, domain string) string {
 	host := GenerateIngestionIngressHost(agentName, namespace, ingestionName, domain)

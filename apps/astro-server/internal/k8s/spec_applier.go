@@ -64,15 +64,6 @@ func (a *Applier) ApplyDeploymentSpec(
 		return result, fmt.Errorf("failed to ensure namespace: %w", err)
 	}
 
-	// Clean up resources from previous builds whose names may have changed
-	if cleanupErrs := a.cleanupStaleBuildResources(ctx, accountName, agentName, buildID); len(cleanupErrs) > 0 {
-		for _, e := range cleanupErrs {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: "cleanup", Kind: "Cleanup", Error: e.Error(),
-			})
-		}
-	}
-
 	// Phase 1: Create Secret (credentials)
 	if resolved.HasSecretValues() {
 		secret := BuildSecret(a.namespace, accountName, agentName, buildID, resolved.SecretData)
@@ -551,7 +542,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				host = ep.Expose.Domain
 			}
 			if host == "" && a.ingressDomain != "" {
-				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+				host = GenerateMessagingIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
 			if host != "" {
 				// Resolve effective OIDC config: only apply when deployment opts in via auth.web.type: oidc
@@ -814,6 +805,18 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 			ns.Annotations["astro.dev/manual-ingestions"] = strings.Join(manualIngestions, ",")
 			_, _ = a.clientset.CoreV1().Namespaces().Update(ctx, ns, metav1.UpdateOptions{})
+		}
+	}
+
+	// Clean up resources from previous builds whose names may have changed (e.g. a renamed tool).
+	// Runs after apply so that stable-named resources (Ingresses, Services, Deployments) are
+	// updated in-place first — their buildID label is current by the time cleanup checks it,
+	// so they are not deleted. Only genuinely stale names (orphaned by a rename) are removed.
+	if cleanupErrs := a.cleanupStaleBuildResources(ctx, accountName, agentName, buildID); len(cleanupErrs) > 0 {
+		for _, e := range cleanupErrs {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: "cleanup", Kind: "Cleanup", Error: e.Error(),
+			})
 		}
 	}
 
