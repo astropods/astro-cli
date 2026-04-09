@@ -1055,7 +1055,8 @@ func setupValidateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.S
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "docker.io/library",
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
 		},
 	}
 
@@ -1280,7 +1281,8 @@ func setupTemplateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.S
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "docker.io/library",
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
 		},
 	}
 
@@ -1310,7 +1312,7 @@ func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 }
 
 // expectLatestVersion sets up the sqlmock expectation for agentIndex.GetLatestVersion().
@@ -1320,7 +1322,7 @@ func expectLatestVersion(mock sqlmock.Sqlmock) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 }
 
 // expectAccountLookup sets up sqlmock expectation for accountStore.GetByName().
@@ -1507,7 +1509,8 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "docker.io/library",
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
 		},
 	}
 
@@ -1540,7 +1543,7 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 		WithArgs("acct-1", "my-agent", "build-1").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1593,7 +1596,8 @@ func TestGetPrefilledTemplate_BuildParamOverride(t *testing.T) {
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "docker.io/library",
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
 		},
 	}
 
@@ -1629,13 +1633,13 @@ func TestGetPrefilledTemplate_BuildParamOverride(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-2", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 	// GetVersion called with "build-2" from the query param override, not "build-1"
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent", "build-2").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-2", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1728,7 +1732,7 @@ func TestGetPrefilledTemplate_RevisionUsesBuildID(t *testing.T) {
 		WithArgs("acct-1", "my-agent", "build-old").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-old", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-old", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
@@ -1810,7 +1814,7 @@ func TestGetPrefilledTemplate_RevisionRestoresDisplayName(t *testing.T) {
 		WithArgs("acct-1", "my-agent", "build-old").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-old", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-old", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "secret", "optional", "targets", "nonce"}))
@@ -1908,7 +1912,8 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "docker.io/library",
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
 		},
 	}
 
@@ -1951,14 +1956,14 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// agentIndex.GetVersion (exact build lookup)
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent", "build-1").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 }
 
 func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
@@ -1979,8 +1984,8 @@ func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 }
 
 // deployableSpec builds a JSON deployment spec that matches the template the server
-// generates from the agent spec `{"name":"my-agent"}` with RegistryURL "docker.io/library".
-// The caller can optionally set deploymentID to test the in-place update path.
+// generates from the agent spec `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}` with RegistryURL "123456789.dkr.ecr.us-east-1.amazonaws.com"
+// and Environment "test". The caller can optionally set deploymentID to test the in-place update path.
 func deployableSpec(deploymentID string) string {
 	targetExtra := ""
 	if deploymentID != "" {
@@ -1988,10 +1993,10 @@ func deployableSpec(deploymentID string) string {
 	}
 	return fmt.Sprintf(`{
 		"spec": "deployment/v1",
-		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
 		"target": {"runtime": "kubernetes"%s},
 		"agent": {
-			"image": "docker.io/library/my-agent:build-1",
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
 			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
 			"replicas": 1,
 			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
@@ -2581,10 +2586,10 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 func deployableSpecWithLegacySlackVars() string {
 	return `{
 		"spec": "deployment/v1",
-		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
 		"target": {"runtime": "kubernetes"},
 		"agent": {
-			"image": "docker.io/library/my-agent:build-1",
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
 			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
 			"replicas": 1,
 			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
@@ -2841,7 +2846,7 @@ func TestDeploy_WithEmptySchedule_Rejected(t *testing.T) {
 // agent spec that includes a schedule ingestion trigger.
 func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 	now := time.Now()
-	specJSON := `{"name":"my-agent","ingestion":{"daily":{"container":{"image":"docker.io/library/my-agent:build-1"},"trigger":{"type":"schedule"}}}}`
+	specJSON := `{"name":"my-agent","ingestion":{"daily":{"container":{"image":"docker.io/library/my-agent:build-1"},"trigger":{"type":"schedule"}}},"agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
@@ -2874,10 +2879,10 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 func deployableSpecWithScheduleIngestion(schedule string) string {
 	return fmt.Sprintf(`{
 		"spec": "deployment/v1",
-		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
 		"target": {"runtime": "kubernetes"},
 		"agent": {
-			"image": "docker.io/library/my-agent:build-1",
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
 			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
 			"replicas": 1,
 			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
@@ -3293,14 +3298,14 @@ func TestDeploy_SourcePropertiesFromDB(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// agentIndex.GetVersion — queried with "build-1" but DB returns canonical "canonical-build"
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent", "build-1").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("canonical-build", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+			AddRow("canonical-build", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// Submit a spec with source.build = "build-1" (does not match the DB's "canonical-build")
 	body := deployableSpec("")

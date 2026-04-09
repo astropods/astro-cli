@@ -21,6 +21,7 @@ meta:
   description: A comprehensive test agent
 
 agent:
+  image: proxy.example.com/testuser/my-agent:test-build
   build:
     context: .
     dockerfile: Dockerfile

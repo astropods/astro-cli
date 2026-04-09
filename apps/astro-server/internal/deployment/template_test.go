@@ -151,16 +151,14 @@ func TestTemplate_AgentBlock(t *testing.T) {
 	}
 }
 
-func TestTemplate_AgentImageFallback(t *testing.T) {
-	// When astro-spec has no image, template constructs from registry/name:build
+func TestTemplate_AgentImageMissing(t *testing.T) {
+	// When astro-spec has no image, template generation must fail.
 	input := baseInput()
 	input.Spec.Agent.Image = ""
 
-	ds := mustGenerate(t, input)
-
-	expected := "registry.example.com/my-agent:abc123"
-	if ds.Agent.Image != expected {
-		t.Errorf("agent.image fallback: expected %s, got %s", expected, ds.Agent.Image)
+	_, err := GenerateDeploymentTemplate(input)
+	if err == nil {
+		t.Fatal("expected error when agent image is empty, got nil")
 	}
 }
 
