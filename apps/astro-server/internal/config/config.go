@@ -107,7 +107,7 @@ type SecurityConfig struct {
 type AvatarConfig struct {
 	S3Bucket  string // ASSETS_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
 	LocalDir  string // ASSETS_LOCAL_DIR — local assets directory path (e.g. "../../assets", for local dev)
-	AssetsURL string // ASSETS_URL — CDN base URL for avatar URLs in API responses
+	AssetsURL string // ASSETS_CDN_URL — CDN base URL for avatar URLs in API responses
 }
 
 // Enabled returns true when avatar storage is configured (either S3 or local).
@@ -275,7 +275,7 @@ func Load() (*Config, error) {
 		Avatar: AvatarConfig{
 			S3Bucket:  getEnv("ASSETS_BUCKET", ""),
 			LocalDir:  getEnv("ASSETS_LOCAL_DIR", ""),
-			AssetsURL: getEnv("ASSETS_URL", ""),
+			AssetsURL: getEnv("ASSETS_CDN_URL", ""),
 		},
 		S3: S3Config{
 			Endpoint:  getEnv("S3_ENDPOINT", ""),
