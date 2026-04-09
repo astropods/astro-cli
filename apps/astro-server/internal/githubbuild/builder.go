@@ -127,7 +127,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	// HOME=/tmp gives git a writable directory for the global config (user 1000 has no home).
 	// safe.directory bypasses Git's ownership check on the emptyDir volume (owned by root).
 	cloneCmd := fmt.Sprintf(
-		"HOME=/tmp git config --global --add safe.directory /workspace && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git checkout %s",
+		"HOME=/tmp git config --global --add safe.directory /workspace && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git -c advice.detachedHead=false checkout %s",
 		repoFullName, commitSHA, commitSHA,
 	)
 
