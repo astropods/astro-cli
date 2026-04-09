@@ -104,6 +104,16 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		UserID:   conn.WorkOSUserID,
 	})
 	if err != nil {
+		log.Error("failed to get GitHub token",
+			"error", err,
+			"workos_user_id", conn.WorkOSUserID,
+			"repo", conn.RepoFullName,
+			"connection_id", args.ConnectionID,
+			"attempt", job.Attempt,
+			"max_attempts", job.MaxAttempts,
+			"not_installed", errors.Is(err, pipes.ErrNotInstalled),
+			"needs_reauth", errors.Is(err, pipes.ErrNeedsReauthorization),
+		)
 		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("get github token: %w", err))
 	}
 

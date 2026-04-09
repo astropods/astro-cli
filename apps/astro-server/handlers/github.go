@@ -560,6 +560,13 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 			return
 		}
 
+		log.Info("rebuild: token fetched",
+			"session_user_id", session.UserID,
+			"conn_workos_user_id", conn.WorkOSUserID,
+			"user_id_matches", session.UserID == conn.WorkOSUserID,
+			"connection_id", conn.ID,
+		)
+
 		gh := githubclient.New(token.AccessToken)
 		sha, err := gh.GetBranchHead(c.Request.Context(), conn.RepoFullName, conn.Branch)
 		if err != nil {
