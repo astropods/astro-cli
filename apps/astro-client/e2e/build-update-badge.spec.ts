@@ -20,7 +20,7 @@ test("my agents card shows new build badge for out-of-date deployment", async ({
 
   const staleCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });
-  await expect(staleCard.getByText("update", { exact: true })).toBeVisible();
+  await expect(staleCard.getByText("Update available", { exact: true })).toBeVisible();
 });
 
 // Guards against false-positive badge rendering: when deployed build matches the
