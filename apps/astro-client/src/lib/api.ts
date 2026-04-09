@@ -322,9 +322,10 @@ class ApiClient {
     );
   }
 
-  async getAccountMembers(account: string): Promise<AccountMembersResponse> {
+  async getAccountMembers(account: string, opts?: { includePending?: boolean }): Promise<AccountMembersResponse> {
+    const params = opts?.includePending ? '?include_pending=true' : '';
     return this.request<AccountMembersResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/members`
+      `/api/v1/accounts/${encodeURIComponent(account)}/members${params}`
     );
   }
 

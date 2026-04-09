@@ -84,8 +84,9 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 
 		// Build role + status lookups from WorkOS memberships for org accounts
 		type memberInfo struct {
-			Role   string
-			Status string
+			Role      string
+			Status    string
+			CreatedAt string
 		}
 		infoByUserID := map[string]memberInfo{}
 		if acct.WorkOSOrganizationID != "" && orgClient != nil {
@@ -99,7 +100,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 				return
 			}
 			for _, m := range memberships {
-				infoByUserID[m.UserID] = memberInfo{Role: m.RoleSlug, Status: m.Status}
+				infoByUserID[m.UserID] = memberInfo{Role: m.RoleSlug, Status: m.Status, CreatedAt: m.CreatedAt}
 			}
 		}
 
@@ -126,7 +127,9 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 		}
 
 		result := make([]MemberResponse, 0, len(members))
+		localUserIDs := map[string]bool{}
 		for _, m := range members {
+			localUserIDs[m.UserID] = true
 			info := infoByUserID[m.UserID]
 			role := info.Role
 			if role == "" {
@@ -138,15 +141,45 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			}
 			p := profileByUserID[m.UserID]
 			result = append(result, MemberResponse{
-				AccountID:     m.AccountID,
-				UserID:        m.UserID,
-				Role:          role,
-				Status:        status,
+				AccountID:   m.AccountID,
+				UserID:      m.UserID,
+				Role:        role,
+				Status:      status,
 				Username:    p.Name,
 				DisplayName: p.DisplayName,
 				CreatedAt:   m.CreatedAt.Format("2006-01-02T15:04:05Z"),
-
 			})
+		}
+
+		// When include_pending is set, append WorkOS memberships that have no
+		// local DB entry yet (e.g. freshly invited users before the event
+		// consumer syncs them).
+		if c.Query("include_pending") == "true" {
+			for uid, info := range infoByUserID {
+				if localUserIDs[uid] || info.Status != "pending" {
+					continue
+				}
+				// Best-effort profile lookup
+				var p profile
+				accts, err := accountStore.GetAccountsForUser(uid)
+				if err == nil {
+					for _, a := range accts {
+						if a.Type == "personal" {
+							p = profile{Name: a.Name, DisplayName: a.DisplayName}
+							break
+						}
+					}
+				}
+				result = append(result, MemberResponse{
+					AccountID:   acct.ID,
+					UserID:      uid,
+					Role:        info.Role,
+					Status:      info.Status,
+					Username:    p.Name,
+					DisplayName: p.DisplayName,
+					CreatedAt:   info.CreatedAt,
+				})
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"members": result})

@@ -1,12 +1,12 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { AccountPublic, CreateAccountData } from '../../lib/api';
+import type { AccountPublic, CreateAccountData, AccountMembersResponse } from '../../lib/api';
 import { accountKeys } from './keys';
 
-export function useAccountMembers(account: string) {
+export function useAccountMembers(account: string, opts?: { includePending?: boolean }) {
   return useQuery({
-    queryKey: accountKeys.members(account),
-    queryFn: () => api.getAccountMembers(account),
+    queryKey: opts?.includePending ? accountKeys.pendingMembers(account) : accountKeys.members(account),
+    queryFn: () => api.getAccountMembers(account, opts),
     enabled: !!account,
   });
 }
@@ -146,9 +146,37 @@ export function useCreateInvitations() {
   return useMutation({
     mutationFn: ({ account, invitations }: { account: string; invitations: { value: string; kind: 'email' | 'account'; role: string }[] }) =>
       api.createInvitations(account, invitations),
-    onSuccess: (_data, variables) => {
-      // Invalidate both: WorkOS may auto-accept for existing users, adding them as members directly
+    onMutate: async (variables) => {
+      const key = accountKeys.pendingMembers(variables.account);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<AccountMembersResponse>(key);
+
+      const now = new Date().toISOString();
+      const optimistic = variables.invitations.map((inv, i) => ({
+        account_id: '',
+        user_id: `optimistic-${Date.now()}-${i}`,
+        role: inv.role || 'member',
+        status: 'pending',
+        username: inv.kind === 'account' ? inv.value : '',
+        display_name: inv.value,
+        created_at: now,
+      }));
+
+      queryClient.setQueryData<AccountMembersResponse>(
+        key,
+        (old) => ({ members: [...(old?.members ?? []), ...optimistic] }),
+      );
+
+      return { previous };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(accountKeys.pendingMembers(variables.account), context.previous);
+      }
+    },
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
+      // Prefix-matches both members and pendingMembers keys
       queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
     },
   });

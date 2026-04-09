@@ -8,6 +8,7 @@ export const accountKeys = {
   checkName: (name: string) => ['accounts', 'check', name] as const,
   search: (q: string, type?: string) => ['accounts', 'search', q, type] as const,
   members: (account: string) => ['accounts', account, 'members'] as const,
+  pendingMembers: (account: string) => ['accounts', account, 'members', 'include-pending'] as const,
   invitations: (account: string) => ['accounts', account, 'invitations'] as const,
 };
 

@@ -189,7 +189,7 @@ export default function OrgMembersSettings() {
   const { orgSlug = "" } = useParams();
   const { user, role } = useAuth();
   const { data: membersData, isLoading: membersLoading, error: membersError } =
-    useAccountMembers(orgSlug);
+    useAccountMembers(orgSlug, { includePending: true });
   const updateRole = useUpdateMemberRole();
   const removeMember = useRemoveAccountMember();
   const [inviteOpen, setInviteOpen] = useState(false);
