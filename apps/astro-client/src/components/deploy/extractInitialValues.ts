@@ -16,7 +16,9 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
 
   if (template.variables) {
     for (const [key, v] of Object.entries(template.variables)) {
-      const val = v.value ?? v.default ?? "";
+      const val = v.ref
+        ? (v.secret ? `{{secrets.${v.ref}}}` : `{{vars.${v.ref}}}`)
+        : (v.value ?? v.default ?? "");
       // SLACK_CONFIG is a compound field — expand into three virtual fields
       if (key === SLACK_CONFIG_KEY) {
         const parsed = deserializeSlackConfig(val);

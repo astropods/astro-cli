@@ -110,6 +110,47 @@ describe("extractInitialValues", () => {
     expect(result.adapterCredentials).toEqual({});
   });
 
+  it("converts secret ref to {{secrets.NAME}} vault token", () => {
+    const tpl = makeTemplate({
+      variables: {
+        ANTHROPIC_API_KEY: { ref: "ANTHROPIC_API_KEY", targets: ["agent"], secret: true, description: "API key" },
+      },
+    });
+    const result = extractInitialValues(tpl, "acme");
+    expect(result.variableValues).toEqual({ ANTHROPIC_API_KEY: "{{secrets.ANTHROPIC_API_KEY}}" });
+  });
+
+  it("converts non-secret ref to {{vars.NAME}} vault token", () => {
+    const tpl = makeTemplate({
+      variables: {
+        MY_CONFIG: { ref: "MY_CONFIG", targets: ["agent"], secret: false, description: "config" },
+      },
+    });
+    const result = extractInitialValues(tpl, "acme");
+    expect(result.variableValues).toEqual({ MY_CONFIG: "{{vars.MY_CONFIG}}" });
+  });
+
+  it("converts adapter credential ref to vault token in adapterCredentials", () => {
+    const tpl = makeTemplate({
+      variables: {
+        SLACK_BOT_TOKEN: { ref: "SLACK_BOT_TOKEN", targets: ["interface.slack"], secret: true, description: "slack" },
+      },
+    });
+    const result = extractInitialValues(tpl, "acme");
+    expect(result.adapterCredentials).toEqual({ SLACK_BOT_TOKEN: "{{secrets.SLACK_BOT_TOKEN}}" });
+    expect(result.variableValues).toEqual({});
+  });
+
+  it("ref takes precedence over value", () => {
+    const tpl = makeTemplate({
+      variables: {
+        MY_VAR: { ref: "MY_VAR", value: "direct-value", targets: ["agent"], secret: true, description: "v" },
+      },
+    });
+    const result = extractInitialValues(tpl, "acme");
+    expect(result.variableValues).toEqual({ MY_VAR: "{{secrets.MY_VAR}}" });
+  });
+
   it("splits mixed variables correctly", () => {
     const tpl = makeTemplate({
       variables: {
