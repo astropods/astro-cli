@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
+import { bustAvatar } from "@/lib/avatar-bust";
 import { useUpdateProfile, useUploadAvatar } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
@@ -114,7 +115,7 @@ function ProfileSection() {
               className="group relative cursor-pointer"
               onClick={() => setAvatarDialogOpen(true)}
             >
-              <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} avatarVersion={personalAccount?.avatar_version} className="size-[72px] text-2xl" />
+              <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} className="size-[72px] text-2xl" />
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                 <Camera className="size-5 text-white" />
               </div>
@@ -139,7 +140,7 @@ function ProfileSection() {
               }}
               isPending={uploadAvatar.isPending}
               title="Upload profile image"
-              onSuccess={() => { refresh(); flash(); }}
+              onSuccess={(blob) => { bustAvatar(personalAccount.name, blob); refresh(); flash(); }}
             />
           )}
 

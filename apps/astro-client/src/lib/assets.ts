@@ -12,16 +12,15 @@ export function getAssetUrl(path: string): string {
 /**
  * Get the CDN URL for an account's avatar image.
  * In production, points directly to the CDN. In local dev, falls back to a static placeholder.
+ * Cache invalidation is handled at the HTTP layer (Cache-Control + ETag).
  *
  * @param handle - Account handle, e.g. "janesmith"
- * @param version - Avatar version for cache-busting (from account API response)
  */
-export function getAvatarUrl(handle: string, version?: number): string {
+export function getAvatarUrl(handle: string): string {
   const base = import.meta.env.VITE_ASSETS_URL;
-  const url = base
+  return base
     ? `${base}/avatars/${encodeURIComponent(handle)}.jpg`
     : `/assets/avatars/${encodeURIComponent(handle)}.jpg`;
-  return version ? `${url}?v=${version}` : url;
 }
 
 /**

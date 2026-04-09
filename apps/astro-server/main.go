@@ -937,7 +937,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 				if avatarStore != nil {
 					api.POST(agentWriteRoutes, "/avatar", "Upload blueprint avatar",
-						handlers.UploadBlueprintAvatar(log, agentIndex, avatarStore, auditStore),
+						handlers.UploadBlueprintAvatar(log, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -945,7 +945,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 					)
 					api.DELETE(agentWriteRoutes, "/avatar", "Reset blueprint avatar",
-						handlers.ResetBlueprintAvatar(log, agentIndex, avatarStore, auditStore),
+						handlers.ResetBlueprintAvatar(log, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),

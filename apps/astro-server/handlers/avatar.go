@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -17,8 +16,7 @@ import (
 
 // AvatarResponse is returned after avatar mutations.
 type AvatarResponse struct {
-	AvatarURL     string `json:"avatar_url"`
-	AvatarVersion int    `json:"avatar_version"`
+	AvatarURL string `json:"avatar_url"`
 }
 
 // UploadAvatar handles POST /api/v1/accounts/:account/avatar
@@ -49,13 +47,6 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			return
 		}
 
-		version, err := accountStore.IncrementAvatarVersion(acct.ID)
-		if err != nil {
-			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "account"
@@ -65,8 +56,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
-			AvatarVersion: version,
+			AvatarURL: avatarStore.AvatarURL(acct.Name),
 		})
 	}
 }
@@ -92,13 +82,6 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 			return
 		}
 
-		version, err := accountStore.IncrementAvatarVersion(acct.ID)
-		if err != nil {
-			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarPreset
 		evt.ResourceType = "account"
@@ -108,8 +91,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
-			AvatarVersion: version,
+			AvatarURL: avatarStore.AvatarURL(acct.Name),
 		})
 	}
 }
@@ -129,13 +111,6 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			return
 		}
 
-		version, err := accountStore.IncrementAvatarVersion(acct.ID)
-		if err != nil {
-			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarReset
 		evt.ResourceType = "account"
@@ -145,8 +120,7 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
-			AvatarVersion: version,
+			AvatarURL: avatarStore.AvatarURL(acct.Name),
 		})
 	}
 }
@@ -162,7 +136,7 @@ func readAvatarUpload(c *gin.Context) ([]byte, error) {
 }
 
 // UploadBlueprintAvatar handles POST /api/v1/agents/:account/:name/avatar
-func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -183,13 +157,6 @@ func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, ava
 			return
 		}
 
-		version, err := agentIndex.IncrementAvatarVersion(acct.ID, agentName)
-		if err != nil {
-			log.Error("Failed to increment agent avatar version", "error", err, "account", acct.Name, "agent", agentName)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "agent"
@@ -199,14 +166,13 @@ func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, ava
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.AgentAvatarURL(acct.Name, agentName, version),
-			AvatarVersion: version,
+			AvatarURL: avatarStore.AgentAvatarURL(acct.Name, agentName),
 		})
 	}
 }
 
 // ResetBlueprintAvatar handles DELETE /api/v1/agents/:account/:name/avatar
-func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -221,12 +187,6 @@ func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avat
 			return
 		}
 
-		if err := agentIndex.ResetAvatarVersion(acct.ID, agentName); err != nil {
-			log.Error("Failed to reset agent avatar version", "error", err, "account", acct.Name, "agent", agentName)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarReset
 		evt.ResourceType = "agent"
@@ -236,8 +196,7 @@ func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avat
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     "",
-			AvatarVersion: 0,
+			AvatarURL: "",
 		})
 	}
 }
@@ -263,13 +222,6 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			return
 		}
 
-		version, err := deployStore.IncrementDeploymentAvatarVersion(dep.ID)
-		if err != nil {
-			log.Error("Failed to increment deployment avatar version", "error", err, "deployment", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "deployment"
@@ -279,8 +231,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.DeploymentAvatarURL(dep.ID, version),
-			AvatarVersion: version,
+			AvatarURL: avatarStore.DeploymentAvatarURL(dep.ID),
 		})
 	}
 }
@@ -300,12 +251,6 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 			return
 		}
 
-		if err := deployStore.ResetDeploymentAvatarVersion(dep.ID); err != nil {
-			log.Error("Failed to reset deployment avatar version", "error", err, "deployment", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
-			return
-		}
-
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarReset
 		evt.ResourceType = "deployment"
@@ -315,8 +260,7 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     "",
-			AvatarVersion: 0,
+			AvatarURL: "",
 		})
 	}
 }

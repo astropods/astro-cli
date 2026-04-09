@@ -122,7 +122,7 @@ export function AppHeader() {
               {isLoading ? (
                 <Skeleton className="h-12 w-full" />
               ) : isAuthenticated && user ? (
-                <UserCard user={user} displayName={displayName} handle={personalAccount?.name} avatarVersion={personalAccount?.avatar_version} onSignOut={logout} />
+                <UserCard user={user} displayName={displayName} handle={personalAccount?.name} onSignOut={logout} />
               ) : (
                 <>
                   <Button
@@ -224,12 +224,12 @@ export function AppHeader() {
                 size="icon"
                 className="rounded-full"
               >
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarVersion={personalAccount?.avatar_version} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 p-3">
               <div className="flex items-center gap-3 pb-3">
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarVersion={personalAccount?.avatar_version} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
                 <div className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-sm font-semibold">
                     {displayName}

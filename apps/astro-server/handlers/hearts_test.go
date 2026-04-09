@@ -42,8 +42,8 @@ func expectHeartAccountLookup(mock sqlmock.Sqlmock, name, id string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs(name).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
-			AddRow(id, name, "personal", nil, nil, now, now, 0, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
+			AddRow(id, name, "personal", nil, nil, now, now, ""))
 }
 
 func TestToggleHeart_AddHeart(t *testing.T) {
@@ -119,7 +119,7 @@ func TestToggleHeart_AccountNotFound(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/my-agent/heart", nil)
 	rec := httptest.NewRecorder()

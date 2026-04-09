@@ -21,7 +21,6 @@ export interface BlueprintCardProps {
   avatarUrl?: string;
   variant?: "default" | "oftenUsedTogether";
   deployCount?: number;
-  accountAvatarVersion?: number;
   /** When provided, shows a three-dot menu with an archive option. */
   onArchive?: () => void;
 }
@@ -35,7 +34,6 @@ export function BlueprintCard({
   avatarUrl,
   variant = "default",
   deployCount,
-  accountAvatarVersion,
   onArchive,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -134,7 +132,7 @@ export function BlueprintCard({
             {formattedDeploys} {deployLabel}
           </span>
           <span className="flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
-            <UserAvatar handle={account} name={account} avatarVersion={accountAvatarVersion} className="!size-4" />
+            <UserAvatar handle={account} name={account} className="!size-4" />
             {account}
           </span>
         </div>

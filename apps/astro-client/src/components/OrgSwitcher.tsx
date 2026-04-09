@@ -35,7 +35,6 @@ function AccountIcon({ account }: { account: Account }) {
       <UserAvatar
         handle={account.name}
         name={account.display_name || account.name}
-        avatarVersion={account.avatar_version}
         className="size-[18px] shrink-0"
       />
     );

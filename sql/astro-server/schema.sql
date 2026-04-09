@@ -10,7 +10,6 @@ CREATE TABLE public.accounts (
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
-    avatar_version integer NOT NULL DEFAULT 0,
     display_name varchar(64) NOT NULL DEFAULT '',
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
@@ -50,7 +49,6 @@ CREATE TABLE public.agents (
     name text NOT NULL,
     registry text NOT NULL,
     visibility varchar(10) NOT NULL DEFAULT 'private',
-    avatar_version integer NOT NULL DEFAULT 0,
     archived_at timestamp,
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
@@ -105,7 +103,6 @@ CREATE TABLE public.deployments (
     build_id varchar NOT NULL,
     namespace varchar NOT NULL,
     display_name varchar(64) NOT NULL DEFAULT '',
-    avatar_version integer NOT NULL DEFAULT 0,
     deployment_spec_json text NOT NULL,
     encrypted_data_key bytea,
     kms_key_arn varchar,

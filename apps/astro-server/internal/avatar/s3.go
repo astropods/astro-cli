@@ -35,12 +35,19 @@ func (b *S3Backend) Read(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(out.Body)
 }
 
+// avatarCacheControl is the Cache-Control header set on all avatar objects.
+// Browsers serve the cached copy for 60 s, then revalidate in the background
+// (stale-while-revalidate) for up to 24 h.  S3 automatically generates ETags
+// so conditional requests return 304 when the content hasn't changed.
+const avatarCacheControl = "public, max-age=60, stale-while-revalidate=86400"
+
 func (b *S3Backend) Write(ctx context.Context, key string, data []byte, contentType string) error {
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(b.bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
-		ContentType: aws.String(contentType),
+		Bucket:       aws.String(b.bucket),
+		Key:          aws.String(key),
+		Body:         bytes.NewReader(data),
+		ContentType:  aws.String(contentType),
+		CacheControl: aws.String(avatarCacheControl),
 	})
 	if err != nil {
 		return fmt.Errorf("s3 put %s: %w", key, err)
@@ -50,9 +57,11 @@ func (b *S3Backend) Write(ctx context.Context, key string, data []byte, contentT
 
 func (b *S3Backend) Copy(ctx context.Context, src, dst string) error {
 	_, err := b.client.CopyObject(ctx, &s3.CopyObjectInput{
-		Bucket:     aws.String(b.bucket),
-		CopySource: aws.String(b.bucket + "/" + src),
-		Key:        aws.String(dst),
+		Bucket:            aws.String(b.bucket),
+		CopySource:        aws.String(b.bucket + "/" + src),
+		Key:               aws.String(dst),
+		CacheControl:      aws.String(avatarCacheControl),
+		MetadataDirective: types.MetadataDirectiveReplace,
 	})
 	if err != nil {
 		return fmt.Errorf("s3 copy %s -> %s: %w", src, dst, err)

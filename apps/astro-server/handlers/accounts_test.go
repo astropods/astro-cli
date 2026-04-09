@@ -382,12 +382,12 @@ func TestDeleteAccount_Success(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at",
 		}).AddRow(
 			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
-			"My Agent", 0, `{}`, nil, nil,
+			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil,
 		))
@@ -436,7 +436,7 @@ func TestDeleteAccount_NoDeployments(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at",
 		}))
@@ -497,12 +497,12 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at",
 		}).AddRow(
 			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
-			"My Agent", 0, `{}`, nil, nil,
+			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil,
 		))

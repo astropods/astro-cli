@@ -59,9 +59,9 @@ func NewStore(backend Backend, assetsURL string) *Store {
 	}
 }
 
-// AvatarURL returns the CDN URL for an account's avatar with cache-busting version.
-func (s *Store) AvatarURL(handle string, version int) string {
-	return fmt.Sprintf("%s/avatars/%s.jpg?v=%d", s.assetsURL, handle, version)
+// AvatarURL returns the CDN URL for an account's avatar.
+func (s *Store) AvatarURL(handle string) string {
+	return fmt.Sprintf("%s/avatars/%s.jpg", s.assetsURL, handle)
 }
 
 // PresetIndex returns the deterministic preset index (1-25) for a handle.
@@ -96,6 +96,16 @@ func deploymentAvatarKey(id string) string {
 // AvatarExists checks whether an avatar exists for the given handle.
 func (s *Store) AvatarExists(ctx context.Context, handle string) (bool, error) {
 	return s.backend.Exists(ctx, avatarKey(handle))
+}
+
+// AgentAvatarExists checks whether an avatar exists for the given agent.
+func (s *Store) AgentAvatarExists(ctx context.Context, account, name string) (bool, error) {
+	return s.backend.Exists(ctx, agentAvatarKey(account, name))
+}
+
+// DeploymentAvatarExists checks whether an avatar exists for the given deployment.
+func (s *Store) DeploymentAvatarExists(ctx context.Context, id string) (bool, error) {
+	return s.backend.Exists(ctx, deploymentAvatarKey(id))
 }
 
 // AssignPreset copies a deterministic preset placeholder to the account's avatar key.
@@ -163,8 +173,8 @@ func (s *Store) DeleteAgent(ctx context.Context, account, name string) error {
 }
 
 // AgentAvatarURL returns the CDN URL for an agent blueprint's avatar.
-func (s *Store) AgentAvatarURL(account, name string, version int) string {
-	return fmt.Sprintf("%s/%s?v=%d", s.assetsURL, agentAvatarKey(account, name), version)
+func (s *Store) AgentAvatarURL(account, name string) string {
+	return fmt.Sprintf("%s/%s", s.assetsURL, agentAvatarKey(account, name))
 }
 
 // CopyAgentToDeployment copies a blueprint's avatar to a deployment.
@@ -196,8 +206,8 @@ func (s *Store) DeleteDeployment(ctx context.Context, id string) error {
 }
 
 // DeploymentAvatarURL returns the CDN URL for a deployment's avatar.
-func (s *Store) DeploymentAvatarURL(id string, version int) string {
-	return fmt.Sprintf("%s/%s?v=%d", s.assetsURL, deploymentAvatarKey(id), version)
+func (s *Store) DeploymentAvatarURL(id string) string {
+	return fmt.Sprintf("%s/%s", s.assetsURL, deploymentAvatarKey(id))
 }
 
 // Ingest fetches an image from an external URL and uploads it as the account's avatar.
@@ -253,11 +263,17 @@ func (s *Store) MoveAgentAvatar(ctx context.Context, oldAccount, newAccount, nam
 	return nil
 }
 
-// MoveAgentAvatars moves all agent avatars for a given account to a new account name.
-// Used when an account is renamed. The agentNames slice should contain only agents
-// that have avatars (avatar_version > 0).
+// MoveAgentAvatars moves all agent avatars that exist for a given account to a
+// new account name. Agents without avatars are silently skipped.
 func (s *Store) MoveAgentAvatars(ctx context.Context, oldAccount, newAccount string, agentNames []string) error {
 	for _, name := range agentNames {
+		exists, err := s.backend.Exists(ctx, agentAvatarKey(oldAccount, name))
+		if err != nil {
+			return fmt.Errorf("check agent avatar %s/%s: %w", oldAccount, name, err)
+		}
+		if !exists {
+			continue
+		}
 		if err := s.MoveAgentAvatar(ctx, oldAccount, newAccount, name); err != nil {
 			return err
 		}
@@ -265,11 +281,11 @@ func (s *Store) MoveAgentAvatars(ctx context.Context, oldAccount, newAccount str
 	return nil
 }
 
-// MoveAllForAccount moves the account avatar (if accountAvatarVersion > 0)
-// and all specified agent avatars from oldAccount to newAccount. This is the
-// single entry point for account renames and org rename events.
-func (s *Store) MoveAllForAccount(ctx context.Context, oldAccount, newAccount string, accountAvatarVersion int, agentNames []string) error {
-	if accountAvatarVersion > 0 {
+// MoveAllForAccount moves the account avatar and all specified agent avatars
+// from oldAccount to newAccount. Avatars that don't exist are silently skipped.
+// This is the single entry point for account renames and org rename events.
+func (s *Store) MoveAllForAccount(ctx context.Context, oldAccount, newAccount string, agentNames []string) error {
+	if exists, _ := s.AvatarExists(ctx, oldAccount); exists {
 		if err := s.Move(ctx, oldAccount, newAccount); err != nil {
 			return fmt.Errorf("move account avatar: %w", err)
 		}

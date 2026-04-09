@@ -30,7 +30,6 @@ export interface AccountPublic {
   type: string;
   display_name?: string;
   owner?: AccountOwner;
-  avatar_version?: number;
   created_at: string;
   updated_at: string;
 }
@@ -42,7 +41,6 @@ export interface Account {
   display_name?: string;
   role?: string;
   organization_id?: string; // WorkOS org ID, present on organization accounts
-  avatar_version?: number;
   agents?: BlueprintSummary[];
 }
 
@@ -1107,7 +1105,6 @@ export interface UsageMeter {
 
 export interface AvatarResponse {
   avatar_url: string;
-  avatar_version: number;
 }
 
 export interface FeedbackInput {

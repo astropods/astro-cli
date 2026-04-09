@@ -15,12 +15,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const WithAvatarVersion: Story = {
-  args: {
-    avatarVersion: 2,
-  },
-};
-
 export const Sizes: Story = {
   render: () => (
     <div className="flex items-end gap-3">

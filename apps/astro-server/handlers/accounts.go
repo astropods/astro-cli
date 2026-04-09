@@ -44,10 +44,9 @@ type AccountResponse struct {
 	Name          string             `json:"name"`
 	Type          string             `json:"type"`
 	DisplayName   string             `json:"display_name"`
-	Owner         *AccountOwner      `json:"owner,omitempty"`
-	Invitations   []org.InviteResult `json:"invitations,omitempty"`
-	AvatarVersion int                `json:"avatar_version"`
-	CreatedAt     string             `json:"created_at"`
+	Owner       *AccountOwner      `json:"owner,omitempty"`
+	Invitations []org.InviteResult `json:"invitations,omitempty"`
+	CreatedAt   string             `json:"created_at"`
 	UpdatedAt     string             `json:"updated_at"`
 }
 
@@ -57,7 +56,6 @@ type AccountWithRoleResponse struct {
 	Name                 string         `json:"name"`
 	Type                 string         `json:"type"`
 	DisplayName          string         `json:"display_name"`
-	AvatarVersion        int            `json:"avatar_version"`
 	WorkOSOrganizationID string         `json:"workos_org_id,omitempty"`
 	Agents               []AgentSummary `json:"agents,omitempty"`
 }
@@ -211,7 +209,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			Name:          acct.Name,
 			Type:          acct.Type,
 			DisplayName:   acct.DisplayName,
-			AvatarVersion: acct.AvatarVersion,
+
 			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
@@ -259,7 +257,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 			Name:          acct.Name,
 			Type:          acct.Type,
 			DisplayName:   acct.DisplayName,
-			AvatarVersion: acct.AvatarVersion,
+
 			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
@@ -371,8 +369,8 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 
 		// Move avatars in storage to match the new account name
 		if avatarStore != nil && acct.Name != req.Name {
-			agentNames, _ := agentIdx.AgentNamesWithAvatars(acct.ID)
-			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, acct.AvatarVersion, agentNames); err != nil {
+			agentNames, _ := agentIdx.AgentNames(acct.ID)
+			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, agentNames); err != nil {
 				log.Warn("Failed to move avatars during rename", "error", err, "account_id", acct.ID)
 			}
 		}

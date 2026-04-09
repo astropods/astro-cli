@@ -224,18 +224,16 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			userAccounts, acctErr := h.accountStore.GetAccountsForUser(result.User.ID)
 			if acctErr == nil {
 				for _, a := range userAccounts {
-					if a.Type == "personal" && a.AvatarVersion == 0 {
+					if a.Type == "personal" {
 						acctName := a.Name
-						acctID := a.ID
 						profileURL := result.User.ProfilePictureURL
+						avatarStore := h.avatarStore
 						go func() {
 							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 							defer cancel()
-							if err := h.avatarStore.Ingest(ctx, acctName, profileURL); err != nil {
-								h.log.Warn("Failed to ingest profile picture", "error", err, "account", acctName)
-							} else {
-								if _, err := h.accountStore.IncrementAvatarVersion(acctID); err != nil {
-									h.log.Warn("Failed to increment avatar version after ingestion", "error", err, "account", acctName)
+							if exists, _ := avatarStore.AvatarExists(ctx, acctName); !exists {
+								if err := avatarStore.Ingest(ctx, acctName, profileURL); err != nil {
+									h.log.Warn("Failed to ingest profile picture", "error", err, "account", acctName)
 								}
 							}
 						}()
@@ -606,7 +604,6 @@ func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 					Type:                 a.Type,
 					DisplayName:          a.DisplayName,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
-					AvatarVersion:        a.AvatarVersion,
 				})
 			}
 		}

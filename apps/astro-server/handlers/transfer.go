@@ -66,7 +66,7 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		}
 
 		// Verify agent exists in source account
-		agent, err := index.Get(sourceAcct.ID, agentName)
+		_, err = index.Get(sourceAcct.ID, agentName)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found in source account"})
 			return
@@ -94,14 +94,16 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		}
 
 		// Move avatar in storage if the agent has one
-		if avatarStore != nil && agent.AvatarVersion > 0 {
-			if err := avatarStore.MoveAgentAvatar(c.Request.Context(), sourceAccountName, req.TargetAccount, agentName); err != nil {
-				log.Warn("Failed to move agent avatar during transfer (avatar may be stale)",
-					"agent", agentName,
-					"source", sourceAccountName,
-					"target", req.TargetAccount,
-					"error", err,
-				)
+		if avatarStore != nil {
+			if exists, _ := avatarStore.AgentAvatarExists(c.Request.Context(), sourceAccountName, agentName); exists {
+				if err := avatarStore.MoveAgentAvatar(c.Request.Context(), sourceAccountName, req.TargetAccount, agentName); err != nil {
+					log.Warn("Failed to move agent avatar during transfer (avatar may be stale)",
+						"agent", agentName,
+						"source", sourceAccountName,
+						"target", req.TargetAccount,
+						"error", err,
+					)
+				}
 			}
 		}
 

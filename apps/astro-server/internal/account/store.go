@@ -91,7 +91,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
 	var deletedAt sql.NullTime
-	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.AvatarVersion, &acct.DisplayName)
+	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.name = $1 AND a.deleted_at IS NULL
@@ -124,7 +124,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.id = $1 AND a.deleted_at IS NULL
@@ -141,7 +141,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE ao.workos_org_id = $1
@@ -171,7 +171,7 @@ func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 // GetAccountsForUser returns all accounts a user is a member of
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at, a.avatar_version, a.display_name
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at, a.display_name
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -186,7 +186,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	var accounts []AccountWithRole
 	for rows.Next() {
 		var a AccountWithRole
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt, &a.AvatarVersion, &a.DisplayName); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt, &a.DisplayName); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		accounts = append(accounts, a)
@@ -507,21 +507,6 @@ func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account
 		accounts = append(accounts, a)
 	}
 	return accounts, nil
-}
-
-// IncrementAvatarVersion bumps the avatar_version counter for cache-busting.
-// Returns the new version.
-func (s *AccountStore) IncrementAvatarVersion(accountID string) (int, error) {
-	var version int
-	err := s.db.QueryRow(`
-		UPDATE accounts SET avatar_version = avatar_version + 1, updated_at = $1
-		WHERE id = $2
-		RETURNING avatar_version
-	`, time.Now(), accountID).Scan(&version)
-	if err != nil {
-		return 0, fmt.Errorf("failed to increment avatar version: %w", err)
-	}
-	return version, nil
 }
 
 // RemoveUserFromAllAccounts removes a user from every account they belong to.

@@ -84,7 +84,7 @@ func setupIngestionRouter(
 // deploymentColumns matches the columns used by deploymentstore.GetDeploymentByID.
 var testDeploymentColumns = []string{
 	"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
-	"avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at",
 }
@@ -95,7 +95,7 @@ func expectDeploymentLookup(mock sqlmock.Sqlmock, deploymentID, accountID, agent
 		WithArgs(deploymentID).
 		WillReturnRows(sqlmock.NewRows(testDeploymentColumns).
 			AddRow(deploymentID, accountID, agentName, buildID, namespace, agentName,
-				0, "{}", nil, nil,
+				"{}", nil, nil,
 				"active", nil, nil, time.Now(), 1,
 				time.Now(), nil))
 }

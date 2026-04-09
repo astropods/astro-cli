@@ -48,9 +48,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const canonicalUrl = account && agentSlug ? `${origin}/${account}/${agentSlug}` : origin;
   const assetsBase = import.meta.env.VITE_ASSETS_URL?.replace(/\/$/, "");
   const avatarHandle = accountData?.name || account;
-  const avatarVersion = accountData?.avatar_version;
   const ogImage = assetsBase && avatarHandle
-    ? `${assetsBase}/avatars/${encodeURIComponent(avatarHandle)}.jpg${avatarVersion ? `?v=${avatarVersion}` : ""}`
+    ? `${assetsBase}/avatars/${encodeURIComponent(avatarHandle)}.jpg`
     : `${origin}/assets/placeholders/accounts/avatar_01.svg`;
 
   return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage };

@@ -27,7 +27,6 @@ export function BlueprintsSidebar() {
               <UserAvatar
                 handle={personalAccount.name}
                 name={personalAccount.display_name || personalAccount.name}
-                avatarVersion={personalAccount.avatar_version}
                 className="!size-4"
               />
               Personal

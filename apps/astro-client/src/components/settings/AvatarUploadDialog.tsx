@@ -21,7 +21,7 @@ export interface AvatarUploadDialogProps {
   title?: string;
   description?: string;
   cropShape?: "rect" | "round";
-  onSuccess?: () => void;
+  onSuccess?: (blob: Blob) => void;
 }
 
 export function AvatarUploadDialog({
@@ -80,7 +80,7 @@ export function AvatarUploadDialog({
       const blob = await cropImage(previewUrl, cropAreaRef.current);
       await onUpload(blob);
       handleOpenChange(false);
-      onSuccess?.();
+      onSuccess?.(blob);
     } catch (err) {
       setError(
         err && typeof err === "object" && "error_description" in err

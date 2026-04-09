@@ -502,12 +502,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Copy the blueprint's avatar to the new deployment (best-effort).
 		if avatarStore != nil && !dctx.isUpdate {
-			if copied, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.acct.Name, dctx.agentName, dctx.deploymentID); copyErr != nil {
+			if _, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.acct.Name, dctx.agentName, dctx.deploymentID); copyErr != nil {
 				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
-			} else if copied {
-				if _, verErr := deployStore.IncrementDeploymentAvatarVersion(dctx.deploymentID); verErr != nil {
-					log.Warn("Failed to set deployment avatar version after copy", "error", verErr, "deployment_id", dctx.deploymentID)
-				}
 			}
 		}
 
@@ -877,8 +873,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				dbDepByID[d.ID] = d
 			}
 			for i, dep := range allDeployments {
-				if dbDep, ok := dbDepByID[dep.ID]; ok && dbDep.AvatarVersion > 0 {
-					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dbDep.AvatarVersion)
+				if _, ok := dbDepByID[dep.ID]; ok {
+					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID)
 				}
 			}
 		}
@@ -932,8 +928,8 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			}
 		}
 
-		if avatarStore != nil && dbDep.AvatarVersion > 0 {
-			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID, dbDep.AvatarVersion)
+		if avatarStore != nil {
+			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
 		}
 
 		// Check if the messaging ClusterIP service exists in K8s.
@@ -2432,8 +2428,8 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 
 		// Resolve avatar URL for deployment's own custom avatar.
 		var avatarURL string
-		if avatarStore != nil && dep.AvatarVersion > 0 {
-			avatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dep.AvatarVersion)
+		if avatarStore != nil {
+			avatarURL = avatarStore.DeploymentAvatarURL(dep.ID)
 		}
 
 		c.JSON(http.StatusOK, gin.H{

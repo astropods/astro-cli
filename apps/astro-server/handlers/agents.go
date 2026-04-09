@@ -269,8 +269,8 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				HeartCount: heartCounts[agent.AccountID][agent.Name],
 				Metrics:    agentMetrics(mc[agent.Name], deployCounts[agent.AccountID][agent.Name]),
 			}
-			if avatarStore != nil && agent.AvatarVersion > 0 {
-				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarVersion)
+			if avatarStore != nil {
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
 			responses = append(responses, resp)
 		}
@@ -349,8 +349,8 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				HeartCount: counts[agent.Name],
 				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
 			}
-			if avatarStore != nil && agent.AvatarVersion > 0 {
-				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarVersion)
+			if avatarStore != nil {
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
 			responses = append(responses, resp)
 		}
@@ -436,8 +436,8 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			Versions:   versions,
 			Metrics:    agentMetrics(mc[name], dc[name]),
 		}
-		if avatarStore != nil && agent.AvatarVersion > 0 {
-			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name, agent.AvatarVersion)
+		if avatarStore != nil {
+			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count

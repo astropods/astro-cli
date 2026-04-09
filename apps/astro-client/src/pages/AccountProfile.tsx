@@ -53,7 +53,7 @@ function AccountProfileContent() {
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
       <div className="flex items-center gap-4">
-        <UserAvatar handle={data.name} name={data.display_name || data.name} avatarVersion={data.avatar_version} className="size-16" />
+        <UserAvatar handle={data.name} name={data.display_name || data.name} className="size-16" />
         <div>
           {data.display_name && (
             <h1 className="text-2xl font-bold">
@@ -122,7 +122,7 @@ function AccountProfileContent() {
                 visibility={agent.visibility}
                 avatarUrl={agent.avatar_url}
                 deployCount={agent.metrics?.deploy_count}
-                accountAvatarVersion={data.avatar_version}
+
                 onArchive={isMember ? () => {} : undefined}
               />
             ))}

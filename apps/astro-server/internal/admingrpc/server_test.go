@@ -134,12 +134,12 @@ func deploymentRow(id, accountID, namespace string) *sqlmock.Rows {
 	rev := 1
 	return sqlmock.NewRows([]string{
 		"id", "account_id", "agent_name", "build_id", "namespace",
-		"display_name", "avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
 		"deployed_at", "undeployed_at",
 	}).AddRow(
 		id, accountID, "my-agent", "build-1", namespace,
-		"My Agent", 0, json.RawMessage(`{}`), []byte(nil), (*string)(nil),
+		"My Agent", json.RawMessage(`{}`), []byte(nil), (*string)(nil),
 		"active", (*string)(nil), json.RawMessage(nil), now, &rev,
 		now, (*time.Time)(nil),
 	)

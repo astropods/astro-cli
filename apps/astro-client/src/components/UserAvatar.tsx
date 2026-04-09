@@ -1,15 +1,17 @@
 import { useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { getAvatarUrl, getFallbackAvatarUrl } from "@/lib/assets";
+import { useAvatarBust } from "@/lib/avatar-bust";
 
 export interface UserAvatarProps {
   handle: string;
   name: string;
-  avatarVersion?: number;
   className?: string;
 }
 
-export function UserAvatar({ handle, name, avatarVersion, className }: UserAvatarProps) {
+export function UserAvatar({ handle, name, className }: UserAvatarProps) {
+  const override = useAvatarBust(handle);
+
   const onError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const fallback = getFallbackAvatarUrl();
@@ -21,7 +23,7 @@ export function UserAvatar({ handle, name, avatarVersion, className }: UserAvata
 
   return (
     <img
-      src={getAvatarUrl(handle, avatarVersion)}
+      src={override ?? getAvatarUrl(handle)}
       alt={name}
       onError={onError}
       className={cn("size-8 shrink-0 rounded-full object-cover", className)}
