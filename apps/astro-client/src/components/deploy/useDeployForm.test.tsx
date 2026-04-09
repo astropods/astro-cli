@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { slugToTitle, useDeployForm } from './useDeployForm';
+import { slugToTitle, buildInterfacesPayload, useDeployForm } from './useDeployForm';
 import { mockAuthContext } from '@/test/test-utils';
 import { mockTemplate } from '@/test/msw/handlers';
 import type { DeploymentTemplate } from '@/lib/api';
@@ -278,5 +278,42 @@ describe('useDeployForm with pre-filled template', () => {
 
     await act(async () => {});
     expect(result.current.trySubmit()).toBe(true);
+  });
+});
+
+describe('buildInterfacesPayload', () => {
+  const baseInterfaces = {
+    adapters: [],
+    endpoints: {
+      grpc: { port: 9090, protocol: 'grpc' },
+      http: { port: 8080, protocol: 'http', expose: { enabled: false } },
+    },
+  };
+
+  it('sets expose.enabled=true when web adapter is selected', () => {
+    const result = buildInterfacesPayload(baseInterfaces, ['web'], false);
+    const http = (result.endpoints as Record<string, unknown>).http as Record<string, unknown>;
+    expect((http.expose as Record<string, unknown>).enabled).toBe(true);
+  });
+
+  it('leaves expose.enabled=false when web adapter is not selected', () => {
+    const result = buildInterfacesPayload(baseInterfaces, ['slack'], false);
+    const http = (result.endpoints as Record<string, unknown>).http as Record<string, unknown>;
+    expect((http.expose as Record<string, unknown>).enabled).toBe(false);
+  });
+
+  it('sets adapters from selectedAdapters', () => {
+    const result = buildInterfacesPayload(baseInterfaces, ['web', 'slack'], false);
+    expect(result.adapters).toEqual(['web', 'slack']);
+  });
+
+  it('adds oidc auth when webAuthEnabled', () => {
+    const result = buildInterfacesPayload(baseInterfaces, ['web'], true);
+    expect(result.auth).toEqual({ web: { type: 'oidc' } });
+  });
+
+  it('omits auth when webAuthEnabled is false', () => {
+    const result = buildInterfacesPayload(baseInterfaces, ['web'], false);
+    expect(result.auth).toBeUndefined();
   });
 });

@@ -125,6 +125,33 @@ const mergeFormValues = (
   return merged;
 };
 
+/**
+ * Builds the interfaces payload for a deployment spec.
+ * When the web adapter is selected, forces expose.enabled=true on the HTTP
+ * endpoint so the chat UI gets an ingress and is publicly accessible.
+ */
+export function buildInterfacesPayload(
+  interfaces: Record<string, unknown>,
+  selectedAdapters: string[],
+  webAuthEnabled: boolean,
+): Record<string, unknown> {
+  const endpoints = selectedAdapters.includes("web") && interfaces.endpoints
+    ? {
+        ...(interfaces.endpoints as Record<string, unknown>),
+        http: {
+          ...((interfaces.endpoints as Record<string, unknown>).http as Record<string, unknown>),
+          expose: { enabled: true },
+        },
+      }
+    : interfaces.endpoints;
+  return {
+    ...interfaces,
+    adapters: selectedAdapters,
+    endpoints,
+    auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined,
+  };
+}
+
 /** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
 export function slugToTitle(slug: string): string {
   return slug
@@ -198,13 +225,7 @@ function fulfillTemplate(
     target: { ...rest.target, account: targetAccount, display_name: deployName },
     variables: Object.keys(variables).length > 0 ? variables : undefined,
     interfaces: rest.interfaces
-      ? {
-          ...rest.interfaces,
-          adapters: selectedAdapters,
-          auth: webAuthEnabled
-            ? { web: { type: "oidc" } }
-            : undefined,
-        }
+      ? buildInterfacesPayload(rest.interfaces, selectedAdapters, webAuthEnabled)
       : rest.interfaces,
     ingestion,
   };
