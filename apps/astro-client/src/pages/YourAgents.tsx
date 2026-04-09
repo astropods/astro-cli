@@ -55,7 +55,6 @@ function AgentCardWithStats({
       lastActive={lastActive}
       installedAt={deployment.created_at}
       updatedAt={deployment.updated_at || deployment.created_at}
-      avatarUrl={deployment.avatar_url}
       hasNewBuildAvailable={hasNewBuildAvailable}
     />
   );
@@ -228,7 +227,6 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
         <LiveRevealOverlay
           deployment={revealDeployment}
           account={userAccount}
-          fallbackAvatarUrl={revealAvatarUrl ?? undefined}
           onDismiss={() => {
             setShowReveal(false);
             clearRevealState();

@@ -8,7 +8,6 @@ export interface BlueprintDetailContentProps {
   name: string;
   visibility?: string;
   categories: string[];
-  avatarUrl?: string;
   canEdit?: boolean;
   readme?: string;
   mobileSidebar?: ReactNode;
@@ -19,7 +18,6 @@ export function BlueprintDetailContent({
   name,
   visibility,
   categories,
-  avatarUrl,
   canEdit,
   readme,
   mobileSidebar,
@@ -33,7 +31,6 @@ export function BlueprintDetailContent({
         name={name}
         visibility={visibility}
         categories={categories}
-        avatarUrl={avatarUrl}
         canEdit={canEdit}
       />
 

@@ -120,7 +120,6 @@ function AccountProfileContent() {
                 name={agent.name}
                 description={getBlueprintDescription(agent)}
                 visibility={agent.visibility}
-                avatarUrl={agent.avatar_url}
                 deployCount={agent.metrics?.deploy_count}
 
                 onArchive={isMember ? () => {} : undefined}

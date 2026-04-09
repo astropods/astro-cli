@@ -91,7 +91,6 @@ export const WithCustomAvatar: Story = {
     installedAt: "Jan 12, 2026",
     updatedAt: "Feb 17, 2026",
 
-    avatarUrl: "https://picsum.photos/seed/agent/36/36",
   },
 };
 

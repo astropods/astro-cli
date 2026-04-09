@@ -80,7 +80,6 @@ export function BlueprintListView({
           name={blueprint.name}
           description={getBlueprintDescription(blueprint)}
           visibility={blueprint.visibility}
-          avatarUrl={blueprint.avatar_url}
           deployCount={blueprint.metrics?.deploy_count}
           onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
         />

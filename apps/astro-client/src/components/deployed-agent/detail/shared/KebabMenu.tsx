@@ -42,13 +42,12 @@ interface KebabMenuProps {
   displayName?: string;
   account: string;
   installedAt?: string;
-  avatarUrl?: string;
   onDeleted?: () => void;
   onRestart?: () => void;
   hideDestructive?: boolean;
 }
 
-export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarUrl, onDeleted, onRestart, hideDestructive = false }: KebabMenuProps) {
+export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, onDeleted, onRestart, hideDestructive = false }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -65,7 +64,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
     name: deploymentName,
     displayName,
     account,
-    avatar: cardAvatar,
+    avatar: cardAvatar ?? undefined,
     stats: [
       { label: "Deployed", value: installedAt ?? "" },
       { label: "From", value: `${account}/${deploymentName}` },

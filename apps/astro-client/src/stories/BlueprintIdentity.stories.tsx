@@ -68,7 +68,7 @@ export const WithAvatarUrl: Story = {
   args: {
     account: "acme-corp",
     name: "research-assistant",
-    avatarUrl: "https://picsum.photos/128",
+    url: "https://picsum.photos/128",
     size: 128,
   },
 }

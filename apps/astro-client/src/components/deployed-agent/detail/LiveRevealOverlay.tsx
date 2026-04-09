@@ -23,13 +23,11 @@ import { getDeploymentAvatarUrl } from "@/lib/assets";
 export function LiveRevealOverlay({
   deployment,
   account,
-  fallbackAvatarUrl,
   onViewDeployment,
   onDismiss,
 }: {
   deployment: AgentDeployment;
   account: string;
-  fallbackAvatarUrl?: string;
   onViewDeployment: () => void;
   onDismiss: () => void;
 }) {

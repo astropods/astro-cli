@@ -149,7 +149,6 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getBlueprintDescription(a),
-        avatarUrl: a.avatar_url,
         deployCount: a.metrics?.deploy_count,
       }));
   })();
@@ -174,7 +173,6 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           name={blueprint.name}
           visibility={blueprint.visibility}
           categories={categories}
-          avatarUrl={blueprint.avatar_url}
           canEdit={canEdit}
           readme={readme}
           mobileSidebar={

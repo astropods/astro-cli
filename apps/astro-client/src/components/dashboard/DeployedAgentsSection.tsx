@@ -64,7 +64,6 @@ function AgentCard({
       lastActive={lastActive}
       installedAt={deployment.created_at}
       updatedAt={deployment.updated_at || deployment.created_at}
-      avatarUrl={deployment.avatar_url}
       hasNewBuildAvailable={hasNewBuildAvailable}
     />
   );

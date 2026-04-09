@@ -18,7 +18,6 @@ export interface BlueprintCardProps {
   name: string;
   description: string;
   visibility?: string;
-  avatarUrl?: string;
   variant?: "default" | "oftenUsedTogether";
   deployCount?: number;
   /** When provided, shows a three-dot menu with an archive option. */
@@ -31,7 +30,6 @@ export function BlueprintCard({
   name,
   description,
   visibility,
-  avatarUrl,
   variant = "default",
   deployCount,
   onArchive,
@@ -53,7 +51,6 @@ export function BlueprintCard({
           account={account}
           name={name}
           size={36}
-          avatarUrl={avatarUrl}
           className="size-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -112,7 +109,6 @@ export function BlueprintCard({
             account={account}
             name={name}
             size={36}
-            avatarUrl={avatarUrl}
             className="size-9 shrink-0 rounded-sm overflow-hidden"
           />
           <div className="flex min-w-0 flex-1 flex-col gap-1 pr-1">

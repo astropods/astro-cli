@@ -47,7 +47,6 @@ export interface DeployedAgentCardProps {
   lastActive: string;
   installedAt: string;
   updatedAt: string;
-  avatarUrl?: string;
   hasNewBuildAvailable?: boolean;
   className?: string;
   linkState?: Record<string, unknown>;
@@ -73,7 +72,6 @@ export function DeployedAgentCard({
   lastActive,
   installedAt,
   updatedAt,
-  avatarUrl,
   hasNewBuildAvailable = false,
   className,
   linkState,
@@ -97,7 +95,7 @@ export function DeployedAgentCard({
     name,
     displayName,
     account,
-    avatar: cardAvatar,
+    avatar: cardAvatar ?? undefined,
     stats: [
       { label: "Deployed", value: formatDateTime(installedAt) },
       { label: "From", value: `${account}/${name}` },

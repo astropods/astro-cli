@@ -165,7 +165,6 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
         <LiveRevealOverlay
           deployment={revealDeployment}
           account={userAccount}
-          fallbackAvatarUrl={revealAvatarUrl ?? undefined}
           onDismiss={() => {
             setShowReveal(false);
             clearRevealState();
