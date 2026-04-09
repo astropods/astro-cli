@@ -208,6 +208,18 @@ const BUILD_STEPS = [
   { key: "registering",   label: "Register"   },
 ] as const;
 
+// Strip repetitive Go/BuildKit error prefixes and truncate to the meaningful part.
+function cleanBuildError(err: string): string {
+  const stripped = err
+    .replace(/^JobCancelError:\s*/i, "")
+    .replace(/^build \w+:\s*/i, "")
+    .replace(/^build job failed:\s*/i, "")
+    .replace(/^error:\s*/i, "")
+    .replace(/^failed to solve:\s*/i, "")
+    .trim();
+  return stripped.length > 120 ? stripped.slice(0, 120) + "…" : stripped;
+}
+
 function elapsedLabel(from: string, to?: string | null): string {
   const start = new Date(from).getTime();
   const end = to ? new Date(to).getTime() : Date.now();
@@ -264,7 +276,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
 
         {/* Error — shown for failed builds */}
         {build.status === "failed" && build.error && (
-          <p className="text-destructive pl-5 leading-snug break-words">{build.error}</p>
+          <p className="text-destructive pl-5 leading-snug break-words">{cleanBuildError(build.error)}</p>
         )}
       </div>
 
