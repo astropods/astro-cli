@@ -2135,6 +2135,7 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			if jsonErr := json.Unmarshal([]byte(specJSONToMerge), &storedSpec); jsonErr == nil {
 				if storedSpec.Interfaces != nil && template.Interfaces != nil {
 					template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
+					template.Interfaces.Auth = storedSpec.Interfaces.Auth
 				}
 				for name, storedIng := range storedSpec.Ingestion {
 					if tmplIng, ok := template.Ingestion[name]; ok && storedIng.Trigger.Schedule != "" {
