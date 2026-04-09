@@ -1895,6 +1895,95 @@ func TestGetPrefilledTemplate_RevisionNotFound(t *testing.T) {
 	}
 }
 
+// TestGetPrefilledTemplate_PreservesAuth verifies that when a deployment was
+// configured with OIDC auth, the prefilled template restores interfaces.auth
+// so the require-authentication toggle is not reset to false in the redeploy UI.
+func TestGetPrefilledTemplate_PreservesAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
+		},
+	}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	// Stored spec has OIDC auth enabled on the web interface
+	specWithAuth := `{"interfaces":{"adapters":["web"],"auth":{"web":{"type":"oidc"}}}}`
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", specWithAuth, "active", now, nil))
+
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+		}))
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	interfaces, ok := resp["interfaces"].(map[string]any)
+	if !ok {
+		t.Fatal("expected interfaces to be an object")
+	}
+	auth, ok := interfaces["auth"].(map[string]any)
+	if !ok {
+		t.Fatal("expected interfaces.auth to be present — toggle would reset to false without the fix")
+	}
+	web, ok := auth["web"].(map[string]any)
+	if !ok {
+		t.Fatal("expected interfaces.auth.web to be an object")
+	}
+	if web["type"] != "oidc" {
+		t.Errorf("expected interfaces.auth.web.type='oidc', got %v", web["type"])
+	}
+}
+
 // --- Deploy endpoint: deployment_id handling tests ---
 
 // setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
