@@ -167,7 +167,7 @@ function MemberRow({
   );
 }
 
-function EmptyState({ onInvite }: { onInvite: () => void }) {
+function EmptyState({ isAdmin, onInvite }: { isAdmin: boolean; onInvite: () => void }) {
   return (
     <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
       <div className="flex justify-center mb-3 text-muted-foreground">
@@ -175,12 +175,14 @@ function EmptyState({ onInvite }: { onInvite: () => void }) {
       </div>
       <p className="text-sm font-medium text-foreground">No members yet</p>
       <p className="text-xs text-muted-foreground mt-1 mb-4">
-        Invite people to join this organization
+        {isAdmin ? "Invite people to join this organization" : "No one else has joined this organization yet"}
       </p>
-      <Button size="sm" onClick={onInvite}>
-        <UserPlus className="size-3.5" />
-        Invite members
-      </Button>
+      {isAdmin && (
+        <Button size="sm" onClick={onInvite}>
+          <UserPlus className="size-3.5" />
+          Invite members
+        </Button>
+      )}
     </div>
   );
 }
@@ -222,12 +224,14 @@ export default function OrgMembersSettings() {
             Manage who has access to this organization
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button size="sm" onClick={() => setInviteOpen(true)}>
-            <UserPlus className="size-3.5" />
-            Invite members
-          </Button>
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2 shrink-0">
+            <Button size="sm" onClick={() => setInviteOpen(true)}>
+              <UserPlus className="size-3.5" />
+              Invite members
+            </Button>
+          </div>
+        )}
       </div>
 
       <Separator />
@@ -251,7 +255,7 @@ export default function OrgMembersSettings() {
           Failed to load members.
         </p>
       ) : members.length === 0 ? (
-        <EmptyState onInvite={() => setInviteOpen(true)} />
+        <EmptyState isAdmin={isAdmin} onInvite={() => setInviteOpen(true)} />
       ) : (
         <div className="rounded-[10px] border border-border overflow-hidden">
           <div

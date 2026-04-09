@@ -5,12 +5,20 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useUploadAvatar } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
 import { SavedIndicator } from "@/components/settings/SettingsShared";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
+
+const PERMISSION_TOOLTIP = "You do not have permission to edit this";
 
 interface ProfileEditorProps {
   /** Account slug used for avatar upload */
@@ -23,6 +31,8 @@ interface ProfileEditorProps {
   onSave: (displayName: string) => Promise<void>;
   /** Whether the save mutation is in flight */
   isSaving: boolean;
+  /** When true, all editing controls are disabled */
+  readOnly?: boolean;
 }
 
 export function ProfileEditor({
@@ -31,6 +41,7 @@ export function ProfileEditor({
   avatarDialogTitle,
   onSave,
   isSaving,
+  readOnly,
 }: ProfileEditorProps) {
   const { refresh } = useAuth();
   const uploadAvatar = useUploadAvatar();
@@ -78,66 +89,95 @@ export function ProfileEditor({
 
   const resolvedDisplayName = currentDisplayName || accountName;
 
+  const permissionTip = readOnly ? (
+    <TooltipContent>{PERMISSION_TOOLTIP}</TooltipContent>
+  ) : null;
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          className="group relative cursor-pointer"
-          onClick={() => setAvatarDialogOpen(true)}
-        >
-          <UserAvatar
-            handle={accountName}
-            name={resolvedDisplayName}
-            className="size-[72px] text-2xl"
-          />
-          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera className="size-5 text-white" />
-          </div>
-        </button>
-        <div>
-          <div className="text-sm font-semibold text-foreground">
-            {resolvedDisplayName}
-          </div>
-          <div className="font-mono text-xs text-faint-foreground">
-            @{accountName}
+    <TooltipProvider delayDuration={300}>
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="group relative cursor-pointer disabled:cursor-not-allowed"
+                onClick={() => setAvatarDialogOpen(true)}
+                disabled={readOnly}
+              >
+                <UserAvatar
+                  handle={accountName}
+                  name={resolvedDisplayName}
+                  className="size-[72px] text-2xl"
+                />
+                {!readOnly && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Camera className="size-5 text-white" />
+                  </div>
+                )}
+              </button>
+            </TooltipTrigger>
+            {permissionTip}
+          </Tooltip>
+          <div>
+            <div className="text-sm font-semibold text-foreground">
+              {resolvedDisplayName}
+            </div>
+            <div className="font-mono text-xs text-faint-foreground">
+              @{accountName}
+            </div>
           </div>
         </div>
-      </div>
-      <AvatarUploadDialog
-        open={avatarDialogOpen}
-        onOpenChange={setAvatarDialogOpen}
-        onUpload={async (file) => {
-          await uploadAvatar.mutateAsync({ account: accountName, file });
-        }}
-        isPending={uploadAvatar.isPending}
-        title={avatarDialogTitle}
-        onSuccess={() => {
-          refresh();
-          flash();
-        }}
-      />
-
-      <div className="max-w-sm">
-        <Label size="md">Display name</Label>
-        <Input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          maxLength={DISPLAY_NAME_MAX_LENGTH}
+        <AvatarUploadDialog
+          open={avatarDialogOpen}
+          onOpenChange={setAvatarDialogOpen}
+          onUpload={async (file) => {
+            await uploadAvatar.mutateAsync({ account: accountName, file });
+          }}
+          isPending={uploadAvatar.isPending}
+          title={avatarDialogTitle}
+          onSuccess={() => {
+            refresh();
+            flash();
+          }}
         />
-      </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          disabled={!isDirty || !displayName.trim() || isSaving}
-          onClick={handleSave}
-          className="self-start"
-        >
-          {isSaving && <Loader2 size={14} className="spinner-delayed" />}
-          Save changes
-        </Button>
-        <SavedIndicator visible={showSaved} />
+        <div className="max-w-sm">
+          <Label size="md">Display name</Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  maxLength={DISPLAY_NAME_MAX_LENGTH}
+                  disabled={readOnly}
+                />
+              </div>
+            </TooltipTrigger>
+            {permissionTip}
+          </Tooltip>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  disabled={readOnly || !isDirty || !displayName.trim() || isSaving}
+                  onClick={handleSave}
+                  className="self-start"
+                >
+                  {isSaving && <Loader2 size={14} className="spinner-delayed" />}
+                  Save changes
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {permissionTip}
+          </Tooltip>
+          <SavedIndicator visible={showSaved} />
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

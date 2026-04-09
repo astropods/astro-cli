@@ -12,7 +12,7 @@ import { useAuth } from '@/lib/auth'
 
 function OrgSettingsContent() {
   const { orgSlug = '' } = useParams()
-  const { accounts, organizationId, switchOrg } = useAuth()
+  const { accounts, organizationId, role, switchOrg } = useAuth()
   const org = accounts.find(a => a.name === orgSlug)
   const needsSwitch = !!org?.organization_id && org.organization_id !== organizationId
   const [switchFailed, setSwitchFailed] = useState(false)
@@ -92,6 +92,7 @@ function OrgSettingsContent() {
   }
 
   const displayName = org.display_name ?? orgSlug
+  const isAdmin = role === 'admin' || role === 'owner'
 
   return (
     <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
@@ -120,12 +121,14 @@ function OrgSettingsContent() {
                 Members
               </span>
             </SidebarNavItem>
-            <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
-              <span className="flex items-center gap-2">
-                <KeyRound className="size-3.5" />
-                Secrets & Variables
-              </span>
-            </SidebarNavItem>
+            {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
+                <span className="flex items-center gap-2">
+                  <KeyRound className="size-3.5" />
+                  Secrets & Variables
+                </span>
+              </SidebarNavItem>
+            )}
           </SidebarNav>
         </div>
         <SidebarBody>

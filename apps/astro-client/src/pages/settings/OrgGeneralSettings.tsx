@@ -2,6 +2,12 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { useUpdateAccountDisplayName, useRenameAccount } from "@/api/queries";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
@@ -14,7 +20,7 @@ import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { LeaveOrganizationDialog } from "@/components/settings/LeaveOrganizationDialog";
 import { DeleteOrganizationDialog } from "@/components/settings/DeleteOrganizationDialog";
 
-function ProfileSection() {
+function ProfileSection({ readOnly }: { readOnly?: boolean }) {
   const { orgSlug = "" } = useParams();
   const { accounts, refresh } = useAuth();
   const org = accounts.find((a) => a.name === orgSlug);
@@ -32,11 +38,12 @@ function ProfileSection() {
         refresh();
       }}
       isSaving={updateDisplayName.isPending}
+      readOnly={readOnly}
     />
   );
 }
 
-function AccountSection() {
+function AccountSection({ readOnly }: { readOnly?: boolean }) {
   const { orgSlug = "" } = useParams();
   const { refresh } = useAuth();
   const navigate = useNavigate();
@@ -100,9 +107,24 @@ function AccountSection() {
               renameAccount.reset();
             }}
             trigger={
-              <Button variant="link" className="h-auto p-0 text-[13px]">
-                Change username
-              </Button>
+              readOnly ? (
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button variant="link" className="h-auto p-0 text-[13px]" disabled>
+                          Change username
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>You do not have permission to edit this</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <Button variant="link" className="h-auto p-0 text-[13px]">
+                  Change username
+                </Button>
+              )
             }
           >
             <div>
@@ -124,7 +146,7 @@ function AccountSection() {
   );
 }
 
-function DangerZone() {
+function DangerZone({ isAdmin }: { isAdmin: boolean }) {
   const { orgSlug = "" } = useParams();
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -147,6 +169,8 @@ function DangerZone() {
         description="Permanently delete this organization and all associated data. This cannot be undone."
         actionLabel="Delete"
         onAction={() => setDeleteOpen(true)}
+        disabled={!isAdmin}
+        disabledReason="You do not have permission to delete this organization"
       />
       <DeleteOrganizationDialog
         orgSlug={orgSlug}
@@ -158,25 +182,28 @@ function DangerZone() {
 }
 
 export default function OrgGeneralSettings() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin" || role === "owner";
+
   return (
     <>
       <SectionHeader
         title="Profile"
         subtitle="Your organization's public identity on Astro"
       />
-      <ProfileSection />
+      <ProfileSection readOnly={!isAdmin} />
       <hr className="my-2 border-border" />
       <SectionHeader
         title="Account"
         subtitle="Organization username and identity"
       />
-      <AccountSection />
+      <AccountSection readOnly={!isAdmin} />
       <hr className="my-2 border-border" />
       <SectionHeader
         title="Danger Zone"
         subtitle="These actions may be irreversible"
       />
-      <DangerZone />
+      <DangerZone isAdmin={isAdmin} />
     </>
   );
 }
