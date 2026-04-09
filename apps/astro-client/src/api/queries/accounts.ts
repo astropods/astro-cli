@@ -122,9 +122,14 @@ export function useUpdateMemberRole() {
 }
 
 export function useRemoveAccountMember() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ account, userId }: { account: string; userId: string }) =>
       api.removeAccountMember(account, userId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
+      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
+    },
   });
 }
 

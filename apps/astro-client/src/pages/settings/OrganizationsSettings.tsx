@@ -1,9 +1,10 @@
 import { Link } from 'react-router'
 import { Settings } from 'lucide-react'
-import { BuildingOffice2Icon, PlusIcon } from '@heroicons/react/24/outline'
+import { PlusIcon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { InlineBadge } from '@/components/InlineBadge'
+import { UserAvatar } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
 
 export default function OrganizationsSettings() {
@@ -40,9 +41,11 @@ export default function OrganizationsSettings() {
               key={org.name}
               className="flex items-center gap-4 px-5 py-4 rounded-lg border border-border"
             >
-              <div className="size-9 rounded-md shrink-0 flex items-center justify-center bg-stone-200 dark:bg-stone-700">
-                <BuildingOffice2Icon className="size-4 text-stone-500 dark:text-stone-400" />
-              </div>
+              <UserAvatar
+                handle={org.name}
+                name={org.display_name || org.name}
+                className="size-9 shrink-0 ring-1 ring-border"
+              />
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5">

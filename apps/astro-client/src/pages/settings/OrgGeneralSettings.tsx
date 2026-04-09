@@ -26,7 +26,6 @@ function ProfileSection() {
     <ProfileEditor
       accountName={org.name}
       currentDisplayName={org.display_name ?? ""}
-      avatarVersion={org.avatar_version}
       avatarDialogTitle="Upload organization image"
       onSave={async (displayName) => {
         await updateDisplayName.mutateAsync({ account: orgSlug, displayName });

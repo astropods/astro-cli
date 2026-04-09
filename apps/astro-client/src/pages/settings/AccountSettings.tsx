@@ -20,7 +20,6 @@ function ProfileSection() {
     <ProfileEditor
       accountName={personalAccount.name}
       currentDisplayName={personalAccount.display_name ?? ""}
-      avatarVersion={personalAccount.avatar_version}
       avatarDialogTitle="Upload profile image"
       onSave={async (displayName) => {
         await updateProfile.mutateAsync({ display_name: displayName });

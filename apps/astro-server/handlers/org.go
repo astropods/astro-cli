@@ -51,7 +51,6 @@ type MemberResponse struct {
 	Status        string `json:"status"`
 	Username      string `json:"username"`
 	DisplayName   string `json:"display_name"`
-	AvatarVersion int    `json:"avatar_version"`
 	CreatedAt     string `json:"created_at"`
 }
 
@@ -106,9 +105,8 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 
 		// Build a profile lookup from each member's personal account
 		type profile struct {
-			Name          string
-			DisplayName   string
-			AvatarVersion int
+			Name        string
+			DisplayName string
 		}
 		profileByUserID := map[string]profile{}
 		for _, m := range members {
@@ -119,9 +117,8 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			for _, a := range accounts {
 				if a.Type == "personal" {
 					profileByUserID[m.UserID] = profile{
-						Name:          a.Name,
-						DisplayName:   a.DisplayName,
-						AvatarVersion: a.AvatarVersion,
+						Name:        a.Name,
+						DisplayName: a.DisplayName,
 					}
 					break
 				}
@@ -145,10 +142,10 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 				UserID:        m.UserID,
 				Role:          role,
 				Status:        status,
-				Username:      p.Name,
-				DisplayName:   p.DisplayName,
-				AvatarVersion: p.AvatarVersion,
-				CreatedAt:     m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				Username:    p.Name,
+				DisplayName: p.DisplayName,
+				CreatedAt:   m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+
 			})
 		}
 

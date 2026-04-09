@@ -57,7 +57,6 @@ export interface AccountMember {
   status: string;
   username: string;
   display_name: string;
-  avatar_version: number;
   created_at: string;
 }
 

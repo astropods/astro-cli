@@ -17,8 +17,6 @@ interface ProfileEditorProps {
   accountName: string;
   /** Current display name from the account */
   currentDisplayName: string;
-  /** Avatar version for cache busting */
-  avatarVersion?: number;
   /** Title for the avatar upload dialog */
   avatarDialogTitle: string;
   /** Called with the new display name; should return a promise that resolves on success */
@@ -30,7 +28,6 @@ interface ProfileEditorProps {
 export function ProfileEditor({
   accountName,
   currentDisplayName,
-  avatarVersion,
   avatarDialogTitle,
   onSave,
   isSaving,
@@ -92,7 +89,6 @@ export function ProfileEditor({
           <UserAvatar
             handle={accountName}
             name={resolvedDisplayName}
-            avatarVersion={avatarVersion}
             className="size-[72px] text-2xl"
           />
           <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">

@@ -154,6 +154,12 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 		return fmt.Errorf("failed to delete WorkOS membership: %w", err)
 	}
 
+	// If membership was pending, also revoke any outstanding WorkOS invitation
+	// so the user cannot accept it after removal.
+	if membership.Status == "pending" {
+		s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
+	}
+
 	return s.accountStore.RemoveMember(accountID, userID)
 }
 
@@ -229,6 +235,25 @@ func (s *Sync) SendBulkInvitations(ctx context.Context, workosOrgID, inviterUser
 		results = append(results, res)
 	}
 	return results
+}
+
+// revokeInvitationsForUser revokes any pending WorkOS invitations matching the
+// given user's email in the specified organization. Best-effort: failures are
+// silently ignored because the membership has already been deleted.
+func (s *Sync) revokeInvitationsForUser(ctx context.Context, workosOrgID, userID string) {
+	user, err := s.workos.GetUser(ctx, userID)
+	if err != nil || user.Email == "" {
+		return
+	}
+	invitations, err := s.client.ListInvitations(ctx, workosOrgID)
+	if err != nil {
+		return
+	}
+	for _, inv := range invitations {
+		if inv.Email == user.Email {
+			_ = s.client.RevokeInvitation(ctx, inv.ID)
+		}
+	}
 }
 
 // resolveAccountEmail looks up the email address of an account's first member
