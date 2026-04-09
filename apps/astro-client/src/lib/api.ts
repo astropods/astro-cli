@@ -823,6 +823,8 @@ export interface DeploymentVariable {
   // template-only (present in deployment-template/v1, stripped in deployment/v1)
   default?: string;
   description?: string;
+  label?: string;
+  icon?: string;
   datatype?: string;
   'display-as'?: string;
   options?: string[];

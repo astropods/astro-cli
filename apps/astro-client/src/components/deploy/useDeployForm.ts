@@ -82,15 +82,6 @@ export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
     { key: "SLACK_ALLOWED_CHANNEL_IDS", label: "Allowed Channel IDs", description: "Restrict access to specific Slack channel IDs (comma-separated)", optional: true, placeholder: "C12345, C67890" },
     { key: "SLACK_ALLOWED_USER_IDS", label: "Allowed User IDs", description: "Restrict access to specific Slack user IDs (comma-separated)", optional: true, placeholder: "U12345, U67890" },
   ],
-  web: [
-    {
-      key: "WEB_REQUIRE_AUTH",
-      label: "Require authentication",
-      description: "Restrict access to signed-in users only",
-      icon: "shield",
-      datatype: "boolean",
-    },
-  ],
 };
 
 export const adapterFields = (adapterId: string): AdapterFieldDef[] => [
@@ -103,6 +94,8 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
     description: v.description,
     optional: v.optional,
     secret: v.secret,
+    label: v.label,
+    icon: v.icon,
     datatype: v.datatype,
     displayAs: v['display-as'],
     options: v.options,

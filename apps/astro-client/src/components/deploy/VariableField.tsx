@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Eye, EyeOff, Shield } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -39,7 +40,7 @@ export function getVariableDefault(meta: VariableDisplay): string {
 function renderFieldIcon(icon?: string) {
   switch (icon) {
     case "shield":
-      return <Shield className="h-4 w-4 text-muted-foreground" />;
+      return <ShieldCheckIcon className="h-4 w-4 text-muted-foreground" />;
     default:
       return null;
   }

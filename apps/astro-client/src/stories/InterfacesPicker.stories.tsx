@@ -17,10 +17,21 @@ const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = Obj
       defaultValue: f.defaultValue,
       placeholder: f.placeholder,
       helpUrl: f.helpUrl,
-      datatype: f.key === "WEB_REQUIRE_AUTH" ? "boolean" : undefined,
+      datatype: f.datatype,
     }]),
   ]),
 );
+
+defaultAdapterFieldDefs.web = [[
+  "WEB_REQUIRE_AUTH",
+  {
+    label: "Require authentication",
+    description: "Restrict access to signed-in users only",
+    icon: "shield",
+    datatype: "boolean",
+    optional: false,
+  },
+]];
 
 function InterfacesPickerStateful(props: InterfacesPickerProps) {
   const [selected, setSelected] = useState<string[]>(props.selected);
