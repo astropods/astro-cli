@@ -100,8 +100,9 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	}
 
 	token, err := w.pipesClient.GetAccessToken(ctx, pipes.GetAccessTokenInput{
-		Provider: "github",
-		UserID:   conn.WorkOSUserID,
+		Provider:       "github",
+		UserID:         conn.WorkOSUserID,
+		OrganizationID: conn.WorkOSOrganizationID,
 	})
 	if err != nil {
 		log.Error("failed to get GitHub token",

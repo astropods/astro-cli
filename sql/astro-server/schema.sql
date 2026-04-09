@@ -441,6 +441,7 @@ CREATE TABLE public.github_connections (
     account_name varchar NOT NULL DEFAULT '',
     agent_name varchar NOT NULL,
     workos_user_id text NOT NULL,
+    workos_org_id text NOT NULL DEFAULT '',
     repo_full_name varchar NOT NULL,
     branch varchar NOT NULL DEFAULT 'main',
     webhook_id bigint,

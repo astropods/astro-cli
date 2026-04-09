@@ -252,14 +252,15 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		}
 
 		if err := ghStore.Upsert(c.Request.Context(), &githubconnection.Connection{
-			AccountID:     acct.ID,
-			AccountName:   acct.Name,
-			AgentName:     agentName,
-			WorkOSUserID:  session.UserID,
-			RepoFullName:  req.RepoFullName,
-			Branch:        req.Branch,
-			WebhookID:     webhookID,
-			WebhookSecret: webhookSecret,
+			AccountID:            acct.ID,
+			AccountName:          acct.Name,
+			AgentName:            agentName,
+			WorkOSUserID:         session.UserID,
+			WorkOSOrganizationID: session.OrganizationID,
+			RepoFullName:         req.RepoFullName,
+			Branch:               req.Branch,
+			WebhookID:            webhookID,
+			WebhookSecret:        webhookSecret,
 		}); err != nil {
 			log.Error("githubconnection: upsert", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save connection"})
