@@ -134,7 +134,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
       </FormSection>
 
       {/* Interfaces */}
-      <FormSection title="Messaging" description="Choose how you want to interact with the agent.">
+      <FormSection title="Chat interface" description="Choose how you want to interact with the agent.">
         <InterfacesPicker
           selected={form.selectedAdapters}
           onChange={form.setSelectedAdapters}
@@ -143,8 +143,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           onAdapterCredentialsChange={form.setAdapterCredentials}
           showError={!!form.errors.adapters}
           adapterErrorKeys={form.errors.adapterCredentials}
-          webAuthEnabled={form.webAuthEnabled}
-          onWebAuthChange={form.setWebAuthEnabled}
+          credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
         />
       </FormSection>
 

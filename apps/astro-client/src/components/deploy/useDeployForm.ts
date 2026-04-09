@@ -60,6 +60,8 @@ export interface AdapterFieldDef {
   key: string;
   label: string;
   description: string;
+  icon?: string;
+  defaultValue?: string;
   secret?: boolean;
   optional?: boolean;
   placeholder?: string;
@@ -78,6 +80,15 @@ export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
     { key: "SLACK_ACTIONABLE_REACTIONS", label: "Actionable Reactions", description: "Emoji names the bot acts on (comma-separated)", optional: true, placeholder: "ticket, bug" },
     { key: "SLACK_ALLOWED_CHANNEL_IDS", label: "Allowed Channel IDs", description: "Restrict access to specific Slack channel IDs (comma-separated)", optional: true, placeholder: "C12345, C67890" },
     { key: "SLACK_ALLOWED_USER_IDS", label: "Allowed User IDs", description: "Restrict access to specific Slack user IDs (comma-separated)", optional: true, placeholder: "U12345, U67890" },
+  ],
+  web: [
+    {
+      key: "WEB_REQUIRE_AUTH",
+      label: "Require authentication",
+      description: "Restrict access to signed-in users only",
+      icon: "shield",
+      defaultValue: "true",
+    },
   ],
 };
 
@@ -353,6 +364,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
                   description: meta?.description ?? display.description,
                   secret: display.secret ?? meta?.secret,
                   label: meta?.label,
+                  icon: meta?.icon,
                   placeholder: meta?.placeholder,
                   helpUrl: meta?.helpUrl,
                 }] as [string, VariableDisplay];
@@ -372,8 +384,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
             return [key, {
               ...display,
               description: meta?.description ?? display.description,
+              defaultValue: display.defaultValue ?? meta?.defaultValue,
               secret: display.secret ?? meta?.secret,
               label: meta?.label,
+              icon: meta?.icon,
               placeholder: meta?.placeholder,
               helpUrl: meta?.helpUrl,
             }];
@@ -385,9 +399,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       }
       const fallback: [string, VariableDisplay][] = hardcoded.map((c) => [c.key, {
         description: c.description,
+        defaultValue: c.defaultValue,
         optional: c.optional ?? false,
         secret: c.secret,
         label: c.label,
+        icon: c.icon,
         placeholder: c.placeholder,
         helpUrl: c.helpUrl,
       }]);

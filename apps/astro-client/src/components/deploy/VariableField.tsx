@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Shield } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -18,6 +18,14 @@ function placeholderFromKey(key: string): string {
   return "your-" + key.replace(/_/g, "-").toLowerCase();
 }
 
+/** Convert "WEB_REQUIRE_AUTH" → "Web Require Auth" */
+function labelFromKey(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /** Returns the implicit default value for a variable based on its type. */
 export function getVariableDefault(meta: VariableDisplay): string {
   switch (meta.datatype) {
@@ -25,6 +33,15 @@ export function getVariableDefault(meta: VariableDisplay): string {
       return "false";
     default:
       return "";
+  }
+}
+
+function renderFieldIcon(icon?: string) {
+  switch (icon) {
+    case "shield":
+      return <Shield className="h-4 w-4 text-muted-foreground" />;
+    default:
+      return null;
   }
 }
 
@@ -90,18 +107,27 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
   // 3. Boolean toggle
   if (meta.datatype === "boolean") {
     return (
-      <div className="flex items-center gap-3 pt-1">
+      <div className="flex items-center justify-between">
+        <label htmlFor={fieldKey} className="cursor-pointer">
+          <div className="flex items-center gap-2">
+            {meta.icon ? <span className="shrink-0">{renderFieldIcon(meta.icon)}</span> : null}
+            <div>
+              <p className="text-[13px] font-medium text-foreground select-none">
+                {meta.label ?? labelFromKey(fieldKey)}
+              </p>
+              {meta.description ? (
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {meta.description}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </label>
         <Switch
           id={fieldKey}
           checked={value === "true"}
           onCheckedChange={(checked) => onChange(checked ? "true" : "false")}
         />
-        <label
-          htmlFor={fieldKey}
-          className="text-sm text-muted-foreground select-none cursor-pointer"
-        >
-          {value === "true" ? "Enabled" : "Disabled"}
-        </label>
       </div>
     );
   }

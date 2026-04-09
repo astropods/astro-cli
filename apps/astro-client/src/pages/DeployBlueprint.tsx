@@ -155,10 +155,10 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
               className="size-8 shrink-0 rounded-sm overflow-hidden"
             />
             <div>
-              <h1 className="text-sm font-bold text-foreground">
+              <h1 className="text-sm font-semibold text-foreground">
                 Deploy {agent.account}/{agent.name}
               </h1>
-              <div className="text-body-sm text-faint-foreground">
+              <div className="text-body-sm text-muted-foreground">
                 Configure and deploy this agent to your account
               </div>
             </div>

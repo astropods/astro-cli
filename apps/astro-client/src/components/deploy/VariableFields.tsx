@@ -15,6 +15,7 @@ export interface VariableDisplay {
   optional?: boolean;
   secret?: boolean;
   label?: string;
+  icon?: string;
   placeholder?: string;
   helpUrl?: string;
   datatype?: string;
@@ -50,37 +51,39 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
       <div className="space-y-5">
         {variables.map(([key, v]) => (
           <div key={key}>
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor={key} size="md" className="mb-0">
-                  {v.label ?? humanizeKey(key)}
-                </Label>
-                {v.optional && (
-                  <span className="text-xs text-muted-foreground">Optional</span>
-                )}
-                {v.description && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4}>
-                      {v.description}
-                    </TooltipContent>
-                  </Tooltip>
+            {v.datatype !== "boolean" && (
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor={key} size="md" className="mb-0">
+                    {v.label ?? humanizeKey(key)}
+                  </Label>
+                  {v.optional && (
+                    <span className="text-xs text-muted-foreground">Optional</span>
+                  )}
+                  {v.description && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={4}>
+                        {v.description}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                {v.helpUrl && (
+                  <a
+                    href={v.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                  >
+                    Where do I find this?
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
                 )}
               </div>
-              {v.helpUrl && (
-                <a
-                  href={v.helpUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
-                >
-                  Where do I find this?
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </div>
+            )}
             <VariableField
               fieldKey={key}
               meta={v}
