@@ -262,8 +262,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 	// Build agent block
 	agentImage := resolveImage(astroSpec.Agent.Image, input)
-	if agentImage == "" && input.RegistryURL != "" {
-		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, input.AgentName, input.BuildID)
+	if agentImage == "" {
+		return nil, fmt.Errorf("agent image is not set in spec")
 	}
 	agentEndpoints := map[string]spec.Endpoint{
 		"http": {Port: 8080, Protocol: "http"},

@@ -146,6 +146,17 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("parse spec YAML: %w", err)))
 	}
 
+	// Set the agent image using the proxy registry format so it follows the same
+	// resolveImage path as a CLI push: {proxyHost}/{accountID}/{agentName}:{buildID}
+	if proxyHost := w.cfg.Deployment.ProxyRegistryHost; proxyHost != "" {
+		agentMap, _ := specMap["agent"].(map[string]any)
+		if agentMap == nil {
+			agentMap = map[string]any{}
+			specMap["agent"] = agentMap
+		}
+		agentMap["image"] = fmt.Sprintf("%s/%s/%s:%s", proxyHost, conn.AccountID, agentName, args.BuildID)
+	}
+
 	w.updateStep(dbCtx, args.BuildRecordID, "registering")
 	if err := w.agentIndex.Register(
 		conn.AccountID, agentName, args.BuildID,
