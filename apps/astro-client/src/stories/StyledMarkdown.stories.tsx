@@ -236,6 +236,201 @@ Here is a paragraph that demonstrates **multiple** *inline* styles together with
 This paragraph is intentionally long to test how the component handles text wrapping and line height across multiple lines. When building agents for production use, it is important to consider how they will handle edge cases, rate limits, and error recovery. A well-designed agent should gracefully degrade when an integration is unavailable, queue retries with exponential backoff, and surface clear error messages to the operator. This ensures reliability even under adverse conditions and maintains trust with the teams that depend on the agent's output.
 `;
 
+const HTML_TAGS = `# Supported HTML Tags
+
+This story demonstrates all HTML tags supported in agent READMEs, matching GitHub's markdown HTML rendering.
+
+---
+
+## Collapsible Sections
+
+<details>
+<summary>Click to expand configuration example</summary>
+
+This content is hidden by default. It supports full markdown inside:
+
+- Bullet points
+- **Bold text** and \`inline code\`
+
+\`\`\`yaml
+name: my-agent
+version: 1.0.0
+\`\`\`
+
+</details>
+
+<details open>
+<summary>This section starts expanded</summary>
+
+Use the \`open\` attribute to expand a details block by default.
+
+</details>
+
+---
+
+## Keyboard Input &amp; Code Annotations
+
+Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> to open the command palette.
+
+Nested keys: <kbd><kbd>Ctrl</kbd>+<kbd>C</kbd></kbd> then <kbd><kbd>Ctrl</kbd>+<kbd>V</kbd></kbd>
+
+The <samp>connection refused</samp> output indicates the server is down.
+
+Use <var>agentName</var> as the identifier in your config. The formula is <var>x</var> = <var>y</var> + 2.
+
+Legacy teletype: <tt>monospaced text</tt>
+
+---
+
+## Subscript &amp; Superscript
+
+Chemical formulas: H<sub>2</sub>O, CO<sub>2</sub>, C<sub>6</sub>H<sub>12</sub>O<sub>6</sub>
+
+Math notation: x<sup>2</sup> + y<sup>2</sup> = z<sup>2</sup>, 2<sup>10</sup> = 1024
+
+Footnote style: This claim needs a reference<sup>[1]</sup> and so does this<sup>[2]</sup>.
+
+---
+
+## Inserted &amp; Deleted Text
+
+<del>The old API endpoint was /v1/agents.</del> <ins>Use /v2/agents instead.</ins>
+
+With cite attribute: <del cite="https://example.com/changelog">Deprecated method</del>
+
+---
+
+## Highlighted &amp; Small Text
+
+Deploy status: <mark>requires review</mark> before merging.
+
+This is <mark>highlighted text</mark> to draw attention to key information.
+
+<small>Fine print: Subject to rate limits. See documentation for details.</small>
+
+---
+
+## Abbreviations
+
+The <abbr title="Application Programming Interface">API</abbr> supports <abbr title="Representational State Transfer">REST</abbr> and <abbr title="GraphQL">GQL</abbr> protocols.
+
+Deploy your agent to <abbr title="Amazon Web Services">AWS</abbr> or <abbr title="Google Cloud Platform">GCP</abbr>.
+
+---
+
+## Definition Lists
+
+<dl>
+<dt>Agent</dt>
+<dd>An autonomous program that performs tasks on behalf of a user, powered by AI models and tool integrations.</dd>
+
+<dt>Blueprint</dt>
+<dd>A reusable template that defines an agent's configuration, integrations, and behavior.</dd>
+
+<dt>Integration</dt>
+<dd>A connection to an external service (GitHub, Slack, Linear, etc.) that an agent can use to read and write data.</dd>
+</dl>
+
+---
+
+## Inline Quotes &amp; Citations
+
+The documentation states <q>agents should be designed to do one thing well</q>.
+
+As noted in <cite>Designing Autonomous Agents</cite>, reliability is paramount.
+
+The term <dfn>observability</dfn> refers to the ability to understand a system's internal state from its external outputs.
+
+---
+
+## Ruby Annotations (East Asian text)
+
+<ruby>漢<rp>(</rp><rt>かん</rt><rp>)</rp>字<rp>(</rp><rt>じ</rt><rp>)</rp></ruby>
+
+---
+
+## Figures &amp; Captions
+
+<figure>
+<img src="https://placehold.co/600x200/0f1a19/b8ccc8?text=Agent+Architecture" alt="Agent architecture diagram" loading="lazy">
+<figcaption>Figure 1: High-level architecture of the agent deployment pipeline.</figcaption>
+</figure>
+
+---
+
+## Tables with Caption
+
+<table>
+<caption>Agent resource limits by tier</caption>
+<thead>
+<tr><th>Resource</th><th>Free</th><th>Pro</th><th>Enterprise</th></tr>
+</thead>
+<tbody>
+<tr><td>CPU</td><td>0.5 vCPU</td><td>2 vCPU</td><td>8 vCPU</td></tr>
+<tr><td>Memory</td><td>512 MB</td><td>2 GB</td><td>16 GB</td></tr>
+<tr><td>Storage</td><td>1 GB</td><td>10 GB</td><td>100 GB</td></tr>
+</tbody>
+</table>
+
+---
+
+## Bidirectional Text
+
+<bdo dir="rtl">This text is rendered right-to-left</bdo>
+
+---
+
+## Time Element
+
+Last updated: <time datetime="2026-04-08">April 8, 2026</time>
+
+The deploy window opens at <time datetime="14:00">2:00 PM</time> daily.
+
+---
+
+## Word Break Opportunities
+
+Long identifiers can use word break hints for better wrapping: \`customer<wbr>-insights<wbr>-engine<wbr>-v2<wbr>-production\`
+
+---
+
+## Line Breaks
+
+First line of the address.<br>
+Second line.<br>
+Third line.
+
+---
+
+## Mixed HTML and Markdown
+
+You can freely **mix markdown** with <mark>HTML tags</mark> in the same paragraph. Use <kbd>Ctrl</kbd>+<kbd>S</kbd> to save, and check the <abbr title="Continuous Integration">CI</abbr> pipeline for results.
+
+<details>
+<summary>Complex nested example</summary>
+
+This section combines multiple HTML features:
+
+- Press <kbd>Enter</kbd> to confirm
+- Status: <mark>passing</mark>
+- Formula: E = mc<sup>2</sup>
+- Molecule: CH<sub>3</sub>COOH
+- <del>Old approach</del> → <ins>New approach</ins>
+
+<figure>
+<img src="https://placehold.co/400x120/0f1a19/b8ccc8?text=Nested+Figure" alt="Nested figure" loading="lazy">
+<figcaption>A figure inside a collapsible section.</figcaption>
+</figure>
+
+</details>
+`;
+
+export const HTMLTags: Story = {
+  args: {
+    children: HTML_TAGS,
+  },
+};
+
 export const KitchenSink: Story = {
   args: {
     children: KITCHEN_SINK,

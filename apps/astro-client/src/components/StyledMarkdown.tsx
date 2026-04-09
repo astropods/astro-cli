@@ -1,7 +1,39 @@
 import Markdown from "react-markdown";
+import type { PluggableList } from "unified";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkUnwrapImages from "@/lib/remark-unwrap-images";
 import { cn } from "@/lib/utils";
+
+/**
+ * Extends rehype-sanitize's default schema (already GitHub-modeled) with the
+ * additional tags and attributes that GitHub's html-pipeline allows.
+ * See: https://github.com/gjtorikian/html-pipeline
+ */
+const githubSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    "abbr",
+    "bdo",
+    "caption",
+    "cite",
+    "dfn",
+    "figure",
+    "figcaption",
+    "mark",
+    "small",
+    "time",
+    "wbr",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...(defaultSchema.attributes?.img ?? []), "loading"],
+    time: [...(defaultSchema.attributes?.time ?? []), "dateTime"],
+  },
+  strip: ["script", "style"],
+};
 
 export interface StyledMarkdownProps {
   children: string;
@@ -44,6 +76,7 @@ const proseClasses = [
 ].join(" ");
 
 const remarkPlugins = [remarkGfm, remarkUnwrapImages];
+const rehypePlugins: PluggableList = [rehypeRaw, [rehypeSanitize, githubSchema]];
 
 const markdownComponents = {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -55,7 +88,7 @@ const markdownComponents = {
 export function StyledMarkdown({ children, className }: StyledMarkdownProps) {
   return (
     <div className={cn(proseClasses, className)}>
-      <Markdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+      <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
         {children}
       </Markdown>
     </div>
