@@ -181,6 +181,33 @@ func (q *Queue) EnqueueGitHubBuild(ctx context.Context, args GitHubBuildArgs) er
 	return err
 }
 
+// CancelGitHubBuildsForConnection cancels all active River jobs for a GitHub connection.
+// Called when a new push arrives so older in-flight builds are interrupted and their
+// K8s jobs are cleaned up via the RunJob defer.
+func (q *Queue) CancelGitHubBuildsForConnection(ctx context.Context, connectionID string) {
+	rows, err := q.pool.Query(ctx, `
+		SELECT id FROM river.river_jobs
+		WHERE kind = 'github_build'
+		  AND args->>'connection_id' = $1
+		  AND state IN ('available', 'pending', 'running', 'scheduled')
+	`, connectionID)
+	if err != nil {
+		q.log.Warn("cancel github builds: query jobs", "error", err, "connection_id", connectionID)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		if _, err := q.client.JobCancel(ctx, id); err != nil {
+			q.log.Warn("cancel github builds: cancel job", "error", err, "job_id", id)
+		}
+	}
+}
+
 // InsertOpenMeterBackfillJob enqueues an immediate OpenMeter customer backfill job.
 func (q *Queue) InsertOpenMeterBackfillJob(ctx context.Context) error {
 	_, err := q.Insert(ctx, OpenMeterBackfillArgs{}, nil)

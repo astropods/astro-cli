@@ -85,8 +85,15 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	// even if the River job context is cancelled mid-flight (e.g. during a long K8s poll).
 	dbCtx := context.Background()
 
-	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "building", ""); err != nil {
-		log.Error("failed to update build status to building", "error", err)
+	// Atomically transition pending→building. Returns false if a newer push already
+	// cancelled this build before the worker picked it up.
+	started, err := w.ghStore.StartBuildIfPending(dbCtx, args.BuildRecordID)
+	if err != nil {
+		log.Error("failed to start build", "error", err)
+		// Non-fatal: continue with best-effort status tracking.
+	} else if !started {
+		log.Info("build superseded by newer push — skipping")
+		return river.JobCancel(fmt.Errorf("superseded by newer push"))
 	}
 
 	// isLastAttempt gates whether a retriable error should also update the DB to
@@ -142,6 +149,9 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		}
 		log.Info("Building component", "component", cb.Suffix, "destination", destination)
 		if err := w.builder.RunJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.Build, destination); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return w.cancel(dbCtx, args.BuildRecordID)
+			}
 			var bfe githubbuild.BuildFailedError
 			if errors.As(err, &bfe) {
 				return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("build %s: %w", cb.Suffix, err)))
@@ -188,6 +198,14 @@ func (w *GitHubBuildWorker) updateStep(ctx context.Context, buildRecordID, step 
 	if err := w.ghStore.UpdateBuildStep(ctx, buildRecordID, step); err != nil {
 		w.log.Error("failed to update build step", "step", step, "error", err)
 	}
+}
+
+// cancel marks the build as cancelled (superseded by a newer push) and tells River not to retry.
+func (w *GitHubBuildWorker) cancel(_ context.Context, buildRecordID string) error {
+	updateCtx, done := context.WithTimeout(context.Background(), 10*time.Second)
+	defer done()
+	_ = w.ghStore.CancelBuild(updateCtx, buildRecordID)
+	return river.JobCancel(fmt.Errorf("superseded by newer push"))
 }
 
 // fail marks the build record as failed and returns err (which may be river.JobCancel).

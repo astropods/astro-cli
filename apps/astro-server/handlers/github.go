@@ -474,6 +474,14 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 			return
 		}
 
+		// Cancel any older in-flight builds for this connection — new push supersedes them.
+		// CancelOlderBuilds updates DB state; CancelGitHubBuildsForConnection interrupts
+		// running workers (which propagates through RunJob's ctx to delete the K8s job).
+		if err := ghStore.CancelOlderBuilds(c.Request.Context(), conn.ID, buildRecordID); err != nil {
+			log.Warn("github webhook: cancel older builds", "error", err, "connection_id", conn.ID)
+		}
+		queue.CancelGitHubBuildsForConnection(c.Request.Context(), conn.ID)
+
 		if err := queue.EnqueueGitHubBuild(c.Request.Context(), riverqueue.GitHubBuildArgs{
 			ConnectionID:  conn.ID,
 			CommitSHA:     payload.After,

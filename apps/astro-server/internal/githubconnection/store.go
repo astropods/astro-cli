@@ -33,7 +33,7 @@ type Build struct {
 	BuildID       string     `json:"build_id"`
 	CommitSHA     string     `json:"commit_sha"`
 	Branch        string     `json:"branch"`
-	Status        string     `json:"status"`         // pending | building | registered | failed
+	Status        string     `json:"status"`         // pending | building | registering | registered | failed | cancelled
 	Step          string     `json:"step,omitempty"` // fetching-spec | building | registering
 	CommitMessage string     `json:"commit_message,omitempty"`
 	CommitAuthor  string     `json:"commit_author,omitempty"`
@@ -197,6 +197,40 @@ func (s *Store) UpdateBuildStatus(ctx context.Context, id, status, buildErr stri
 func (s *Store) UpdateBuildStep(ctx context.Context, id, step string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE github_builds SET step = $1 WHERE id = $2`, step, id)
 	return err
+}
+
+// CancelOlderBuilds marks all non-terminal builds for connectionID except keepID as cancelled.
+// Called when a new push arrives so the UI reflects that older builds were superseded.
+func (s *Store) CancelOlderBuilds(ctx context.Context, connectionID, keepID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE github_builds
+		SET status = 'cancelled', completed_at = now()
+		WHERE connection_id = $1
+		  AND id != $2
+		  AND status NOT IN ('registered', 'failed', 'cancelled')
+	`, connectionID, keepID)
+	return err
+}
+
+// CancelBuild marks a single build as cancelled.
+func (s *Store) CancelBuild(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE github_builds SET status = 'cancelled', completed_at = now() WHERE id = $1
+	`, id)
+	return err
+}
+
+// StartBuildIfPending atomically transitions a build from pending→building.
+// Returns false if the build was already cancelled before the worker picked it up.
+func (s *Store) StartBuildIfPending(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE github_builds SET status = 'building' WHERE id = $1 AND status = 'pending'
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ListBuilds returns up to 10 recent builds for an agent.
