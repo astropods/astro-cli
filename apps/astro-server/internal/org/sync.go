@@ -122,7 +122,19 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 
 	member, err := s.accountStore.GetMember(accountID, userID)
 	if err != nil {
-		return fmt.Errorf("member not found: %w", err)
+		// No local DB entry — the member may only exist in WorkOS (e.g. pending
+		// invitation shown via include_pending). Find their membership directly.
+		membership, membershipErr := s.findMembershipForUser(ctx, acct.WorkOSOrganizationID, userID)
+		if membershipErr != nil {
+			return fmt.Errorf("member not found locally or in WorkOS: %w", membershipErr)
+		}
+		if err := s.client.DeleteMembership(ctx, membership.ID); err != nil {
+			return fmt.Errorf("failed to delete WorkOS membership: %w", err)
+		}
+		if membership.Status == "pending" {
+			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
+		}
+		return nil
 	}
 	if member.WorkOSMembershipID == "" {
 		// No WorkOS membership — just remove locally
@@ -235,6 +247,21 @@ func (s *Sync) SendBulkInvitations(ctx context.Context, workosOrgID, inviterUser
 		results = append(results, res)
 	}
 	return results
+}
+
+// findMembershipForUser searches WorkOS memberships for the given org and returns
+// the one matching the specified user ID.
+func (s *Sync) findMembershipForUser(ctx context.Context, workosOrgID, userID string) (Membership, error) {
+	memberships, err := s.client.ListMemberships(ctx, workosOrgID, ListOpts{Limit: 100})
+	if err != nil {
+		return Membership{}, fmt.Errorf("failed to list memberships: %w", err)
+	}
+	for _, m := range memberships {
+		if m.UserID == userID {
+			return m, nil
+		}
+	}
+	return Membership{}, fmt.Errorf("no membership found for user %s in org %s", userID, workosOrgID)
 }
 
 // revokeInvitationsForUser revokes any pending WorkOS invitations matching the

@@ -162,6 +162,16 @@ func (ec *EventsConsumer) processMembershipEvent(event events.Event) error {
 
 	switch event.Event {
 	case "organization_membership.created", "organization_membership.updated":
+		// Only create local membership for active members. Pending memberships
+		// (invitation sent but not yet accepted) should not make the user a
+		// member of the account. When the membership transitions to active,
+		// WorkOS fires an updated event and we create the entry then.
+		if data.Status != "" && data.Status != "active" {
+			ec.log.Debug("Skipping membership event — status not active",
+				"event_type", event.Event, "status", data.Status,
+				"account_id", acct.ID, "user_id", data.UserID)
+			return nil
+		}
 		if err := ec.accountStore.UpsertMemberByWorkosMembershipID(acct.ID, data.UserID, data.ID); err != nil {
 			return err
 		}
