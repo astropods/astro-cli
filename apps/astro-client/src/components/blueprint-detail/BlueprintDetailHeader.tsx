@@ -11,7 +11,6 @@ export interface BlueprintDetailHeaderProps {
   name: string;
   visibility?: string;
   categories: string[];
-  avatarUrl?: string;
   canEdit?: boolean;
 }
 
@@ -20,20 +19,13 @@ export function BlueprintDetailHeader({
   name,
   visibility,
   categories,
-  avatarUrl,
   canEdit = false,
 }: BlueprintDetailHeaderProps) {
   const hasCategories = categories.length > 0;
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const uploadAvatar = useUploadBlueprintAvatar();
 
-  const avatarImage = avatarUrl ? (
-    <img
-      src={avatarUrl}
-      alt={name}
-      className="size-14 shrink-0 rounded-sm object-cover border border-stone-200 dark:border-border"
-    />
-  ) : (
+  const avatarImage = (
     <BlueprintIdentity
       account={account}
       name={name}

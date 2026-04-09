@@ -57,13 +57,8 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 			lastID = id
 			batchCount++
 
-			exists, err := w.avatarStore.AvatarExists(ctx, name)
-			if err != nil {
-				w.log.Error("Avatar backfill: failed to check avatar", "account", name, "error", err)
-				totalFailed++
-				continue
-			}
-			if exists {
+			exists, isJPEG := w.avatarStore.AvatarIsValidJPEG(ctx, name)
+			if exists && isJPEG {
 				totalSkipped++
 				continue
 			}

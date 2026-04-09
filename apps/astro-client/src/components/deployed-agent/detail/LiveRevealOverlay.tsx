@@ -15,9 +15,10 @@ import {
 import { HoloCard } from "@/components/trading-card/HoloCard";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { useExtractedColors, useResolvedIntegrations } from "@/components/deployed-agent/detail/liveRevealCardHooks";
-import { generateIdentity } from "identity-gen";
-import type { CardAvatar, CardData } from "astro-trading-card";
-import { generateCard, stripSvgWrapper } from "astro-trading-card";
+import type { CardData } from "astro-trading-card";
+import { generateCard } from "astro-trading-card";
+import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
+import { getDeploymentAvatarUrl } from "@/lib/assets";
 
 export function LiveRevealOverlay({
   deployment,
@@ -44,16 +45,10 @@ export function LiveRevealOverlay({
     return () => window.cancelAnimationFrame(raf);
   }, []);
 
-  const cardAvatar = useMemo<CardAvatar | undefined>(() => {
-    const avatarUrl = deployment.avatar_url ?? fallbackAvatarUrl;
-    if (avatarUrl) {
-      return { url: avatarUrl };
-    }
-    const svg = generateIdentity({ seed: `${account}/${deployment.name}`, size: 128 });
-    return { svg: stripSvgWrapper(svg) };
-  }, [account, deployment.avatar_url, deployment.name, fallbackAvatarUrl]);
+  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deployment.id), account, deployment.name);
 
-  const baseCardData = useMemo<CardData>(() => {
+  const baseCardData = useMemo<CardData | null>(() => {
+    if (!cardAvatar) return null;
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return {
       name: deployment.name,
@@ -69,19 +64,19 @@ export function LiveRevealOverlay({
     };
   }, [account, cardAvatar, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
 
-  const { colors, ready: colorsReady } = useExtractedColors(baseCardData.avatar, true);
+  const { colors, ready: colorsReady } = useExtractedColors(baseCardData?.avatar, true);
   const cardIntegrations = useResolvedIntegrations(integrations, true);
 
-  const revealCardData = useMemo<CardData>(
-    () => ({
+  const revealCardData = useMemo<CardData | null>(
+    () => baseCardData ? ({
       ...baseCardData,
       colors,
       ...(cardIntegrations.length > 0 ? { integrations: cardIntegrations } : {}),
-    }),
+    }) : null,
     [baseCardData, cardIntegrations, colors],
   );
 
-  const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
+  const revealCardSvg = useMemo(() => revealCardData ? generateCard(revealCardData) : "", [revealCardData]);
   const blueprintUrl = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return `${origin}/${account}/${deployment.name}`;
@@ -153,9 +148,7 @@ export function LiveRevealOverlay({
           {/* Hidden preload keeps the avatar URL in the browser cache so the SVG
               <image> element doesn't flicker when the card is regenerated after
               color extraction completes. */}
-          {(deployment.avatar_url ?? fallbackAvatarUrl) && (
-            <img src={deployment.avatar_url ?? fallbackAvatarUrl} aria-hidden className="sr-only" alt="" />
-          )}
+          <img src={getDeploymentAvatarUrl(deployment.id)} aria-hidden className="sr-only" alt="" />
           <div
             className={cn(
               "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",

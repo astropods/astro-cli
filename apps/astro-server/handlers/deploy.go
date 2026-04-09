@@ -95,14 +95,15 @@ func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
 // the registered agent build, regenerates the server's template, enforces Rule 19,
 // and returns everything needed to proceed with deployment or validation.
 type deployContext struct {
-	acct          *account.Account
-	agentName     string
-	displayName   string
-	deploymentID  string
-	buildID       string
-	k8sNS         string
-	isUpdate      bool // true when deployment_id was provided (in-place update)
-	resolveResult *deployment.ResolveResult
+	acct              *account.Account
+	sourceAccountName string // account that owns the blueprint (may differ from acct on cross-account deploys)
+	agentName         string
+	displayName       string
+	deploymentID      string
+	buildID           string
+	k8sNS             string
+	isUpdate          bool // true when deployment_id was provided (in-place update)
+	resolveResult     *deployment.ResolveResult
 }
 
 func prepareDeployment(
@@ -361,14 +362,15 @@ func prepareDeployment(
 	}
 
 	return &deployContext{
-		acct:          targetAcct,
-		agentName:     agentName,
-		displayName:   displayName,
-		deploymentID:  deploymentID,
-		buildID:       buildID,
-		k8sNS:         k8sNamespace,
-		isUpdate:      isUpdate,
-		resolveResult: resolveResult,
+		acct:              targetAcct,
+		sourceAccountName: sourceAcct.Name,
+		agentName:         agentName,
+		displayName:       displayName,
+		deploymentID:      deploymentID,
+		buildID:           buildID,
+		k8sNS:             k8sNamespace,
+		isUpdate:          isUpdate,
+		resolveResult:     resolveResult,
 	}, true
 }
 
@@ -502,7 +504,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Copy the blueprint's avatar to the new deployment (best-effort).
 		if avatarStore != nil && !dctx.isUpdate {
-			if _, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.acct.Name, dctx.agentName, dctx.deploymentID); copyErr != nil {
+			if _, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.sourceAccountName, dctx.agentName, dctx.deploymentID); copyErr != nil {
 				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
 			}
 		}
@@ -872,11 +874,6 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			for _, d := range dbDeps {
 				dbDepByID[d.ID] = d
 			}
-			for i, dep := range allDeployments {
-				if _, ok := dbDepByID[dep.ID]; ok {
-					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID)
-				}
-			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -926,10 +923,6 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 				result.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
 				result.UpdatedBy = latest.ActorID
 			}
-		}
-
-		if avatarStore != nil {
-			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
 		}
 
 		// Check if the messaging ClusterIP service exists in K8s.
@@ -2426,12 +2419,6 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			log.Warn("Failed to load deployment revisions", "error", revErr, "deployment_id", dep.ID)
 		}
 
-		// Resolve avatar URL for deployment's own custom avatar.
-		var avatarURL string
-		if avatarStore != nil {
-			avatarURL = avatarStore.DeploymentAvatarURL(dep.ID)
-		}
-
 		c.JSON(http.StatusOK, gin.H{
 			"deployment_id":     dep.ID,
 			"status":            dep.Status,
@@ -2442,7 +2429,6 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			"status_changed_at": dep.StatusChangedAt,
 			"events":            events,
 			"revisions":         revisions,
-			"avatar_url":        avatarURL,
 		})
 	}
 }

@@ -17,10 +17,10 @@ import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
-import type { CardData, CardAvatar } from "astro-trading-card";
-import { stripSvgWrapper } from "astro-trading-card";
+import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { generateIdentity } from "identity-gen";
+import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
+import { getDeploymentAvatarUrl } from "@/lib/assets";
 
 export type DeployedAgentStatus = "active" | "inactive" | "deploying" | "undeploying" | "error" | "restarting" | "pausing" | "resuming";
 
@@ -91,11 +91,7 @@ export function DeployedAgentCard({
   const { data: agent } = useBlueprint(account, name, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const cardAvatar = useMemo<CardAvatar | undefined>(() => {
-    if (avatarUrl) return { url: avatarUrl };
-    const svg = generateIdentity({ seed: `${account}/${name}`, size: 128 });
-    return { svg: stripSvgWrapper(svg) };
-  }, [avatarUrl, account, name]);
+  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deploymentId), account, name);
 
   const cardData = useMemo<CardData>(() => ({
     name,
@@ -158,20 +154,13 @@ export function DeployedAgentCard({
       </div>
 
       <div className="flex items-center gap-3">
-        {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt={name}
-            className="h-9 w-9 shrink-0 rounded-sm object-cover"
-          />
-        ) : (
-          <BlueprintIdentity
-            account={account}
-            name={name}
-            size={36}
-            className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
-          />
-        )}
+        <BlueprintIdentity
+          account={account}
+          name={name}
+          size={36}
+          url={getDeploymentAvatarUrl(deploymentId)}
+          className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
+        />
         <div className="min-w-0 flex-1 pr-6">
           <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
             {displayName || name}

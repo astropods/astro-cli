@@ -5,9 +5,9 @@ import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
-import type { CardData, CardAvatar } from "astro-trading-card";
-import { stripSvgWrapper } from "astro-trading-card";
-import { generateIdentity } from "identity-gen";
+import type { CardData } from "astro-trading-card";
+import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
+import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -59,11 +59,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const cardAvatar = useMemo<CardAvatar | undefined>(() => {
-    if (avatarUrl) return { url: avatarUrl };
-    const svg = generateIdentity({ seed: `${account}/${deploymentName}`, size: 128 });
-    return { svg: stripSvgWrapper(svg) };
-  }, [avatarUrl, account, deploymentName]);
+  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deploymentId), account, deploymentName);
 
   const cardData = useMemo<CardData>(() => ({
     name: deploymentName,

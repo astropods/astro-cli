@@ -73,9 +73,9 @@ func PresetIndex(handle string) int {
 	return int(hash%PresetCount) + 1
 }
 
-// presetKey returns the storage key for a preset avatar SVG.
+// presetKey returns the storage key for a preset avatar JPEG.
 func presetKey(index int) string {
-	return fmt.Sprintf("placeholders/accounts/avatar_%02d.svg", index)
+	return fmt.Sprintf("placeholders/accounts/avatar_%02d.jpg", index)
 }
 
 // avatarKey returns the storage key for an account's avatar.
@@ -96,6 +96,23 @@ func deploymentAvatarKey(id string) string {
 // AvatarExists checks whether an avatar exists for the given handle.
 func (s *Store) AvatarExists(ctx context.Context, handle string) (bool, error) {
 	return s.backend.Exists(ctx, avatarKey(handle))
+}
+
+// AvatarIsValidJPEG checks whether the avatar for handle exists and is a JPEG.
+// Returns (exists, isJPEG). Used by the backfill to detect broken presets
+// (SVG content stored at a .jpg key).
+func (s *Store) AvatarIsValidJPEG(ctx context.Context, handle string) (exists bool, isJPEG bool) {
+	s3b, ok := s.backend.(*S3Backend)
+	if !ok {
+		// Local backend — just check existence, assume valid
+		exists, _ = s.backend.Exists(ctx, avatarKey(handle))
+		return exists, exists
+	}
+	contentType, err := s3b.ContentType(ctx, avatarKey(handle))
+	if err != nil {
+		return false, false
+	}
+	return true, contentType == "image/jpeg"
 }
 
 // AgentAvatarExists checks whether an avatar exists for the given agent.

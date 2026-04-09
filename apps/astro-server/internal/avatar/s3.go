@@ -94,3 +94,19 @@ func (b *S3Backend) Exists(ctx context.Context, key string) (bool, error) {
 	}
 	return true, nil
 }
+
+// ContentType returns the Content-Type of the object at key.
+// Returns an error if the object does not exist.
+func (b *S3Backend) ContentType(ctx context.Context, key string) (string, error) {
+	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", fmt.Errorf("s3 head %s: %w", key, err)
+	}
+	if out.ContentType != nil {
+		return *out.ContentType, nil
+	}
+	return "", nil
+}

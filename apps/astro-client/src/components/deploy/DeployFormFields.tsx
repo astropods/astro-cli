@@ -59,10 +59,9 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           <div className="flex items-start gap-4">
             {avatar && (() => {
               const canEdit = !!avatar.onUpload || !!avatar.onStage;
-              const displayUrl = avatar.stagedPreviewUrl ?? avatar.url;
-              const avatarImage = displayUrl ? (
+              const avatarImage = avatar.stagedPreviewUrl ? (
                 <img
-                  src={displayUrl}
+                  src={avatar.stagedPreviewUrl}
                   alt={avatar.blueprintName}
                   className="size-[68px] rounded-sm object-cover"
                 />

@@ -5,6 +5,7 @@ import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { ChatBubbleLeftRightIcon, Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
@@ -165,7 +166,7 @@ export function ActiveDetailView({
             <ArrowLeft size={14} />
           </button>
           <div className="rounded overflow-hidden shrink-0 leading-none">
-            <BlueprintIdentity account={account} name={deployment.name} size={26} avatarUrl={deployment.avatar_url} className="rounded-sm" />
+            <BlueprintIdentity account={account} name={deployment.name} size={26} url={getDeploymentAvatarUrl(deployment.id)} className="rounded-sm" />
           </div>
           <div className="flex items-center gap-1.5">
             <h1 className="font-sans text-heading-4 font-semibold text-foreground m-0 leading-tight">
