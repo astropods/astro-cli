@@ -987,6 +987,10 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	if httpEp != nil && httpEp.Expose != nil && httpEp.Expose.Enabled {
 		t.Error("interfaces.endpoints.http.expose.enabled: expected false")
 	}
+	// auth should default to oidc
+	if ds.Interfaces.Auth == nil || ds.Interfaces.Auth.Web == nil || ds.Interfaces.Auth.Web.Type != "oidc" {
+		t.Errorf("interfaces.auth.web.type: expected oidc, got %v", ds.Interfaces.Auth)
+	}
 }
 
 func TestTemplate_MessagingDisabled(t *testing.T) {

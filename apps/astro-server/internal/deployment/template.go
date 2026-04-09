@@ -303,6 +303,9 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				"grpc": {Port: 9090, Protocol: "grpc"},
 				"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: false}},
 			},
+			Auth: &spec.DeploymentInterfacesAuth{
+				Web: &spec.DeploymentWebAuth{Type: "oidc"},
+			},
 		}
 
 		// All Slack-related variables are forced to targets: ["interface.slack"] so they
