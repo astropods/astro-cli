@@ -105,6 +105,7 @@ type Variable struct {
 	DeploymentID string
 	Name         string
 	Value        string
+	Ref          string
 	Secret       bool
 	Optional     bool
 	Targets      []string
@@ -115,9 +116,10 @@ type Variable struct {
 // ingress records. These values come from environment variables and are not
 // part of the deployment spec itself.
 type NormalizedSpecConfig struct {
-	Namespace              string // K8s namespace (for ingress host generation)
-	IngressDomain          string // e.g. "agents.astropods.ai"
-	IngestionIngressDomain string // e.g. "ingestion.astropods.ai"
+	Namespace              string            // K8s namespace (for ingress host generation)
+	IngressDomain          string            // e.g. "agents.astropods.ai"
+	IngestionIngressDomain string            // e.g. "ingestion.astropods.ai"
+	VarRefs                map[string]string // variable name → original account variable ref (before resolution)
 }
 
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
@@ -664,16 +666,20 @@ func SaveNormalizedSpec(
 			val = base64.StdEncoding.EncodeToString(ciphertext)
 			nonce = n
 		}
-		// When no encryptor is available, store plaintext so the
-		// pre-filled template can return the value for reconfiguration.
 		targets := v.Targets
 		if targets == nil {
 			targets = []string{}
 		}
+		// Persist the original account variable ref (cleared from spec before reaching here)
+		// so the prefilled template can restore it instead of leaking the resolved value.
+		ref := ""
+		if nsCfg != nil {
+			ref = nsCfg.VarRefs[name]
+		}
 		_, err := tx.Exec(`
-			INSERT INTO deployment_variables (deployment_id, name, value, secret, optional, targets, nonce)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, deploymentID, name, val, v.Secret, v.Optional, pq.Array(targets), nonce)
+			INSERT INTO deployment_variables (deployment_id, name, value, ref, secret, optional, targets, nonce)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, deploymentID, name, val, ref, v.Secret, v.Optional, pq.Array(targets), nonce)
 		if err != nil {
 			return fmt.Errorf("insert variable %s: %w", name, err)
 		}
@@ -822,7 +828,7 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 // GetDeploymentVariables returns all variables for a deployment.
 func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) {
 	rows, err := s.db.Query(`
-		SELECT deployment_id, name, value, secret, optional, targets, nonce
+		SELECT deployment_id, name, value, ref, secret, optional, targets, nonce
 		FROM deployment_variables
 		WHERE deployment_id = $1
 		ORDER BY name
@@ -835,7 +841,7 @@ func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) 
 	var result []Variable
 	for rows.Next() {
 		var v Variable
-		if err := rows.Scan(&v.DeploymentID, &v.Name, &v.Value, &v.Secret, &v.Optional, pq.Array(&v.Targets), &v.Nonce); err != nil {
+		if err := rows.Scan(&v.DeploymentID, &v.Name, &v.Value, &v.Ref, &v.Secret, &v.Optional, pq.Array(&v.Targets), &v.Nonce); err != nil {
 			return nil, fmt.Errorf("scan variable: %w", err)
 		}
 		result = append(result, v)

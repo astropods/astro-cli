@@ -222,6 +222,7 @@ CREATE TABLE public.deployment_variables (
     deployment_id varchar(11) NOT NULL,
     name varchar NOT NULL,
     value text NOT NULL DEFAULT '',
+    ref text NOT NULL DEFAULT '',
     secret boolean NOT NULL DEFAULT false,
     optional boolean NOT NULL DEFAULT false,
     targets text[] NOT NULL DEFAULT '{}',

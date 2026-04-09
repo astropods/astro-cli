@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,6 +103,7 @@ type deployContext struct {
 	k8sNS             string
 	isUpdate          bool // true when deployment_id was provided (in-place update)
 	resolveResult     *deployment.ResolveResult
+	varRefs           map[string]string // variable name → original account variable ref (before resolution)
 }
 
 func prepareDeployment(
@@ -333,12 +333,16 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Resolve account variable refs before validation
+	// Resolve account variable refs before validation; capture the original refs
+	// so they can be persisted and restored when building the prefilled template.
+	var varRefs map[string]string
 	if varsStore != nil {
-		if err := resolveVarReferences(c, log, submittedSpec, targetAcct.ID, varsStore, cfg); err != nil {
+		var refErr error
+		varRefs, refErr = resolveVarReferences(c, log, submittedSpec, targetAcct.ID, varsStore, cfg)
+		if refErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to resolve variable references",
-				"details": err.Error(),
+				"details": refErr.Error(),
 			})
 			return nil, false
 		}
@@ -371,6 +375,7 @@ func prepareDeployment(
 		k8sNS:             k8sNamespace,
 		isUpdate:          isUpdate,
 		resolveResult:     resolveResult,
+		varRefs:           varRefs,
 	}, true
 }
 
@@ -487,6 +492,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				Namespace:              dctx.k8sNS,
 				IngressDomain:          cfg.Deployment.IngressDomain,
 				IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
+				VarRefs:                dctx.varRefs,
 			}
 			return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg)
 		}
@@ -2091,16 +2097,6 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			return
 		}
 
-		// Decrypt secrets if KMS is configured and deployment has an encrypted data key
-		var dec *envelope.Decryptor
-		if len(existing.EncryptedDataKey) > 0 && cfg.Deployment.KMSKeyARN != "" {
-			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
-			if awsErr == nil {
-				kmsClient := kms.NewFromConfig(awsCfg)
-				dec, _ = envelope.NewDecryptor(c.Request.Context(), kmsClient, existing.EncryptedDataKey)
-			}
-		}
-
 		// Merge stored values into template
 		template.Target.DeploymentID = deploymentID
 		template.Target.DisplayName = existing.DisplayName
@@ -2114,17 +2110,16 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 		// Merge variable values
 		for _, sv := range storedVars {
 			if tv, ok := template.Variables[sv.Name]; ok {
-				val := sv.Value
-				if sv.Secret && dec != nil && len(sv.Nonce) > 0 {
-					ciphertext, b64Err := base64.StdEncoding.DecodeString(val)
-					if b64Err == nil {
-						plaintext, decErr := dec.Decrypt(ciphertext, sv.Nonce)
-						if decErr == nil {
-							val = string(plaintext)
-						}
-					}
+				if sv.Ref != "" {
+					// Variable was originally set via an account variable reference —
+					// restore the ref so the UI shows which account variable was selected.
+					// Never return the resolved value regardless of whether it's secret.
+					tv.Ref = sv.Ref
+				} else if !sv.Secret {
+					// Non-secret direct value: safe to return as-is.
+					tv.Value = sv.Value
 				}
-				tv.Value = val
+				// Secret with no ref: leave value empty — never expose plaintext secrets.
 				template.Variables[sv.Name] = tv
 			}
 		}

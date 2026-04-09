@@ -283,9 +283,11 @@ func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars
 
 // resolveVarReferences resolves variables with a ref field by looking up
 // account variables and populating the value (decrypting secrets as needed).
-func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spec.AstroDeploymentSpec, accountID string, store *accountvars.Store, cfg *config.Config) error {
+// It returns the original refs map (variable name → account variable name) so
+// callers can persist the refs for later use (e.g. prefilled deployment templates).
+func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spec.AstroDeploymentSpec, accountID string, store *accountvars.Store, cfg *config.Config) (map[string]string, error) {
 	if len(submittedSpec.Variables) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Collect all ref'd variable names
@@ -296,7 +298,7 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 		}
 	}
 	if len(refs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Deduplicate names
@@ -313,7 +315,7 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 	acctVars, err := store.GetByNames(accountID, names)
 	if err != nil {
 		log.Error("Failed to fetch account variables for deployment", "error", err, "account_id", accountID)
-		return fmt.Errorf("failed to fetch account variables")
+		return nil, fmt.Errorf("failed to fetch account variables")
 	}
 
 	// Build lookup map
@@ -330,7 +332,7 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("unresolved variable references: %s", strings.Join(missing, "; "))
+		return nil, fmt.Errorf("unresolved variable references: %s", strings.Join(missing, "; "))
 	}
 
 	// Set up decryptor if any referenced variables are secrets
@@ -340,20 +342,20 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 			ek, err := store.GetEncryptionKey(accountID)
 			if err != nil {
 				log.Error("Failed to get account encryption key", "error", err, "account_id", accountID)
-				return fmt.Errorf("failed to decrypt account variables")
+				return nil, fmt.Errorf("failed to decrypt account variables")
 			}
 			if ek != nil && cfg.Deployment.KMSKeyARN != "" {
 				ctx := c.Request.Context()
 				awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
 				if awsErr != nil {
 					log.Error("Failed to load AWS config for variable resolution", "error", awsErr)
-					return fmt.Errorf("failed to decrypt account variables")
+					return nil, fmt.Errorf("failed to decrypt account variables")
 				}
 				kmsClient := kms.NewFromConfig(awsCfg)
 				decryptor, err = envelope.NewDecryptor(ctx, kmsClient, ek.EncryptedDataKey)
 				if err != nil {
 					log.Error("Failed to create decryptor for account variables", "error", err, "account_id", accountID)
-					return fmt.Errorf("failed to decrypt account variables")
+					return nil, fmt.Errorf("failed to decrypt account variables")
 				}
 			}
 			break
@@ -370,12 +372,12 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 				ciphertext, err := base64.StdEncoding.DecodeString(av.Value)
 				if err != nil {
 					log.Error("Failed to decode variable ciphertext", "error", err, "variable", acctVarName)
-					return fmt.Errorf("failed to decrypt variable %q", acctVarName)
+					return nil, fmt.Errorf("failed to decrypt variable %q", acctVarName)
 				}
 				pt, err := decryptor.Decrypt(ciphertext, av.Nonce)
 				if err != nil {
 					log.Error("Failed to decrypt account variable", "error", err, "variable", acctVarName)
-					return fmt.Errorf("failed to decrypt variable %q", acctVarName)
+					return nil, fmt.Errorf("failed to decrypt variable %q", acctVarName)
 				}
 				plaintext = string(pt)
 			} else {
@@ -387,11 +389,11 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 
 		v := submittedSpec.Variables[varKey]
 		v.Value = plaintext
-		v.Ref = "" // clear ref after resolution
+		v.Ref = "" // clear ref after resolution so validation and K8s see only the value
 		submittedSpec.Variables[varKey] = v
 
 		log.Info("Resolved account variable reference", "variable", varKey, "account_var", acctVarName, "account_id", accountID)
 	}
 
-	return nil
+	return refs, nil
 }

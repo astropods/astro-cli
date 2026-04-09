@@ -1147,3 +1147,134 @@ func TestRepairNormalizedSpec_CollectorAsWorkload(t *testing.T) {
 		}
 	}
 }
+
+// TestSaveNormalizedSpec_VarRefsStored verifies that account variable refs passed
+// via NormalizedSpecConfig.VarRefs are persisted in deployment_variables.ref so
+// the prefilled template can restore them instead of returning resolved values.
+func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec: "deployment/v1",
+		Source: spec.DeploymentSource{
+			Name: "ref-store-agent", Build: "build-1", Registry: "r.io",
+		},
+		Variables: map[string]spec.Variable{
+			// Secret resolved from account variable ref — ref was cleared before this point.
+			"API_KEY": {Value: "resolved-secret", Secret: true, Targets: []string{"agent"}},
+			// Non-secret resolved from account variable ref.
+			"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
+			// Direct value, no ref.
+			"TIMEOUT": {Value: "30s", Secret: false, Targets: []string{"agent"}},
+		},
+	}
+	resolved := &deployment.ResolvedEnv{
+		ConfigMapData: map[string]string{"LOG_LEVEL": "debug", "TIMEOUT": "30s"},
+		SecretData:    map[string]string{"API_KEY": "resolved-secret"},
+	}
+	nsCfg := &NormalizedSpecConfig{
+		VarRefs: map[string]string{
+			"API_KEY":   "MY_ACCOUNT_SECRET",
+			"LOG_LEVEL": "SHARED_LOG_LEVEL",
+			// TIMEOUT has no ref — direct value.
+		},
+	}
+
+	depID := newID()
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: depID, AccountID: accountID, AgentName: "ref-store-agent",
+		DisplayName: "RefStoreTest", BuildID: "build-1", Namespace: "ns-ref-store",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return SaveNormalizedSpec(tx, id, ds, resolved, nil, nsCfg)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	// Verify each variable's stored ref.
+	rows, err := db.Query(
+		`SELECT name, ref FROM deployment_variables WHERE deployment_id = $1 ORDER BY name`,
+		depID,
+	)
+	if err != nil {
+		t.Fatalf("query deployment_variables: %v", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	got := make(map[string]string)
+	for rows.Next() {
+		var name, ref string
+		if err := rows.Scan(&name, &ref); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got[name] = ref
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	cases := []struct{ name, wantRef string }{
+		{"API_KEY", "MY_ACCOUNT_SECRET"},
+		{"LOG_LEVEL", "SHARED_LOG_LEVEL"},
+		{"TIMEOUT", ""},
+	}
+	for _, tc := range cases {
+		if got[tc.name] != tc.wantRef {
+			t.Errorf("variable %s: ref = %q, want %q", tc.name, got[tc.name], tc.wantRef)
+		}
+	}
+}
+
+// TestGetDeploymentVariables_RefsRoundtrip verifies that refs written by
+// SaveNormalizedSpec are returned correctly by GetDeploymentVariables.
+func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec: "deployment/v1",
+		Source: spec.DeploymentSource{
+			Name: "ref-roundtrip-agent", Build: "b1", Registry: "r.io",
+		},
+		Variables: map[string]spec.Variable{
+			"SECRET_KEY": {Value: "plaintext", Secret: true, Targets: []string{"agent"}},
+			"PLAIN_KEY":  {Value: "value", Secret: false, Targets: []string{"agent"}},
+		},
+	}
+	nsCfg := &NormalizedSpecConfig{
+		VarRefs: map[string]string{"SECRET_KEY": "ACCT_SECRET"},
+	}
+
+	depID := newID()
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: depID, AccountID: accountID, AgentName: "ref-roundtrip-agent",
+		DisplayName: "RefRoundtrip", BuildID: "b1", Namespace: "ns-ref-roundtrip",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return SaveNormalizedSpec(tx, id, ds, nil, nil, nsCfg)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	vars, err := store.GetDeploymentVariables(depID)
+	if err != nil {
+		t.Fatalf("GetDeploymentVariables: %v", err)
+	}
+
+	byName := make(map[string]Variable, len(vars))
+	for _, v := range vars {
+		byName[v.Name] = v
+	}
+
+	if byName["SECRET_KEY"].Ref != "ACCT_SECRET" {
+		t.Errorf("SECRET_KEY.Ref = %q, want %q", byName["SECRET_KEY"].Ref, "ACCT_SECRET")
+	}
+	if byName["PLAIN_KEY"].Ref != "" {
+		t.Errorf("PLAIN_KEY.Ref = %q, want empty (no ref)", byName["PLAIN_KEY"].Ref)
+	}
+}

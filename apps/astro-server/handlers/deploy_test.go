@@ -1548,7 +1548,7 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
 	// GetByID for account name resolution
@@ -1644,7 +1644,7 @@ func TestGetPrefilledTemplate_BuildParamOverride(t *testing.T) {
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
 	// GetByID for account name resolution
@@ -1736,7 +1736,7 @@ func TestGetPrefilledTemplate_RevisionUsesBuildID(t *testing.T) {
 
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "secret", "optional", "targets", "nonce"}))
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce"}))
 
 	// GetByID for account name resolution
 	accountMock.ExpectQuery(`SELECT`).
@@ -1817,7 +1817,7 @@ func TestGetPrefilledTemplate_RevisionRestoresDisplayName(t *testing.T) {
 			AddRow("build-old", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "secret", "optional", "targets", "nonce"}))
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce"}))
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(
@@ -1947,7 +1947,7 @@ func TestGetPrefilledTemplate_PreservesAuth(t *testing.T) {
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
 	accountMock.ExpectQuery(`SELECT`).
@@ -3436,5 +3436,194 @@ func TestGetDeployment_NotMember(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Variable ref security tests for GetPrefilledDeploymentTemplate ---
+//
+// These tests cover the fix for the security issue where secret variable values
+// were being returned in the prefilled template instead of the original account
+// variable reference. The fix ensures:
+//   - Variables set via account variable refs → ref is restored, value is hidden
+//   - Secret variables set directly → value is hidden (never expose plaintext)
+//   - Non-secret variables set directly → value is returned as-is
+
+// specWithVarInputs is a minimal agent spec JSON that declares two inputs:
+// API_KEY (secret) and LOG_LEVEL (non-secret). These become entries in
+// template.Variables so the prefilled-template merge logic has keys to populate.
+const specWithVarInputs = `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1","inputs":[{"name":"API_KEY","secret":true,"description":"API key"},{"name":"LOG_LEVEL","secret":false,"description":"Log level"}]}}`
+
+// setupPrefilledVarsRouter wires GetPrefilledDeploymentTemplate and sets up all
+// sqlmock expectations except GetDeploymentVariables (the caller adds that).
+// Returns the router and the deploy DB mock to append variable row expectations.
+func setupPrefilledVarsRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
+		},
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	now := time.Now()
+	depID := "dep-vars-test"
+	acctID := "acct-1"
+
+	// GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{}`, "active", now, nil))
+	// IsMember
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// generateTemplate: account + agent + pinned build version
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs(acctID, "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specWithVarInputs, "", "", "[]", now, now))
+	// GetByID for target.account resolution (after variable merge)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+
+	return router, deployMock
+}
+
+// prefilledVarsRequest fires a GET to the prefilled template endpoint and
+// returns the parsed variables map from the JSON response.
+func prefilledVarsRequest(t *testing.T, router *gin.Engine) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/dep-vars-test?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	vars, _ := resp["variables"].(map[string]any)
+	return vars
+}
+
+// TestGetPrefilledTemplate_SecretRefRestored verifies the core security fix:
+// when a secret variable was deployed via an account variable reference, the
+// prefilled template returns the original ref and hides the resolved value.
+func TestGetPrefilledTemplate_SecretRefRestored(t *testing.T) {
+	router, deployMock := setupPrefilledVarsRouter(t)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).AddRow("dep-vars-test", "API_KEY", "encrypted-blob", "MY_ACCOUNT_SECRET", true, false, `{"agent"}`, nil))
+
+	vars := prefilledVarsRequest(t, router)
+
+	apiKey, ok := vars["API_KEY"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected API_KEY in variables, got %v", vars)
+	}
+	if apiKey["ref"] != "MY_ACCOUNT_SECRET" {
+		t.Errorf("expected ref=%q, got %v", "MY_ACCOUNT_SECRET", apiKey["ref"])
+	}
+	if v, hasValue := apiKey["value"]; hasValue && v != "" {
+		t.Errorf("expected value to be empty, got %v", v)
+	}
+}
+
+// TestGetPrefilledTemplate_SecretNoRefValueHidden verifies that a secret variable
+// deployed with a direct value (not a ref) never exposes the plaintext in the
+// prefilled template — the value field must be absent or empty.
+func TestGetPrefilledTemplate_SecretNoRefValueHidden(t *testing.T) {
+	router, deployMock := setupPrefilledVarsRouter(t)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).AddRow("dep-vars-test", "API_KEY", "encrypted-blob", "", true, false, `{"agent"}`, nil))
+
+	vars := prefilledVarsRequest(t, router)
+
+	apiKey, ok := vars["API_KEY"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected API_KEY in variables, got %v", vars)
+	}
+	if ref, hasRef := apiKey["ref"]; hasRef && ref != "" {
+		t.Errorf("expected no ref, got %v", ref)
+	}
+	if v, hasValue := apiKey["value"]; hasValue && v != "" {
+		t.Errorf("plaintext secret exposed in prefilled template: %v", v)
+	}
+}
+
+// TestGetPrefilledTemplate_NonSecretRefRestored verifies that refs are restored
+// for non-secret variables too — not just secrets.
+func TestGetPrefilledTemplate_NonSecretRefRestored(t *testing.T) {
+	router, deployMock := setupPrefilledVarsRouter(t)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).AddRow("dep-vars-test", "LOG_LEVEL", "debug", "SHARED_LOG_LEVEL", false, false, `{"agent"}`, nil))
+
+	vars := prefilledVarsRequest(t, router)
+
+	logLevel, ok := vars["LOG_LEVEL"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected LOG_LEVEL in variables, got %v", vars)
+	}
+	if logLevel["ref"] != "SHARED_LOG_LEVEL" {
+		t.Errorf("expected ref=%q, got %v", "SHARED_LOG_LEVEL", logLevel["ref"])
+	}
+	if v, hasValue := logLevel["value"]; hasValue && v != "" {
+		t.Errorf("expected value to be empty when ref is set, got %v", v)
+	}
+}
+
+// TestGetPrefilledTemplate_NonSecretDirectValue verifies that non-secret variables
+// with no ref have their value returned as-is (regression guard).
+func TestGetPrefilledTemplate_NonSecretDirectValue(t *testing.T) {
+	router, deployMock := setupPrefilledVarsRouter(t)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).AddRow("dep-vars-test", "LOG_LEVEL", "debug", "", false, false, `{"agent"}`, nil))
+
+	vars := prefilledVarsRequest(t, router)
+
+	logLevel, ok := vars["LOG_LEVEL"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected LOG_LEVEL in variables, got %v", vars)
+	}
+	if logLevel["value"] != "debug" {
+		t.Errorf("expected value=%q, got %v", "debug", logLevel["value"])
+	}
+	if ref, hasRef := logLevel["ref"]; hasRef && ref != "" {
+		t.Errorf("expected no ref, got %v", ref)
 	}
 }
