@@ -79,6 +79,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
         },
+        // Proxy webhook endpoints to the backend (e.g. GitHub webhook delivery)
+        "/webhooks": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: true,
+        },
       },
     },
   };
