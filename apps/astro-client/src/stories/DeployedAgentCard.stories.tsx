@@ -151,6 +151,21 @@ export const Restarting: Story = {
   },
 };
 
+export const WithUpdateAvailable: Story = {
+  args: {
+    name: "Incident Command",
+    deploymentId: "dep-incident-command",
+    account: "acme",
+    href: "/agents/incident-command/review/v2",
+    status: "active",
+    requests: 156,
+    lastActive: "2 min ago",
+    installedAt: "Jan 12, 2026",
+    updatedAt: "Feb 17, 2026",
+    hasNewBuildAvailable: true,
+  },
+};
+
 export const AllStatuses: Story = {
   args: {
     name: "Incident Command",

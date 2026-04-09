@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon, ArrowUpCircleIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { DeploymentStatusBadge } from "@/components/DeploymentStatusBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
@@ -166,8 +166,17 @@ export function DeployedAgentCard({
           <div className="mt-1 flex items-center gap-2">
             <DeploymentStatusBadge status={status} />
             {hasNewBuildAvailable && (
-              <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
-                update
+              <InlineBadge
+                shape="square"
+                className="font-sans text-[12px] normal-case py-0.5 px-2"
+                style={{
+                  color: "var(--color-yellow-700)",
+                  background: "transparent",
+                  borderColor: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
+                }}
+              >
+                <ArrowUpCircleIcon className="size-3 shrink-0 mr-1" />
+                Update available
               </InlineBadge>
             )}
           </div>
