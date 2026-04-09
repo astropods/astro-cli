@@ -20,7 +20,7 @@ test.describe("deploy page", () => {
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByLabel("Openai Api Key")).toBeVisible();
 
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await expect(page.getByLabel("Slack App Token")).toBeVisible();
     await expect(page.getByLabel("Slack Bot Token")).toHaveCount(0);
@@ -60,7 +60,7 @@ test.describe("deploy page", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
     await expect(page.getByLabel("Slack App Token")).toBeVisible();
@@ -109,7 +109,7 @@ test.describe("deploy page", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await page.getByLabel("Openai Api Key").fill("sk-test-value");
     await page.getByLabel("Slack Bot Token").fill("xoxb-test-value");
@@ -148,7 +148,7 @@ test.describe("deploy page", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await expect(page.getByLabel("Actionable Reactions")).toHaveValue("ticket");
     await expect(page.getByLabel("Allowed Channel IDs")).toHaveValue("C123");
@@ -188,7 +188,7 @@ test.describe("deploy page", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_OVERLAP}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
     await expect(page.getByLabel("Slack App Token")).toBeVisible();
@@ -243,7 +243,7 @@ test.describe("deploy page", () => {
     await expect(page.getByText(/Filled 6 variables/i)).toBeVisible();
     await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-imported-value");
 
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
     await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-imported-value");
     await expect(page.getByLabel("Slack App Token")).toHaveValue("xapp-imported-value");
     await expect(page.getByLabel("Actionable Reactions")).toHaveValue("ticket, bug");
@@ -284,7 +284,7 @@ test.describe("deploy page", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: /slack/i }).filter({ has: page.locator("[aria-pressed]") }).click();
+    await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     await page.getByLabel("Openai Api Key").fill("sk-test-value");
     await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");
