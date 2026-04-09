@@ -175,8 +175,12 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		RunAsGroup: &runAsGroup,
 	}
 
+	buildkitdFlags := "--oci-worker-no-process-sandbox"
+	if b.cfg.GitHub.BuildKitConfigMap != "" {
+		buildkitdFlags += " --config=/etc/buildkit/buildkitd.toml"
+	}
 	buildKitEnv := []corev1.EnvVar{
-		{Name: "BUILDKITD_FLAGS", Value: "--oci-worker-no-process-sandbox"},
+		{Name: "BUILDKITD_FLAGS", Value: buildkitdFlags},
 	}
 	volumes := []corev1.Volume{
 		{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -200,6 +204,21 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	buildKitVolumeMounts := []corev1.VolumeMount{
 		{Name: "workspace", MountPath: "/workspace", ReadOnly: true},
 		{Name: "buildkitd", MountPath: "/home/user/.local/share/buildkit"},
+	}
+	if b.cfg.GitHub.BuildKitConfigMap != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "buildkit-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: b.cfg.GitHub.BuildKitConfigMap},
+				},
+			},
+		})
+		buildKitVolumeMounts = append(buildKitVolumeMounts, corev1.VolumeMount{
+			Name:      "buildkit-config",
+			MountPath: "/etc/buildkit",
+			ReadOnly:  true,
+		})
 	}
 
 	// Production only: ECR login init container writes docker credentials to a shared volume.
