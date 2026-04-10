@@ -30,11 +30,13 @@ type EntryRow = {
   name: string
   value: string
   secret: boolean
+  description: string
+  showDescription: boolean
 }
 
 const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env)/i
 const MAX_FILE_SIZE = 256 * 1024
-const ROW_GRID = 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_170px]'
+const ROW_GRID = 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
 
 function newRow(partial?: Partial<EntryRow>): EntryRow {
   return {
@@ -42,6 +44,8 @@ function newRow(partial?: Partial<EntryRow>): EntryRow {
     name: '',
     value: '',
     secret: true,
+    description: '',
+    showDescription: false,
     ...partial,
   }
 }
@@ -104,6 +108,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
           name: row.name.trim(),
           value: row.value,
           secret: row.secret,
+          description: row.description.trim() || undefined,
         })),
     [activeRows],
   )
@@ -226,6 +231,19 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       autoFocus={index === 0}
                       aria-invalid={invalidKey || duplicateKey || undefined}
                     />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        updateRow(row.id, {
+                          showDescription: !row.showDescription,
+                        })
+                      }
+                    >
+                      {row.showDescription || row.description ? 'Hide description' : 'Add description'}
+                    </Button>
                     {invalidKey && <p className="text-[11px] text-destructive">Invalid key format</p>}
                     {duplicateKey && <p className="text-[11px] text-destructive">Duplicate key</p>}
                   </div>
@@ -251,7 +269,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 h-10">
+                  <div className="flex items-center justify-end gap-2 h-10">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <label htmlFor={`secret-toggle-${row.id}`} className="text-sm font-medium text-foreground cursor-pointer whitespace-nowrap">Secret</label>
                       <TooltipProvider delayDuration={200}>
@@ -281,6 +299,18 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                     </Button>
                   </div>
                 </div>
+                {(row.showDescription || row.description) && (
+                  <div className={`grid ${ROW_GRID} gap-2`}>
+                    <div className="col-span-2">
+                      <Input
+                        value={row.description}
+                        onChange={(e) => updateRow(row.id, { description: e.target.value })}
+                        placeholder="e.g. Database key from Supabase..."
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
