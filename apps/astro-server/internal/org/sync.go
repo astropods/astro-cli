@@ -28,8 +28,8 @@ func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.Wo
 // cannot race past the last-owner guard.
 func ownerGuardLockKey(workosOrgID string) int64 {
 	h := fnv.New64a()
-	h.Write([]byte("owner-guard:" + workosOrgID))
-	return int64(h.Sum64())
+	_, _ = h.Write([]byte("owner-guard:" + workosOrgID))
+	return int64(h.Sum64()) //nolint:gosec // advisory lock key; overflow is harmless
 }
 
 // withOwnerGuardLock acquires a Postgres advisory lock scoped to a transaction
@@ -40,7 +40,7 @@ func (s *Sync) withOwnerGuardLock(ctx context.Context, workosOrgID string, fn fu
 	if err != nil {
 		return fmt.Errorf("begin owner-guard tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck // rollback after commit is a no-op
 
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", ownerGuardLockKey(workosOrgID)); err != nil {
 		return fmt.Errorf("acquire owner-guard lock: %w", err)
