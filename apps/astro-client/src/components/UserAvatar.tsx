@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { getAvatarUrl, getFallbackAvatarUrl } from "@/lib/assets";
 import { useAvatarBust } from "@/lib/avatar-bust";
@@ -11,6 +11,7 @@ export interface UserAvatarProps {
 
 export function UserAvatar({ handle, name, className }: UserAvatarProps) {
   const override = useAvatarBust(handle);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const onError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -21,8 +22,17 @@ export function UserAvatar({ handle, name, className }: UserAvatarProps) {
     }
   }, []);
 
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth === 0) {
+      const fallback = getFallbackAvatarUrl();
+      if (img.src !== fallback) img.src = fallback;
+    }
+  }, []);
+
   return (
     <img
+      ref={imgRef}
       src={override ?? getAvatarUrl(handle)}
       alt={name}
       onError={onError}

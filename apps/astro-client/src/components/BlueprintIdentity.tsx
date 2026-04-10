@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { generateIdentity } from "identity-gen";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl } from "@/lib/assets";
@@ -20,6 +20,7 @@ export function BlueprintIdentity({
   className,
 }: BlueprintIdentityProps) {
   const [imgFailed, setImgFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const avatarUrl = url ?? getAgentAvatarUrl(account, name);
 
@@ -30,9 +31,16 @@ export function BlueprintIdentity({
 
   const onError = useCallback(() => setImgFailed(true), []);
 
+  useEffect(() => {
+    if (imgRef.current?.complete && imgRef.current.naturalWidth === 0) {
+      setImgFailed(true);
+    }
+  }, []);
+
   if (!imgFailed) {
     return (
       <img
+        ref={imgRef}
         src={avatarUrl}
         alt={name}
         width={size}

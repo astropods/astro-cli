@@ -33,5 +33,6 @@ export function useAvatarBust(handle: string): string | undefined {
       return () => listeners.delete(cb);
     },
     () => overrides.get(handle),
+    () => undefined,
   );
 }
