@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { ChevronDown, Plus, Terminal, X } from "lucide-react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ type TabAction =
   | { type: "open"; tab: LogTab }
   | { type: "close"; key: string }
   | { type: "focus"; key: string }
-  | { type: "reset" };
+  | { type: "reset"; preload?: LogTab[]; activeKey?: string | null };
 
 function tabReducer(state: TabState, action: TabAction): TabState {
   switch (action.type) {
@@ -57,7 +57,7 @@ function tabReducer(state: TabState, action: TabAction): TabState {
     case "focus":
       return { ...state, activeKey: action.key };
     case "reset":
-      return { tabs: [], activeKey: null };
+      return { tabs: action.preload ?? [], activeKey: action.activeKey ?? null };
   }
 }
 
@@ -74,9 +74,12 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
   const [{ tabs: openTabs, activeKey }, dispatch] = useReducer(tabReducer, { tabs: [], activeKey: null });
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
 
-  // Reset open tabs when the deployment changes
+  // Pre-load the first container tab and make it active when the deployment changes
   useEffect(() => {
-    dispatch({ type: "reset" });
+    const first = workloads
+      .flatMap((wl) => (wl.containers ?? []).map((c) => ({ workloadName: wl.name, containerName: c.name })))
+      .slice(0, 1);
+    dispatch({ type: "reset", preload: first, activeKey: first[0] ? tabKey(first[0]) : null });
   }, [deployment.id]);
 
   const activeTab = useMemo(
@@ -120,7 +123,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
               key={key}
               onClick={() => dispatch({ type: "focus", key })}
               className={cn(
-                "group flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-4 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
+                "group flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
                 isActive
                   ? "font-medium text-foreground border-b-[var(--color-teal-600)]"
                   : "font-normal text-faint-foreground border-b-transparent hover:text-foreground",
@@ -146,15 +149,18 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
         })}
 
         {/* + Add tab */}
-        <DropdownMenu>
+        {workloads.reduce((sum, wl) => sum + (wl.containers ?? []).length, 0) > openTabs.length && <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-sm"
-              title="Open container logs in a new tab"
-              className="ml-1 my-[9px] text-faint-foreground focus-visible:ring-0 focus-visible:border-transparent"
+              size="xs"
+              className="my-[9px] px-2.5 text-faint-foreground font-sans text-heading-4 font-normal focus-visible:ring-0 focus-visible:border-transparent"
             >
-              <Plus size={13} />
+              {(() => {
+                if (!activeKey) return <><Plus size={11} />Containers<ChevronDown size={11} /></>;
+                const remaining = workloads.reduce((sum, wl) => sum + (wl.containers ?? []).length, 0) - openTabs.length;
+                return <><Plus size={11} />{remaining} more {remaining === 1 ? "container" : "containers"}<ChevronDown size={11} /></>;
+              })()}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-[200px]">
@@ -185,14 +191,20 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
               </DropdownMenuGroup>
             ))}
           </DropdownMenuContent>
-        </DropdownMenu>
+        </DropdownMenu>}
       </div>
 
       {/* ── Log viewer card ──────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden py-5 px-[clamp(16px,4vw,108px)]">
-        {openTabs.length === 0 ? (
-          <div className="flex items-center justify-center h-full font-mono text-mono-sm text-faint-foreground">
-            Click <Plus size={12} className="mx-1.5 inline" /> to view logs for a container
+        {activeKey === null ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 bg-surface rounded-lg border border-border">
+            <div className="flex items-center justify-center size-10 rounded border border-border text-faint-foreground">
+              <Terminal size={18} />
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-heading-4 font-medium">Select a container to view logs</p>
+              <p className="text-body-sm text-faint-foreground">Choose a container above to load its log output.</p>
+            </div>
           </div>
         ) : (
           <LogViewer
