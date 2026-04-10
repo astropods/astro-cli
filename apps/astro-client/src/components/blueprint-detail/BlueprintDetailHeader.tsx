@@ -70,7 +70,7 @@ export function BlueprintDetailHeader({
             {name}
             {isDraft && (
               <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                Finish set up
+                Finish setup
               </InlineBadge>
             )}
           </h1>

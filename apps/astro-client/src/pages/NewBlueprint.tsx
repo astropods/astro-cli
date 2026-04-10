@@ -149,7 +149,7 @@ function NewBlueprintContent() {
     >
       <div className="mx-auto max-w-[640px] px-6 pt-16 pb-40">
         <div className="mb-10 text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Set up your agent blueprint</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Setup your agent blueprint</h1>
           <p className="mt-2 text-muted-foreground max-w-[540px] mx-auto">A blueprint is your agent's packaged definition. Once it's pushed to the registry, you can deploy it as a running agent.</p>
         </div>
 
@@ -387,7 +387,7 @@ function NewBlueprintContent() {
                           <div className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-stone-300" />
                           <div>
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Up next</p>
-                            <p className="text-sm text-foreground">Set up your agent in code</p>
+                            <p className="text-sm text-foreground">Setup your agent in code</p>
                           </div>
                         </div>
                         <Button size="sm" onClick={() => navigate(`/${selectedOrg}/${slug}`)}>
