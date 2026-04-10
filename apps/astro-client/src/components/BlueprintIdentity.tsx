@@ -1,7 +1,11 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { generateIdentity } from "identity-gen";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl } from "@/lib/assets";
+
+// Session-local cache of avatar URLs that loaded successfully. Lets remounted
+// components (e.g. on tab switch) skip opacity-0 immediately.
+const loadedUrls = new Set<string>();
 
 interface BlueprintIdentityProps {
   account: string;
@@ -19,42 +23,38 @@ export function BlueprintIdentity({
   url,
   className,
 }: BlueprintIdentityProps) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
-
   const avatarUrl = url ?? getAgentAvatarUrl(account, name);
+  const [imgLoaded, setImgLoaded] = useState(() => loadedUrls.has(avatarUrl));
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const svg = useMemo(
     () => generateIdentity({ seed: `${account}/${name}`, size }),
     [account, name, size],
   );
 
-  const onError = useCallback(() => setImgFailed(true), []);
-
+  // Catch images that loaded from cache before React hydrated and onLoad fired.
   useEffect(() => {
-    if (imgRef.current?.complete && imgRef.current.naturalWidth === 0) {
-      setImgFailed(true);
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      loadedUrls.add(avatarUrl);
+      setImgLoaded(true);
     }
-  }, []);
+  }, [avatarUrl]);
 
-  if (!imgFailed) {
-    return (
+  return (
+    <div className={cn("relative overflow-hidden", className)}>
+      <div
+        className="absolute inset-0 [&>svg]:block [&>svg]:size-full"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
       <img
         ref={imgRef}
         src={avatarUrl}
         alt={name}
         width={size}
         height={size}
-        onError={onError}
-        className={cn("object-cover", className)}
+        onLoad={() => { loadedUrls.add(avatarUrl); setImgLoaded(true); }}
+        className={cn("relative h-full w-full object-cover", imgLoaded ? "opacity-100" : "opacity-0")}
       />
-    );
-  }
-
-  return (
-    <div
-      className={cn("[&>svg]:block [&>svg]:size-full", className)}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    </div>
   );
 }
