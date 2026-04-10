@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
@@ -13,6 +13,11 @@ import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
   return parsed ? { ref: parsed.name } : { value: raw };
+}
+
+export function isWebAuthOidc(interfaces: Record<string, unknown> | undefined): boolean {
+  const webAuth = (interfaces?.auth as Record<string, unknown> | undefined)?.web as Record<string, unknown> | undefined;
+  return webAuth?.type === "oidc";
 }
 
 function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
@@ -281,7 +286,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
-  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(iv?.webAuthEnabled ?? false);
+  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(() =>
+    iv?.webAuthEnabled ?? isWebAuthOidc(opts?.initialTemplate?.interfaces as Record<string, unknown> | undefined),
+  );
+  // Track whether webAuthEnabled was seeded from initialValues or the SSR template.
+  // Once seeded, user changes take precedence and we don't overwrite on re-fetch.
+  const webAuthInitRef = useRef(iv?.webAuthEnabled !== undefined || !!opts?.initialTemplate?.interfaces);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(iv?.ingestionSchedules ?? {});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -312,6 +322,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       });
     }
   }, [scheduleIngestions, template]);
+
+  // Sync webAuthEnabled when the network re-fetches the template (SSR template may be stale).
+  // Skip if already seeded from initialValues or the SSR template.
+  useEffect(() => {
+    if (webAuthInitRef.current || !template?.interfaces) return;
+    setWebAuthEnabled(isWebAuthOidc(template.interfaces as Record<string, unknown>));
+    webAuthInitRef.current = true;
+  }, [template?.interfaces]);
 
   // Derived variable lists (agent/ingestion-targeting variables)
   const variableEntries = useMemo<[string, VariableDisplay][]>(

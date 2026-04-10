@@ -1,6 +1,6 @@
 import type { DeploymentTemplate } from "@/lib/api";
 import type { DeployFormInitialValues } from "./useDeployForm";
-import { ADAPTER_SECRETS, ADAPTER_CONFIG } from "./useDeployForm";
+import { ADAPTER_SECRETS, ADAPTER_CONFIG, isWebAuthOidc } from "./useDeployForm";
 import { SLACK_CONFIG_KEY, deserializeSlackConfig } from "./slackConfig";
 
 const adapterFieldKeys = new Set(
@@ -41,9 +41,7 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
   const interfaces = template.interfaces as Record<string, unknown> | undefined;
   const adapters = interfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) ? adapters : ["web"];
-  const auth = interfaces?.auth as Record<string, unknown> | undefined;
-  const webAuth = auth?.web as Record<string, unknown> | undefined;
-  const webAuthEnabled = webAuth?.type === "oidc";
+  const webAuthEnabled = isWebAuthOidc(interfaces);
 
   const ingestionSchedules: Record<string, string> = {};
   if (template.ingestion) {

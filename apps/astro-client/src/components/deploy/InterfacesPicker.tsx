@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { AlertCircle, Check, Globe } from "lucide-react";
+import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 import { Slack } from "@/components/ui/svgs/slack";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
@@ -23,6 +25,8 @@ export interface InterfacesPickerProps {
   adapterErrorKeys?: string[];
   /** Controls where adapter credential fields render for each adapter id. */
   credentialLayoutByAdapter?: Record<string, "below" | "inline-card">;
+  webAuthEnabled?: boolean;
+  onWebAuthChange?: (enabled: boolean) => void;
 }
 
 export function InterfacesPicker({
@@ -34,6 +38,8 @@ export function InterfacesPicker({
   showError,
   adapterErrorKeys,
   credentialLayoutByAdapter,
+  webAuthEnabled,
+  onWebAuthChange,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
     onChange(selected.includes(id) ? selected.filter((a) => a !== id) : [...selected, id]);
@@ -50,14 +56,15 @@ export function InterfacesPicker({
         const credentialLayout = credentialLayoutByAdapter?.[adapter.id] ?? "below";
         const hasInlineCredentials = hasCredentials && credentialLayout === "inline-card";
         const hasBelowCredentials = hasCredentials && credentialLayout === "below";
+        const hasWebAuthToggle = adapter.id === "web" && isSelected && onWebAuthChange !== undefined;
 
         return (
           <div key={adapter.id}>
             <div
               className={cn(
-                hasInlineCredentials &&
+                (hasInlineCredentials || hasWebAuthToggle) &&
                   "rounded-[6px] border transition-[border-color,background-color]",
-                hasInlineCredentials &&
+                (hasInlineCredentials || hasWebAuthToggle) &&
                   (isSelected
                     ? "border-primary/40 bg-primary/5"
                     : "border-border bg-transparent"),
@@ -69,8 +76,8 @@ export function InterfacesPicker({
                 onClick={() => toggle(adapter.id)}
                 className={cn(
                   "w-full flex items-center gap-4 py-3 px-3 rounded-[6px] border text-left cursor-pointer transition-[border-color,background-color]",
-                  hasInlineCredentials && "border-none bg-transparent hover:bg-transparent",
-                  !hasInlineCredentials &&
+                  (hasInlineCredentials || hasWebAuthToggle) && "border-none bg-transparent hover:bg-transparent",
+                  !(hasInlineCredentials || hasWebAuthToggle) &&
                     (isSelected
                       ? "border-primary/40 bg-primary/5"
                       : "border-border bg-transparent hover:bg-stone-200/50"),
@@ -97,13 +104,33 @@ export function InterfacesPicker({
                 </div>
               </button>
               {hasInlineCredentials && (
-                <div className="border-t border-primary/20 rounded-b-[6px] bg-surface px-6 py-3">
+                <div className={cn("border-t border-primary/20 bg-surface px-6 py-3", !hasWebAuthToggle && "rounded-b-[6px]")}>
                   <VariableFields
                     variables={credentialEntries}
                     values={adapterCredentials}
                     onChange={onAdapterCredentialsChange}
                     errorKeys={adapterErrorKeys}
                   />
+                </div>
+              )}
+              {hasWebAuthToggle && (
+                <div className="border-t border-primary/20 rounded-b-[6px] bg-surface px-6 py-3">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor={`${adapter.id}-require-auth`} className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheckIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="text-[13px] font-medium text-foreground select-none">Require authentication</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">Restrict access to signed-in users only</p>
+                        </div>
+                      </div>
+                    </label>
+                    <Switch
+                      id={`${adapter.id}-require-auth`}
+                      checked={webAuthEnabled ?? false}
+                      onCheckedChange={onWebAuthChange}
+                    />
+                  </div>
                 </div>
               )}
             </div>
