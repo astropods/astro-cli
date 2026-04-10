@@ -2,7 +2,9 @@ package org
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"hash/fnv"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -13,11 +15,42 @@ type Sync struct {
 	client       *Client
 	accountStore *account.AccountStore
 	workos       *auth.WorkOSClient
+	db           *sql.DB
 }
 
 // NewSync creates a new Sync instance.
-func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient) *Sync {
-	return &Sync{client: client, accountStore: accountStore, workos: workos}
+func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient, db *sql.DB) *Sync {
+	return &Sync{client: client, accountStore: accountStore, workos: workos, db: db}
+}
+
+// ownerGuardLockKey returns a stable int64 advisory lock key derived from the
+// WorkOS org ID. This serializes owner-count checks so concurrent requests
+// cannot race past the last-owner guard.
+func ownerGuardLockKey(workosOrgID string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte("owner-guard:" + workosOrgID))
+	return int64(h.Sum64())
+}
+
+// withOwnerGuardLock acquires a Postgres advisory lock scoped to a transaction
+// for the given org, executes fn, and commits. This serializes owner-count
+// checks against concurrent role changes or removals.
+func (s *Sync) withOwnerGuardLock(ctx context.Context, workosOrgID string, fn func() error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin owner-guard tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", ownerGuardLockKey(workosOrgID)); err != nil {
+		return fmt.Errorf("acquire owner-guard lock: %w", err)
+	}
+
+	if err := fn(); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // AddMember adds a member to an org account, writing to WorkOS first then locally.
@@ -48,63 +81,69 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 }
 
 // ChangeMemberRole updates a member's role in WorkOS. No local role to update.
-func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole string) error {
+// Returns the previous role slug so callers can include it in audit logs.
+func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole string) (previousRole string, err error) {
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
-		return fmt.Errorf("account not found: %w", err)
+		return "", fmt.Errorf("account not found: %w", err)
 	}
 	if acct.Type == "personal" {
-		return fmt.Errorf("cannot change role on personal account")
+		return "", fmt.Errorf("cannot change role on personal account")
 	}
 	if acct.WorkOSOrganizationID == "" {
-		return fmt.Errorf("organization has no WorkOS link")
+		return "", fmt.Errorf("organization has no WorkOS link")
 	}
 
 	// Verify the WorkOS organization is accessible
 	if _, err := s.client.GetOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
-		return fmt.Errorf("WorkOS organization not reachable: %w", err)
+		return "", fmt.Errorf("WorkOS organization not reachable: %w", err)
 	}
 
 	member, err := s.accountStore.GetMember(accountID, userID)
 	if err != nil {
-		return fmt.Errorf("member not found: %w", err)
+		return "", fmt.Errorf("member not found: %w", err)
 	}
 	if member.WorkOSMembershipID == "" {
-		return fmt.Errorf("member has no WorkOS membership")
+		return "", fmt.Errorf("member has no WorkOS membership")
 	}
 
 	currentMembership, err := s.client.GetMembership(ctx, member.WorkOSMembershipID)
 	if err != nil {
-		return fmt.Errorf("failed to get WorkOS membership: %w", err)
+		return "", fmt.Errorf("failed to get WorkOS membership: %w", err)
 	}
 
-	if currentMembership.RoleSlug == "owner" && newRole != "owner" {
-		memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
-		if err != nil {
-			return fmt.Errorf("failed to list WorkOS memberships: %w", err)
-		}
-		ownerCount := 0
-		for _, m := range memberships {
-			if m.RoleSlug == "owner" {
-				ownerCount++
+	previousRole = currentMembership.RoleSlug
+
+	// Serialize owner-guard check + mutation to prevent TOCTOU races.
+	err = s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
+		if currentMembership.RoleSlug == "owner" && newRole != "owner" {
+			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
+			if err != nil {
+				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
+			}
+			ownerCount := 0
+			for _, m := range memberships {
+				if m.RoleSlug == "owner" && m.Status == "active" {
+					ownerCount++
+				}
+			}
+			if ownerCount <= 1 {
+				return fmt.Errorf("cannot change role: account must have at least one owner")
 			}
 		}
-		if ownerCount <= 1 {
-			return fmt.Errorf("cannot change role: account must have at least one owner")
+
+		updated, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole)
+		if err != nil {
+			return fmt.Errorf("failed to update WorkOS membership role: %w", err)
 		}
-	}
 
-	updated, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole)
-	if err != nil {
-		return fmt.Errorf("failed to update WorkOS membership role: %w", err)
-	}
+		if updated.RoleSlug != newRole {
+			return fmt.Errorf("role update was not applied: expected %q but got %q", newRole, updated.RoleSlug)
+		}
 
-	// Verify WorkOS actually applied the new role
-	if updated.RoleSlug != newRole {
-		return fmt.Errorf("role update was not applied: expected %q but got %q", newRole, updated.RoleSlug)
-	}
-
-	return nil
+		return nil
+	})
+	return previousRole, err
 }
 
 // RemoveMember removes a member from an org account, deleting from WorkOS first then locally.
@@ -146,33 +185,35 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 	if err != nil {
 		return fmt.Errorf("failed to get WorkOS membership: %w", err)
 	}
-	if membership.RoleSlug == "owner" {
-		memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
-		if err != nil {
-			return fmt.Errorf("failed to list WorkOS memberships: %w", err)
-		}
-		ownerCount := 0
-		for _, m := range memberships {
-			if m.RoleSlug == "owner" {
-				ownerCount++
+
+	// Serialize owner-guard check + deletion to prevent TOCTOU races.
+	return s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
+		if membership.RoleSlug == "owner" {
+			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
+			if err != nil {
+				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
+			}
+			ownerCount := 0
+			for _, m := range memberships {
+				if m.RoleSlug == "owner" && m.Status == "active" {
+					ownerCount++
+				}
+			}
+			if ownerCount <= 1 {
+				return fmt.Errorf("cannot remove member: account must have at least one owner")
 			}
 		}
-		if ownerCount <= 1 {
-			return fmt.Errorf("cannot remove member: account must have at least one owner")
+
+		if err := s.client.DeleteMembership(ctx, member.WorkOSMembershipID); err != nil {
+			return fmt.Errorf("failed to delete WorkOS membership: %w", err)
 		}
-	}
 
-	if err := s.client.DeleteMembership(ctx, member.WorkOSMembershipID); err != nil {
-		return fmt.Errorf("failed to delete WorkOS membership: %w", err)
-	}
+		if membership.Status == "pending" {
+			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
+		}
 
-	// If membership was pending, also revoke any outstanding WorkOS invitation
-	// so the user cannot accept it after removal.
-	if membership.Status == "pending" {
-		s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
-	}
-
-	return s.accountStore.RemoveMember(accountID, userID)
+		return s.accountStore.RemoveMember(accountID, userID)
+	})
 }
 
 // SyncMembershipsForUser reconciles local account_members with WorkOS memberships

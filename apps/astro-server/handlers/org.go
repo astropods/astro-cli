@@ -14,6 +14,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// validRoles is the set of role slugs accepted by member management endpoints.
+var validRoles = map[string]bool{
+	"owner":  true,
+	"admin":  true,
+	"member": true,
+}
+
+// isValidRole returns true if the role slug is one of the allowed values.
+func isValidRole(role string) bool {
+	return validRoles[role]
+}
+
 // requireOwnerForOwnerRole guards against non-owners assigning the owner role.
 // For org accounts, checks session.Role from JWT. For personal accounts (no WorkOS org),
 // any member is owner so always allows.
@@ -94,8 +106,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			if err != nil {
 				log.Error("Failed to fetch WorkOS memberships", "error", err, "account_id", acct.ID)
 				c.JSON(http.StatusBadGateway, gin.H{
-					"error":   "failed to fetch member roles from identity provider",
-					"details": err.Error(),
+					"error": "failed to fetch member roles from identity provider",
 				})
 				return
 			}
@@ -204,6 +215,11 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 			return
 		}
 
+		if !isValidRole(req.Role) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role: must be owner, admin, or member"})
+			return
+		}
+
 		if !requireOwnerForOwnerRole(c, req.Role) {
 			return
 		}
@@ -212,8 +228,7 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 		if err != nil {
 			log.Error("Failed to add member", "error", err, "account_id", acct.ID, "user_id", req.UserID)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to add member",
-				"details": err.Error(),
+				"error": "failed to add member",
 			})
 			return
 		}
@@ -253,27 +268,32 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 			return
 		}
 
+		if !isValidRole(req.Role) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role: must be owner, admin, or member"})
+			return
+		}
+
 		if !requireOwnerForOwnerRole(c, req.Role) {
 			return
 		}
 
-		if err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role); err != nil {
+		previousRole, err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role)
+		if err != nil {
 			log.Error("Failed to update member role", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to update member role",
-				"details": err.Error(),
+				"error": "failed to update member role",
 			})
 			return
 		}
 
-		log.Info("Member role updated", "account_id", acct.ID, "user_id", userID, "role", req.Role)
+		log.Info("Member role updated", "account_id", acct.ID, "user_id", userID, "old_role", previousRole, "new_role", req.Role)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.MemberUpdateRole
 		evt.ResourceType = "member"
 		evt.ResourceID = userID
-		evt.Description = "Updated member role to " + req.Role
-		evt.Metadata = map[string]any{"role": req.Role}
+		evt.Description = "Updated member role from " + previousRole + " to " + req.Role
+		evt.Metadata = map[string]any{"old_role": previousRole, "new_role": req.Role}
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{"message": "role updated"})
@@ -309,8 +329,7 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.A
 		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID); err != nil {
 			log.Error("Failed to remove member", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to remove member",
-				"details": err.Error(),
+				"error": "failed to remove member",
 			})
 			return
 		}
@@ -370,8 +389,12 @@ func CreateInvitations(log *logger.Logger, orgSync *org.Sync, auditStore *auditl
 			return
 		}
 
-		// Role escalation check: if any entry has role "owner", require owner
+		// Validate and check escalation for each entry's role
 		for _, e := range req.Invitations {
+			if e.Role != "" && !isValidRole(e.Role) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role: must be owner, admin, or member"})
+				return
+			}
 			if !requireOwnerForOwnerRole(c, e.Role) {
 				return
 			}
@@ -464,8 +487,7 @@ func RevokeInvitation(log *logger.Logger, orgClient *org.Client, auditStore *aud
 		if err := orgClient.RevokeInvitation(c.Request.Context(), invitationID); err != nil {
 			log.Error("Failed to revoke invitation", "error", err, "invitation_id", invitationID)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to revoke invitation",
-				"details": err.Error(),
+				"error": "failed to revoke invitation",
 			})
 			return
 		}

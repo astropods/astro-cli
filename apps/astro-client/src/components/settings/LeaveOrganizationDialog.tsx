@@ -153,7 +153,7 @@ export function LeaveOrganizationDialog({
               <SelectContent>
                 {otherMembers.map((m) => (
                   <SelectItem key={m.user_id} value={m.user_id}>
-                    {m.user_id}
+                    {m.display_name || m.username || m.user_id}
                   </SelectItem>
                 ))}
               </SelectContent>

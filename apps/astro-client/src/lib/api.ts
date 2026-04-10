@@ -98,15 +98,6 @@ export interface ApiError {
   missing_variables?: string[];
 }
 
-export interface Invitation {
-  id: string;
-  email: string;
-  role: string;
-  status: string;
-  invited_by: string;
-  created_at: string;
-  expires_at: string;
-}
 
 export interface InviteEntry {
   value: string;
@@ -120,7 +111,7 @@ export interface InviteResultResponse {
   email?: string;
   success: boolean;
   error?: string;
-  invitation?: Invitation;
+  invitation?: { id: string; email: string };
 }
 
 export interface CreateAccountData {
@@ -303,18 +294,6 @@ class ApiClient {
     );
   }
 
-  async listInvitations(account: string): Promise<{ invitations: Invitation[] }> {
-    return this.request<{ invitations: Invitation[] }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`
-    );
-  }
-
-  async revokeInvitation(account: string, invitationId: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/invitations/${encodeURIComponent(invitationId)}`,
-      { method: 'DELETE' }
-    );
-  }
 
   async getAccount(name: string): Promise<AccountPublic> {
     return this.request<AccountPublic>(

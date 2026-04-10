@@ -38,11 +38,13 @@ function RoleCell({
   role,
   isAdmin,
   canChange,
+  disabled,
   onChangeRole,
 }: {
   role: string;
   isAdmin: boolean;
   canChange: boolean;
+  disabled?: boolean;
   onChangeRole: (role: string) => void;
 }) {
   const label = ROLES.find((r) => r.value === role)?.label ?? role;
@@ -58,7 +60,8 @@ function RoleCell({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 text-[13px] text-foreground capitalize cursor-pointer hover:text-muted-foreground transition-colors"
+          disabled={disabled}
+          className="inline-flex items-center gap-1 text-[13px] text-foreground capitalize cursor-pointer hover:text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {label}
           <ChevronDown className="size-3 text-muted-foreground" />
@@ -84,6 +87,7 @@ function MemberRow({
   isLast,
   isCurrentUser,
   isAdmin,
+  disabled,
   onChangeRole,
   onRemove,
 }: {
@@ -91,6 +95,7 @@ function MemberRow({
   isLast: boolean;
   isCurrentUser: boolean;
   isAdmin: boolean;
+  disabled?: boolean;
   onChangeRole: (role: string) => void;
   onRemove: () => void;
 }) {
@@ -132,6 +137,7 @@ function MemberRow({
             role={member.role}
             isAdmin={isAdmin}
             canChange={!isCurrentUser}
+            disabled={disabled}
             onChangeRole={onChangeRole}
           />
         )}
@@ -147,7 +153,7 @@ function MemberRow({
         {isAdmin && !isCurrentUser && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs">
+              <Button variant="ghost" size="icon-xs" disabled={disabled}>
                 <MoreHorizontal className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -278,6 +284,7 @@ export default function OrgMembersSettings() {
                 isLast={i === members.length - 1}
                 isCurrentUser={member.user_id === user?.id}
                 isAdmin={isAdmin}
+                disabled={updateRole.isPending || removeMember.isPending}
                 onChangeRole={(r) => handleChangeRole(member, r)}
                 onRemove={() => handleRemove(member)}
               />

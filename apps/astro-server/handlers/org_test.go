@@ -415,7 +415,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 	session := &auth.Session{Role: "owner"}
 
 	// syncSvc with a real store — GetByID will return "not found" instead of panicking
-	syncSvc := org.NewSync(nil, store, nil)
+	syncSvc := org.NewSync(nil, store, nil, db)
 
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("acct-1").

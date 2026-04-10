@@ -117,7 +117,7 @@ func main() {
 	if cfg.Auth.WorkOSAPIKey != "" {
 		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
 		workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
-		orgSync = org.NewSync(orgClient, accountStore, workosClient)
+		orgSync = org.NewSync(orgClient, accountStore, workosClient, db)
 		log.Info("WorkOS organization client initialized")
 	}
 
@@ -779,6 +779,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			// Member routes — list and self-removal are membership-only, other mutations require org:manage
 			memberRoutes := protected.Group("/accounts/:account/members")
 			memberRoutes.Use(middleware.ResolveAccount(accountStore))
+			memberRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
 				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, orgClient),
 					oapispec.Tags("Members"),

@@ -128,16 +128,7 @@ export function useRemoveAccountMember() {
       api.removeAccountMember(account, userId),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
-      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
     },
-  });
-}
-
-export function useInvitations(account: string) {
-  return useQuery({
-    queryKey: accountKeys.invitations(account),
-    queryFn: () => api.listInvitations(account),
-    enabled: !!account,
   });
 }
 
@@ -175,21 +166,10 @@ export function useCreateInvitations() {
       }
     },
     onSettled: (_data, _err, variables) => {
-      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
-      // Prefix-matches both members and pendingMembers keys
+      // TanStack Query uses prefix matching: invalidating ['accounts', x, 'members']
+      // also invalidates ['accounts', x, 'members', 'include-pending'] (pendingMembers key).
       queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
     },
   });
 }
 
-export function useRevokeInvitation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ account, invitationId }: { account: string; invitationId: string }) =>
-      api.revokeInvitation(account, invitationId),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: accountKeys.invitations(variables.account) });
-      queryClient.invalidateQueries({ queryKey: accountKeys.members(variables.account) });
-    },
-  });
-}

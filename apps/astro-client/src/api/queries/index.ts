@@ -2,7 +2,7 @@ export { accountKeys, blueprintKeys, deploymentKeys, usageKeys, variableKeys, gi
 export { useGitHubStatus, useGitHubRepos, useGitHubConnect, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild } from './github';
 export { useBlueprints, useAccountBlueprints, useBlueprint, useDeploymentTemplate, useDeployAgent, useUploadBlueprintAvatar, useCreateBlueprint } from './blueprints';
 export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, useUploadDeploymentAvatar, useDeleteDeploymentAvatar } from './deployments';
-export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile, useUploadAvatar, useSetAvatarPreset, useResetAvatar, useUpdateAccountDisplayName, useUpdateMemberRole, useRemoveAccountMember, useAccountMembers, useInvitations, useCreateInvitations, useRevokeInvitation } from './accounts';
+export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile, useUploadAvatar, useSetAvatarPreset, useResetAvatar, useUpdateAccountDisplayName, useUpdateMemberRole, useRemoveAccountMember, useAccountMembers, useCreateInvitations } from './accounts';
 export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
 export { useSubmitFeedback } from './feedback';
