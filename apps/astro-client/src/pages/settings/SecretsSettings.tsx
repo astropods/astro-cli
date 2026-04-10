@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/dialog'
 import { NewEntryDialog } from '@/components/settings/secrets/NewEntryDialog'
 import { OverwriteSecretDialog } from '@/components/settings/secrets/OverwriteSecretDialog'
-import { ImportEnvDialog } from '@/components/settings/secrets/ImportEnvDialog'
 import { EditVariableDialog } from '@/components/settings/secrets/EditVariableDialog'
 import {
   useAccountVariables,
@@ -61,18 +60,20 @@ export function VaultSettings({ account: accountName }: { account: string }) {
   const [overwriteEntry, setOverwriteEntry] = useState<VaultEntry | null>(null)
   const [deleteEntry, setDeleteEntry] = useState<VaultEntry | null>(null)
   const [editVariableEntry, setEditVariableEntry] = useState<VaultEntry | null>(null)
-  const [importEnvOpen, setImportEnvOpen] = useState(false)
 
   const entries = useMemo(
     () => (data?.variables ?? []).map(toVaultEntry),
     [data?.variables],
   )
-  const existingNames = useMemo(() => entries.map(e => e.name), [entries])
-
-  const handleCreate = (input: CreateAccountVariableInput) => {
-    createMutation.mutate(input, {
-      onSuccess: () => setNewDialogOpen(false),
-    })
+  const handleCreate = async (newEntries: CreateAccountVariableInput[]) => {
+    const results = await Promise.allSettled(
+      newEntries.map(entry => createMutation.mutateAsync(entry)),
+    )
+    const failed = results.filter(r => r.status === 'rejected').length
+    if (failed > 0) {
+      console.warn(`Save: ${failed} of ${newEntries.length} entries failed`)
+    }
+    setNewDialogOpen(false)
   }
 
   const handleOverwrite = (data: { value: string; description: string }) => {
@@ -91,17 +92,6 @@ export function VaultSettings({ account: accountName }: { account: string }) {
     )
   }
 
-  const handleImport = async (entries: CreateAccountVariableInput[]) => {
-    const results = await Promise.allSettled(
-      entries.map(entry => createMutation.mutateAsync(entry)),
-    )
-    const failed = results.filter(r => r.status === 'rejected').length
-    if (failed > 0) {
-      console.warn(`Import: ${failed} of ${entries.length} entries failed`)
-    }
-    setImportEnvOpen(false)
-  }
-
   const handleDelete = () => {
     if (!deleteEntry) return
     deleteMutation.mutate(deleteEntry.name, {
@@ -118,16 +108,10 @@ export function VaultSettings({ account: accountName }: { account: string }) {
             Set and manage reusable credentials and configuration values for your agents
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={() => setImportEnvOpen(true)}>
-            <Upload className="size-3.5" />
-            Import .env
-          </Button>
-          <Button size="sm" onClick={() => setNewDialogOpen(true)}>
-            <PlusIcon className="size-3.5" />
-            New variable
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setNewDialogOpen(true)} className="shrink-0">
+          <PlusIcon className="size-3.5" />
+          New variable
+        </Button>
       </div>
 
       <Separator />
@@ -194,14 +178,6 @@ export function VaultSettings({ account: accountName }: { account: string }) {
           onSave={handleEditVariable}
         />
       )}
-
-      <ImportEnvDialog
-        open={importEnvOpen}
-        isPending={createMutation.isPending}
-        existingNames={existingNames}
-        onClose={() => setImportEnvOpen(false)}
-        onImport={handleImport}
-      />
 
       <Dialog open={!!deleteEntry} onOpenChange={open => !open && setDeleteEntry(null)}>
         <DialogContent className="max-w-[400px]">

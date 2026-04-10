@@ -148,7 +148,10 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
       isPending={createMutation.isPending}
       accountName={accountName}
       onClose={() => setNewVarOpen(false)}
-      onCreate={input => createMutation.mutate(input, { onSuccess: () => setNewVarOpen(false) })}
+      onCreate={async (inputs) => {
+        await Promise.allSettled(inputs.map((input) => createMutation.mutateAsync(input)))
+        setNewVarOpen(false)
+      }}
     />
     </>
   )

@@ -449,6 +449,31 @@ const makeInitialDeployments = () => [
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
 let createdBlueprints = new Set<string>();
+let accountVariables: Array<{
+  name: string;
+  value: string;
+  secret: boolean;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}> = [
+  {
+    name: "OPENAI_API_KEY",
+    value: "sk-demo-existing",
+    secret: true,
+    description: "Primary OpenAI API key",
+    created_at: nowIso,
+    updated_at: nowIso,
+  },
+  {
+    name: "APP_ENV",
+    value: "development",
+    secret: false,
+    description: "Runtime environment",
+    created_at: nowIso,
+    updated_at: nowIso,
+  },
+];
 
 const agentFor = (agentName: string) => ({
   name: agentName,
@@ -477,7 +502,13 @@ const accountAgents = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "access-control-allow-origin": "http://localhost:5173",
+      "access-control-allow-credentials": "true",
+      "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+      "access-control-allow-headers": "content-type,authorization",
+    },
   });
 
 Bun.serve({
@@ -485,8 +516,26 @@ Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     const pathname = url.pathname;
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "http://localhost:5173",
+          "access-control-allow-credentials": "true",
+          "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "access-control-allow-headers": "content-type,authorization",
+        },
+      });
+    }
 
-    if (pathname === "/health") return new Response("ok");
+    if (pathname === "/health") {
+      return new Response("ok", {
+        headers: {
+          "access-control-allow-origin": "http://localhost:5173",
+          "access-control-allow-credentials": "true",
+        },
+      });
+    }
 
     // Reset mutable state between tests so parallel workers don't leak side-effects
     if (pathname === "/test/reset" && request.method === "POST") {
@@ -494,6 +543,24 @@ Bun.serve({
       storedPayloads = {};
       currentOrgRole = "admin";
       createdBlueprints = new Set();
+      accountVariables = [
+        {
+          name: "OPENAI_API_KEY",
+          value: "sk-demo-existing",
+          secret: true,
+          description: "Primary OpenAI API key",
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+        {
+          name: "APP_ENV",
+          value: "development",
+          secret: false,
+          description: "Runtime environment",
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+      ];
       return json({ ok: true });
     }
 
@@ -895,6 +962,81 @@ Bun.serve({
       }
       if (request.method === "PUT" || request.method === "PATCH") {
         return json({ ok: true });
+      }
+    }
+
+    const accountVariablesMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/variables$/);
+    if (accountVariablesMatch) {
+      const accountName = accountVariablesMatch[1]!;
+      if (accountName !== ACCOUNT) return json({ error: "not_found" }, 404);
+
+      if (request.method === "GET") {
+        return json({
+          variables: accountVariables.map((v) => ({
+            name: v.name,
+            secret: v.secret,
+            description: v.description,
+            created_at: v.created_at,
+            updated_at: v.updated_at,
+            ...(v.secret ? {} : { value: v.value }),
+          })),
+        });
+      }
+
+      if (request.method === "POST") {
+        const body = (await request.json()) as {
+          name?: string;
+          value?: string;
+          secret?: boolean;
+          description?: string;
+        };
+        const name = (body.name ?? "").trim();
+        if (!name) return json({ error: "validation_failed", details: "name is required" }, 400);
+        if (accountVariables.some((v) => v.name === name)) {
+          return json({ error: "already_exists", details: "variable already exists" }, 409);
+        }
+        const ts = new Date().toISOString();
+        accountVariables.unshift({
+          name,
+          value: body.value ?? "",
+          secret: Boolean(body.secret),
+          description: body.description ?? "",
+          created_at: ts,
+          updated_at: ts,
+        });
+        return json({ name, message: "created" }, 201);
+      }
+    }
+
+    const accountVariableItemMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/variables\/([^/]+)$/);
+    if (accountVariableItemMatch) {
+      const accountName = accountVariableItemMatch[1]!;
+      const variableName = decodeURIComponent(accountVariableItemMatch[2]!);
+      if (accountName !== ACCOUNT) return json({ error: "not_found" }, 404);
+
+      const idx = accountVariables.findIndex((v) => v.name === variableName);
+      if (idx === -1) return json({ error: "not_found" }, 404);
+
+      if (request.method === "DELETE") {
+        accountVariables.splice(idx, 1);
+        return json({ message: "deleted" });
+      }
+
+      if (request.method === "PUT") {
+        const body = (await request.json()) as {
+          value?: string;
+          secret?: boolean;
+          description?: string;
+        };
+        const current = accountVariables[idx]!;
+        accountVariables[idx] = {
+          ...current,
+          value: body.value ?? current.value,
+          secret: body.secret ?? current.secret,
+          description: body.description ?? current.description,
+          updated_at: new Date().toISOString(),
+        };
+        return json({ name: variableName, message: "updated" });
       }
     }
 
