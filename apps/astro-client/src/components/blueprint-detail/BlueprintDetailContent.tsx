@@ -50,7 +50,7 @@ function CodeBlock({ command, label }: { command: string; label?: string }) {
   return (
     <div>
       {label && <p className="text-muted-foreground mb-1.5 text-xs">{label}</p>}
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 font-mono text-mono-md text-foreground">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 font-mono text-mono-md text-foreground">
         <code className="overflow-x-auto whitespace-nowrap">
           <span className="text-stone-400 mr-2">$</span>
           {highlightCommand(command)}
@@ -114,34 +114,36 @@ export function BlueprintDetailContent({
       {/* Draft: FINISH SETTING UP */}
       {isDraft && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
-          <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
-            <CommandLineIcon className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
-              Finish setting up
-            </span>
-          </div>
-
-          <div className="px-6 py-6">
-            <div className="flex justify-end gap-4 mb-4">
+          <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
+            <div className="flex items-center gap-2">
+              <CommandLineIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
+                Set up
+              </span>
+            </div>
+            <div className="flex items-center gap-4">
               <Link
                 to="https://github.com/astropods/agents"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                View examples on GitHub
+                <ArrowUpRight className="h-3 w-3" />
+                View examples
               </Link>
               <Link
                 to="https://docs.astropods.com/astropods-package-spec"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                View package spec docs
+                <ArrowUpRight className="h-3 w-3" />
+                View package spec
               </Link>
             </div>
+          </div>
+
+          <div className="px-6 py-6">
             <div className="space-y-0">
               <section className="flex gap-4">
                 <StepNumber n={1} />

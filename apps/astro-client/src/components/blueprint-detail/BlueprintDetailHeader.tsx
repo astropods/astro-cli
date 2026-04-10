@@ -69,8 +69,8 @@ export function BlueprintDetailHeader({
           <h1 className="flex flex-wrap items-center gap-2 font-mono text-xl font-bold text-foreground">
             {name}
             {isDraft && (
-              <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">
-                Finish setting up
+              <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                Set up
               </InlineBadge>
             )}
           </h1>
