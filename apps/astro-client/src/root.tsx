@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Links,
   Meta,
@@ -45,32 +45,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Temporary: blocks all unauthenticated access while the waitlist is active.
-// When the waitlist is removed, delete this component and its usage in Root().
-// Protected pages have their own auth via ProtectedRoute; public pages (browse,
-// agent detail, account profiles) will become accessible without login.
-const WAITLIST_URL = "https://blog.astropods.com/waitlist";
-const isProduction = typeof window !== "undefined" && window.location.hostname === "astropods.ai";
-
-function WaitlistGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, login } = useAuth();
-  const location = useLocation();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      if (isProduction && location.pathname === "/") {
-        window.location.href = WAITLIST_URL;
-      } else {
-        login();
-      }
-    }
-  }, [isLoading, isAuthenticated, login, location.pathname]);
-
-  if (isLoading || !isAuthenticated) return null;
-
-  return <>{children}</>;
-}
-
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, needsOnboarding } = useAuth();
   const location = useLocation();
@@ -97,13 +71,11 @@ export default function Root() {
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <QueryAuthSync />
-        <WaitlistGuard>
-          <AmplitudeProvider>
-            <OnboardingGuard>
-              <Outlet />
-            </OnboardingGuard>
-          </AmplitudeProvider>
-        </WaitlistGuard>
+        <AmplitudeProvider>
+          <OnboardingGuard>
+            <Outlet />
+          </OnboardingGuard>
+        </AmplitudeProvider>
       </QueryClientProvider>
     </AuthProvider>
   );
