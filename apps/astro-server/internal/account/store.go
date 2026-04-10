@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // ErrAlreadyDeleted is returned when MarkDeleted targets an account that is
@@ -193,6 +195,41 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	}
 
 	return accounts, nil
+}
+
+// PersonalProfile holds the name and display name from a user's personal account.
+type PersonalProfile struct {
+	UserID      string
+	Name        string
+	DisplayName string
+}
+
+// GetPersonalProfiles returns the personal-account name and display name for
+// each of the given user IDs in a single query.
+func (s *AccountStore) GetPersonalProfiles(userIDs []string) (map[string]PersonalProfile, error) {
+	if len(userIDs) == 0 {
+		return map[string]PersonalProfile{}, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT am.user_id, a.name, a.display_name
+		FROM accounts a
+		JOIN account_members am ON a.id = am.account_id
+		WHERE am.user_id = ANY($1) AND a.type = 'personal' AND a.deleted_at IS NULL
+	`, pq.Array(userIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query personal profiles: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	profiles := make(map[string]PersonalProfile, len(userIDs))
+	for rows.Next() {
+		var p PersonalProfile
+		if err := rows.Scan(&p.UserID, &p.Name, &p.DisplayName); err != nil {
+			return nil, fmt.Errorf("failed to scan personal profile: %w", err)
+		}
+		profiles[p.UserID] = p
+	}
+	return profiles, nil
 }
 
 // IsMember checks if a user is a member of an account

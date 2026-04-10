@@ -489,7 +489,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
 			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), ""))
 
-	// RequireAccountPermission: IsMember returns 0 (user-a is not a member of org-b)
+	// RequireAccountMember: IsMember returns 0 (user-a is not a member of org-b)
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-b", "user-a").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -502,7 +502,8 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	})
 	memberRoutes := router.Group("/accounts/:account/members")
 	memberRoutes.Use(middleware.ResolveAccount(store))
-	memberRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
+	// Match main.go: memberRoutes uses RequireAccountMember, not RequireAccountPermission
+	memberRoutes.Use(middleware.RequireAccountMember(store))
 	memberRoutes.GET("", ListMembers(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
@@ -513,3 +514,508 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 		t.Errorf("cross-account access should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- ListMembers permission boundary tests ---
+
+func TestListMembers_NonMember_Denied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	// IsMember returns 0
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	user := &auth.User{ID: "user-1"}
+
+	router := gin.New()
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-member, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- RemoveMember permission boundary tests ---
+
+func TestRemoveMember_SelfRemoval_NoOrgManage_Allowed(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "user-1"}
+	// Session without org:manage — self-removal should still be allowed
+	session := &auth.Session{OrganizationID: "org_123", Permissions: []string{}}
+
+	syncSvc := org.NewSync(nil, store, nil, db)
+
+	// syncSvc.RemoveMember will try to look up the account — let it fail with DB error
+	mock.ExpectQuery("SELECT .+ FROM accounts").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, syncSvc, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should NOT be 403 — self-removal bypasses org:manage check
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("self-removal should not require org:manage, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestRemoveMember_OtherRemoval_WithOrgManage_Allowed(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "user-1"}
+	session := &auth.Session{OrganizationID: "org_123", Permissions: []string{"org:manage"}}
+
+	syncSvc := org.NewSync(nil, store, nil, db)
+
+	// syncSvc will try to look up account — let it fail
+	mock.ExpectQuery("SELECT .+ FROM accounts").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, syncSvc, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should NOT be 403 — caller has org:manage
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("user with org:manage should be able to remove others, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestRemoveMember_OtherRemoval_WithoutOrgManage_Denied(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "user-1"}
+	// Session scoped to org but without org:manage permission
+	session := &auth.Session{OrganizationID: "org_123", Permissions: []string{}}
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("removing others without org:manage should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRemoveMember_OtherRemoval_OrgMismatch_Denied(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "user-1"}
+	// Session scoped to a DIFFERENT org
+	session := &auth.Session{OrganizationID: "org_OTHER", Permissions: []string{"org:manage"}}
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("org mismatch should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRemoveMember_OtherRemoval_PersonalAccount_MemberAllowed(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	// Personal account — HasAccountPermission checks IsMember instead of JWT permissions
+	acct := &account.Account{ID: "acct-1", Name: "myacct", Type: "personal"}
+	user := &auth.User{ID: "user-1"}
+
+	syncSvc := org.NewSync(nil, store, nil, db)
+
+	// HasAccountPermission for personal account calls IsMember — return true
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// syncSvc.RemoveMember will try to look up account — let it fail
+	mock.ExpectQuery("SELECT .+ FROM accounts").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccount(acct, user),
+		RemoveMember(log, syncSvc, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should NOT be 403 — personal account membership grants all permissions
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("personal account member should be able to remove others, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestRemoveMember_NoUser_Denied(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	// Inject account but no user
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccount(acct, nil),
+		RemoveMember(log, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 with no user, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- AddMember role validation tests ---
+
+func TestAddMember_InvalidRole_Rejected(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil, nil))
+
+	body := `{"user_id": "user-1", "role": "superadmin"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid role should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAddMember_AdminCanAssignAdmin(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	caller := &auth.User{ID: "caller-1"}
+	session := &auth.Session{Role: "admin"}
+
+	syncSvc := org.NewSync(nil, store, nil, db)
+
+	// syncSvc will try to look up account — let it fail
+	mock.ExpectQuery("SELECT .+ FROM accounts").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	router := gin.New()
+	router.POST("/members",
+		injectTestOrgAccountWithSession(acct, caller, session),
+		AddMember(log, syncSvc, store, nil, nil, nil))
+
+	body := `{"user_id": "new-user", "role": "admin"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should NOT be 403 — admin can assign admin (owner guard only blocks non-owners from assigning owner)
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("admin should be able to assign admin role, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestAddMember_MemberSessionCannotAssignOwner(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	caller := &auth.User{ID: "caller-1"}
+	session := &auth.Session{Role: "member"}
+
+	router := gin.New()
+	router.POST("/members",
+		injectTestOrgAccountWithSession(acct, caller, session),
+		AddMember(log, nil, nil, nil, nil, nil))
+
+	body := `{"user_id": "new-user", "role": "owner"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("member session should not be able to assign owner, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- UpdateMemberRole validation tests ---
+
+func TestUpdateMemberRole_InvalidRole_Rejected(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	router.PUT("/members/:user_id", injectTestOrgAccount(acct, nil), UpdateMemberRole(log, nil, nil, nil))
+
+	body := `{"role": "superuser"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid role should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- CreateInvitations permission boundary tests ---
+
+func TestCreateInvitations_BulkMixed_NonOwnerAssignsOwner_Rejected(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	caller := &auth.User{ID: "caller-1"}
+	session := &auth.Session{Role: "admin"}
+
+	router := gin.New()
+	router.POST("/invitations",
+		injectTestOrgAccountWithSession(acct, caller, session),
+		CreateInvitations(log, nil, nil))
+
+	// First invitation is fine (member role), second triggers owner escalation guard
+	body := `{"invitations": [{"value": "a@example.com", "kind": "email", "role": "member"}, {"value": "b@example.com", "kind": "email", "role": "owner"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-owner should not be able to invite as owner in bulk, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Full middleware chain tests ---
+// These wire ResolveAccount → RequireAccountMember → RequireAccountPermission
+// matching the exact route structure in main.go, to verify that the middleware
+// + handler + permission checks work together as a stack.
+
+// orgAccountCols matches scanAccount's expected column shape for org permission tests.
+var orgAccountCols = []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}
+
+// injectAuth returns middleware that sets user and session in context.
+func injectAuth(user *auth.User, session *auth.Session) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if user != nil {
+			c.Set(string(auth.UserContextKey), user)
+		}
+		if session != nil {
+			c.Set(string(auth.SessionContextKey), session)
+		}
+		c.Next()
+	}
+}
+
+func TestFullChain_AddMember_MemberWithoutOrgManage_Denied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	// ResolveAccount lookup
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(orgAccountCols).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+
+	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := gin.New()
+	router.Use(injectAuth(
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "org_123", Role: "member", Permissions: []string{}},
+	))
+	base := router.Group("/accounts/:account")
+	memberRoutes := base.Group("/members")
+	memberRoutes.Use(middleware.ResolveAccount(store))
+	memberRoutes.Use(middleware.RequireAccountMember(store))
+	memberManageRoutes := memberRoutes.Group("")
+	memberManageRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
+	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil, nil))
+
+	body := `{"user_id":"new-user","role":"member"}`
+	req := httptest.NewRequest(http.MethodPost, "/accounts/myorg/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("member without org:manage should be blocked by middleware, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFullChain_UpdateMemberRole_MemberWithoutOrgManage_Denied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(orgAccountCols).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+
+	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := gin.New()
+	router.Use(injectAuth(
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "org_123", Role: "member", Permissions: []string{}},
+	))
+	base := router.Group("/accounts/:account")
+	memberRoutes := base.Group("/members")
+	memberRoutes.Use(middleware.ResolveAccount(store))
+	memberRoutes.Use(middleware.RequireAccountMember(store))
+	memberManageRoutes := memberRoutes.Group("")
+	memberManageRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
+	memberManageRoutes.PUT("/:user_id", UpdateMemberRole(log, nil, store, nil))
+
+	body := `{"role":"admin"}`
+	req := httptest.NewRequest(http.MethodPut, "/accounts/myorg/members/user-2", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("member without org:manage should be blocked, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFullChain_RemoveMember_OtherRemoval_MemberDenied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	// ResolveAccount
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(orgAccountCols).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+
+	// RequireAccountMember: IsMember
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := gin.New()
+	router.Use(injectAuth(
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "org_123", Role: "member", Permissions: []string{}},
+	))
+	base := router.Group("/accounts/:account")
+	memberRoutes := base.Group("/members")
+	memberRoutes.Use(middleware.ResolveAccount(store))
+	memberRoutes.Use(middleware.RequireAccountMember(store))
+	memberRoutes.DELETE("/:user_id", RemoveMember(log, nil, store, nil, nil, nil))
+
+	// user-1 tries to remove user-2 — handler checks HasAccountPermission("org:manage") → false
+	req := httptest.NewRequest(http.MethodDelete, "/accounts/myorg/members/user-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("member removing others without org:manage should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFullChain_OrgManage_WrongOrgScope_Denied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	// ResolveAccount: account belongs to org_123
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(orgAccountCols).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+
+	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// Session is scoped to DIFFERENT org (org_OTHER)
+	router := gin.New()
+	router.Use(injectAuth(
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "org_OTHER", Role: "admin", Permissions: []string{"org:manage"}},
+	))
+	base := router.Group("/accounts/:account")
+	memberRoutes := base.Group("/members")
+	memberRoutes.Use(middleware.ResolveAccount(store))
+	memberRoutes.Use(middleware.RequireAccountMember(store))
+	memberManageRoutes := memberRoutes.Group("")
+	memberManageRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
+	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil, nil))
+
+	body := `{"user_id":"new-user","role":"member"}`
+	req := httptest.NewRequest(http.MethodPost, "/accounts/myorg/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("org:manage scoped to wrong org should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateInvitations_InvalidRole_Rejected(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	caller := &auth.User{ID: "caller-1"}
+
+	router := gin.New()
+	router.POST("/invitations",
+		injectTestOrgAccount(acct, caller),
+		CreateInvitations(log, nil, nil))
+
+	body := `{"invitations": [{"value": "a@example.com", "kind": "email", "role": "superadmin"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid role should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+

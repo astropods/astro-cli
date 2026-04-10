@@ -115,26 +115,15 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			}
 		}
 
-		// Build a profile lookup from each member's personal account
-		type profile struct {
-			Name        string
-			DisplayName string
+		// Batch-fetch personal-account profiles for all members in one query
+		memberUserIDs := make([]string, len(members))
+		for i, m := range members {
+			memberUserIDs[i] = m.UserID
 		}
-		profileByUserID := map[string]profile{}
-		for _, m := range members {
-			accounts, err := accountStore.GetAccountsForUser(m.UserID)
-			if err != nil {
-				continue
-			}
-			for _, a := range accounts {
-				if a.Type == "personal" {
-					profileByUserID[m.UserID] = profile{
-						Name:        a.Name,
-						DisplayName: a.DisplayName,
-					}
-					break
-				}
-			}
+		profileByUserID, err := accountStore.GetPersonalProfiles(memberUserIDs)
+		if err != nil {
+			log.Error("Failed to fetch member profiles", "error", err, "account_id", acct.ID)
+			profileByUserID = map[string]account.PersonalProfile{}
 		}
 
 		result := make([]MemberResponse, 0, len(members))
@@ -166,21 +155,20 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 		// local DB entry yet (e.g. freshly invited users before the event
 		// consumer syncs them).
 		if c.Query("include_pending") == "true" {
+			var pendingUIDs []string
 			for uid, info := range infoByUserID {
-				if localUserIDs[uid] || info.Status != "pending" {
-					continue
+				if !localUserIDs[uid] && info.Status == "pending" {
+					pendingUIDs = append(pendingUIDs, uid)
 				}
-				// Best-effort profile lookup
-				var p profile
-				accts, err := accountStore.GetAccountsForUser(uid)
-				if err == nil {
-					for _, a := range accts {
-						if a.Type == "personal" {
-							p = profile{Name: a.Name, DisplayName: a.DisplayName}
-							break
-						}
-					}
-				}
+			}
+			pendingProfiles, err := accountStore.GetPersonalProfiles(pendingUIDs)
+			if err != nil {
+				log.Error("Failed to fetch pending member profiles", "error", err, "account_id", acct.ID)
+				pendingProfiles = map[string]account.PersonalProfile{}
+			}
+			for _, uid := range pendingUIDs {
+				info := infoByUserID[uid]
+				p := pendingProfiles[uid]
 				result = append(result, MemberResponse{
 					AccountID:   acct.ID,
 					UserID:      uid,

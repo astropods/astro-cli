@@ -17,6 +17,9 @@ const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
+const ORG_ACCOUNT = "test-org";
+const ORG_ACCOUNT_ID = "org-acct-1";
+const WOS_ORG_ID = "wos-org-1";
 
 const nowIso = new Date().toISOString();
 const latestBuildByAgent: Record<string, string> = {
@@ -27,7 +30,10 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_INGESTION_SCHEDULE]: "build-125",
 };
 
-const authResponse = {
+// Mutable org role — changed via /test/set-role
+let currentOrgRole = "admin";
+
+const makeAuthResponse = () => ({
   user: {
     id: "user-1",
     email: "test@example.com",
@@ -38,10 +44,39 @@ const authResponse = {
     updated_at: nowIso,
   },
   session_id: "session-1",
-  permissions: [],
+  organization_id: WOS_ORG_ID,
+  role: currentOrgRole,
+  permissions: currentOrgRole === "member" ? [] : ["org:manage"],
   expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-  accounts: [{ id: "acct-1", name: ACCOUNT, type: "personal" }],
-};
+  accounts: [
+    { id: "acct-1", name: ACCOUNT, type: "personal" },
+    { id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID },
+  ],
+});
+
+// Keep a reference for backwards compat — existing tests use the const
+const authResponse = makeAuthResponse();
+
+const makeOrgMembers = () => [
+  {
+    account_id: ORG_ACCOUNT_ID,
+    user_id: "user-1",
+    role: currentOrgRole,
+    status: "active",
+    username: ACCOUNT,
+    display_name: "Test User",
+    created_at: nowIso,
+  },
+  {
+    account_id: ORG_ACCOUNT_ID,
+    user_id: "user-2",
+    role: "member",
+    status: "active",
+    username: "otheruser",
+    display_name: "Other User",
+    created_at: nowIso,
+  },
+];
 
 const baseVariables = {
   OPENAI_API_KEY: {
@@ -448,11 +483,20 @@ Bun.serve({
     if (pathname === "/test/reset" && request.method === "POST") {
       deployments = makeInitialDeployments();
       storedPayloads = {};
+      currentOrgRole = "admin";
       return json({ ok: true });
     }
 
-    if (pathname === "/auth/me") return json(authResponse);
-    if (pathname === "/auth/refresh") return json(authResponse);
+    // Set the org role for subsequent auth responses
+    if (pathname === "/test/set-role" && request.method === "POST") {
+      const body = (await request.json()) as { role: string };
+      currentOrgRole = body.role;
+      return json({ ok: true, role: currentOrgRole });
+    }
+
+    if (pathname === "/auth/me") return json(makeAuthResponse());
+    if (pathname === "/auth/refresh") return json(makeAuthResponse());
+    if (pathname === "/auth/switch-org") return json(makeAuthResponse());
     if (pathname === "/auth/login") return new Response("ok");
     if (pathname.startsWith("/auth/logout")) return new Response("ok");
 
@@ -640,8 +684,51 @@ Bun.serve({
     }
 
     const accountMembersMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/members$/);
-    if (accountMembersMatch && request.method === "GET") {
-      return json({ members: [] });
+    if (accountMembersMatch) {
+      const [, accountName] = accountMembersMatch;
+      if (request.method === "GET") {
+        if (accountName === ORG_ACCOUNT) {
+          return json({ members: makeOrgMembers() });
+        }
+        return json({ members: [] });
+      }
+      if (request.method === "POST") {
+        const body = (await request.json()) as { user_id: string; role: string };
+        return json({ member: { account_id: accountName, user_id: body.user_id, role: body.role } }, 201);
+      }
+    }
+
+    const memberActionMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/members\/([^/]+)$/);
+    if (memberActionMatch) {
+      if (request.method === "PUT") {
+        return json({ message: "role updated" });
+      }
+      if (request.method === "DELETE") {
+        return json({ message: "member removed" });
+      }
+    }
+
+    const accountInvitationsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/invitations$/);
+    if (accountInvitationsMatch) {
+      if (request.method === "GET") {
+        return json({ invitations: [] });
+      }
+      if (request.method === "POST") {
+        const body = (await request.json()) as { invitations: { value: string; kind: string; role: string }[] };
+        const results = body.invitations.map((inv: { value: string }) => ({ value: inv.value, success: true }));
+        return json({ results }, 201);
+      }
+    }
+
+    const invitationActionMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/invitations\/([^/]+)$/);
+    if (invitationActionMatch && request.method === "DELETE") {
+      return json({ message: "invitation revoked" });
+    }
+
+    // Account detail (for display name update, rename, etc.)
+    const accountDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)$/);
+    if (accountDetailMatch && (request.method === "PUT" || request.method === "PATCH")) {
+      return json({ ok: true });
     }
 
     const accountObsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/observability\/summary$/);
