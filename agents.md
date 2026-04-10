@@ -68,3 +68,30 @@ Changelogs must focus on **architecture and design**, not file-by-file diffs:
 - **Migration** — What users need to do (or that nothing is required).
 
 Do not list individual file changes. Explain the system, not the patch.
+
+# Releases
+
+Release notes live in `docs/releases/`. Each release is a single file named `YYYY-MM-DD.N.md` where `N` is a counter starting at `1` (e.g. `2026-04-10.1.md`, `2026-04-10.2.md`). Multiple releases per day are normal.
+
+To create a new release:
+1. Find the commit range: the previous release file lists its end commit; the new range starts there and ends at `HEAD`.
+2. Read the relevant changelog files in `docs/changelog/` for the commits in range — they have the design context.
+3. Write the release note with two sections:
+
+**Public section** (top) — user-facing, no internal jargon:
+- Feature headers describe what users can now do
+- Bullet points describe observable behavior, not implementation
+- No component names, API paths, DB details, or variable names
+- Fixes section covers user-visible regressions only
+- Migration table only if users need to take action
+
+**Appendix** (bottom, separated by `---`) — internal details for the team:
+- Commit range
+- Technical specifics: component names, API params, env vars, DB/queue changes
+- Fix root causes
+
+4. Commit the release note file, then tag the commit:
+```
+git tag release/YYYY-MM-DD.N
+```
+The tag should match the filename exactly (e.g. `release/2026-04-10.2`).
