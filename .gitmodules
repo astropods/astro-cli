@@ -16,3 +16,9 @@
 [submodule "modules/astro-ai-website"]
 	path = modules/astro-ai-website
 	url = git@github.com:postman-eng/astro-ai-website.git
+[submodule "modules/astro-infra"]
+	path = modules/astro-infra
+	url = git@github.com:astropods/astro-infra.git
+[submodule "modules/website"]
+	path = modules/website
+	url = git@github.com:postman-eng/astro-website.git
