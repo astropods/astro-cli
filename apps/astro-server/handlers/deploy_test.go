@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -3087,6 +3090,358 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+// --- StreamDeploymentLogs tests ---
+
+var streamWSUpgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/logs/stream",
+		StreamDeploymentLogs(log, accountStore, cfg, nil, deployStore, lokiClient))
+
+	return router, deployMock, accountMock
+}
+
+func TestStreamDeploymentLogs_Unauthorized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, _, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, _, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	router := gin.New()
+	// No auth middleware — user is not set.
+	router.GET("/api/v1/deployments/:id/logs/stream",
+		StreamDeploymentLogs(logger.New("error", "json"), account.NewAccountStore(accountDB),
+			&config.Config{}, nil, deploymentstore.NewStore(deployDB), nil))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/logs/stream?account=my-acct", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
+	router, deployMock, accountMock := setupStreamLogsTest(t, nil /* no Loki, no k8s */)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
+	// Mock Loki server: query_range returns historical line; tail WS delivers live line.
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loki/api/v1/query_range":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"my-pod"},"values":[["1000000000","historical line"]]}]}}`)) //nolint:errcheck
+		case "/loki/api/v1/tail":
+			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Errorf("websocket upgrade: %v", err)
+				return
+			}
+			defer conn.Close() //nolint:errcheck
+			frame := map[string]interface{}{
+				"streams": []map[string]interface{}{{
+					"stream": map[string]string{"pod": "my-pod"},
+					"values": [][]string{{"2000000000", "live line"}},
+				}},
+			}
+			data, _ := json.Marshal(frame)
+			conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+			conn.WriteMessage(websocket.CloseMessage,      //nolint:errcheck
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			conn.ReadMessage() //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// Use a real HTTP server so SSE streaming (http.Flusher) works.
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+
+	// Collect SSE lines until EOF (handler exits after WS closes).
+	var sseLines []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			sseLines = append(sseLines, line)
+		}
+	}
+
+	// Expect: event:ready (emitted on connect), then both log data lines from tail.
+	var logLines, eventLines []string
+	for _, l := range sseLines {
+		if strings.HasPrefix(l, "data:") && l != "data: {}" {
+			logLines = append(logLines, l)
+		} else if strings.HasPrefix(l, "event:") {
+			eventLines = append(eventLines, l)
+		}
+	}
+
+	if len(logLines) < 2 {
+		t.Errorf("got %d log data lines, want ≥2; all lines: %v", len(logLines), sseLines)
+	}
+	if len(logLines) >= 1 && !strings.Contains(logLines[0], "historical line") {
+		t.Errorf("first log line should contain historical line, got: %s", logLines[0])
+	}
+	if len(logLines) >= 2 && !strings.Contains(logLines[len(logLines)-1], "live line") {
+		t.Errorf("last log line should contain live line, got: %s", logLines[len(logLines)-1])
+	}
+	if len(eventLines) == 0 || !strings.Contains(eventLines[0], "ready") {
+		t.Errorf("expected event: ready, got: %v", eventLines)
+	}
+}
+
+func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
+	// Timestamp 1000000000 ns = 1s since epoch — delivered via backfill query_range.
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loki/api/v1/query_range":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"p"},"values":[["1000000000","log line"]]}]}}`)) //nolint:errcheck
+		case "/loki/api/v1/tail":
+			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()                                                                                        //nolint:errcheck
+			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+			conn.ReadMessage()                                                                                        //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var idLines []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		if line := scanner.Text(); strings.HasPrefix(line, "id:") {
+			idLines = append(idLines, line)
+		}
+	}
+
+	if len(idLines) == 0 {
+		t.Fatal("expected id: fields in SSE output, got none")
+	}
+	if !strings.Contains(idLines[0], "1000000000") {
+		t.Errorf("id field = %q, want nanosecond timestamp 1000000000", idLines[0])
+	}
+}
+
+func TestStreamDeploymentLogs_LokiPath_LastEventID_AdjustsHistStart(t *testing.T) {
+	var gotStart string
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/loki/api/v1/tail" {
+			http.NotFound(w, r)
+			return
+		}
+		gotStart = r.URL.Query().Get("start")
+		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()                                                                                        //nolint:errcheck
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+		conn.ReadMessage()                                                                                        //nolint:errcheck
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	req.Header.Set("Last-Event-ID", "5000000000")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+
+	// Tail WS should receive start=5000000001 (Last-Event-ID + 1 ns, exclusive).
+	if gotStart != "5000000001" {
+		t.Errorf("Loki tail start = %q, want 5000000001", gotStart)
+	}
+}
+
+func TestStreamDeploymentLogs_LokiPath_LastEventID_InvalidIgnored(t *testing.T) {
+	var gotStart string
+	before := time.Now()
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/loki/api/v1/query_range":
+			// Backfill is attempted on invalid Last-Event-ID; return empty result.
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`)) //nolint:errcheck
+		case "/loki/api/v1/tail":
+			gotStart = r.URL.Query().Get("start")
+			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()                                                                                        //nolint:errcheck
+			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+			conn.ReadMessage()                                                                                        //nolint:errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	req.Header.Set("Last-Event-ID", "not-a-number")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+
+	// Invalid Last-Event-ID is ignored — tail should start from approximately now.
+	startNano, err := strconv.ParseInt(gotStart, 10, 64)
+	if err != nil {
+		t.Fatalf("parse tail start %q: %v", gotStart, err)
+	}
+	gotTime := time.Unix(0, startNano)
+	if gotTime.Before(before) || gotTime.After(time.Now().Add(5*time.Second)) {
+		t.Errorf("tail start %v should be approximately now", gotTime)
 	}
 }
 

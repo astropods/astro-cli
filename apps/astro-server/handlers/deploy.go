@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -1857,6 +1858,219 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		}
 
 		streamLogs(c, log, lokiClient, lokiParams, k8sClient, dep.Namespace, podName, logOpts)
+	}
+}
+
+// resolvePodForStream finds a running pod for the given workload in the namespace.
+// It prefers a Running pod; falls back to any pod with the right prefix and container.
+func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, namespace, workloadName, containerName string) (string, error) {
+	pods, err := k8sClient.Clientset().CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+	})
+	if err != nil {
+		return "", err
+	}
+	prefix := workloadName + "-"
+	var podName string
+	for _, p := range pods.Items {
+		if !strings.HasPrefix(p.Name, prefix) {
+			continue
+		}
+		if containerName != "" {
+			found := false
+			for _, cs := range append(p.Status.ContainerStatuses, p.Status.InitContainerStatuses...) {
+				if cs.Name == containerName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		if podName == "" || p.Status.Phase == corev1.PodRunning {
+			podName = p.Name
+		}
+		if p.Status.Phase == corev1.PodRunning {
+			break
+		}
+	}
+	return podName, nil
+}
+
+// StreamDeploymentLogs streams live log lines for a deployment workload as Server-Sent Events.
+// On fresh connection, the last 15 minutes of logs are backfilled before live streaming begins.
+// On reconnect, Last-Event-ID resumes from the last received event without re-fetching history.
+// Loki path: QueryLogs backfill then WebSocket tail.
+// K8s fallback: streams pod logs with Follow=true and SinceTime.
+func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		if lokiClient == nil && k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
+			return
+		}
+
+		workloadName := c.Query("workload")
+		containerName := c.Query("container")
+		podName := c.Query("pod")
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+
+		flusher := c.Writer.(http.Flusher)
+
+		writeEvent := func(ll loki.LogLine) bool {
+			payload, _ := json.Marshal(struct {
+				Timestamp string `json:"timestamp"`
+				Line      string `json:"line"`
+			}{
+				Timestamp: ll.Timestamp.UTC().Format(time.RFC3339Nano),
+				Line:      strings.TrimRight(ll.Line, "\n"),
+			})
+			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
+			if writeErr != nil {
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+
+		writeErrorEvent := func(message string) {
+			fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message) //nolint:errcheck
+			flusher.Flush()
+		}
+
+		if lokiClient != nil {
+			// Loki path: backfill the last 15 minutes on fresh connection, then tail from there.
+			// On reconnect, Last-Event-ID resumes from the last received event without re-fetching history.
+			var tailStart time.Time
+			if raw := c.GetHeader("Last-Event-ID"); raw != "" {
+				if tsNano, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
+					tailStart = time.Unix(0, tsNano+1)
+				}
+			} else {
+				backfillLines, backfillErr := lokiClient.QueryLogs(c.Request.Context(), loki.QueryParams{
+					Namespace: dep.Namespace,
+					Pod:       podName,
+					Workload:  workloadName,
+					Container: containerName,
+					Start:     time.Now().Add(-15 * time.Minute),
+				})
+				if backfillErr != nil {
+					log.Error("Failed to backfill logs", "error", backfillErr, "namespace", dep.Namespace)
+				} else {
+					for _, ll := range backfillLines {
+						if !writeEvent(ll) {
+							return
+						}
+					}
+					if len(backfillLines) > 0 {
+						tailStart = backfillLines[len(backfillLines)-1].Timestamp.Add(time.Nanosecond)
+					}
+				}
+			}
+
+			tailParams := loki.QueryParams{
+				Namespace: dep.Namespace,
+				Pod:       podName,
+				Workload:  workloadName,
+				Container: containerName,
+				Start:     tailStart,
+			}
+			ch, tailErr := lokiClient.TailLogs(c.Request.Context(), tailParams)
+			if tailErr != nil {
+				log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
+				writeErrorEvent("failed to connect to log stream")
+				return
+			}
+
+			fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+			flusher.Flush()
+
+			for ll := range ch {
+				if !writeEvent(ll) {
+					return
+				}
+			}
+			return
+		}
+
+		// K8s fallback: resolve pod then stream with Follow=true.
+		if podName == "" && workloadName != "" {
+			resolved, resolveErr := resolvePodForStream(c.Request.Context(), k8sClient, dep.Namespace, workloadName, containerName)
+			if resolveErr != nil {
+				log.Error("Failed to list pods for stream", "error", resolveErr)
+				writeErrorEvent("failed to list pods")
+				return
+			}
+			podName = resolved
+		}
+
+		if podName == "" {
+			writeErrorEvent("pod or workload required")
+			return
+		}
+
+		// K8s fallback: backfill the last 15 minutes on fresh connection; on reconnect resume from
+		// Last-Event-ID. SinceTime and TailLines are mutually exclusive in the K8s API.
+		// K8s SinceTime has second-level precision, so on reconnect lines at or before the cursor
+		// are filtered server-side to prevent duplicates.
+		var cursorNano int64
+		sinceTime := metav1.NewTime(time.Now().Add(-15 * time.Minute))
+		if raw := c.GetHeader("Last-Event-ID"); raw != "" {
+			if tsNano, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
+				cursorNano = tsNano
+				sinceTime = metav1.NewTime(time.Unix(0, tsNano+1))
+			}
+		}
+		logOpts := &corev1.PodLogOptions{Follow: true, SinceTime: &sinceTime, Timestamps: true}
+		if containerName != "" {
+			logOpts.Container = containerName
+		}
+
+		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
+		if streamErr != nil {
+			log.Error("Failed to stream pod logs", "error", streamErr, "pod", podName)
+			writeErrorEvent("failed to stream pod logs")
+			return
+		}
+		defer stream.Close() //nolint:errcheck
+
+		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+		flusher.Flush()
+
+		scanner := bufio.NewScanner(stream)
+		for scanner.Scan() {
+			line := scanner.Text()
+			ts := time.Now()
+			msg := line
+			if idx := strings.IndexByte(line, ' '); idx > 0 {
+				if t, parseErr := time.Parse(time.RFC3339Nano, line[:idx]); parseErr == nil {
+					ts = t
+					msg = line[idx+1:]
+				}
+			}
+			if cursorNano > 0 && ts.UnixNano() <= cursorNano {
+				continue
+			}
+			if !writeEvent(loki.LogLine{Timestamp: ts, Line: msg}) {
+				return
+			}
+		}
 	}
 }
 

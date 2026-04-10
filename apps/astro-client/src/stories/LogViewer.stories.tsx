@@ -43,9 +43,19 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange">) {
+function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange" | "isLive" | "onLiveToggle"> & { withLive?: boolean; startLive?: boolean }) {
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
-  return <LogViewer {...args} timeRange={timeRange} onTimeRangeChange={setTimeRange} />;
+  const [isLive, setIsLive] = useState(args.startLive ?? false);
+  const { withLive, startLive, ...rest } = args;
+  return (
+    <LogViewer
+      {...rest}
+      timeRange={timeRange}
+      onTimeRangeChange={setTimeRange}
+      isLive={withLive ? isLive : undefined}
+      onLiveToggle={withLive ? () => setIsLive((v) => !v) : undefined}
+    />
+  );
 }
 
 export const WithLogs: Story = {
@@ -58,6 +68,14 @@ export const Empty: Story = {
 
 export const Loading: Story = {
   render: () => <Controlled logs={[]} isLoading />,
+};
+
+export const Live: Story = {
+  render: () => <Controlled logs={SAMPLE_LOGS} withLive startLive />,
+};
+
+export const LiveConnecting: Story = {
+  render: () => <Controlled logs={[]} withLive startLive isLoading />,
 };
 
 export const Compact: Story = {

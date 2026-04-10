@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ChevronDown, Plus, Terminal, X } from "lucide-react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
-import { useDeploymentLogs } from "@/api/queries/deployments";
+import { useDeploymentLogs, useDeploymentLogsStream } from "@/api/queries/deployments";
 import type { AgentDeployment, WorkloadDetail } from "@/lib/api";
 
 interface LogTab {
@@ -73,6 +73,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
 
   const [{ tabs: openTabs, activeKey }, dispatch] = useReducer(tabReducer, { tabs: [], activeKey: null });
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
+  const [isLive, setIsLive] = useState(false);
 
   // Pre-load the first container tab and make it active when the deployment changes
   useEffect(() => {
@@ -80,6 +81,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
       .flatMap((wl) => (wl.containers ?? []).map((c) => ({ workloadName: wl.name, containerName: c.name })))
       .slice(0, 1);
     dispatch({ type: "reset", preload: first, activeKey: first[0] ? tabKey(first[0]) : null });
+    setIsLive(false);
   }, [deployment.id]);
 
   const activeTab = useMemo(
@@ -87,13 +89,55 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
     [openTabs, activeKey],
   );
 
-  const { data: logs = [], isLoading, isError } = useDeploymentLogs(
+  // Disable live mode when switching tabs so the new tab loads fresh historical logs.
+  const prevActiveKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevActiveKeyRef.current !== null && prevActiveKeyRef.current !== activeKey) {
+      setIsLive(false);
+    }
+    prevActiveKeyRef.current = activeKey;
+  }, [activeKey]);
+
+  const tabEnabled = !!(activeTab?.workloadName && activeTab?.containerName);
+
+  // Historical (non-live) query — one-shot fetch, no polling.
+  const { data: logsRaw, isLoading: histLoading, isError } = useDeploymentLogs(
     deployment.id,
     activeTab?.workloadName ?? "",
     activeTab?.containerName ?? "",
     timeRange,
-    { enabled: !!(activeTab?.workloadName && activeTab?.containerName) },
+    {
+      enabled: !isLive && tabEnabled,
+      refetchInterval: false,
+    },
   );
+
+  // Live streaming via SSE — only active when live mode is on.
+  // The server backfills the last 15 minutes on fresh connection then tails from there.
+  // On reconnect, Last-Event-ID resumes from the last received event.
+  const {
+    lines: streamLines,
+    isLive: streamIsLive,
+    error: streamError,
+  } = useDeploymentLogsStream(
+    deployment.id,
+    activeTab?.workloadName ?? "",
+    activeTab?.containerName ?? "",
+    isLive && tabEnabled,
+  );
+
+  // Show historical logs until the server signals ready (after backfill completes),
+  // then switch to the stream which already contains the full backfill + live lines.
+  const logs = useMemo(
+    () => isLive && streamIsLive ? streamLines : (logsRaw ? logsRaw.split("\n").filter(Boolean) : []),
+    [isLive, streamIsLive, streamLines, logsRaw],
+  );
+
+  const isLoading = isLive ? false : histLoading;
+  let logError: string | undefined;
+  if (isLive) logError = streamIsLive ? undefined : streamError;
+  else if (isError) logError = "Failed to load logs.";
+
 
   if (workloads.length === 0) {
     return (
@@ -208,7 +252,9 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
             isCompact={isCompact}
             timeRange={timeRange}
             onTimeRangeChange={setTimeRange}
-            error={isError ? "Failed to load logs." : undefined}
+            error={logError}
+            isLive={isLive && streamIsLive}
+            onLiveToggle={() => setIsLive((v) => !v)}
           />
         )}
       </div>

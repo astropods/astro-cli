@@ -25,8 +25,6 @@ function renderViewer(props: Partial<React.ComponentProps<typeof LogViewer>> = {
   );
 }
 
-// ── rendering ─────────────────────────────────────────────────────────────────
-
 describe("LogViewer", () => {
   it("renders all log lines", () => {
     renderViewer();
@@ -85,8 +83,6 @@ describe("LogViewer", () => {
     expect(screen.getByText(/Agent initialized/)).toBeInTheDocument();
   });
 
-  // ── warning filter ──────────────────────────────────────────────────────────
-
   it("counts warning lines in the Warnings button", () => {
     renderViewer();
     const warnBtn = screen.getByRole("button", { name: /Warnings/i });
@@ -99,8 +95,6 @@ describe("LogViewer", () => {
     expect(screen.getByText(/retry attempt/)).toBeInTheDocument();
     expect(screen.queryByText(/Agent initialized/)).not.toBeInTheDocument();
   });
-
-  // ── search ──────────────────────────────────────────────────────────────────
 
   it("filters lines by search term", () => {
     renderViewer();
@@ -122,13 +116,53 @@ describe("LogViewer", () => {
     expect(screen.getByText("No matching lines")).toBeInTheDocument();
   });
 
-  // ── time range ──────────────────────────────────────────────────────────────
-
   it("calls onTimeRangeChange when time range is changed", () => {
     const onTimeRangeChange = vi.fn();
     renderViewer({ onTimeRangeChange });
     fireEvent.click(screen.getByText("Last 15 min"));
     fireEvent.click(screen.getByText("Last 1 hour"));
     expect(onTimeRangeChange).toHaveBeenCalledWith("1h");
+  });
+
+  it("does not render live button without onLiveToggle", () => {
+    renderViewer();
+    expect(screen.queryByRole("button", { name: /Live/i })).not.toBeInTheDocument();
+  });
+
+  it("renders live button when onLiveToggle is provided", () => {
+    renderViewer({ onLiveToggle: vi.fn() });
+    expect(screen.getByRole("button", { name: /Live/i })).toBeInTheDocument();
+  });
+
+  it("calls onLiveToggle when live button is clicked", () => {
+    const onLiveToggle = vi.fn();
+    renderViewer({ onLiveToggle });
+    fireEvent.click(screen.getByRole("button", { name: /Live/i }));
+    expect(onLiveToggle).toHaveBeenCalledOnce();
+  });
+
+  it("shows pulsing indicator when live is active", () => {
+    renderViewer({ onLiveToggle: vi.fn(), isLive: true });
+    const dot = screen.getByRole("button", { name: /Live/i }).querySelector("span");
+    expect(dot?.className).toContain("animate-pulse");
+  });
+
+  it("calls onLiveToggle when time range selector is opened while live", () => {
+    const onLiveToggle = vi.fn();
+    renderViewer({ onLiveToggle, isLive: true });
+    fireEvent.click(screen.getByText("Last 15 min"));
+    expect(onLiveToggle).toHaveBeenCalledOnce();
+  });
+
+  it("does not call onLiveToggle when time range is opened while not live", () => {
+    const onLiveToggle = vi.fn();
+    renderViewer({ onLiveToggle, isLive: false });
+    fireEvent.click(screen.getByText("Last 15 min"));
+    expect(onLiveToggle).not.toHaveBeenCalled();
+  });
+
+  it("renders error message when error prop is set", () => {
+    renderViewer({ logs: [], error: "Failed to load logs." });
+    expect(screen.getByText("Failed to load logs.")).toBeInTheDocument();
   });
 });

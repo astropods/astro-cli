@@ -1169,6 +1169,17 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
 				oapispec.Response(200, nil),
 			)
+			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore, lokiClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("workload", "Workload name", false),
+				oapispec.QueryParam("container", "Container name", false),
+				oapispec.QueryParam("pod", "Pod name", false),
+				oapispec.Desc("Streams log lines as Server-Sent Events. Requires Loki backend. WRITE_TIMEOUT must be 0."),
+				oapispec.Response(200, nil),
+				oapispec.Response(501, &handlers.ErrorResponse{}),
+			)
 			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

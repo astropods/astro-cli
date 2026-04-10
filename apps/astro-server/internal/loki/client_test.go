@@ -2,10 +2,13 @@ package loki
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestBuildSelector(t *testing.T) {
@@ -490,5 +493,126 @@ func TestQueryLogs_ExplicitLevelTakesPrecedenceOverDetectedLevel(t *testing.T) {
 	}
 	if lines[0].Level != "warn" {
 		t.Errorf("lines[0].Level = %q, want \"warn\" (explicit level wins over detected_level)", lines[0].Level)
+	}
+}
+
+// ── TailLogs tests ────────────────────────────────────────────────────────────
+
+var wsUpgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+func newWSSrv(t *testing.T, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/loki/api/v1/tail" {
+			handler(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestTailLogs_ReceivesLogLines(t *testing.T) {
+	ts := newWSSrv(t, func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+
+		frame := tailWSMessage{
+			Streams: []struct {
+				Stream map[string]string `json:"stream"`
+				Values [][]string        `json:"values"`
+			}{
+				{
+					Stream: map[string]string{"pod": "my-pod", "container": "agent"},
+					Values: [][]string{
+						{"1000000000", "hello world"},
+						{"2000000000", "second line"},
+					},
+				},
+			},
+		}
+		data, _ := json.Marshal(frame)
+		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+		// Close normally so the goroutine exits cleanly.
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+	})
+
+	c := New(ts.URL)
+	ch, err := c.TailLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+
+	var lines []LogLine
+	for ll := range ch {
+		lines = append(lines, ll)
+	}
+
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	if lines[0].Line != "hello world" {
+		t.Errorf("lines[0].Line = %q, want %q", lines[0].Line, "hello world")
+	}
+	if lines[1].Line != "second line" {
+		t.Errorf("lines[1].Line = %q, want %q", lines[1].Line, "second line")
+	}
+	if lines[0].Pod != "my-pod" {
+		t.Errorf("lines[0].Pod = %q, want %q", lines[0].Pod, "my-pod")
+	}
+	if lines[0].Container != "agent" {
+		t.Errorf("lines[0].Container = %q, want %q", lines[0].Container, "agent")
+	}
+	if lines[0].Timestamp != time.Unix(0, 1000000000) {
+		t.Errorf("lines[0].Timestamp = %v, want %v", lines[0].Timestamp, time.Unix(0, 1000000000))
+	}
+}
+
+func TestTailLogs_DialFailure(t *testing.T) {
+	c := New("http://127.0.0.1:1") // nothing listening on port 1
+	_, err := c.TailLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err == nil {
+		t.Fatal("expected dial error, got nil")
+	}
+}
+
+func TestTailLogs_ContextCancellation(t *testing.T) {
+	started := make(chan struct{})
+	ts := newWSSrv(t, func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+		close(started)
+		// Block until client disconnects.
+		conn.ReadMessage() //nolint:errcheck
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	c := New(ts.URL)
+	ch, err := c.TailLogs(ctx, QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+
+	<-started
+	cancel()
+
+	// Channel should close promptly after cancellation.
+	select {
+	case _, open := <-ch:
+		if open {
+			t.Error("expected channel to be closed")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("channel did not close after context cancellation")
 	}
 }

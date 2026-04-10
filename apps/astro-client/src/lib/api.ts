@@ -470,6 +470,11 @@ class ApiClient {
     return response.json();
   }
 
+  getDeploymentLogsStreamUrl(deploymentId: string, workloadName: string, container: string): string {
+    const params = new URLSearchParams({ workload: workloadName, container });
+    return `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs/stream?${params}`;
+  }
+
   // Fetch ConfigMap data for a deployment
   async getConfigMapData(
     deploymentId: string,

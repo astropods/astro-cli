@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Loader2, X, ArrowDown } from "lucide-react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,11 +32,42 @@ interface LogViewerProps {
   /** Optional content rendered at the left of the toolbar */
   leading?: React.ReactNode;
   error?: string;
+  isLive?: boolean;
+  onLiveToggle?: () => void;
 }
 
-export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error }: LogViewerProps) {
+export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isLive = false, onLiveToggle }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isUserScrolled = useRef(false);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    isUserScrolled.current = false;
+    setShowJumpToBottom(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const scrolledUp = distFromBottom > 80;
+    isUserScrolled.current = scrolledUp;
+    setShowJumpToBottom(scrolledUp);
+  }, []);
+
+  // Auto-scroll when new log data arrives (if user is at bottom)
+  useEffect(() => {
+    if (!isUserScrolled.current) {
+      scrollToBottom();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs.length]);
 
   return (
     <div className="flex flex-col h-full bg-surface border border-border rounded-[10px] overflow-hidden">
@@ -84,8 +115,33 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           />
         </div>
 
-        {/* Time range */}
-        <Select value={timeRange} onValueChange={(v) => onTimeRangeChange(v as LogTimeRange)}>
+        {/* Live toggle + Time range */}
+        {onLiveToggle && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onLiveToggle}
+            className={cn(
+              "font-sans text-body-sm gap-[5px]",
+              isLive ? "bg-muted font-medium" : "font-normal",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full shrink-0",
+                isLive ? "bg-teal-500 animate-pulse" : "bg-muted-foreground",
+              )}
+            />
+            Live
+            {isLive && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
+          </Button>
+        )}
+
+        <Select
+          value={timeRange}
+          onOpenChange={(open) => { if (open && isLive) onLiveToggle?.(); }}
+          onValueChange={(v) => onTimeRangeChange(v as LogTimeRange)}
+        >
           <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)]">
             <SelectValue />
           </SelectTrigger>
@@ -106,7 +162,8 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
       </div>
 
       {/* Log stream */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-background py-2.5 pb-3.5 overflow-x-auto">
+      <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-background py-2.5 pb-3.5">
         {isLoading ? (
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
             <Loader2 size={14} className="dp-spin" />
@@ -139,6 +196,16 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
             );
           })
         )}
+      </div>
+      {showJumpToBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border shadow-sm font-sans text-body-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowDown size={12} />
+          Jump to bottom
+        </button>
+      )}
       </div>
     </div>
   );
