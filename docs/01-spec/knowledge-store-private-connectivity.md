@@ -350,6 +350,105 @@ These are estimates based on 64KB stream buffers and typical database query size
 
 ---
 
+## Connector Agent Compatibility
+
+The connector is a raw TCP byte-proxy — equivalent to a SOCKS5 proxy. It opens one TCP connection to `target_host:target_port` per `stream_id` and forwards bytes verbatim. There is no database protocol awareness anywhere in the stack. This is the right design for simplicity and generality, but it means compatibility is determined entirely by what each database's wire protocol requires beyond a single TCP connection.
+
+### Compatibility matrix
+
+| Database | Works | Notes |
+|---|---|---|
+| PostgreSQL (single instance) | Yes | Pure TCP stream; TLS caveat applies |
+| MySQL / MariaDB (single instance) | Yes | Same |
+| Redis (standalone) | Yes | RESP is trivial TCP; latency caveat applies |
+| ClickHouse (native protocol) | Yes | Single TCP stream |
+| SQL Server (default instance, fixed port) | Yes | TLS caveat applies |
+| MongoDB (single node) | Yes | Wire protocol is TCP |
+| Neo4j (single instance) | Yes | Bolt protocol is plain TCP |
+| CockroachDB (single node) | Yes | PostgreSQL-compatible wire |
+| Redis Cluster | No | `MOVED`/`ASK` redirects embed shard IPs unreachable from agent |
+| Kafka | No | Broker metadata embeds `advertised.listeners`; producers/consumers connect directly |
+| Cassandra | No | Driver queries `system.peers`, opens connections to all discovered nodes |
+| Elasticsearch (sniffing enabled) | No | Sniffing fetches node addresses and dials directly; workaround: disable `sniff_on_start` |
+| SQL Server (named instance) | No | Port discovered via SQL Server Browser on UDP 1434; connector cannot proxy UDP |
+
+### Limitations
+
+#### TLS hostname verification
+
+The agent's DB client connects to `tunnel.astro-internal:PORT` and uses that hostname for SNI and certificate verification. The database's TLS certificate is issued for `db.internal` — verification fails.
+
+Three options, all with tradeoffs:
+- Disable TLS verification in the client (`sslmode=disable` in libpq, `tlsInsecure: true` in mongo URI). Plaintext between agent and DB; only the astro-server → connector leg is encrypted by QUIC.
+- Configure SNI override in the client library. libpq supports `sslsni=0`; support varies widely across drivers.
+- Issue the DB certificate for the tunnel address. Operationally impractical in most environments.
+
+The spec's claim that "no data is exposed in transit" is accurate for the tunnel leg but misleading if users assume it covers end-to-end encryption. The QUIC/TLS 1.3 layer protects astro-server → connector only.
+
+#### Cluster-aware databases: hard failure
+
+Databases that embed host:port addresses in their wire protocol for cluster membership and redirect cannot be proxied through a single endpoint. The tunnel exposes one address; the client's next connection goes directly to a private IP that is unreachable from the Astro cluster.
+
+- **Redis Cluster**: `MOVED` and `ASK` responses contain shard IP:port pairs. The client opens TCP connections to those IPs directly. All cross-slot operations fail.
+- **Kafka**: Brokers advertise `advertised.listeners` (VPC-internal IPs) in the metadata response. Producers and consumers connect directly to the returned broker addresses after bootstrap. Multi-broker clusters fail completely.
+- **Cassandra**: The native driver queries `system.peers` on first connect and opens connections to all discovered nodes. One tunnel endpoint cannot proxy a multi-node ring.
+- **Elasticsearch with sniffing**: `sniff_on_start` and `sniff_on_node_failure` fetch cluster node addresses and connect to them directly. Disabling sniffing makes a single-node or coordinating-node deployment work, but this is not the default in most client libraries and must be explicitly configured.
+
+For these databases, use PrivateLink (same-cloud) or accept that the connector is not a viable option.
+
+#### Multi-port protocols
+
+The connector proxies a single `target_host:target_port`. SQL Server named instances require the SQL Server Browser service (UDP 1434) to resolve the instance's dynamic TCP port. The connector cannot proxy UDP, so the client cannot determine the correct port. SQL Server default instances on a fixed port are unaffected.
+
+#### Tunnel proxy address assignment (unresolved)
+
+The data plane flow states that the agent connects to `tunnel.astro-internal:5432`, but does not define how astro-server maps an incoming TCP connection to a store ARN before any bytes have flowed.
+
+- **Port-per-ARN**: allocating a dedicated port per store ARN does not scale beyond hundreds of stores.
+- **Protocol-aware routing**: reading the first bytes of the database handshake (e.g. PostgreSQL startup message) to extract a routing key is protocol-specific and does not generalize to Redis, Kafka, or MongoDB.
+- **Unix socket per ARN**: workable in-cluster but adds complexity for multi-node astro-server deployments.
+
+This mechanism must be decided before implementation. It determines what the agent's `DATABASE_URL` looks like and whether the routing is transparent or requires a per-ARN address.
+
+#### astro-server backpressure gap
+
+The agent → astro-server leg is plain TCP. The astro-server → connector leg is QUIC with per-stream flow control (512KB default). When the QUIC stream is flow-controlled — because the connector or the target DB is slow — astro-server cannot write outbound data but continues reading from the agent's TCP socket. Bytes accumulate in astro-server's process memory with no signal back to the agent.
+
+QUIC flow control caps the outbound side only. For bulk-transfer workloads (large vector result sets, analytics queries), this is an unbounded per-stream memory growth path in astro-server. The fix is per-stream buffer caps on the agent-facing TCP socket with explicit TCP receive window reduction when the buffer is full, propagating backpressure through to the agent's DB client.
+
+#### Transaction integrity on StreamClose
+
+When the connector sends `StreamClose`, astro-server resets the agent's TCP connection. The agent's database client sees a TCP RST mid-transaction — the transaction is silently rolled back. `StreamClose` carries a `reason` string, but because the connector is byte-transparent it never parses a database-level error. The agent cannot distinguish a network blip from a DB-side error without issuing an explicit rollback check after reconnect.
+
+For long-running queries (vector index builds, analytics aggregations) this is a meaningful reliability gap. Short OLTP queries reconnect and retry cleanly; long queries may silently lose work.
+
+#### Latency mismatch for cache workloads
+
+The 3–8ms per-round-trip overhead is appropriate for LLM agent workloads (vector search, document retrieval, sparse reads at 5–50ms per query). It is not appropriate for Redis used as a low-latency semantic cache or hot embedding lookup, where baseline in-cluster latency is ~0.1ms. The connector adds 30–80× overhead per operation in that pattern. Redis used as a durable key-value store with infrequent reads is fine; Redis used as a primary cache is not.
+
+#### No connection pooling
+
+Each agent TCP connection maps to one QUIC stream and one TCP connection from the connector to the database. There is no connection pooling or multiplexing at the protocol level. Under high agent concurrency, the database sees the full connection count from agents rather than a pooled subset. Databases with low max-connection limits (e.g. RDS Postgres default of 100) can be exhausted quickly. For PostgreSQL, deploying PgBouncer in the user's VPC in front of the database and pointing the connector at PgBouncer is the recommended mitigation.
+
+### Summary
+
+The connector works well for the most common LLM agent pattern: a single-instance PostgreSQL, MySQL, or MongoDB database accessed with moderate concurrency and no strict TLS verification requirement. It fails structurally for cluster-topology databases and requires explicit workarounds for TLS. The backpressure gap and connection-pooling absence are implementation risks rather than fundamental limits — both are fixable without protocol changes.
+
+### Required before stable
+
+The connector is currently marked Experimental. The following limitations are blockers for a stable designation — they represent either unresolved design questions or production reliability risks, not just documentation gaps:
+
+| # | Limitation | Why it blocks stable |
+|---|---|---|
+| 1 | **Tunnel proxy address assignment** | The mechanism for routing an incoming agent TCP connection to a store ARN is undefined. This is a core design decision that affects the agent-facing API, astro-server implementation, and scalability ceiling. The feature cannot be fully implemented without it. |
+| 2 | **astro-server backpressure gap** | Slow connectors or target databases cause unbounded memory growth in astro-server. This is a production stability risk under any sustained load. |
+| 3 | **TLS hostname verification** | There is currently no viable path to end-to-end TLS without requiring users to either disable certificate verification or issue certs against tunnel-internal addresses. A stable feature must offer a documented, secure TLS story — SNI passthrough, cert injection, or an explicit per-store TLS override. |
+| 4 | **No connection pooling** | One agent connection = one database connection. Under realistic agent concurrency this exhausts database connection limits. Stable connectors must either pool internally or document a mandatory PgBouncer/proxy tier as part of the setup. |
+
+Cluster-aware database incompatibility (Redis Cluster, Kafka, Cassandra) is a structural limitation that does not block stable — it should be documented as an explicit exclusion rather than fixed. Transaction integrity on `StreamClose` and cache-workload latency are also acceptable documented limitations.
+
+---
+
 ## Cross-Cloud Connectivity
 
 A common real-world scenario: Astro runs on AWS but the user's database lives on GCP, Azure, or a different AWS account or region. PrivateLink and the connector agent have fundamentally different answers to this.
