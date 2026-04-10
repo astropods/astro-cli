@@ -164,7 +164,7 @@ export function ActiveContainerAccordion({
           <div onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${title}`}>
+                <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${title}`} className="focus-visible:ring-0 focus-visible:border-transparent">
                   <MoreVertical size={14} />
                 </Button>
               </DropdownMenuTrigger>
