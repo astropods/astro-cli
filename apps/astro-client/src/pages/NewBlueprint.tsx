@@ -163,21 +163,23 @@ function NewBlueprintContent() {
           ))}
         </div>
 
-        {/* Carousel — all 3 cards side-by-side, translateX controls which is visible */}
-        <div className="relative overflow-hidden rounded-xl h-[540px]">
+        {/* Carousel — sliding flex row, height driven by content */}
+        <div className="overflow-hidden rounded-xl">
+          <div
+            className="flex"
+            style={{
+              width: `${STEPS.length * 100}%`,
+              transform: `translateX(-${activeStepIndex * (100 / STEPS.length)}%)`,
+              transition: 'transform 0.55s cubic-bezier(0.16,1,0.3,1)',
+            }}
+          >
           {STEPS.map((step, i) => {
-            const offset = i - activeStepIndex;
-
             return (
               <div
                 key={step.id}
-                className="absolute inset-0"
-                style={{
-                  transform: `translateX(${offset * 110}%)`,
-                  transition: 'transform 0.55s cubic-bezier(0.16,1,0.3,1)',
-                }}
+                style={{ width: `${100 / STEPS.length}%` }}
               >
-                <div className="rounded-xl border border-border bg-white h-full overflow-hidden flex flex-col">
+                <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col min-h-[460px]">
 
                   {/* ── Publishing ── */}
                   {step.id === "publishing" && i <= activeStepIndex && (publishErr ? (
@@ -226,7 +228,7 @@ function NewBlueprintContent() {
                   {/* ── Create identity ── */}
                   {step.id === "setup" && i <= activeStepIndex && (
                     <div className="flex flex-col flex-1">
-                      <div className="px-6 pt-6 pb-4 overflow-y-auto">
+                      <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
                         <p className="text-sm font-semibold mb-0.5">{step.label}</p>
                         <p className="text-xs text-muted-foreground mb-5">{step.description}</p>
                         <div className="space-y-5">
@@ -333,7 +335,7 @@ function NewBlueprintContent() {
                           </div>
                         </div>
                       </div>
-                      <div className="border-t border-border px-6 py-4 flex items-center justify-end mt-auto">
+                      <div className="border-t border-border px-6 py-4 flex items-center justify-end">
                         <Button size="sm" onClick={handlePublish} disabled={slug.length < 4 || !/^[a-z]/.test(slug)}>
                           Create blueprint
                         </Button>
@@ -406,6 +408,7 @@ function NewBlueprintContent() {
               </div>
             );
           })}
+          </div>
         </div>
       </div>
     </div>
