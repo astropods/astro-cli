@@ -9,51 +9,15 @@ import { Button } from "@/components/ui/button";
 
 // ─── Shared setup components ─────────────────────────────────────────────────
 
-const CMD_KEYWORDS = new Set(["curl", "cd", "sh", "sudo", "mv", "ast", "npm", "bun", "npx"]);
-const CMD_FLAGS = /(-[-\w]+)/g;
-const CMD_URLS = /(https?:\/\/[^\s]+)/g;
-const CMD_OPERATORS = /(&&|\||\||>|>>|<)/g;
-
-function highlightCommand(cmd: string) {
-  const tokens: { text: string; type: "keyword" | "flag" | "url" | "operator" | "text" }[] = [];
-  const parts = cmd.split(/(\s+)/);
-  for (const part of parts) {
-    if (/^\s+$/.test(part)) {
-      tokens.push({ text: part, type: "text" });
-    } else if (CMD_URLS.test(part)) {
-      CMD_URLS.lastIndex = 0;
-      tokens.push({ text: part, type: "url" });
-    } else if (CMD_OPERATORS.test(part)) {
-      CMD_OPERATORS.lastIndex = 0;
-      tokens.push({ text: part, type: "operator" });
-    } else if (CMD_FLAGS.test(part) && part.startsWith("-")) {
-      CMD_FLAGS.lastIndex = 0;
-      tokens.push({ text: part, type: "flag" });
-    } else if (CMD_KEYWORDS.has(part)) {
-      tokens.push({ text: part, type: "keyword" });
-    } else {
-      tokens.push({ text: part, type: "text" });
-    }
-  }
-  return tokens.map((t, i) => {
-    switch (t.type) {
-      case "keyword": return <span key={i} className="text-violet-600">{t.text}</span>;
-      case "flag": return <span key={i} className="text-teal-600">{t.text}</span>;
-      case "url": return <span key={i} className="text-blue-600">{t.text}</span>;
-      case "operator": return <span key={i} className="font-bold text-stone-500">{t.text}</span>;
-      default: return <span key={i}>{t.text}</span>;
-    }
-  });
-}
 
 function CodeBlock({ command, label }: { command: string; label?: string }) {
   return (
     <div>
       {label && <p className="text-muted-foreground mb-1.5 text-xs">{label}</p>}
       <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 font-mono text-mono-md text-foreground">
-        <code className="overflow-x-auto whitespace-nowrap">
-          <span className="text-stone-400 mr-2">$</span>
-          {highlightCommand(command)}
+        <code className="overflow-x-auto whitespace-nowrap text-foreground">
+          <span className="mr-2">$</span>
+          {command}
         </code>
         <CopyButton
           copyText={command}

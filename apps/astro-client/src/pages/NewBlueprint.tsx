@@ -387,7 +387,7 @@ function NewBlueprintContent() {
                           <div className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-stone-300" />
                           <div>
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Up next</p>
-                            <p className="text-sm text-foreground">Setup your agent in code</p>
+                            <p className="text-sm text-foreground">Set up your agent in code</p>
                           </div>
                         </div>
                         <Button size="sm" onClick={() => navigate(`/${selectedOrg}/${slug}`)}>
