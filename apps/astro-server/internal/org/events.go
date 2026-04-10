@@ -167,7 +167,7 @@ func (ec *EventsConsumer) processMembershipEvent(event events.Event) error {
 		// member of the account. When the membership transitions to active,
 		// WorkOS fires an updated event and we create the entry then.
 		if data.Status != "" && data.Status != "active" {
-			ec.log.Debug("Skipping membership event — status not active",
+			ec.log.Info("Skipping membership event — status not active",
 				"event_type", event.Event, "status", data.Status,
 				"account_id", acct.ID, "user_id", data.UserID)
 			return nil
