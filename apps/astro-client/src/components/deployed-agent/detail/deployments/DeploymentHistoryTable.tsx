@@ -47,6 +47,7 @@ export function DeploymentHistoryTable({
   isGloballyRestarting = false,
   onPodRestartStateChange,
 }: DeploymentHistoryTableProps) {
+  // Track how many pods are locally restarting so the status row reflects it
   const restartingPodCountRef = useRef(0);
   const [isPodRestarting, setIsPodRestarting] = useState(false);
   type OverrideStatus = "restarting" | "pausing" | "resuming";
@@ -180,8 +181,8 @@ export function DeploymentHistoryTable({
                   urls={svc.urls}
                   readyText={svc.readyText}
                   uptime={svc.uptime}
-                  containers={svc.containers}
                   deploymentId={deploymentId}
+                  containers={svc.containers}
                   deploymentStatus={accordionDeploymentStatus}
                   isOpen={openContainers.has(svc.id)}
                   onToggle={() => onToggleContainer(svc.id)}

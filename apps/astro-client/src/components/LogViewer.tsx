@@ -31,9 +31,10 @@ interface LogViewerProps {
   onTimeRangeChange: (range: LogTimeRange) => void;
   /** Optional content rendered at the left of the toolbar */
   leading?: React.ReactNode;
+  error?: string;
 }
 
-export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading }: LogViewerProps) {
+export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
 
@@ -110,6 +111,10 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
             <Loader2 size={14} className="dp-spin" />
             Loading logs…
+          </div>
+        ) : error ? (
+          <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
+            {error}
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">

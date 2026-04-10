@@ -102,7 +102,10 @@ export function ActiveContainerAccordion({
     });
   };
 
-  const effectiveView = (!canShowVars && view === "vars") ? "domains" : view;
+  const effectiveView: "vars" | "domains" =
+    (view === "vars" && !canShowVars) ? "domains" :
+    (view === "domains" && !canShowDomains) ? "vars" :
+    view;
 
   const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
   const isTransitioning = effectiveStatus === "deploying" || effectiveStatus === "undeploying" || effectiveStatus === "restarting" || effectiveStatus === "pausing" || effectiveStatus === "resuming";

@@ -25,6 +25,11 @@ const meta = {
   title: "Features/Logs/LogViewer",
   component: LogViewer,
   parameters: { layout: "padded" },
+  args: {
+    logs: [],
+    timeRange: "15m" as LogTimeRange,
+    onTimeRangeChange: () => {},
+  },
   decorators: [
     (Story) => (
       <div style={{ height: "500px", display: "flex", flexDirection: "column" }}>
