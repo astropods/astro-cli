@@ -98,6 +98,18 @@ PrivateLink costs appear on both sides:
 
 AWS PrivateLink typical costs: ~$0.01/hr per endpoint + $0.01/GB data processed.
 
+### Limitations
+
+| Limitation                    | Detail                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One store = one endpoint**  | Each store requires a dedicated VPC endpoint in Astro's cluster VPC. In a 3-AZ deployment that is 3 private IPs consumed per store. IP address pressure and hourly cost grow linearly with store count.                                                                                                                          |
+| **NLB idle timeout**          | AWS NLBs drop idle TCP connections after 350 seconds. Connection pool spare connections and `LISTEN`/`NOTIFY` subscribers will receive a silent TCP RST. Applications must set TCP keepalive below this threshold. GCP and Azure load balancers have similar behavior with different defaults.                                   |
+| **No source IP preservation** | The NLB rewrites the connection source IP — the database sees the NLB's private IP, not the agent pod's. IP-based access controls (`pg_hba.conf`, MySQL `GRANT … FROM`) match the NLB. Proxy Protocol v2 restores the original source IP but must be enabled on both the NLB and the database, and not all databases support it. |
+| **mTLS unsupported**          | The NLB operates at Layer 4 and cannot present a client certificate. Databases that require mutual TLS for all connections cannot use PrivateLink without disabling that requirement.                                                                                                                                            |
+| **Manual acceptance step**    | Astro's VPC endpoint enters `pending-acceptance` until the user approves it in their cloud console. In organizations with change-control processes this can take hours to days. Auto-accept removes the friction but approves all future endpoint requests from Astro's account without review.                                  |
+| **Intra-cloud only**          | PrivateLink does not cross cloud provider boundaries. Cross-region within the same provider is possible on AWS but requires explicit inter-region configuration, adds geographic latency, and increases cost. See [Cross-Cloud Connectivity](#cross-cloud-connectivity).                                                         |
+| **Per-account allowlisting**  | The endpoint service allowlist is by cloud account ID. If Astro operates multiple accounts (per-region, staging vs. production), the user must add each account ID. A new Astro account requires a manual allowlist update before connectivity can be established.                                                               |
+
 ---
 
 ## Option B: Connector Agent *(Experimental)*
@@ -212,12 +224,12 @@ ast knowledge connector revoke prod-vpc-connector \
 
 ### Connector Deployment
 
-| Variable | Description |
-|---|---|
-| `AST_CONNECTOR_TOKEN` | Store-scoped connector token |
-| `AST_TARGET_HOST` | Private database hostname |
-| `AST_TARGET_PORT` | Private database port |
-| `AST_SERVER` | Override server address (default: `fleet.astropods.ai:9092`) |
+| Variable              | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `AST_CONNECTOR_TOKEN` | Store-scoped connector token                                 |
+| `AST_TARGET_HOST`     | Private database hostname                                    |
+| `AST_TARGET_PORT`     | Private database port                                        |
+| `AST_SERVER`          | Override server address (default: `fleet.astropods.ai:9092`) |
 
 **Docker:**
 ```
@@ -307,12 +319,12 @@ Connector: Agent → astro-server → QUIC tunnel → ast-connect → DB
 
 Each additional hop adds round-trip latency. Approximate breakdown for a typical cloud deployment (same region):
 
-| Segment | Latency |
-|---|---|
-| Agent → astro-server (in-cluster) | < 1ms |
-| astro-server → connector (QUIC, same region) | 1–5ms |
-| connector → DB (in user VPC) | < 1ms |
-| **Total overhead vs direct** | **~3–8ms per round trip** |
+| Segment                                      | Latency                   |
+| -------------------------------------------- | ------------------------- |
+| Agent → astro-server (in-cluster)            | < 1ms                     |
+| astro-server → connector (QUIC, same region) | 1–5ms                     |
+| connector → DB (in user VPC)                 | < 1ms                     |
+| **Total overhead vs direct**                 | **~3–8ms per round trip** |
 
 For LLM agent workloads — vector search, document retrieval, sparse reads — queries typically take 5–50ms. An overhead of 3–8ms is acceptable. For bulk ingestion jobs writing millions of rows in tight loops, the overhead compounds per round trip and PrivateLink is the better choice.
 
@@ -340,11 +352,11 @@ If UDP is blocked, `ast-connect` should fall back to gRPC-over-TCP (port 443) au
 ### Connector sizing guide
 
 | Concurrent agent connections to the store | Recommended connector replicas | Memory per connector |
-|---|---|---|
-| < 20 | 1 | 64MB |
-| 20–100 | 2 | 128MB |
-| 100–500 | 2–3 | 256MB |
-| 500+ | Consider PrivateLink | — |
+| ----------------------------------------- | ------------------------------ | -------------------- |
+| < 20                                      | 1                              | 64MB                 |
+| 20–100                                    | 2                              | 128MB                |
+| 100–500                                   | 2–3                            | 256MB                |
+| 500+                                      | Consider PrivateLink           | —                    |
 
 These are estimates based on 64KB stream buffers and typical database query sizes. Actual resource use depends heavily on query result size (a vector search returning 1000 embeddings is much larger than a simple row lookup).
 
@@ -356,21 +368,21 @@ The connector is a raw TCP byte-proxy — equivalent to a SOCKS5 proxy. It opens
 
 ### Compatibility matrix
 
-| Database | Works | Notes |
-|---|---|---|
-| PostgreSQL (single instance) | Yes | Pure TCP stream; TLS caveat applies |
-| MySQL / MariaDB (single instance) | Yes | Same |
-| Redis (standalone) | Yes | RESP is trivial TCP; latency caveat applies |
-| ClickHouse (native protocol) | Yes | Single TCP stream |
-| SQL Server (default instance, fixed port) | Yes | TLS caveat applies |
-| MongoDB (single node) | Yes | Wire protocol is TCP |
-| Neo4j (single instance) | Yes | Bolt protocol is plain TCP |
-| CockroachDB (single node) | Yes | PostgreSQL-compatible wire |
-| Redis Cluster | No | `MOVED`/`ASK` redirects embed shard IPs unreachable from agent |
-| Kafka | No | Broker metadata embeds `advertised.listeners`; producers/consumers connect directly |
-| Cassandra | No | Driver queries `system.peers`, opens connections to all discovered nodes |
-| Elasticsearch (sniffing enabled) | No | Sniffing fetches node addresses and dials directly; workaround: disable `sniff_on_start` |
-| SQL Server (named instance) | No | Port discovered via SQL Server Browser on UDP 1434; connector cannot proxy UDP |
+| Database                                  | Works | Notes                                                                                    |
+| ----------------------------------------- | ----- | ---------------------------------------------------------------------------------------- |
+| PostgreSQL (single instance)              | Yes   | Pure TCP stream; TLS caveat applies                                                      |
+| MySQL / MariaDB (single instance)         | Yes   | Same                                                                                     |
+| Redis (standalone)                        | Yes   | RESP is trivial TCP; latency caveat applies                                              |
+| ClickHouse (native protocol)              | Yes   | Single TCP stream                                                                        |
+| SQL Server (default instance, fixed port) | Yes   | TLS caveat applies                                                                       |
+| MongoDB (single node)                     | Yes   | Wire protocol is TCP                                                                     |
+| Neo4j (single instance)                   | Yes   | Bolt protocol is plain TCP                                                               |
+| CockroachDB (single node)                 | Yes   | PostgreSQL-compatible wire                                                               |
+| Redis Cluster                             | No    | `MOVED`/`ASK` redirects embed shard IPs unreachable from agent                           |
+| Kafka                                     | No    | Broker metadata embeds `advertised.listeners`; producers/consumers connect directly      |
+| Cassandra                                 | No    | Driver queries `system.peers`, opens connections to all discovered nodes                 |
+| Elasticsearch (sniffing enabled)          | No    | Sniffing fetches node addresses and dials directly; workaround: disable `sniff_on_start` |
+| SQL Server (named instance)               | No    | Port discovered via SQL Server Browser on UDP 1434; connector cannot proxy UDP           |
 
 ### Limitations
 
@@ -438,12 +450,12 @@ The connector works well for the most common LLM agent pattern: a single-instanc
 
 The connector is currently marked Experimental. The following limitations are blockers for a stable designation — they represent either unresolved design questions or production reliability risks, not just documentation gaps:
 
-| # | Limitation | Why it blocks stable |
-|---|---|---|
-| 1 | **Tunnel proxy address assignment** | The mechanism for routing an incoming agent TCP connection to a store ARN is undefined. This is a core design decision that affects the agent-facing API, astro-server implementation, and scalability ceiling. The feature cannot be fully implemented without it. |
-| 2 | **astro-server backpressure gap** | Slow connectors or target databases cause unbounded memory growth in astro-server. This is a production stability risk under any sustained load. |
-| 3 | **TLS hostname verification** | There is currently no viable path to end-to-end TLS without requiring users to either disable certificate verification or issue certs against tunnel-internal addresses. A stable feature must offer a documented, secure TLS story — SNI passthrough, cert injection, or an explicit per-store TLS override. |
-| 4 | **No connection pooling** | One agent connection = one database connection. Under realistic agent concurrency this exhausts database connection limits. Stable connectors must either pool internally or document a mandatory PgBouncer/proxy tier as part of the setup. |
+| #   | Limitation                          | Why it blocks stable                                                                                                                                                                                                                                                                                          |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Tunnel proxy address assignment** | The mechanism for routing an incoming agent TCP connection to a store ARN is undefined. This is a core design decision that affects the agent-facing API, astro-server implementation, and scalability ceiling. The feature cannot be fully implemented without it.                                           |
+| 2   | **astro-server backpressure gap**   | Slow connectors or target databases cause unbounded memory growth in astro-server. This is a production stability risk under any sustained load.                                                                                                                                                              |
+| 3   | **TLS hostname verification**       | There is currently no viable path to end-to-end TLS without requiring users to either disable certificate verification or issue certs against tunnel-internal addresses. A stable feature must offer a documented, secure TLS story — SNI passthrough, cert injection, or an explicit per-store TLS override. |
+| 4   | **No connection pooling**           | One agent connection = one database connection. Under realistic agent concurrency this exhausts database connection limits. Stable connectors must either pool internally or document a mandatory PgBouncer/proxy tier as part of the setup.                                                                  |
 
 Cluster-aware database incompatibility (Redis Cluster, Kafka, Cassandra) is a structural limitation that does not block stable — it should be documented as an explicit exclusion rather than fixed. Transaction integrity on `StreamClose` and cache-workload latency are also acceptable documented limitations.
 
@@ -465,15 +477,15 @@ Within a single provider, cross-region PrivateLink is technically possible (AWS 
 
 Cross-cloud scenarios the connector handles natively:
 
-| Astro runs on | Database lives on | Connector works |
-|---|---|---|
-| AWS | GCP | Yes |
-| AWS | Azure | Yes |
-| AWS | Different AWS account | Yes |
-| AWS | Different AWS region | Yes |
-| AWS | On-premises datacenter | Yes |
-| GCP | AWS | Yes |
-| Any | Any | Yes |
+| Astro runs on | Database lives on      | Connector works |
+| ------------- | ---------------------- | --------------- |
+| AWS           | GCP                    | Yes             |
+| AWS           | Azure                  | Yes             |
+| AWS           | Different AWS account  | Yes             |
+| AWS           | Different AWS region   | Yes             |
+| AWS           | On-premises datacenter | Yes             |
+| GCP           | AWS                    | Yes             |
+| Any           | Any                    | Yes             |
 
 The network path in a cross-cloud deployment:
 
@@ -508,31 +520,31 @@ If Astro and the database are on the same cloud provider but different regions, 
 
 ## Comparison
 
-| | PrivateLink | Connector Agent |
-|---|---|---|
-| **Cloud support** | Single cloud provider only | Any cloud, any region, on-premises |
-| **Cross-cloud** | Not supported | Native |
-| **Setup** | NLB + endpoint service + acceptance flow | Deploy one container |
-| **Network latency** | Near-native (one NLB hop) | Extra hop through astro-server (~3–8ms) |
-| **Throughput** | Line-rate native TCP | Bounded by QUIC flow control and astro-server buffers |
-| **Works on-premises** | No | Yes |
-| **UDP requirement** | No | Yes (with TCP fallback) |
-| **Public internet traversal** | No | Yes (encrypted TLS 1.3) |
-| **Redundancy** | NLB multi-AZ by default | Multiple connector replicas, server-side pool |
-| **Cost** | Cloud provider endpoint fees | Included in platform (reuses fleet infra) |
-| **Best for** | High-throughput, single-cloud, regulated same-cloud environments | Multi-cloud, cross-cloud, on-prem, quick setup |
+|                               | PrivateLink                                                      | Connector Agent                                       |
+| ----------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------- |
+| **Cloud support**             | Single cloud provider only                                       | Any cloud, any region, on-premises                    |
+| **Cross-cloud**               | Not supported                                                    | Native                                                |
+| **Setup**                     | NLB + endpoint service + acceptance flow                         | Deploy one container                                  |
+| **Network latency**           | Near-native (one NLB hop)                                        | Extra hop through astro-server (~3–8ms)               |
+| **Throughput**                | Line-rate native TCP                                             | Bounded by QUIC flow control and astro-server buffers |
+| **Works on-premises**         | No                                                               | Yes                                                   |
+| **UDP requirement**           | No                                                               | Yes (with TCP fallback)                               |
+| **Public internet traversal** | No                                                               | Yes (encrypted TLS 1.3)                               |
+| **Redundancy**                | NLB multi-AZ by default                                          | Multiple connector replicas, server-side pool         |
+| **Cost**                      | Cloud provider endpoint fees                                     | Included in platform (reuses fleet infra)             |
+| **Best for**                  | High-throughput, single-cloud, regulated same-cloud environments | Multi-cloud, cross-cloud, on-prem, quick setup        |
 
 ---
 
 ## Store Status Model
 
-| Status | Meaning |
-|---|---|
-| `pending` | Created, no connectivity configured |
-| `connecting` | Connector not yet online / endpoint creation in progress |
-| `pending-acceptance` | PrivateLink endpoint awaiting user approval |
-| `ready` | Connectivity established, store reachable |
-| `degraded` | Connector disconnected / endpoint unhealthy but recoverable |
-| `error` | Permanently failed (token revoked, endpoint rejected) |
+| Status               | Meaning                                                     |
+| -------------------- | ----------------------------------------------------------- |
+| `pending`            | Created, no connectivity configured                         |
+| `connecting`         | Connector not yet online / endpoint creation in progress    |
+| `pending-acceptance` | PrivateLink endpoint awaiting user approval                 |
+| `ready`              | Connectivity established, store reachable                   |
+| `degraded`           | Connector disconnected / endpoint unhealthy but recoverable |
+| `error`              | Permanently failed (token revoked, endpoint rejected)       |
 
 Agents bound to a store in `degraded` or `error` will fail at the DB connection level. The platform surfaces this in the deployment health view.
