@@ -9,16 +9,39 @@ Go from zero to a running agent in three steps. Have the [CLI installed](/instal
 <Steps>
   <Step title="Create an agent">
     Scaffold a new project:
-    <CodeBlock language="bash">ast create hello-astro</CodeBlock>
-    <small>Use <code>--yes</code> to skip prompts and use defaults (HTTP interface, Anthropic model, no knowledge or tools).</small>
+
+    ```bash
+    ast create
+    ```
   </Step>
-  <Step title="Run locally">
-    Start a local dev environment with hot-reload:
-    <CodeBlock language="bash">cd hello-astro &amp;&amp; ast dev</CodeBlock>
-    <small>Edit code and the agent restarts automatically. Run <code>ast configure</code> to set API keys as needed (e.g. <code>ANTHROPIC_API_KEY</code>).</small>
+  <Step title="Configure your agent">
+    Set all the inputs needed for your agent (e.g. `ANTHROPIC_API_KEY`):
+
+    ```bash
+    ast configure
+    ```
   </Step>
-  <Step title="Next step">
-    When you're ready to publish your agent to the Astropods registry, see <a href="/publish-to-registry">Publish to registry</a>. Pushing requires an account and <code>ast login</code>.
+  <Step title="Run your agent locally">
+    To enable hot reload, add the following to your spec:
+
+    ```yaml
+    dev:
+      command: bun --watch agent/index.ts
+    ```
+
+    Then start your agent:
+
+    ```bash
+    ast dev
+    ```
+  </Step>
+  <Step title="Publish your agent">
+    When you're ready to publish to the Astropods registry:
+
+    ```bash
+    ast login
+    ast push
+    ```
   </Step>
 </Steps>
 
