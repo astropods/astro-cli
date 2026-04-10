@@ -255,11 +255,6 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				versions = append(versions, buildVersionResponse(v))
 			}
 
-			var mc map[string]int64
-			if m, ok := msgCounts[agent.AccountID]; ok {
-				mc = m
-			}
-
 			resp := AgentResponse{
 				Account:    accountName,
 				Name:       agent.Name,
@@ -267,7 +262,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				Visibility: agent.Visibility,
 				Versions:   versions,
 				HeartCount: heartCounts[agent.AccountID][agent.Name],
-				Metrics:    agentMetrics(mc[agent.Name], deployCounts[agent.AccountID][agent.Name]),
+				Metrics:    agentMetrics(msgCounts[agent.AccountID][agent.Name], deployCounts[agent.AccountID][agent.Name]),
 			}
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
@@ -654,6 +649,10 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 		}
 
 		if err := index.Create(acct.ID, req.Name); err != nil {
+			if errors.Is(err, agentindex.ErrAlreadyExists) {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})
+				return
+			}
 			var pqErr *pq.Error
 			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})

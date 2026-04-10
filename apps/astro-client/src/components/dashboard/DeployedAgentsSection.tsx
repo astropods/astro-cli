@@ -1,12 +1,10 @@
 import { useMemo } from "react";
-import { Link } from "react-router";
-import { Button } from "@/components/ui/button";
-import { AgentEmptyIllustration } from "@/components/ui/svgs/agentEmptyIllustration";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
+import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
 import { useObservabilitySummaries, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
-import { blueprintsPaths, deploymentPath } from "@/lib/routes";
+import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
@@ -131,27 +129,7 @@ export function DeployedAgentsSection({
   }
 
   if (isEmpty) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-14 px-12 gap-4">
-        <AgentEmptyIllustration />
-        <div className="flex flex-col items-center gap-1.5">
-          <p className="text-heading-4 font-semibold text-foreground">No agents deployed yet</p>
-          <p className="text-body-sm text-muted-foreground text-center max-w-[300px]">
-            Deploy an agent from a blueprint or create your own from the CLI.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="default" size="sm" asChild>
-            <Link to={blueprintsPaths.discover}>Browse blueprints</Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href="https://docs.astropods.com/quickstart" target="_blank" rel="noopener noreferrer">
-              Read docs
-            </a>
-          </Button>
-        </div>
-      </div>
-    );
+    return <DashboardAgentsEmptyState />;
   }
 
   return (

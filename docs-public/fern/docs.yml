@@ -51,11 +51,6 @@ navigation:
           - page: Authentication
             path: docs/pages/authentication.mdx
             icon: fa-duotone fa-key
-      - section: Guides
-        contents:
-          - page: Connect to a private database
-            path: docs/pages/private-database.mdx
-            icon: fa-duotone fa-database
       - section: Reference
         contents:
           - page: Astropods Spec

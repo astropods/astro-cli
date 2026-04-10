@@ -1,5 +1,5 @@
-export { generateIdentity } from "./generate";
-export type { IdentityOptions } from "./generate";
+export { generateIdentity, generateCustomIdentity } from "./generate";
+export type { IdentityOptions, CustomIdentityOptions } from "./generate";
 export { palettes, paletteNames, indigo, neutral, stone, red, amber, yellow, green, teal, blue, purple, pink, coral } from "./theme";
 export type { ColorScale, PaletteName } from "./theme";
 export { edgeStyles } from "./polygon";

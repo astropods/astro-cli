@@ -165,8 +165,30 @@ func processImage(imageBytes []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// IsSVGContent reports whether imageBytes look like an SVG document.
+// http.DetectContentType sniffs SVG as text/plain, so we check the bytes directly.
+func IsSVGContent(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	// Accept <?xml...> preamble followed by <svg, or a bare <svg root element.
+	if bytes.HasPrefix(trimmed, []byte("<svg")) {
+		return true
+	}
+	if bytes.HasPrefix(trimmed, []byte("<?xml")) {
+		return bytes.Contains(trimmed[:min(512, len(trimmed))], []byte("<svg"))
+	}
+	return false
+}
+
 // uploadToKey processes an image and writes it to the given storage key.
+// SVG content is stored as-is; all other image types are decoded, resized, and
+// re-encoded as JPEG.
 func (s *Store) uploadToKey(ctx context.Context, key string, imageBytes []byte) error {
+	if IsSVGContent(imageBytes) {
+		if len(imageBytes) > MaxUploadSize {
+			return fmt.Errorf("image too large: %d bytes (max %d)", len(imageBytes), MaxUploadSize)
+		}
+		return s.backend.Write(ctx, key, imageBytes, "image/svg+xml")
+	}
 	data, err := processImage(imageBytes)
 	if err != nil {
 		return err

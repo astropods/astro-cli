@@ -40,14 +40,14 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID            string             `json:"id"`
-	Name          string             `json:"name"`
-	Type          string             `json:"type"`
-	DisplayName   string             `json:"display_name"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"`
+	DisplayName string             `json:"display_name"`
 	Owner       *AccountOwner      `json:"owner,omitempty"`
 	Invitations []org.InviteResult `json:"invitations,omitempty"`
 	CreatedAt   string             `json:"created_at"`
-	UpdatedAt     string             `json:"updated_at"`
+	UpdatedAt   string             `json:"updated_at"`
 }
 
 // AccountWithRoleResponse represents an account in the profile response
@@ -211,13 +211,13 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		auditStore.LogAsync(log, evt)
 
 		resp := AccountResponse{
-			ID:            acct.ID,
-			Name:          acct.Name,
-			Type:          acct.Type,
-			DisplayName:   acct.DisplayName,
+			ID:          acct.ID,
+			Name:        acct.Name,
+			Type:        acct.Type,
+			DisplayName: acct.DisplayName,
 
-			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		// Send invitations if provided (non-fatal — log failures, still return success)
@@ -259,13 +259,13 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 		}
 
 		resp := AccountResponse{
-			ID:            acct.ID,
-			Name:          acct.Name,
-			Type:          acct.Type,
-			DisplayName:   acct.DisplayName,
+			ID:          acct.ID,
+			Name:        acct.Name,
+			Type:        acct.Type,
+			DisplayName: acct.DisplayName,
 
-			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		// Best-effort: look up owner profile for personal accounts

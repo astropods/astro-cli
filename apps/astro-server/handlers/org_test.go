@@ -1018,4 +1018,3 @@ func TestCreateInvitations_InvalidRole_Rejected(t *testing.T) {
 		t.Errorf("invalid role should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
-

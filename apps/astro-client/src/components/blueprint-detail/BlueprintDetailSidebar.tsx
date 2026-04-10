@@ -7,8 +7,8 @@ import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
 import { useExperiments } from "@/lib/experiments";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarRepository } from "./SidebarRepository";
-import { SidebarStats } from "./SidebarStats";
 import { SidebarSection } from "./SidebarSection";
+import { SidebarStats } from "./SidebarStats";
 import { BlueprintCard, type BlueprintCardProps } from "@/components/BlueprintCard";
 import { formatDate } from "@/lib/utils";
 import { useAccount } from "@/api/queries";
@@ -55,15 +55,24 @@ export function SidebarCard({
   const repository = getBlueprintRepository(agent);
   const { experiments } = useExperiments();
 
+  const isDraft = agent.versions.length === 0;
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
-        <Button asChild size="default" className="h-11 w-full">
-          <Link to={`/deploy/${agent.account}/${agent.name}`}>
+        {isDraft ? (
+          <Button size="default" className="h-11 w-full" disabled>
             Deploy this agent
             <ArrowRight className="h-4 w-4" />
-          </Link>
-        </Button>
+          </Button>
+        ) : (
+          <Button asChild size="default" className="h-11 w-full">
+            <Link to={`/deploy/${agent.account}/${agent.name}`}>
+              Deploy this agent
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        )}
       </div>
 
       <SidebarAuthor
@@ -80,6 +89,8 @@ export function SidebarCard({
         version={version}
         isSemver={!!latestVersion?.version}
         updatedAt={updatedAt ?? undefined}
+        visibility={agent.visibility}
+        isDraft={isDraft}
       />
 
       {integrations.length > 0 && (

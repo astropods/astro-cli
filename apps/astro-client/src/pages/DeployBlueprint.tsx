@@ -11,7 +11,6 @@ import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import type { DeployResponse } from "@/lib/api";
 import { dashboardPath } from "@/lib/routes";
 
 // --- Loader & Meta ---
@@ -92,6 +91,22 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
     );
   }
 
+  if (agent.versions.length === 0) {
+    return (
+      <div className="flex flex-col flex-1 bg-surface">
+        <div className="flex flex-col items-center justify-center py-16 px-6">
+          <h1 className="text-xl font-semibold mb-3">Blueprint not ready</h1>
+          <p className="text-stone-500 text-sm mb-4">
+            Push your blueprint with <code className="font-mono bg-muted px-1 rounded">ast push</code> before deploying.
+          </p>
+          <Button asChild>
+            <Link to={`/${account}/${agentSlug}`}>Continue setup</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.trySubmit()) return;
@@ -115,15 +130,9 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
       const destination = `${dashboardPath}?account=${encodeURIComponent(form.targetAccount)}`;
 
       if (result?.deployment_id) {
-        const deployResult = result as DeployResponse;
-        const deploymentId = deployResult.deployment_id;
-        if (!deploymentId) {
-          navigate(destination);
-          return;
-        }
         navigate(destination, {
           state: {
-            revealDeploymentId: deploymentId,
+            revealDeploymentId: result.deployment_id,
             revealAgentName: agent.name,
             revealDisplayName: form.deployName,
             revealAvatarUrl,

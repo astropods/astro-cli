@@ -24,14 +24,14 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID     string          `json:"account_id"`
-	Name          string          `json:"name"`
-	Registry      string          `json:"registry"`
-	Visibility    string          `json:"visibility"`
-	Versions      []*AgentVersion `json:"versions"`
-	ArchivedAt    *time.Time      `json:"archived_at,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	AccountID  string          `json:"account_id"`
+	Name       string          `json:"name"`
+	Registry   string          `json:"registry"`
+	Visibility string          `json:"visibility"`
+	Versions   []*AgentVersion `json:"versions"`
+	ArchivedAt *time.Time      `json:"archived_at,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -128,15 +128,46 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 	return tx.Commit()
 }
 
-// Create inserts an agent shell with no builds. The registry field is left
-// empty and will be populated by the first Register call.
+// ErrAlreadyExists is returned by Create when an active (non-archived) agent with the same name exists.
+var ErrAlreadyExists = fmt.Errorf("agent already exists")
+
+// Create inserts a new agent record. If an archived agent with the same name exists it is
+// unarchived instead and its old versions are cleared so it starts as a clean draft.
+// Returns ErrAlreadyExists if a non-archived agent with that name exists.
 func (idx *Index) Create(accountID, name string) error {
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	now := time.Now()
-	_, err := idx.db.Exec(`
+	result, err := tx.Exec(`
 		INSERT INTO agents (account_id, name, registry, created_at, updated_at)
 		VALUES ($1, $2, '', $3, $4)
+		ON CONFLICT (account_id, name) DO UPDATE SET
+		  archived_at = NULL,
+		  registry    = '',
+		  updated_at  = $4
+		WHERE agents.archived_at IS NOT NULL
 	`, accountID, name, now, now)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrAlreadyExists
+	}
+
+	// Clear any stale versions from before archival so the agent starts as a
+	// clean draft — build IDs are only created by `ast push`, not the UI flow.
+	if _, err := tx.Exec(`
+		DELETE FROM agent_versions WHERE account_id = $1 AND name = $2
+	`, accountID, name); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // Get retrieves an agent by account ID and name

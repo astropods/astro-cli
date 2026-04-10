@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -119,7 +119,7 @@ describe('AgentDashboard page', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
+      expect(screen.getByText('Deploy your first agent')).toBeInTheDocument();
     });
   });
 
@@ -242,34 +242,6 @@ describe('org switcher', () => {
   });
 });
 
-describe('default account', () => {
-  beforeEach(() => localStorage.clear());
-  afterEach(() => localStorage.clear());
-
-  it('uses stored default org when no account param is in the URL', async () => {
-    localStorage.setItem('astro:default-account', 'my-org');
-    server.use(
-      http.get('/api/v1/accounts/:account/members', () =>
-        HttpResponse.json({ members: [{ id: 'u1', email: 'a@a.com', role: 'admin' }] }),
-      ),
-    );
-
-    renderDashboard('/dashboard', orgAuth);
-
-    await waitFor(() => {
-      expect(screen.getByText('1 member')).toBeInTheDocument();
-    });
-  });
-
-  it('URL account param takes precedence over stored default', async () => {
-    localStorage.setItem('astro:default-account', 'my-org');
-
-    renderDashboard('/dashboard?account=testuser', orgAuth);
-
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.queryByText(/\d+ members?/)).not.toBeInTheDocument();
-  });
-});
 
 describe('stats', () => {
   it('shows TOTAL TOKENS and TOTAL REQUESTS labels', async () => {

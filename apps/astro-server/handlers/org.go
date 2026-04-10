@@ -57,13 +57,13 @@ type ChangeMemberRoleRequest struct {
 
 // MemberResponse is a member with role and profile information included.
 type MemberResponse struct {
-	AccountID     string `json:"account_id"`
-	UserID        string `json:"user_id"`
-	Role          string `json:"role"`
-	Status        string `json:"status"`
-	Username      string `json:"username"`
-	DisplayName   string `json:"display_name"`
-	CreatedAt     string `json:"created_at"`
+	AccountID   string `json:"account_id"`
+	UserID      string `json:"user_id"`
+	Role        string `json:"role"`
+	Status      string `json:"status"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // ListMembers handles GET /api/v1/accounts/:account/members

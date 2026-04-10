@@ -1,25 +1,26 @@
 import { useState } from "react";
 import { Camera } from "lucide-react";
-import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { InlineBadge } from "@/components/InlineBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { useUploadBlueprintAvatar } from "@/api/queries";
+import { bustAgentAvatar } from "@/lib/avatar-bust";
+import { cn } from "@/lib/utils";
 
 export interface BlueprintDetailHeaderProps {
   account: string;
   name: string;
-  visibility?: string;
   categories: string[];
   canEdit?: boolean;
+  isDraft?: boolean;
 }
 
 export function BlueprintDetailHeader({
   account,
   name,
-  visibility,
   categories,
   canEdit = false,
+  isDraft = false,
 }: BlueprintDetailHeaderProps) {
   const hasCategories = categories.length > 0;
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
@@ -36,7 +37,7 @@ export function BlueprintDetailHeader({
 
   return (
     <header className="mb-6 border-b border-border-strong pb-6">
-      <div className={`flex gap-4 ${hasCategories ? "items-start" : "items-center"}`}>
+      <div className={cn("flex gap-4", hasCategories ? "items-start" : "items-center")}>
         {canEdit ? (
           <>
             <button
@@ -54,6 +55,7 @@ export function BlueprintDetailHeader({
               onOpenChange={setAvatarDialogOpen}
               onUpload={async (file) => {
                 await uploadAvatar.mutateAsync({ account, name, file });
+                bustAgentAvatar(account, name, file);
               }}
               isPending={uploadAvatar.isPending}
               title="Upload blueprint image"
@@ -66,7 +68,11 @@ export function BlueprintDetailHeader({
         <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 font-mono text-xl font-bold text-foreground">
             {name}
-            {visibility === "private" && <PrivacyBadge />}
+            {isDraft && (
+              <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">
+                Finish setting up
+              </InlineBadge>
+            )}
           </h1>
           {hasCategories && (
             <div className="mt-2 flex flex-wrap gap-2">

@@ -6,13 +6,33 @@ import {
   type PolygonParams,
 } from "./polygon";
 import { paletteNames, palettes, type PaletteName } from "./theme";
-import { buildEyes, eyeStyles, type EyeParams } from "./eyes";
+import { buildEyes, eyeStyles, type EyeStyle, type EyeParams } from "./eyes";
 
 export interface IdentityOptions {
   /** Seed string used to deterministically generate the identity. */
   seed: string;
   /** Width/height of the SVG in pixels (default: 128). */
   size?: number;
+}
+
+export interface CustomIdentityOptions {
+  size?: number;
+  bgPalette: PaletteName;
+  bgShade: (typeof shadeKeys)[number];
+  fgPalette: PaletteName;
+  fgShade: (typeof shadeKeys)[number];
+  eyePalette: PaletteName;
+  eyeShade: (typeof shadeKeys)[number];
+  sides: number;
+  edgeStyle: EdgeStyle;
+  rotation: number;
+  radius: number;
+  spikeDepth: number;
+  curveAmount: number;
+  leftEyeStyle: EyeStyle;
+  rightEyeStyle: EyeStyle;
+  eyeSpacing: number;
+  eyeSize: number;
 }
 
 /** Pick a value from an array using the next rng output. */
@@ -105,6 +125,44 @@ export function generateIdentity(options: IdentityOptions): string {
     rightStyle: rightEyeStyle,
     spacing: range(rng, 0.15, 0.35),
     eyeSize: range(rng, 0.04, 0.1),
+  };
+  const eyes = buildEyes(eyeParams, size, eyeColor);
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`,
+    `  <rect width="${size}" height="${size}" fill="${bgColor}" />`,
+    `  <path d="${path}" fill="${fgColor}" />`,
+    `  ${eyes}`,
+    `</svg>`,
+  ].join("\n");
+}
+
+/**
+ * Generates an SVG identity from explicit trait values (no seed / RNG).
+ */
+export function generateCustomIdentity(opts: CustomIdentityOptions): string {
+  const size = opts.size ?? 128;
+
+  const bgColor = palettes[opts.bgPalette][opts.bgShade];
+  const fgColor = palettes[opts.fgPalette][opts.fgShade];
+  const eyeColor = palettes[opts.eyePalette][opts.eyeShade];
+
+  const params: PolygonParams = {
+    sides: opts.sides,
+    edgeStyle: opts.edgeStyle,
+    rotation: opts.rotation,
+    radius: opts.radius,
+    spikeDepth: opts.spikeDepth,
+    curveAmount: opts.curveAmount,
+  };
+
+  const path = buildPolygonPath(params, size);
+
+  const eyeParams: EyeParams = {
+    leftStyle: opts.leftEyeStyle,
+    rightStyle: opts.rightEyeStyle,
+    spacing: opts.eyeSpacing,
+    eyeSize: opts.eyeSize,
   };
   const eyes = buildEyes(eyeParams, size, eyeColor);
 

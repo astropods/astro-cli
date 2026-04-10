@@ -413,6 +413,128 @@ func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
 	}
 }
 
+func TestCreateBlueprint_Success(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("DELETE FROM agent_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	body := `{"name": "my-agent"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp["name"] != "my-agent" {
+		t.Errorf("expected name 'my-agent', got %v", resp["name"])
+	}
+	if resp["account"] != "testaccount" {
+		t.Errorf("expected account 'testaccount', got %v", resp["account"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestCreateBlueprint_ConflictReturns409(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+
+	// Active agent: INSERT returns 0 rows affected → ErrAlreadyExists
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	body := `{"name": "existing-agent"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusConflict, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "already exists") {
+		t.Errorf("expected 'already exists' in error, got %q", errMsg)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestCreateBlueprint_InvalidNameReturns400(t *testing.T) {
+	router, index, _ := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+
+	body := `{"name": "INVALID NAME!!!"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateBlueprint_DBErrorReturns500(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+
+	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
+
+	body := `{"name": "my-agent"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d: %s", http.StatusInternalServerError, rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
 func TestRegisterAgent_VersionGate(t *testing.T) {
 	tests := []struct {
 		name           string

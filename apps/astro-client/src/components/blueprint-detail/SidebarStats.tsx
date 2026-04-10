@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { RocketLaunchIcon } from "@heroicons/react/24/outline";
 import { SidebarSection } from "./SidebarSection";
+import { cn } from "@/lib/utils";
 
 export interface SidebarStatDetail {
   label: string;
@@ -14,7 +15,11 @@ export interface SidebarStatsProps {
   /** Whether the version is a semver string (will be prefixed with "v") */
   isSemver?: boolean;
   updatedAt?: string;
+  visibility?: string;
+  isDraft?: boolean;
 }
+
+const DASH = "–";
 
 export function SidebarStats({
   rating,
@@ -22,48 +27,45 @@ export function SidebarStats({
   version,
   isSemver,
   updatedAt,
+  visibility,
+  isDraft = false,
 }: SidebarStatsProps) {
-  if (rating == null && installs == null && !version && !updatedAt) {
+  if (!isDraft && rating == null && installs == null && !version && !updatedAt && !visibility) {
     return null;
   }
 
-  const rows: Array<{
-    label: string;
-    value: ReactNode;
-  }> = [];
+  const rows: Array<{ label: string; value: ReactNode; faint?: boolean }> = [];
+
+  if (visibility) {
+    rows.push({ label: "Visibility", value: <span className="capitalize">{visibility}</span> });
+  }
 
   if (rating != null) {
-    rows.push({
-      label: "Requests",
-      value: rating.toFixed(1),
-    });
+    rows.push({ label: "Requests", value: rating.toFixed(1) });
   }
 
-  if (installs != null) {
-    rows.push({
-      label: "Deployments",
-      value: (
-        <span className="inline-flex items-center justify-end gap-1.5">
-          <RocketLaunchIcon className="h-3.5 w-3.5 text-foreground" />
-          {new Intl.NumberFormat("en-US").format(installs)}
-        </span>
-      ),
-    });
-  }
+  rows.push({
+    label: "Deployments",
+    faint: isDraft || installs == null,
+    value: isDraft || installs == null ? DASH : (
+      <span className="inline-flex items-center justify-end gap-1.5">
+        <RocketLaunchIcon className="h-3.5 w-3.5 text-foreground" />
+        {new Intl.NumberFormat("en-US").format(installs)}
+      </span>
+    ),
+  });
 
-  if (version) {
-    rows.push({
-      label: "Build Number",
-      value: isSemver ? `v${version}` : version,
-    });
-  }
+  rows.push({
+    label: "Build Number",
+    faint: isDraft || !version,
+    value: isDraft || !version ? DASH : (isSemver ? `v${version}` : version),
+  });
 
-  if (updatedAt) {
-    rows.push({
-      label: "Updated",
-      value: updatedAt,
-    });
-  }
+  rows.push({
+    label: "Updated",
+    faint: isDraft || !updatedAt,
+    value: isDraft || !updatedAt ? DASH : updatedAt,
+  });
 
   return (
     <SidebarSection title="Details" headerClassName="py-2" bodyClassName="py-1">
@@ -73,7 +75,7 @@ export function SidebarStats({
             <div className="py-2">
               <div className="flex items-center justify-between gap-6">
                 <dt className="text-[13px] text-muted-foreground">{row.label}</dt>
-                <dd className="text-right font-mono text-mono-sm font-medium text-foreground">
+                <dd className={cn("text-right font-mono text-mono-sm font-medium", row.faint ? "text-muted-foreground" : "text-foreground")}>
                   {row.value}
                 </dd>
               </div>

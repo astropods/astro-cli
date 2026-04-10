@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { generateIdentity } from "identity-gen";
 import { cn } from "@/lib/utils";
 import { getAgentAvatarUrl } from "@/lib/assets";
+import { useAgentAvatarBust } from "@/lib/avatar-bust";
 
 interface BlueprintIdentityProps {
   account: string;
@@ -21,8 +22,10 @@ export function BlueprintIdentity({
 }: BlueprintIdentityProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const bust = useAgentAvatarBust(account, name);
 
-  const avatarUrl = url ?? getAgentAvatarUrl(account, name);
+  const avatarUrl = url ?? bust ?? getAgentAvatarUrl(account, name);
+  const showFallback = imgFailed && !bust;
 
   const svg = useMemo(
     () => generateIdentity({ seed: `${account}/${name}`, size }),
@@ -37,7 +40,7 @@ export function BlueprintIdentity({
     }
   }, []);
 
-  if (!imgFailed) {
+  if (!showFallback) {
     return (
       <img
         ref={imgRef}

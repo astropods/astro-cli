@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useParams, Link } from "react-router";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
@@ -89,14 +90,43 @@ export const meta: Route.MetaFunction = ({ data }) => {
 
 export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
+  const { isAuthenticated, accounts } = useAuth();
 
-  // Support both /:account/:agentSlug and legacy /:agentSlug routes
+  // Poll every 10s while draft so the page auto-updates once `ast push` completes.
   const { data: blueprint, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
     initialData: loaderData?.blueprint ?? undefined,
+    refetchInterval: (query) => (query.state.data?.versions.length === 0 ? 10_000 : false),
   });
   const { data: blueprintsData } = useBlueprints({
     initialData: loaderData?.blueprintsData ?? undefined,
   });
+
+  const recommendedAgents = useMemo(() => {
+    if (!blueprint || !blueprintsData) return [];
+    const currentIntegrations = new Set(
+      getBlueprintIntegrations(blueprint).map((i) => i.id.toLowerCase()),
+    );
+    const currentCategories = new Set(getBlueprintCategories(blueprint));
+    return blueprintsData.agents
+      .filter((a) => a.name !== agentSlug)
+      .map((a) => {
+        const ints = getBlueprintIntegrations(a);
+        const cats = getBlueprintCategories(a);
+        const score =
+          ints.filter((i) => currentIntegrations.has(i.id.toLowerCase())).length +
+          cats.filter((c) => currentCategories.has(c)).length;
+        return { agent: a, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(({ agent: a }) => ({
+        slug: `${a.account}/${a.name}`,
+        account: a.account,
+        name: a.name,
+        description: getBlueprintDescription(a),
+        deployCount: a.metrics?.deploy_count,
+      }));
+  }, [blueprint, blueprintsData, agentSlug]);
 
   if (isError) {
     return (
@@ -126,34 +156,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
     );
   }
 
-  const recommendedAgents = (() => {
-    if (!blueprint || !blueprintsData) return [];
-    const currentIntegrations = new Set(
-      getBlueprintIntegrations(blueprint).map((integration) => integration.id.toLowerCase()),
-    );
-    const currentCategories = new Set(getBlueprintCategories(blueprint));
-    return blueprintsData.agents
-      .filter((a) => a.name !== agentSlug)
-      .map((a) => {
-        const ints = getBlueprintIntegrations(a);
-        const cats = getBlueprintCategories(a);
-        const score =
-          ints.filter((i) => currentIntegrations.has(i.id.toLowerCase())).length +
-          cats.filter((c) => currentCategories.has(c)).length;
-        return { agent: a, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map(({ agent: a }) => ({
-        slug: `${a.account}/${a.name}`,
-        account: a.account,
-        name: a.name,
-        description: getBlueprintDescription(a),
-        deployCount: a.metrics?.deploy_count,
-      }));
-  })();
-
-  const { isAuthenticated, accounts } = useAuth();
+  const isDraft = blueprint.versions.length === 0;
   const canEdit = isAuthenticated && accounts.some((a) => a.name === blueprint.account);
 
   const integrations = getBlueprintIntegrations(blueprint);
@@ -171,10 +174,10 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
         <BlueprintDetailContent
           account={blueprint.account}
           name={blueprint.name}
-          visibility={blueprint.visibility}
           categories={categories}
           canEdit={canEdit}
           readme={readme}
+          isDraft={isDraft}
           mobileSidebar={
             <SidebarCard
               agent={blueprint}

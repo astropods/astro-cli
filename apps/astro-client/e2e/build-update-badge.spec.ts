@@ -16,7 +16,7 @@ test.beforeEach(async () => {
 // badge rather than the full build ID transition.
 test("my agents card shows new build badge for out-of-date deployment", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
 
   const staleCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });

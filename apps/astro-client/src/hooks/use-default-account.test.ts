@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -25,8 +25,20 @@ function makeWrapper(auth: AuthContextType) {
     );
 }
 
-beforeEach(() => localStorage.clear());
-afterEach(() => localStorage.clear());
+// Node.js 22 exposes a built-in localStorage with a limited API that overrides
+// jsdom's. Stub it with a proper in-memory implementation so all Storage methods work.
+const store = new Map<string, string>();
+const localStorageMock = {
+  getItem: (key: string) => store.get(key) ?? null,
+  setItem: (key: string, value: string) => { store.set(key, value); },
+  removeItem: (key: string) => { store.delete(key); },
+  clear: () => { store.clear(); },
+};
+
+beforeAll(() => vi.stubGlobal('localStorage', localStorageMock));
+afterAll(() => vi.unstubAllGlobals());
+beforeEach(() => store.clear());
+afterEach(() => store.clear());
 
 describe('useDefaultAccount', () => {
   describe('defaultAccount', () => {

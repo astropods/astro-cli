@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
@@ -11,7 +12,9 @@ export interface BlueprintListViewProps {
   refetch: () => void;
   emptyTitle?: string;
   emptyDescription?: string;
+  emptyContent?: ReactNode;
   ownerAccounts?: Set<string>;
+  variant?: "grid" | "list";
 }
 
 export function BlueprintListView({
@@ -22,7 +25,9 @@ export function BlueprintListView({
   refetch,
   emptyTitle = "No blueprints yet",
   emptyDescription = "There are no blueprints in the registry yet.",
+  emptyContent,
   ownerAccounts,
+  variant = "grid",
 }: BlueprintListViewProps) {
   if (isLoading) {
     return (
@@ -52,6 +57,7 @@ export function BlueprintListView({
   }
 
   if (blueprints.length === 0) {
+    if (emptyContent) return <>{emptyContent}</>;
     return (
       <div className="rounded-lg border border-border p-8 text-center">
         <h3 className="mb-2 text-lg font-medium">{emptyTitle}</h3>
@@ -70,9 +76,38 @@ export function BlueprintListView({
     );
   }
 
+  const sorted = [...blueprints].sort((a, b) => {
+    const aDraft = a.versions.length === 0 ? 0 : 1;
+    const bDraft = b.versions.length === 0 ? 0 : 1;
+    return aDraft - bDraft;
+  });
+
+  if (variant === "list") {
+    return (
+      <div className="flex flex-col gap-2">
+        {sorted.map((blueprint) => (
+          <BlueprintCard
+            key={`${blueprint.account}/${blueprint.name}`}
+            variant="list"
+            slug={`${blueprint.account}/${blueprint.name}`}
+            account={blueprint.account}
+            name={blueprint.name}
+            description={getBlueprintDescription(blueprint)}
+            visibility={blueprint.visibility}
+            avatarUrl={blueprint.avatar_url}
+            deployCount={blueprint.metrics?.deploy_count}
+            heartCount={blueprint.heart_count}
+            isDraft={blueprint.versions.length === 0}
+            onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
-      {blueprints.map((blueprint) => (
+      {sorted.map((blueprint) => (
         <BlueprintCard
           key={`${blueprint.account}/${blueprint.name}`}
           slug={`${blueprint.account}/${blueprint.name}`}
@@ -81,6 +116,7 @@ export function BlueprintListView({
           description={getBlueprintDescription(blueprint)}
           visibility={blueprint.visibility}
           deployCount={blueprint.metrics?.deploy_count}
+          isDraft={blueprint.versions.length === 0}
           onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
         />
       ))}

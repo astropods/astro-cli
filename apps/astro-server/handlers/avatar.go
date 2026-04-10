@@ -41,6 +41,11 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			return
 		}
 
+		if avatar.IsSVGContent(data) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "SVG uploads are not supported"})
+			return
+		}
+
 		if err := avatarStore.Upload(c.Request.Context(), acct.Name, data); err != nil {
 			log.Error("Failed to upload avatar", "error", err, "account", acct.Name)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -148,6 +153,11 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditS
 		data, err := readAvatarUpload(c)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing avatar file"})
+			return
+		}
+
+		if avatar.IsSVGContent(data) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "SVG uploads are not supported"})
 			return
 		}
 

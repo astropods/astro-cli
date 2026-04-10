@@ -1,16 +1,24 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, ArchiveBoxIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "./BlueprintIdentity";
 import { UserAvatar } from "./UserAvatar";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
+import { InlineBadge } from "@/components/InlineBadge";
 import { ArchiveBlueprintDialog } from "@/components/ArchiveBlueprintDialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+const compactFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export interface BlueprintCardProps {
   slug: string;
@@ -18,8 +26,11 @@ export interface BlueprintCardProps {
   name: string;
   description: string;
   visibility?: string;
-  variant?: "default" | "oftenUsedTogether";
+  avatarUrl?: string;
+  variant?: "default" | "oftenUsedTogether" | "list";
   deployCount?: number;
+  heartCount?: number;
+  isDraft?: boolean;
   /** When provided, shows a three-dot menu with an archive option. */
   onArchive?: () => void;
 }
@@ -30,15 +41,16 @@ export function BlueprintCard({
   name,
   description,
   visibility,
+  avatarUrl,
   variant = "default",
   deployCount,
+  heartCount,
+  isDraft = false,
   onArchive,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const formattedDeploys = deployCount != null
-    ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(deployCount)
-    : "0";
+  const formattedDeploys = deployCount != null ? compactFormatter.format(deployCount) : "0";
   const deployLabel = deployCount === 1 ? "deploy" : "deploys";
 
   if (variant === "oftenUsedTogether") {
@@ -67,11 +79,103 @@ export function BlueprintCard({
     );
   }
 
+  if (variant === "list") {
+    const formattedHearts = heartCount != null ? compactFormatter.format(heartCount) : "0";
+    return (
+      <>
+        <div className="flex items-center gap-4 rounded-lg border border-border bg-background px-4 py-3">
+          <Link to={`/${slug}`} className="flex min-w-0 flex-1 items-center gap-3">
+            <BlueprintIdentity
+              account={account}
+              name={name}
+              size={36}
+              url={avatarUrl}
+              className="size-9 shrink-0 overflow-hidden rounded-sm"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-heading-4 text-foreground">{name}</span>
+                {isDraft
+                  ? <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">Finish setting up</InlineBadge>
+                  : visibility === "private" && <PrivacyBadge />
+                }
+              </div>
+              {description && (
+                <p className="truncate text-body-sm text-muted-foreground">{description}</p>
+              )}
+            </div>
+          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            {isDraft ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/${slug}`}>
+                  Continue setup
+                  <ArrowRightIcon className="size-3.5" />
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <span className="font-mono text-mono-sm text-muted-foreground">
+                  {formattedDeploys} deploys · {formattedHearts} hearts
+                </span>
+                <Button asChild size="sm">
+                  <Link to={`/deploy/${slug}`}>Deploy</Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link to={`/${slug}`}>View →</Link>
+                </Button>
+              </>
+            )}
+            {onArchive && (
+              <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+                <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      aria-label="Blueprint options"
+                    >
+                      <EllipsisHorizontalIcon className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="rounded-[10px] p-0">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => { setMenuOpen(false); setArchiveOpen(true); }}
+                      className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
+                    >
+                      <ArchiveBoxIcon className="h-4 w-4" />
+                      Archive agent
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </div>
+        </div>
+        {onArchive && (
+          <ArchiveBlueprintDialog
+            open={archiveOpen}
+            onOpenChange={setArchiveOpen}
+            blueprintName={name}
+            account={account}
+            onArchived={onArchive}
+          />
+        )}
+      </>
+    );
+  }
+
+  const cardHref = `/${slug}`;
+
   return (
     <>
       <Link
-        to={`/${slug}`}
-        className="group relative flex flex-col overflow-hidden rounded-md border border-stone-400 bg-white transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
+        to={cardHref}
+        className={cn(
+          "group relative flex flex-col overflow-hidden rounded-md border bg-white transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400",
+          isDraft ? "border-dashed border-yellow-300" : "border-stone-400"
+        )}
       >
         {onArchive && (
           <div
@@ -114,9 +218,10 @@ export function BlueprintCard({
           <div className="flex min-w-0 flex-1 flex-col gap-1 pr-1">
             <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
-              {visibility === "private" && (
-                <PrivacyBadge onClick={(e) => e.preventDefault()} />
-              )}
+              {isDraft
+                ? <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">Finish setting up</InlineBadge>
+                : visibility === "private" && <PrivacyBadge onClick={(e) => e.preventDefault()} />
+              }
             </h3>
             <p className="line-clamp-3 text-body-sm text-muted-foreground">
               {description}
