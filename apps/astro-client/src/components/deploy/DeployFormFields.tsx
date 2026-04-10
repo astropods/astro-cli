@@ -84,6 +84,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
                 <>
                   <button
                     type="button"
+                    aria-label="Edit agent avatar"
                     className="group relative shrink-0 cursor-pointer"
                     onClick={() => setAvatarDialogOpen(true)}
                   >
