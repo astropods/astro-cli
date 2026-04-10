@@ -96,7 +96,7 @@ export function BlueprintCard({
               <div className="flex items-center gap-2">
                 <span className="truncate text-heading-4 text-foreground">{name}</span>
                 {isDraft
-                  ? <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">Finish setting up</InlineBadge>
+                  ? <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>Finish setup</InlineBadge>
                   : visibility === "private" && <PrivacyBadge />
                 }
               </div>
@@ -174,7 +174,7 @@ export function BlueprintCard({
         to={cardHref}
         className={cn(
           "group relative flex flex-col overflow-hidden rounded-md border bg-white transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400",
-          isDraft ? "border-dashed border-yellow-300" : "border-stone-400"
+          isDraft ? "border-dashed border-stone-400" : "border-stone-400"
         )}
       >
         {onArchive && (
@@ -219,7 +219,7 @@ export function BlueprintCard({
             <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
               {isDraft
-                ? <InlineBadge shape="pill" className="normal-case border-yellow-300 bg-yellow-50 text-yellow-700 px-2 py-0.5 text-[10px] dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-500/30">Finish setting up</InlineBadge>
+                ? <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>Finish setup</InlineBadge>
                 : visibility === "private" && <PrivacyBadge onClick={(e) => e.preventDefault()} />
               }
             </h3>
@@ -228,7 +228,7 @@ export function BlueprintCard({
             </p>
           </div>
         </div>
-        <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div className={cn("flex items-center justify-between border-t px-4 py-2.5", isDraft ? "border-dashed border-border" : "border-border")}>
           <span className="text-mono-sm font-mono text-faint-foreground">
             {formattedDeploys} {deployLabel}
           </span>
