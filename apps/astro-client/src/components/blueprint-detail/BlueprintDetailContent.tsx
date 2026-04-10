@@ -118,7 +118,7 @@ export function BlueprintDetailContent({
             <div className="flex items-center gap-2">
               <CommandLineIcon className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
-                Set up
+                Finish set up
               </span>
             </div>
             <div className="flex items-center gap-4">
