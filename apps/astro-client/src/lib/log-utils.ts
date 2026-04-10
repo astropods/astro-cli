@@ -9,7 +9,7 @@ export const LOG_WARN_RE = /\bwarn\b|\bwarning\b|\bretry\b|\battempt\b/i;
 export function logLineColorClass(line: string): string {
   if (LOG_SUCCESS_RE.test(line)) return "text-green-700";
   if (LOG_ERROR_RE.test(line)) return "text-coral-600";
-  if (LOG_WARN_RE.test(line)) return "text-yellow-500";
+  if (LOG_WARN_RE.test(line)) return "text-yellow-600";
   return "text-foreground";
 }
 

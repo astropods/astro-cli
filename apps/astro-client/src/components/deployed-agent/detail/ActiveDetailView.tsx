@@ -21,6 +21,7 @@ import { MonitorTab } from "./monitor/MonitorTab";
 import type { TraceRow } from "./monitor/MonitorTab";
 import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
+import { LogsTab } from "./deployments/LogsTab";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { cn } from "@/lib/utils";
@@ -47,9 +48,9 @@ export function ActiveDetailView({
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get("tab")
-  const tab: "monitor" | "deployments" =
-    monitorLocked ? "deployments" :
-    rawTab === "monitor" ? "monitor" :
+  const tab: "monitor" | "deployments" | "logs" =
+    rawTab === "monitor" && !monitorLocked ? "monitor" :
+    rawTab === "logs" ? "logs" :
     "deployments"
   const [configOpen, setConfigOpen] = useState(false)
   const [configRevision, setConfigRevision] = useState<number | null>(null)
@@ -246,6 +247,11 @@ export function ActiveDetailView({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
                 </svg>
               )},
+              { id: 'logs' as const, label: 'Logs', icon: (
+                <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.75h16.5m-16.5 4.5h16.5m-16.5 4.5h8.25M3 5.25h18" />
+                </svg>
+              )},
             ]).map(({ id, label, icon }) => {
               const isLockedMonitor = id === "monitor" && monitorLocked;
               const tabButton = (
@@ -291,77 +297,83 @@ export function ActiveDetailView({
             })}
           </div>
 
-          {/* tab content */}
-          <div
-            className="dp-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto py-6 px-[calc(clamp(16px,4vw,108px)+4px)]"
-          >
-            <div>
-              {hasNewBuildAvailable && !showConfigureAsPage && !showTraceAsPage && (
-                <div className="mb-4">
-                  <ActionPanel
-                    tone="warning"
-                    title={
-                      <span>
-                        <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2 text-yellow-700" style={{ borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                          Update
-                        </InlineBadge>
-                        A new build is available for this agent.
-                      </span>
-                    }
-                    primaryLabel="Redeploy →"
-                    onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
-                    confirmTitle="Are you sure?"
-                    confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
-                    confirmLabel="Redeploy"
-                    dismissible
-                  />
-                </div>
-              )}
-              {showConfigureAsPage ? (
-                <ConfigurePanel
-                  deployment={renderedDeployment}
-                  account={account}
-                  fullPage
-                  onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
-                  onRedeployStart={() => { setOptimisticDeploying(true); }}
-                  onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
-                  revisionOverride={configRevision ?? undefined}
-                  readOnly={configRevision !== null && configRollbackBuildId === null}
-                  isNewBuild={configIsNewBuild}
-                  newBuildId={configIsNewBuild ? latestBuildId : undefined}
-                  rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
-                />
-              ) : showTraceAsPage && selectedTrace ? (
-                <TraceDetailPanel
-                  trace={selectedTrace}
-                  fullPage
-                  canGoPrev={canGoPrev}
-                  canGoNext={canGoNext}
-                  onNavigate={handleNavigate}
-                  onClose={() => setSelectedTrace(null)}
-                />
-              ) : tab === 'monitor' ? (
-                <MonitorTab
-                  deployment={renderedDeployment}
-                  selectedTraceId={selectedTrace?.id ?? null}
-                  onSelectTrace={(trace) => { setSelectedTrace((prev) => prev?.id === trace.id ? null : trace); setConfigOpen(false); }}
-                  onVisibleTracesChange={setNavTraces}
-                  compactCharts={panelOpen && panelWidth > 420}
-                />
-              ) : (
-                <DeploymentsTab
-                  deployment={renderedDeployment}
-                  account={account}
-                  isPausing={isPausing}
-                  isResuming={isResuming}
-                  isRestarting={isRestarting}
-                  isGloballyRestarting={isGloballyRestarting}
-                  onRollback={(revision, buildId) => { setConfigRevision(revision); setConfigRollbackBuildId(buildId); setConfigIsNewBuild(false); setConfigOpen(true); setSelectedTrace(null); }}
-                  onPodRestartStateChange={setIsPodLevelRestarting}
-                />
-              )}
-            </div>
+          {/* tab content — LogsTab stays mounted to preserve open tabs across tab switches */}
+          <div className={cn("flex flex-col flex-1 min-h-0 overflow-hidden", tab !== 'logs' && "hidden")}>
+            <LogsTab
+              deployment={renderedDeployment}
+              isCompact={isCompact}
+            />
           </div>
+          <div
+            className={cn("dp-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto py-6 px-[calc(clamp(16px,4vw,108px)+4px)]", tab === 'logs' && "hidden")}
+          >
+              <div>
+                {hasNewBuildAvailable && !showConfigureAsPage && !showTraceAsPage && (
+                  <div className="mb-4">
+                    <ActionPanel
+                      tone="warning"
+                      title={
+                        <span>
+                          <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2 text-yellow-700" style={{ borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                            Update
+                          </InlineBadge>
+                          A new build is available for this agent.
+                        </span>
+                      }
+                      primaryLabel="Redeploy →"
+                      onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
+                      confirmTitle="Are you sure?"
+                      confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
+                      confirmLabel="Redeploy"
+                      dismissible
+                    />
+                  </div>
+                )}
+                {showConfigureAsPage ? (
+                  <ConfigurePanel
+                    deployment={renderedDeployment}
+                    account={account}
+                    fullPage
+                    onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
+                    onRedeployStart={() => { setOptimisticDeploying(true); }}
+                    onRedeploy={() => { setOptimisticDeploying(true); void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) }); onRedeploy?.(); }}
+                    revisionOverride={configRevision ?? undefined}
+                    readOnly={configRevision !== null && configRollbackBuildId === null}
+                    isNewBuild={configIsNewBuild}
+                    newBuildId={configIsNewBuild ? latestBuildId : undefined}
+                    rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
+                  />
+                ) : showTraceAsPage && selectedTrace ? (
+                  <TraceDetailPanel
+                    trace={selectedTrace}
+                    fullPage
+                    canGoPrev={canGoPrev}
+                    canGoNext={canGoNext}
+                    onNavigate={handleNavigate}
+                    onClose={() => setSelectedTrace(null)}
+                  />
+                ) : tab === 'monitor' ? (
+                  <MonitorTab
+                    deployment={renderedDeployment}
+                    selectedTraceId={selectedTrace?.id ?? null}
+                    onSelectTrace={(trace) => { setSelectedTrace((prev) => prev?.id === trace.id ? null : trace); setConfigOpen(false); }}
+                    onVisibleTracesChange={setNavTraces}
+                    compactCharts={panelOpen && panelWidth > 420}
+                  />
+                ) : (
+                  <DeploymentsTab
+                    deployment={renderedDeployment}
+                    account={account}
+                    isPausing={isPausing}
+                    isResuming={isResuming}
+                    isRestarting={isRestarting}
+                    isGloballyRestarting={isGloballyRestarting}
+                    onRollback={(revision, buildId) => { setConfigRevision(revision); setConfigRollbackBuildId(buildId); setConfigIsNewBuild(false); setConfigOpen(true); setSelectedTrace(null); }}
+                    onPodRestartStateChange={setIsPodLevelRestarting}
+                  />
+                )}
+              </div>
+            </div>
         </div>
 
       </div>

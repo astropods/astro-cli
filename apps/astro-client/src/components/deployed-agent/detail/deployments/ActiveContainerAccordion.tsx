@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, MoreVertical } from "lucide-react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { useContainerSelection } from "@/hooks/use-container-selection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { statusVariant } from "./history/utils";
 import { DomainsPanel } from "./DomainsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
-import { LogViewer } from "./LogViewer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useRestartPod } from "@/api/queries/deployments";
 import type { DeployHistoryStatus, MappedContainer, DomainUrl } from "./history/types";
 
@@ -47,7 +53,7 @@ export function ActiveContainerAccordion({
   isGloballyRestarting = false,
   onPodRestartStateChange,
 }: ActiveContainerAccordionProps) {
-  const [view, setView] = useState<"logs" | "vars" | "domains">("logs");
+  const [view, setView] = useState<"vars" | "domains">("vars");
   const restartMutation = useRestartPod();
   const [isLocallyRestarting, setIsLocallyRestarting] = useState(false);
   // canClear is unlocked 8s after mutation success — prevents instant clearing if pod restarts fast
@@ -60,6 +66,7 @@ export function ActiveContainerAccordion({
   const vars = activeContainer?.vars ?? [];
   const canShowVars = selectedContainer !== "collector";
   const canShowDomains = (urls ?? []).length > 0;
+  const canExpand = canShowVars || canShowDomains;
   const totalContainers = containers.length;
   const readyContainers = containers.filter((c) => c.ready).length;
   const allReady = totalContainers > 0 && readyContainers === totalContainers;
@@ -84,7 +91,18 @@ export function ActiveContainerAccordion({
     return () => clearTimeout(t);
   }, [isLocallyRestarting]);
 
-  const effectiveView = (!canShowVars && view === "vars") || (!canShowDomains && view === "domains") ? "logs" : view;
+  const handleRestart = () => {
+    if (!podName) return;
+    setIsLocallyRestarting(true);
+    setCanClear(false);
+    onPodRestartStateChange?.(true);
+    restartMutation.mutate({ deploymentId, podName }, {
+      onSuccess: () => setTimeout(() => setCanClear(true), 8_000),
+      onError: () => clearRestarting.current(),
+    });
+  };
+
+  const effectiveView = (!canShowVars && view === "vars") ? "domains" : view;
 
   const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
   const isTransitioning = effectiveStatus === "deploying" || effectiveStatus === "undeploying" || effectiveStatus === "restarting" || effectiveStatus === "pausing" || effectiveStatus === "resuming";
@@ -99,19 +117,24 @@ export function ActiveContainerAccordion({
     <div className="mb-1.5">
       <div
         className={cn(
-          "flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
+          "flex gap-2 w-full px-3.5 py-2.5 border border-border text-left transition-[background] duration-150",
+          canExpand ? "cursor-pointer" : "cursor-default",
           isOpen ? "rounded-t-sm border-b-muted bg-surface" : "rounded-sm bg-muted hover:bg-accent",
           isCompact ? "items-start flex-wrap" : "items-center flex-nowrap",
         )}
-        onClick={onToggle}
+        onClick={canExpand ? onToggle : undefined}
       >
-        <ChevronRight
-          size={14}
-          className={cn(
-            "shrink-0 text-faint-foreground transition-transform duration-200",
-            isOpen && "rotate-90",
-          )}
-        />
+        {canExpand ? (
+          <ChevronRight
+            size={14}
+            className={cn(
+              "shrink-0 text-faint-foreground transition-transform duration-200",
+              isOpen && "rotate-90",
+            )}
+          />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
         <StatusIndicator variant={variant} spinner={isSpinning} className="gap-0">
           {""}
         </StatusIndicator>
@@ -133,13 +156,30 @@ export function ActiveContainerAccordion({
           {" • "}
           {uptime}
         </span>
+
+        {podName && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${title}`}>
+                  <MoreVertical size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleRestart} disabled={isServiceRestarting}>
+                  {isServiceRestarting ? "Restarting…" : "Restart"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
-      {isOpen && (
+      {isOpen && canExpand && (
         <div className="border border-border border-t-0 rounded-b-sm overflow-hidden">
           <div className={cn("flex items-center bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
-            {(["logs", "vars", "domains"] as const).map((v) =>
-              (v === "vars" && !canShowVars) || (v === "domains" && !canShowDomains) ? null : (
+            {(["vars", "domains"] as const).map((v) =>
+              (v === "domains" && !canShowDomains) ? null : (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -150,7 +190,7 @@ export function ActiveContainerAccordion({
                       : "font-normal text-faint-foreground border-b-transparent",
                   )}
                 >
-                  {v === "vars" ? "Variables" : v === "domains" ? "Domains" : "Logs"}
+                  {v === "vars" ? "Variables" : "Domains"}
                 </button>
               ),
             )}
@@ -174,26 +214,6 @@ export function ActiveContainerAccordion({
 
           {effectiveView === "vars" && <EnvVarsPanel vars={vars} />}
           {effectiveView === "domains" && <DomainsPanel urls={urls ?? []} />}
-          {effectiveView === "logs" && (
-            <LogViewer
-              deploymentId={deploymentId}
-              workloadName={workloadName}
-              selectedContainer={selectedContainer}
-              deploymentStatus={effectiveStatus}
-              isOpen={isOpen}
-              isCompact={isCompact}
-              onRestart={podName ? () => {
-                setIsLocallyRestarting(true);
-                setCanClear(false);
-                onPodRestartStateChange?.(true);
-                restartMutation.mutate({ deploymentId, podName }, {
-                  onSuccess: () => setTimeout(() => setCanClear(true), 8_000),
-                  onError: () => clearRestarting.current(),
-                });
-              } : undefined}
-              isRestarting={isServiceRestarting}
-            />
-          )}
         </div>
       )}
     </div>

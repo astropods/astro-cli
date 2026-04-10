@@ -205,6 +205,7 @@ export function DeploymentsTab({
           pastRows={pastRows}
           serviceRows={serviceRows}
           deploymentId={deploymentId}
+
           isCompact={isCompact}
           openContainers={openContainers}
           onToggleContainer={toggleContainer}
