@@ -38,28 +38,28 @@ export function AgentMascotsIllustration({ size = 52, className }: AgentMascotsI
         </svg>
       </g>
 
-      {/* Star — teal flower, float delay 0.5s, wink delay 1.5s */}
+      {/* Square — lavender rounded rect, float delay 0.5s, wink delay 3s */}
       <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-float 3s ease-in-out 0.5s infinite" }}>
-        <svg x={size + gap} y={0} width={size} height={size} viewBox="0 0 60.6502 60.6502">
-          <path d="M30.3251 0C35.0297 2.7513e-06 38.9008 3.56255 39.3909 8.13698C42.9682 5.35992 48.136 5.61185 51.4218 8.89758C54.7967 12.2727 54.9707 17.6333 51.9488 21.2163C56.7912 21.4348 60.6502 25.4287 60.6502 30.3251C60.6502 35.1146 56.9578 39.0386 52.2645 39.4124C55.3193 42.9954 55.1554 48.3818 51.7686 51.7686C48.3816 55.1554 42.9954 55.3188 39.4124 52.2637C39.0391 56.9575 35.1149 60.6502 30.3251 60.6502C25.5353 60.6502 21.6103 56.9575 21.237 52.2637C17.654 55.3181 12.2691 55.1551 8.88243 51.7686C5.4957 48.3819 5.3312 42.9954 8.38573 39.4124C3.6924 39.0386 1.13017e-07 35.1146 0 30.3251C4.13219e-05 25.5357 3.69242 21.6116 8.38573 21.2378C5.33111 17.6548 5.49497 12.2692 8.88163 8.88243C12.2683 5.49578 17.654 5.33144 21.237 8.38573C21.6108 3.69236 25.5356 0 30.3251 0Z" fill="#56C4C2" />
-          <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 1.5s infinite" }}>
-            <circle cx="21.356" cy="30.325" r="4.89845" stroke="#0F766E" strokeWidth="3.26563" fill="none" />
-          </g>
-          <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 1.5s infinite" }}>
-            <circle cx="38.501" cy="30.325" r="4.89845" stroke="#0F766E" strokeWidth="3.26563" fill="none" />
-          </g>
-        </svg>
-      </g>
-
-      {/* Square — lavender rounded rect, float delay 1s, wink delay 3s */}
-      <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-float 3s ease-in-out 1s infinite" }}>
-        <svg x={(size + gap) * 2} y={0} width={size} height={size} viewBox="0 0 54.6994 54.6994">
+        <svg x={size + gap} y={0} width={size} height={size} viewBox="0 0 54.6994 54.6994">
           <rect width="54.6994" height="54.6994" rx="1.70496" ry="1.70496" fill="#988ADF" />
           <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 3s infinite" }}>
             <path d="M25.045 24.086c0 3.60712-2.9241 6.53127-6.53122 6.53127s-6.53127-2.92415-6.53127-6.53127" stroke="white" strokeWidth="3.26563" fill="none" strokeLinecap="round" />
           </g>
           <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 3s infinite" }}>
             <path d="M42.19 24.086c0 3.60712-2.9241 6.53127-6.5312 6.53127s-6.5313-2.92415-6.5313-6.53127" stroke="white" strokeWidth="3.26563" fill="none" strokeLinecap="round" />
+          </g>
+        </svg>
+      </g>
+
+      {/* Star — teal flower, float delay 1s, wink delay 1.5s */}
+      <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-float 3s ease-in-out 1s infinite" }}>
+        <svg x={(size + gap) * 2} y={0} width={size} height={size} viewBox="0 0 60.6502 60.6502">
+          <path d="M30.3251 0C35.0297 2.7513e-06 38.9008 3.56255 39.3909 8.13698C42.9682 5.35992 48.136 5.61185 51.4218 8.89758C54.7967 12.2727 54.9707 17.6333 51.9488 21.2163C56.7912 21.4348 60.6502 25.4287 60.6502 30.3251C60.6502 35.1146 56.9578 39.0386 52.2645 39.4124C55.3193 42.9954 55.1554 48.3818 51.7686 51.7686C48.3816 55.1554 42.9954 55.3188 39.4124 52.2637C39.0391 56.9575 35.1149 60.6502 30.3251 60.6502C25.5353 60.6502 21.6103 56.9575 21.237 52.2637C17.654 55.3181 12.2691 55.1551 8.88243 51.7686C5.4957 48.3819 5.3312 42.9954 8.38573 39.4124C3.6924 39.0386 1.13017e-07 35.1146 0 30.3251C4.13219e-05 25.5357 3.69242 21.6116 8.38573 21.2378C5.33111 17.6548 5.49497 12.2692 8.88163 8.88243C12.2683 5.49578 17.654 5.33144 21.237 8.38573C21.6108 3.69236 25.5356 0 30.3251 0Z" fill="#56C4C2" />
+          <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 1.5s infinite" }}>
+            <circle cx="21.356" cy="30.325" r="4.89845" stroke="#0F766E" strokeWidth="3.26563" fill="none" />
+          </g>
+          <g style={{ transformBox: "fill-box", transformOrigin: "50% 50%", animation: "mascot-wink 4s ease-in-out 1.5s infinite" }}>
+            <circle cx="38.501" cy="30.325" r="4.89845" stroke="#0F766E" strokeWidth="3.26563" fill="none" />
           </g>
         </svg>
       </g>

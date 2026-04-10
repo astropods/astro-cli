@@ -24,7 +24,7 @@ export function DashboardAgentsEmptyState() {
         }}
       >
         <div className="mb-4">
-          <AgentMascots size={48} />
+          <AgentMascots size={36} />
         </div>
         <h2 className="mb-2 text-heading-2 text-foreground">Deploy your first agent</h2>
         <p className="mb-6 max-w-sm text-body-sm text-muted-foreground">
