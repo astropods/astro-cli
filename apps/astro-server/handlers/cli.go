@@ -85,7 +85,7 @@ fi
 # Detect existing install
 EXISTING_VERSION=""
 if [ -x "$INSTALL_DIR/${PREFIX}" ]; then
-  EXISTING_VERSION="$("$INSTALL_DIR/${PREFIX}" --version 2>/dev/null | awk '{print $NF}' || true)"
+  EXISTING_VERSION="$("$INSTALL_DIR/${PREFIX}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 fi
 
 BINARY_NAME="${PREFIX}-${OS}-${ARCH}"
