@@ -242,15 +242,15 @@ function NewBlueprintContent() {
                               <Label size="md">Name <span className="text-destructive">*</span></Label>
                               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-agent" autoFocus disabled={isAlreadyPublished} />
                               {isAlreadyPublished ? (
-                                <p className="mt-1.5 text-xs text-muted-foreground">Published as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
+                                <p className="mt-1.5 pl-3 text-xs text-muted-foreground">Published as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
                               ) : name.trim().length > 0 && slug.length > 0 && (
                                 slug.length < 4
-                                  ? <p className="mt-1.5 text-xs text-amber-600">Name must be at least 4 characters</p>
+                                  ? <p className="mt-1.5 pl-3 text-xs text-amber-600">Name must be at least 4 characters</p>
                                   : !/^[a-z]/.test(slug)
-                                    ? <p className="mt-1.5 text-xs text-amber-600">Name must start with a letter</p>
+                                    ? <p className="mt-1.5 pl-3 text-xs text-amber-600">Name must start with a letter</p>
                                     : nameIsTaken
-                                      ? <p className="mt-1.5 text-xs text-destructive"><span className="font-mono">{selectedOrg}/{slug}</span> already exists</p>
-                                      : <p className="mt-1.5 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
+                                      ? <p className="mt-1.5 pl-3 text-xs text-destructive"><span className="font-mono">{selectedOrg}/{slug}</span> already exists</p>
+                                      : <p className="mt-1.5 pl-3 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
                               )}
                             </div>
                           </div>
