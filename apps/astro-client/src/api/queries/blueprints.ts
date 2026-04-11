@@ -6,6 +6,7 @@ import { blueprintKeys, deploymentKeys } from './keys';
 interface BlueprintQueryOptions {
   initialData?: Blueprint;
   enabled?: boolean;
+  retry?: boolean | number;
   refetchInterval?: number | false | ((query: Query<Blueprint>) => number | false | undefined);
 }
 
@@ -37,6 +38,7 @@ export function useBlueprint(account: string, name: string, opts?: BlueprintQuer
     enabled: (opts?.enabled ?? true) && !!account && !!name,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    retry: opts?.retry,
     refetchInterval: opts?.refetchInterval,
   });
 }

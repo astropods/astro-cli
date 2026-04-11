@@ -4,7 +4,6 @@ import { useAuth } from "../lib/auth";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { useNavigate } from "react-router";
-import type { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +21,6 @@ import { Camera } from "lucide-react";
 import {
   ArrowPathIcon,
   BuildingOffice2Icon,
-  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
@@ -72,6 +70,14 @@ function NewBlueprintContent() {
   const isCreatingBlueprint = createBlueprint.isPending || uploadAvatar.isPending;
   const navigate = useNavigate();
 
+  // Proactive name availability check — fires while user is typing on the setup step
+  const slugIsValid = slug.length >= 4 && /^[a-z]/.test(slug);
+  const { data: existingBlueprint } = useBlueprint(selectedOrg, slug, {
+    enabled: activeStep === "setup" && slugIsValid && !isAlreadyPublished,
+    retry: false,
+  });
+  const nameIsTaken = !!existingBlueprint;
+
   // Poll for ast push — as soon as versions appear, route to the blueprint detail page.
   // isFetchedAfterMount prevents stale cache from a previously-deleted same-name blueprint
   // from triggering an immediate redirect before the fresh fetch returns.
@@ -80,10 +86,10 @@ function NewBlueprintContent() {
     refetchInterval: 5_000,
   });
   useEffect(() => {
-    if (isFetchedAfterMount && publishedBlueprint && publishedBlueprint.versions.length > 0) {
+    if (activeStep === "review" && isFetchedAfterMount && publishedBlueprint && publishedBlueprint.versions.length > 0) {
       navigate(`/${selectedOrg}/${slug}`);
     }
-  }, [publishedBlueprint, isFetchedAfterMount, selectedOrg, slug, navigate]);
+  }, [activeStep, publishedBlueprint, isFetchedAfterMount, selectedOrg, slug, navigate]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {
@@ -99,14 +105,6 @@ function NewBlueprintContent() {
 
   const activeStepIndex = STEPS.findIndex((s) => s.id === activeStep);
 
-  const publishErr = createBlueprint.isError;
-  const errMsg = (createBlueprint.error as ApiError)?.error ?? (createBlueprint.error as Error)?.message ?? "Something went wrong. Please try again.";
-  const goBackToSetup = useCallback(() => {
-    createBlueprint.reset();
-    uploadAvatar.reset();
-    setActiveStep("setup");
-    setCompletedSteps(new Set());
-  }, [createBlueprint, uploadAvatar]);
 
   const handlePublish = useCallback(async () => {
     if (isCreatingBlueprint) return;
@@ -182,21 +180,7 @@ function NewBlueprintContent() {
                 <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col min-h-[460px]">
 
                   {/* ── Publishing ── */}
-                  {step.id === "publishing" && i <= activeStepIndex && (publishErr ? (
-                    <div className="flex flex-col items-center gap-5 px-6 py-10 text-center">
-                      <div className="flex size-14 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/8">
-                        <ExclamationTriangleIcon className="size-7 text-destructive" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Publish failed</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{errMsg}</p>
-                      </div>
-                      <div className="flex gap-3">
-                        <Button variant="outline" size="sm" onClick={goBackToSetup}>Edit setup</Button>
-                        <Button size="sm" onClick={handlePublish}>Retry</Button>
-                      </div>
-                    </div>
-                  ) : (
+                  {step.id === "publishing" && i <= activeStepIndex && (
                     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-12">
                       <div className="relative flex items-center justify-center">
                         <div className="absolute size-24 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "1.6s" }} />
@@ -223,7 +207,7 @@ function NewBlueprintContent() {
                         ))}
                       </div>
                     </div>
-                  ))}
+                  )}
 
                   {/* ── Create identity ── */}
                   {step.id === "setup" && i <= activeStepIndex && (
@@ -264,7 +248,9 @@ function NewBlueprintContent() {
                                   ? <p className="mt-1.5 text-xs text-amber-600">Name must be at least 4 characters</p>
                                   : !/^[a-z]/.test(slug)
                                     ? <p className="mt-1.5 text-xs text-amber-600">Name must start with a letter</p>
-                                    : <p className="mt-1.5 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
+                                    : nameIsTaken
+                                      ? <p className="mt-1.5 text-xs text-destructive"><span className="font-mono">{selectedOrg}/{slug}</span> already exists</p>
+                                      : <p className="mt-1.5 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
                               )}
                             </div>
                           </div>
@@ -336,7 +322,7 @@ function NewBlueprintContent() {
                         </div>
                       </div>
                       <div className="border-t border-border px-6 py-4 flex items-center justify-end">
-                        <Button size="sm" onClick={handlePublish} disabled={slug.length < 4 || !/^[a-z]/.test(slug)}>
+                        <Button size="sm" onClick={handlePublish} disabled={slug.length < 4 || !/^[a-z]/.test(slug) || nameIsTaken}>
                           Create blueprint
                         </Button>
                       </div>
