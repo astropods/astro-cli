@@ -82,31 +82,44 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+# Detect existing install
+EXISTING_VERSION=""
+if [ -x "$INSTALL_DIR/${PREFIX}" ]; then
+  EXISTING_VERSION="$("$INSTALL_DIR/${PREFIX}" --version 2>/dev/null | awk '{print $NF}' || true)"
+fi
+
 BINARY_NAME="${PREFIX}-${OS}-${ARCH}"
 URL="${DOWNLOAD_BASE}/${BINARY_NAME}"
 
-echo "Downloading ${PREFIX} ${VERSION} for ${OS}/${ARCH}..."
+if [ -n "$EXISTING_VERSION" ]; then
+  echo "Upgrading ${PREFIX} from ${EXISTING_VERSION} to ${VERSION} for ${OS}/${ARCH}..."
+else
+  echo "Downloading ${PREFIX} ${VERSION} for ${OS}/${ARCH}..."
+fi
 curl -fsSL "$URL" -o "$INSTALL_DIR/${PREFIX}.tmp"
 
 echo "Verifying checksum..."
 CHECKSUMS="$(curl -fsSL "${DOWNLOAD_BASE}/checksums.txt")"
 EXPECTED="$(echo "$CHECKSUMS" | grep "$BINARY_NAME" | awk '{print $1}')"
-if [ -n "$EXPECTED" ]; then
-  # Use shasum on macOS, sha256sum on Linux
-  if command -v shasum >/dev/null 2>&1; then
-    ACTUAL="$(shasum -a 256 "$INSTALL_DIR/${PREFIX}.tmp" | awk '{print $1}')"
-  else
-    ACTUAL="$(sha256sum "$INSTALL_DIR/${PREFIX}.tmp" | awk '{print $1}')"
-  fi
-  if [ "$ACTUAL" != "$EXPECTED" ]; then
-    rm -f "$INSTALL_DIR/${PREFIX}.tmp"
-    echo "Checksum verification failed!" >&2
-    echo "  Expected: $EXPECTED" >&2
-    echo "  Got:      $ACTUAL" >&2
-    exit 1
-  fi
-  echo "Checksum OK"
+if [ -z "$EXPECTED" ]; then
+  rm -f "$INSTALL_DIR/${PREFIX}.tmp"
+  echo "No checksum found for $BINARY_NAME" >&2
+  exit 1
 fi
+# Use shasum on macOS, sha256sum on Linux
+if command -v shasum >/dev/null 2>&1; then
+  ACTUAL="$(shasum -a 256 "$INSTALL_DIR/${PREFIX}.tmp" | awk '{print $1}')"
+else
+  ACTUAL="$(sha256sum "$INSTALL_DIR/${PREFIX}.tmp" | awk '{print $1}')"
+fi
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  rm -f "$INSTALL_DIR/${PREFIX}.tmp"
+  echo "Checksum verification failed!" >&2
+  echo "  Expected: $EXPECTED" >&2
+  echo "  Got:      $ACTUAL" >&2
+  exit 1
+fi
+echo "Checksum OK"
 
 chmod +x "$INSTALL_DIR/${PREFIX}.tmp"
 mv "$INSTALL_DIR/${PREFIX}.tmp" "$INSTALL_DIR/${PREFIX}-${VERSION}"
@@ -114,23 +127,43 @@ ln -sf "${PREFIX}-${VERSION}" "$INSTALL_DIR/${PREFIX}"
 
 # Remove old versioned binaries (keep only the new one)
 for f in "$INSTALL_DIR/${PREFIX}"-*; do
+  [ -e "$f" ] || continue
   case "$(basename "$f")" in
     "${PREFIX}-${VERSION}") ;;
-    "${PREFIX}"-[0-9]*) rm -f "$f" ;;
+    "${PREFIX}"-[0-9]*|"${PREFIX}"-v[0-9]*) rm -f "$f" ;;
   esac
 done
 
 echo "Installed ${PREFIX} ${VERSION} to ${INSTALL_DIR}"
 
-# Check if INSTALL_DIR is on PATH
+# Inject INSTALL_DIR into shell config if not already on PATH
 case ":${PATH}:" in
   *":${INSTALL_DIR}:"*) ;;
   *)
-    echo ""
-    echo "Add this to your shell profile:"
-    echo "  export PATH=\"\$HOME/.ast/bin:\$PATH\""
+    SHELL_RC=""
+    if [ -n "$ZSH_VERSION" ] || [ "$(basename "$SHELL")" = "zsh" ]; then
+      SHELL_RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.bashrc" ]; then
+      SHELL_RC="$HOME/.bashrc"
+    else
+      SHELL_RC="$HOME/.profile"
+    fi
+    if ! grep -q '\.ast/bin' "$SHELL_RC" 2>/dev/null; then
+      echo '' >> "$SHELL_RC"
+      echo '# astropods' >> "$SHELL_RC"
+      echo 'export PATH="$HOME/.ast/bin:$PATH"' >> "$SHELL_RC"
+      echo "Added ~/.ast/bin to PATH in $SHELL_RC"
+      echo "Run: source $SHELL_RC"
+    fi
     ;;
 esac
+
+# Post-install verification
+if "$INSTALL_DIR/${PREFIX}" --version >/dev/null 2>&1; then
+  echo "${PREFIX} is ready"
+else
+  echo "Binary installed but failed to run — check your platform or file an issue" >&2
+fi
 `, downloadBase, prefix)
 
 		c.Data(200, "text/plain; charset=utf-8", []byte(script))
