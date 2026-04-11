@@ -38,7 +38,7 @@ export function useBlueprint(account: string, name: string, opts?: BlueprintQuer
     enabled: (opts?.enabled ?? true) && !!account && !!name,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
-    retry: opts?.retry,
+    ...(opts?.retry !== undefined && { retry: opts.retry }),
     refetchInterval: opts?.refetchInterval,
   });
 }
