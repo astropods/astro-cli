@@ -114,6 +114,7 @@ var builtinProviders = []BuiltinProvider{
 		Image: "pgvector/pgvector:pg17", DefaultPort: 5432,
 		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
+		DefaultEnv:  map[string]string{"POSTGRES_HOST_AUTH_METHOD": "trust"},
 	},
 	{
 		Name: "neo4j", Section: "knowledge",
