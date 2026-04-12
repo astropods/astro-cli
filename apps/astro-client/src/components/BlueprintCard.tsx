@@ -186,7 +186,7 @@ export function BlueprintCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+                  className="flex h-7 w-7 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-accent"
                   aria-label="Blueprint options"
                 >
                   <EllipsisHorizontalIcon className="h-4 w-4" />
@@ -215,8 +215,8 @@ export function BlueprintCard({
             size={36}
             className="size-9 shrink-0 rounded-sm overflow-hidden"
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-1 pr-1">
-            <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
+          <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
+            <h3 className="flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
               {isDraft
                 ? <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>Finish setup</InlineBadge>
