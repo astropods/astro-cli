@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useAuth } from "../lib/auth";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint } from "@/api/queries";
@@ -24,6 +24,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
+import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ function NewBlueprintContent() {
   }, []);
 
   const activeStepIndex = STEPS.findIndex((s) => s.id === activeStep);
+  const reviewPanelRef = useRef<HTMLDivElement>(null);
 
 
   const handlePublish = useCallback(async () => {
@@ -332,7 +334,8 @@ function NewBlueprintContent() {
                   {/* ── Review ── */}
                   {step.id === "review" && i <= activeStepIndex && (
                     <div className="flex flex-col flex-1">
-                      <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 px-6 py-8 gap-4">
+                      <div ref={reviewPanelRef} className="relative flex flex-1 flex-col items-center justify-center bg-muted/30 px-6 py-8 gap-4 overflow-hidden">
+                        <LiveRevealConfetti containerRef={reviewPanelRef} />
                         <div className="flex items-center gap-2">
                           <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
                             <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -1,6 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
-export function LiveRevealConfetti() {
+interface LiveRevealConfettiProps {
+  containerRef?: RefObject<HTMLElement | null>;
+}
+
+export function LiveRevealConfetti({ containerRef }: LiveRevealConfettiProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -9,8 +13,9 @@ export function LiveRevealConfetti() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const container = containerRef?.current;
+    canvas.width = container ? container.offsetWidth : window.innerWidth;
+    canvas.height = container ? container.offsetHeight : window.innerHeight;
 
     const rootStyles = window.getComputedStyle(document.documentElement);
     const themeColor = (token: string, fallback: string) => rootStyles.getPropertyValue(token).trim() || fallback;
