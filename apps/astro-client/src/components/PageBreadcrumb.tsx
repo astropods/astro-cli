@@ -33,8 +33,8 @@ export function PageBreadcrumb({ items, actions, mobileActions }: PageBreadcrumb
       </div>
       {actions && (
         <>
-          <div className="hidden sm:flex items-center gap-1">{actions}</div>
-          {mobileActions && <div className="flex sm:hidden items-center gap-1">{mobileActions}</div>}
+          <div className="hidden sm:flex items-center gap-2">{actions}</div>
+          {mobileActions && <div className="flex sm:hidden items-center gap-2">{mobileActions}</div>}
         </>
       )}
     </div>
