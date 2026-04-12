@@ -8,7 +8,7 @@ interface EnvVarsPanelProps {
 const SOURCE_STYLES = {
   input: "bg-teal-600/10 text-teal-600",
   injected: "bg-amber-700/10 text-amber-800",
-  static: "bg-muted text-stone-500",
+  static: "bg-muted text-muted-foreground",
 } as const;
 
 export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
