@@ -519,14 +519,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	// JSON Schema for astropods.yml (public, no auth)
 	router.GET("/schema/package.json", handlers.AstroAISpecSchema())
 
-	// CLI install script (no files needed — just returns a shell script)
-	router.GET("/install", handlers.CLIInstallScript(cfg))
-
-	// CLI binary download — redirects to CDN for backward compat with older CLI versions
-	if cfg.Server.DownloadBaseURL != "" {
-		router.GET("/download/:name", handlers.CLIDownload(cfg))
-		router.HEAD("/download/:name", handlers.CLIDownload(cfg))
-	}
+	handlers.RegisterCLIRoutes(router, cfg)
 
 	// Setup authentication
 	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)

@@ -3,7 +3,6 @@ package handlers
 import (
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,14 +21,14 @@ import (
 
 // fakeCDN is an httptest.Server that mimics the CLI download CDN, serving
 // VERSION, a platform binary, and checksums.txt. Its state can be mutated
-// between script runs to exercise upgrade and error scenarios.
+// between runs to exercise upgrade and error scenarios.
 type fakeCDN struct {
 	mu          sync.RWMutex
 	version     string
 	binary      []byte
 	binaryName  string
 	badChecksum bool // serve a wrong hash in checksums.txt
-	noChecksum  bool // omit the binary's entry from checksums.txt
+	noChecksum  bool // omit the binary entry from checksums.txt
 	Server      *httptest.Server
 }
 
@@ -57,7 +56,6 @@ func newFakeCDN(t *testing.T, version string, binary []byte) *fakeCDN {
 			sum = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 		}
 		if f.noChecksum {
-			// Return a checksums file that doesn't include this binary's entry.
 			fmt.Fprintf(w, "%s  some-other-binary\n", sum)
 			return
 		}
@@ -76,56 +74,48 @@ func (f *fakeCDN) update(version string, binary []byte) {
 	f.binary = binary
 }
 
+func (f *fakeCDN) setBadChecksum(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.badChecksum = v
+}
+
+func (f *fakeCDN) setNoChecksum(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noChecksum = v
+}
+
 // fakeBinary returns a shell script that echoes "ast/<version> (abc1234) BETA"
 // on --version, matching the real binary's output format.
 func fakeBinary(version string) []byte {
 	return []byte(fmt.Sprintf("#!/bin/sh\necho \"ast/%s (abc1234) BETA\"\n", version))
 }
 
-// ---- install server ----
+// ---- script helpers ----
 
-// newInstallServer wires CLIInstallScript and CLIDownload onto a live
-// httptest.Server backed by the given CDN URL.
-func newInstallServer(t *testing.T, cdnURL string) *httptest.Server {
+// generateInstallScript invokes the handler via RegisterCLIRoutes (same wiring
+// as main.go) using an in-process recorder — no HTTP server required.
+func generateInstallScript(t *testing.T, cfg *config.Config) []byte {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{
-		Server: config.ServerConfig{DownloadBaseURL: cdnURL},
-	}
 	r := gin.New()
-	r.GET("/install", CLIInstallScript(cfg))
-	r.GET("/download/:name", CLIDownload(cfg))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv
+	RegisterCLIRoutes(r, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/install", nil)
+	req.Host = "astropods.ai"
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec.Body.Bytes()
 }
 
-// ---- script runner ----
-
-// runInstallScript fetches /install from srvURL, writes the script to a temp
-// file, and runs it with sh. HOME is set to homeDir and SHELL to /bin/zsh so
-// the script installs into an isolated directory and writes to .zshrc.
-// Returns combined stdout+stderr and any exit error.
-func runInstallScript(t *testing.T, srvURL, homeDir string) (string, error) {
+// runScript writes script to a temp file and executes it with sh, with HOME
+// overridden to homeDir for isolation. Returns combined stdout+stderr.
+func runScript(t *testing.T, script []byte, homeDir string) (string, error) {
 	t.Helper()
-
-	resp, err := http.Get(srvURL + "/install")
-	if err != nil {
-		t.Fatalf("fetch /install: %v", err)
-	}
-	defer resp.Body.Close()
-	scriptBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read script: %v", err)
-	}
-
 	scriptFile := filepath.Join(t.TempDir(), "install.sh")
-	if err := os.WriteFile(scriptFile, scriptBytes, 0755); err != nil {
+	if err := os.WriteFile(scriptFile, script, 0755); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
-
-	// Inherit the full test environment (keeps curl, shasum, etc. on PATH)
-	// but override HOME and SHELL for isolation.
 	var env []string
 	for _, e := range os.Environ() {
 		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "SHELL=") {
@@ -133,7 +123,6 @@ func runInstallScript(t *testing.T, srvURL, homeDir string) (string, error) {
 		}
 	}
 	env = append(env, "HOME="+homeDir, "SHELL=/bin/zsh")
-
 	cmd := exec.Command("sh", scriptFile)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
@@ -144,10 +133,10 @@ func runInstallScript(t *testing.T, srvURL, homeDir string) (string, error) {
 
 func TestInstallScript_FreshInstall(t *testing.T) {
 	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
-	srv := newInstallServer(t, cdn.Server.URL)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
 	homeDir := t.TempDir()
 
-	out, err := runInstallScript(t, srv.URL, homeDir)
+	out, err := runScript(t, generateInstallScript(t, cfg), homeDir)
 	if err != nil {
 		t.Fatalf("install failed: %v\n%s", err, out)
 	}
@@ -181,16 +170,16 @@ func TestInstallScript_FreshInstall(t *testing.T) {
 
 func TestInstallScript_Upgrade(t *testing.T) {
 	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
-	srv := newInstallServer(t, cdn.Server.URL)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
 	homeDir := t.TempDir()
 
-	if _, err := runInstallScript(t, srv.URL, homeDir); err != nil {
+	if _, err := runScript(t, generateInstallScript(t, cfg), homeDir); err != nil {
 		t.Fatalf("first install failed: %v", err)
 	}
 
 	cdn.update("0.2.0", fakeBinary("0.2.0"))
 
-	out, err := runInstallScript(t, srv.URL, homeDir)
+	out, err := runScript(t, generateInstallScript(t, cfg), homeDir)
 	if err != nil {
 		t.Fatalf("upgrade failed: %v\n%s", err, out)
 	}
@@ -211,13 +200,54 @@ func TestInstallScript_Upgrade(t *testing.T) {
 	}
 }
 
-func TestInstallScript_BadChecksum(t *testing.T) {
+func TestInstallScript_UnsupportedOS(t *testing.T) {
 	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
-	cdn.badChecksum = true
-	srv := newInstallServer(t, cdn.Server.URL)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
 	homeDir := t.TempDir()
 
-	out, err := runInstallScript(t, srv.URL, homeDir)
+	// Prepend a fake uname to PATH that reports an unsupported OS.
+	fakeUname := filepath.Join(t.TempDir(), "uname")
+	if err := os.WriteFile(fakeUname, []byte("#!/bin/sh\necho FreeBSD\n"), 0755); err != nil {
+		t.Fatalf("write fake uname: %v", err)
+	}
+
+	script := generateInstallScript(t, cfg)
+	scriptFile := filepath.Join(t.TempDir(), "install.sh")
+	if err := os.WriteFile(scriptFile, script, 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "SHELL=") && !strings.HasPrefix(e, "PATH=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env,
+		"HOME="+homeDir,
+		"SHELL=/bin/zsh",
+		"PATH="+filepath.Dir(fakeUname)+":/usr/bin:/bin:/usr/sbin:/sbin",
+	)
+
+	cmd := exec.Command("sh", scriptFile)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Errorf("expected non-zero exit on unsupported OS:\n%s", out)
+	}
+	if !strings.Contains(string(out), "Unsupported operating system") {
+		t.Errorf("expected unsupported OS error, got:\n%s", out)
+	}
+}
+
+func TestInstallScript_BadChecksum(t *testing.T) {
+	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
+	cdn.setBadChecksum(true)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
+	homeDir := t.TempDir()
+
+	out, err := runScript(t, generateInstallScript(t, cfg), homeDir)
 	if err == nil {
 		t.Errorf("expected non-zero exit:\n%s", out)
 	}
@@ -231,11 +261,11 @@ func TestInstallScript_BadChecksum(t *testing.T) {
 
 func TestInstallScript_MissingChecksum(t *testing.T) {
 	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
-	cdn.noChecksum = true
-	srv := newInstallServer(t, cdn.Server.URL)
+	cdn.setNoChecksum(true)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
 	homeDir := t.TempDir()
 
-	out, err := runInstallScript(t, srv.URL, homeDir)
+	out, err := runScript(t, generateInstallScript(t, cfg), homeDir)
 	if err == nil {
 		t.Errorf("expected non-zero exit:\n%s", out)
 	}
@@ -246,17 +276,16 @@ func TestInstallScript_MissingChecksum(t *testing.T) {
 
 func TestInstallScript_PathInjection_NoDuplicate(t *testing.T) {
 	cdn := newFakeCDN(t, "0.1.0", fakeBinary("0.1.0"))
-	srv := newInstallServer(t, cdn.Server.URL)
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: cdn.Server.URL}}
 	homeDir := t.TempDir()
 
-	if _, err := runInstallScript(t, srv.URL, homeDir); err != nil {
+	if _, err := runScript(t, generateInstallScript(t, cfg), homeDir); err != nil {
 		t.Fatalf("first install failed: %v", err)
 	}
 
-	// Bump version so the second run proceeds past the download step.
 	cdn.update("0.2.0", fakeBinary("0.2.0"))
 
-	if _, err := runInstallScript(t, srv.URL, homeDir); err != nil {
+	if _, err := runScript(t, generateInstallScript(t, cfg), homeDir); err != nil {
 		t.Fatalf("second install failed: %v", err)
 	}
 
@@ -270,31 +299,26 @@ func TestInstallScript_PathInjection_NoDuplicate(t *testing.T) {
 }
 
 // ---- CLIDownload tests ----
+// Uses RegisterCLIRoutes — the same function main.go calls — so route wiring
+// is tested against production config, not a hand-rolled test router.
 
-func setupCLIRouter(downloadBaseURL string) *gin.Engine {
+func cliDownloadRouter(downloadBaseURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{
-		Server: config.ServerConfig{DownloadBaseURL: downloadBaseURL},
-	}
+	cfg := &config.Config{Server: config.ServerConfig{DownloadBaseURL: downloadBaseURL}}
 	r := gin.New()
-	r.GET("/install", CLIInstallScript(cfg))
-	r.GET("/download/:name", CLIDownload(cfg))
+	RegisterCLIRoutes(r, cfg)
 	return r
 }
 
-func doGet(r *gin.Engine, path, host string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if host != "" {
-		req.Host = host
-	}
+func cliGet(r *gin.Engine, path string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
 
 func TestCLIDownload_AllowedName_Redirects(t *testing.T) {
-	r := setupCLIRouter("https://cdn.example.com")
-	rec := doGet(r, "/download/ast-darwin-arm64", "")
+	r := cliDownloadRouter("https://cdn.example.com")
+	rec := cliGet(r, "/download/ast-darwin-arm64")
 
 	if rec.Code != http.StatusMovedPermanently {
 		t.Fatalf("expected 301, got %d", rec.Code)
@@ -305,8 +329,8 @@ func TestCLIDownload_AllowedName_Redirects(t *testing.T) {
 }
 
 func TestCLIDownload_UnknownName_Returns404(t *testing.T) {
-	r := setupCLIRouter("https://cdn.example.com")
-	rec := doGet(r, "/download/ast-windows-amd64", "")
+	r := cliDownloadRouter("https://cdn.example.com")
+	rec := cliGet(r, "/download/ast-windows-amd64")
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
@@ -314,19 +338,21 @@ func TestCLIDownload_UnknownName_Returns404(t *testing.T) {
 }
 
 func TestCLIDownload_PathTraversal_Returns400(t *testing.T) {
-	r := setupCLIRouter("https://cdn.example.com")
-	rec := doGet(r, "/download/../etc/passwd", "")
+	r := cliDownloadRouter("https://cdn.example.com")
+	rec := cliGet(r, "/download/../etc/passwd")
 
 	if rec.Code == http.StatusMovedPermanently {
 		t.Error("path traversal should not produce a redirect")
 	}
 }
 
-func TestCLIDownload_EmptyBaseURL_Returns503(t *testing.T) {
-	r := setupCLIRouter("")
-	rec := doGet(r, "/download/ast-darwin-arm64", "")
+func TestCLIDownload_EmptyBaseURL_RouteNotRegistered(t *testing.T) {
+	// When DownloadBaseURL is empty, RegisterCLIRoutes skips the /download route
+	// entirely, matching the production behaviour in main.go.
+	r := cliDownloadRouter("")
+	rec := cliGet(r, "/download/ast-darwin-arm64")
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when DownloadBaseURL is empty, got %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 (route not registered), got %d", rec.Code)
 	}
 }

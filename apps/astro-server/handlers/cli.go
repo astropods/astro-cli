@@ -23,15 +23,21 @@ var allowedCLINames = map[string]bool{
 	"checksums.txt":            true,
 }
 
+// RegisterCLIRoutes registers the CLI install and download routes on router.
+// Called from main.go and reused in tests so both exercise the same wiring.
+func RegisterCLIRoutes(router *gin.Engine, cfg *config.Config) {
+	router.GET("/install", CLIInstallScript(cfg))
+	if cfg.Server.DownloadBaseURL != "" {
+		router.GET("/download/:name", CLIDownload(cfg))
+		router.HEAD("/download/:name", CLIDownload(cfg))
+	}
+}
+
 // CLIDownload redirects to the configured DownloadBaseURL for backward
 // compatibility with CLI versions that resolve binaries via the server.
 func CLIDownload(cfg *config.Config) gin.HandlerFunc {
 	baseURL := strings.TrimRight(cfg.Server.DownloadBaseURL, "/")
 	return func(c *gin.Context) {
-		if baseURL == "" {
-			c.AbortWithStatus(http.StatusServiceUnavailable)
-			return
-		}
 		name := c.Param("name")
 		if name == "" || name != filepath.Base(name) || strings.Contains(name, "..") {
 			c.AbortWithStatus(http.StatusBadRequest)
@@ -66,6 +72,11 @@ DOWNLOAD_BASE="%s"
 PREFIX="%s"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS" in
+  darwin|linux) ;;
+  *) echo "Unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+esac
+
 ARCH="$(uname -m)"
 case "$ARCH" in
   x86_64|amd64) ARCH="amd64" ;;
