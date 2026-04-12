@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +91,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
 export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
   const { isAuthenticated, accounts } = useAuth();
+  const navigate = useNavigate();
 
   // Poll every 10s while draft so the page auto-updates once `ast push` completes.
   const { data: blueprint, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
@@ -178,6 +179,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           canEdit={canEdit}
           readme={readme}
           isDraft={isDraft}
+          onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}
           mobileSidebar={
             <SidebarCard
               agent={blueprint}

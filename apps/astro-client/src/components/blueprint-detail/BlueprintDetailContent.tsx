@@ -49,6 +49,7 @@ export interface BlueprintDetailContentProps {
   readme?: string;
   mobileSidebar?: ReactNode;
   isDraft?: boolean;
+  onArchive?: () => void;
 }
 
 export function BlueprintDetailContent({
@@ -59,6 +60,7 @@ export function BlueprintDetailContent({
   readme,
   mobileSidebar,
   isDraft = false,
+  onArchive,
 }: BlueprintDetailContentProps) {
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
@@ -68,6 +70,7 @@ export function BlueprintDetailContent({
         categories={categories}
         canEdit={canEdit}
         isDraft={isDraft}
+        onArchive={onArchive}
       />
 
       {/* Sidebar content inlined on mobile */}
