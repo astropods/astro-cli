@@ -145,7 +145,7 @@ export function BlueprintCard({
                       className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
                     >
                       <ArchiveBoxIcon className="h-4 w-4" />
-                      Archive agent
+                      Archive
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -202,7 +202,7 @@ export function BlueprintCard({
                   className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
                 >
                   <ArchiveBoxIcon className="h-4 w-4" />
-                  Archive agent
+                  Archive
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
