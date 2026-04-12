@@ -160,7 +160,7 @@ case ":${PATH}:" in
       SHELL_RC="$HOME/.profile"
     fi
     if ! grep -q '\.ast/bin' "$SHELL_RC" 2>/dev/null; then
-      echo "Adding ~/.ast/bin to PATH in $SHELL_RC"
+      echo "Adding $HOME/.ast/bin to PATH in $SHELL_RC"
       echo '' >> "$SHELL_RC"
       echo '# astropods' >> "$SHELL_RC"
       echo 'export PATH="$HOME/.ast/bin:$PATH"' >> "$SHELL_RC"
