@@ -132,7 +132,7 @@ export function BlueprintCard({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       aria-label="Blueprint options"
                     >
                       <EllipsisHorizontalIcon className="h-4 w-4" />

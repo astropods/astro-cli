@@ -117,7 +117,7 @@ export function DeployedAgentCard({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+              className="flex h-7 w-7 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-accent"
               aria-label="Agent options"
             >
               <EllipsisHorizontalIcon className="h-4 w-4" />
