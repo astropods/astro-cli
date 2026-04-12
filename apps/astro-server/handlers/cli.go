@@ -111,7 +111,7 @@ curl -fsSL "$URL" -o "$INSTALL_DIR/${PREFIX}.tmp"
 
 echo "Verifying checksum..."
 CHECKSUMS="$(curl -fsSL "${DOWNLOAD_BASE}/checksums.txt")"
-EXPECTED="$(echo "$CHECKSUMS" | grep "$BINARY_NAME" | awk '{print $1}')"
+EXPECTED="$(echo "$CHECKSUMS" | awk -v name="$BINARY_NAME" '$2 == name {print $1}')"
 if [ -z "$EXPECTED" ]; then
   rm -f "$INSTALL_DIR/${PREFIX}.tmp"
   echo "No checksum found for $BINARY_NAME" >&2
@@ -160,10 +160,10 @@ case ":${PATH}:" in
       SHELL_RC="$HOME/.profile"
     fi
     if ! grep -q '\.ast/bin' "$SHELL_RC" 2>/dev/null; then
+      echo "Adding ~/.ast/bin to PATH in $SHELL_RC"
       echo '' >> "$SHELL_RC"
       echo '# astropods' >> "$SHELL_RC"
       echo 'export PATH="$HOME/.ast/bin:$PATH"' >> "$SHELL_RC"
-      echo "Added ~/.ast/bin to PATH in $SHELL_RC"
       echo "Run: source $SHELL_RC"
     fi
     ;;
