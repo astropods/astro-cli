@@ -31,7 +31,7 @@ export function ArchiveBlueprintDialog({
       description={
         <>
           This will archive the{" "}
-          <span className="font-semibold text-destructive">{blueprintName}</span> blueprint
+          <span className="font-semibold text-foreground">{blueprintName}</span> blueprint
           and hide it from listings. Existing deployments will not be affected.
         </>
       }
