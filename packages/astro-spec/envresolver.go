@@ -49,6 +49,22 @@ func SanitizeEnvName(name string) string {
 	return strings.ToUpper(s)
 }
 
+// SanitizeDBName converts an agent name into a valid Postgres database name.
+// Same sanitization as SanitizeEnvName but returns lowercase (Postgres convention).
+//
+// Examples:
+//
+//	"memory-box" → "memory_box"
+//	"my.agent"   → "my_agent"
+func SanitizeDBName(name string) string {
+	s := strings.ToLower(name)
+	s = strings.NewReplacer("-", "_", ".", "_").Replace(s)
+	s = sanitizeNonAlnum.ReplaceAllString(s, "")
+	s = sanitizeMultiUnderscore.ReplaceAllString(s, "_")
+	s = strings.Trim(s, "_")
+	return s
+}
+
 // ─── Connection address ───────────────────────────────────────────────────────
 
 // ConnectionAddress holds the resolved connection details for a single component.

@@ -193,6 +193,11 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 					}
+					// For postgres, inject auto-derived database name into the agent
+					if knowledge.Provider == "postgres" {
+						dbName := spec.SanitizeDBName(input.AgentName)
+						agentEnv["POSTGRES_DB"] = dbName
+					}
 					if prov.URLScheme != "" {
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
 							agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.url}", name, primaryEp)
@@ -544,6 +549,17 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 					dk.Environment[k] = v
 				}
 			}
+		}
+	}
+
+	// For postgres, inject auto-derived database name into the knowledge container
+	// so the entrypoint creates the database on first init.
+	if knowledge.Provider == "postgres" {
+		if dk.Environment == nil {
+			dk.Environment = make(map[string]string)
+		}
+		if _, exists := dk.Environment["POSTGRES_DB"]; !exists {
+			dk.Environment["POSTGRES_DB"] = spec.SanitizeDBName(input.AgentName)
 		}
 	}
 

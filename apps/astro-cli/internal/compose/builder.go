@@ -399,6 +399,16 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
+		// For postgres, inject the auto-derived database name into the knowledge container
+		// so the entrypoint creates the database on first init.
+		if knowledge.Provider == "postgres" {
+			if service.Environment == nil {
+				service.Environment = make(types.MappingWithEquals)
+			}
+			dbName := spec.SanitizeDBName(s.Name)
+			service.Environment["POSTGRES_DB"] = &dbName
+		}
+
 		// Inject knowledge inputs (from ast configure / .env, with default fallback)
 		for _, inp := range knowledge.Inputs {
 			val := inp.Default
@@ -742,6 +752,12 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 			env[hostKey] = &serviceName
 			port := fmt.Sprintf("%d", prov.DefaultPort)
 			env[portKey] = &port
+
+			// For postgres, auto-derive the database name from the agent name
+			if knowledge.Provider == "postgres" {
+				dbName := spec.SanitizeDBName(s.Name)
+				env["POSTGRES_DB"] = &dbName
+			}
 		}
 	}
 
