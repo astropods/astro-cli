@@ -186,7 +186,7 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("%s→%s Provisioning", colorCyan, colorReset)
 
 	// Stream events until the store reaches a terminal state.
-	if err := streamKnowledgeEvents(cmd.Context(), account, created.ID); err != nil {
+	if err := streamKnowledgeEvents(cmd.Context(), account, created.Name); err != nil {
 		fmt.Println()
 		return err
 	}
@@ -395,10 +395,10 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 
 // streamKnowledgeEvents connects to the /events SSE endpoint and prints
 // progress until the store reaches a terminal state (ready or error).
-func streamKnowledgeEvents(ctx context.Context, account, storeID string) error {
+func streamKnowledgeEvents(ctx context.Context, account, name string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		knowledgeAPIBase()+fmt.Sprintf("/api/v1/accounts/%s/knowledge/%s/events",
-			url.PathEscape(account), url.PathEscape(storeID)),
+			url.PathEscape(account), url.PathEscape(name)),
 		nil)
 	if err != nil {
 		return err
