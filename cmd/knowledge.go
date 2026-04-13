@@ -21,6 +21,7 @@ import (
 // knowledgeServerURL mirrors the pattern from push.go — overridable per-command.
 var knowledgeServerURL string
 var knowledgeAccount string
+var knowledgeOutput string // -o / --output: "" (default) or "json"
 
 var knowledgeCmd = &cobra.Command{
 	Use:   "knowledge",
@@ -83,6 +84,12 @@ func init() {
 	} {
 		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astro server URL (overrides profile/default)")
 		c.Flags().StringVar(&knowledgeAccount, "account", "", "Account name (overrides profile default)")
+	}
+
+	for _, c := range []*cobra.Command{
+		knowledgeListCmd, knowledgeStatusCmd, knowledgeCredentialsCmd,
+	} {
+		c.Flags().StringVarP(&knowledgeOutput, "output", "o", "", "Output format: json")
 	}
 
 	knowledgeCreateCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j")
@@ -217,6 +224,10 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	if knowledgeOutput == "json" {
+		return json.NewEncoder(os.Stdout).Encode(stores)
+	}
+
 	if len(stores) == 0 {
 		fmt.Printf("%sNo knowledge stores found.%s\n", colorDim, colorReset)
 		return nil
@@ -261,6 +272,10 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 	var s knowledgeStoreResponse
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if knowledgeOutput == "json" {
+		return json.NewEncoder(os.Stdout).Encode(s)
 	}
 
 	statusColor := colorReset
@@ -363,6 +378,10 @@ func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
 	var creds map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if knowledgeOutput == "json" {
+		return json.NewEncoder(os.Stdout).Encode(creds)
 	}
 
 	for k, v := range creds {
