@@ -344,7 +344,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stream logs"})
 			return
 		}
-		defer stream.Close()
+		defer stream.Close() //nolint:errcheck
 
 		buf := make([]byte, 32*1024)
 		c.Header("Content-Type", "text/plain; charset=utf-8")
@@ -352,7 +352,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 		for {
 			n, err := stream.Read(buf)
 			if n > 0 {
-				c.Writer.Write(buf[:n]) //nolint:errcheck
+				_, _ = c.Writer.Write(buf[:n])
 				c.Writer.Flush()
 			}
 			if err != nil {
@@ -402,12 +402,12 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 			case <-ticker.C:
 				current, err := ksStore.GetByID(ks.ID)
 				if err != nil || current == nil {
-					fmt.Fprintf(c.Writer, "data: {\"error\":\"store not found\"}\n\n")
+					_, _ = fmt.Fprintf(c.Writer, "data: {\"error\":\"store not found\"}\n\n")
 					c.Writer.Flush()
 					return
 				}
 
-				fmt.Fprintf(c.Writer, "data: {\"status\":%q,\"store_id\":%q}\n\n", current.Status, current.ID)
+				_, _ = fmt.Fprintf(c.Writer, "data: {\"status\":%q,\"store_id\":%q}\n\n", current.Status, current.ID)
 
 				events, _ := k8sClient.Clientset().CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 					FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", ks.ID),
@@ -419,7 +419,7 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 							continue
 						}
 						seen[uid] = struct{}{}
-						fmt.Fprintf(c.Writer, "data: {\"type\":%q,\"reason\":%q,\"message\":%q}\n\n",
+						_, _ = fmt.Fprintf(c.Writer, "data: {\"type\":%q,\"reason\":%q,\"message\":%q}\n\n",
 							evt.Type, evt.Reason, evt.Message)
 					}
 				}

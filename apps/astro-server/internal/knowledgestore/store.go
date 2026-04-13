@@ -139,7 +139,7 @@ func (s *Store) ListByAccount(accountID string) ([]*KnowledgeStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var stores []*KnowledgeStore
 	for rows.Next() {
@@ -192,7 +192,7 @@ func (s *Store) ListProvisioning() ([]*KnowledgeStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var stores []*KnowledgeStore
 	for rows.Next() {
@@ -212,7 +212,7 @@ func (s *Store) ListReady() ([]*KnowledgeStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var stores []*KnowledgeStore
 	for rows.Next() {
@@ -264,7 +264,7 @@ func (s *Store) GetCredentials(storeID string) ([]Credential, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var creds []Credential
 	for rows.Next() {
