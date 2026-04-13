@@ -162,8 +162,11 @@ type DeploymentConfig struct {
 	ALBGroupName      string // ALB group name for agent ALB
 	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
-	IngestionACMCertARN    string // ACM certificate ARN for ingestion wildcard cert
-	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
+	// Knowledge store public host domain (e.g., knowledge.astropods.ai)
+	// Public stores get a hostname: {name}.{account}.{KnowledgeDomain}
+	KnowledgeDomain       string // KNOWLEDGE_DOMAIN
+	IngestionACMCertARN   string // ACM certificate ARN for ingestion wildcard cert
+	IngestionALBGroupName string // ALB group name for ingestion ALB (separate from agents)
 	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// KMS envelope encryption for deployment secrets
@@ -227,6 +230,7 @@ func Load() (*Config, error) {
 			IngestionIngressDomain:        getEnv("INGESTION_INGRESS_DOMAIN", ""),
 			IngestionACMCertARN:           getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:         getEnv("INGESTION_ALB_GROUP_NAME", ""),
+			KnowledgeDomain:               getEnv("KNOWLEDGE_DOMAIN", ""),
 			PodSubnetCIDRs:                getEnvSlice("POD_SUBNET_CIDRS", nil),
 			KMSKeyARN:                     getEnv("KMS_KEY_ARN", ""),
 			ManagedAnthropicAPIKey:        getEnv("MANAGED_ANTHROPIC_API_KEY", ""),

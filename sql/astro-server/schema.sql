@@ -478,3 +478,37 @@ CREATE TABLE public.github_builds (
 
 CREATE INDEX idx_github_builds_connection ON public.github_builds (connection_id, enqueued_at DESC);
 CREATE INDEX idx_github_builds_account_agent ON public.github_builds (account_id, agent_name, enqueued_at DESC);
+
+CREATE TABLE public.knowledge_stores (
+    id                 varchar(11)  NOT NULL,
+    account_id         uuid         NOT NULL,
+    name               varchar      NOT NULL,
+    arn                varchar      NOT NULL,
+    provider           varchar      NOT NULL,
+    status             varchar      NOT NULL DEFAULT 'provisioning',
+    namespace          varchar      NOT NULL,
+    storage            varchar      NOT NULL DEFAULT '10Gi',
+    public             boolean      NOT NULL DEFAULT false,
+    public_host        varchar,
+    encrypted_data_key bytea,
+    kms_key_arn        varchar,
+    error              text,
+    created_at         timestamptz  NOT NULL DEFAULT now(),
+    updated_at         timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT knowledge_stores_pkey PRIMARY KEY (id),
+    CONSTRAINT knowledge_stores_arn_key UNIQUE (arn),
+    CONSTRAINT knowledge_stores_account_name_key UNIQUE (account_id, name),
+    CONSTRAINT knowledge_stores_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_knowledge_stores_account ON public.knowledge_stores(account_id);
+CREATE INDEX idx_knowledge_stores_status ON public.knowledge_stores(status) WHERE status = 'provisioning';
+
+CREATE TABLE public.knowledge_store_credentials (
+    knowledge_store_id varchar(11) NOT NULL,
+    key                varchar     NOT NULL,
+    value_encrypted    bytea       NOT NULL,
+    nonce              bytea       NOT NULL,
+    CONSTRAINT knowledge_store_credentials_pkey PRIMARY KEY (knowledge_store_id, key),
+    CONSTRAINT knowledge_store_credentials_store_fkey FOREIGN KEY (knowledge_store_id) REFERENCES public.knowledge_stores(id) ON DELETE CASCADE
+);
