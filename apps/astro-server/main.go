@@ -785,7 +785,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/knowledge/:name", "Get a managed knowledge store", handlers.GetKnowledgeStore(log, ksStore),
+				api.GET(accountMember, "/knowledge/:name", "Get a managed knowledge store", handlers.GetKnowledgeStore(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

@@ -245,7 +245,7 @@ func TestGetKnowledgeStore_Found(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore))
+	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -272,7 +272,7 @@ func TestGetKnowledgeStore_NotFound(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore))
+	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(sqlmock.NewRows(knowledgeColumns))

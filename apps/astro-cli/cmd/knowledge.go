@@ -285,6 +285,20 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%sError:%s    %s%s%s\n", colorDim, colorReset, colorRed, *s.Error, colorReset)
 	}
 	fmt.Printf("%sCreated:%s  %s\n", colorDim, colorReset, s.CreatedAt.Format("2006-01-02 15:04:05 UTC"))
+
+	if len(s.Events) > 0 {
+		e := s.Events[0]
+		icon := "·"
+		if e.Type == "Warning" {
+			icon = colorRed + "!" + colorReset
+		}
+		countStr := ""
+		if e.Count > 1 {
+			countStr = fmt.Sprintf(" %s(×%d)%s", colorDim, e.Count, colorReset)
+		}
+		fmt.Printf("%sEvent:%s    %s %s%s:%s %s%s\n", colorDim, colorReset, icon, colorDim, e.Reason, colorReset, e.Message, countStr)
+	}
+
 	return nil
 }
 
@@ -476,15 +490,23 @@ func streamKnowledgeEvents(ctx context.Context, account, name string) error {
 }
 
 // knowledgeStoreResponse mirrors the server's knowledge response shape.
+type knowledgeStoreEvent struct {
+	Type    string `json:"type"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	Count   int32  `json:"count"`
+}
+
 type knowledgeStoreResponse struct {
-	ID         string    `json:"id"`
-	ARN        string    `json:"arn"`
-	Name       string    `json:"name"`
-	Provider   string    `json:"provider"`
-	Status     string    `json:"status"`
-	Storage    string    `json:"storage"`
-	Public     bool      `json:"public"`
-	PublicHost *string   `json:"public_host,omitempty"`
-	Error      *string   `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string                `json:"id"`
+	ARN        string                `json:"arn"`
+	Name       string                `json:"name"`
+	Provider   string                `json:"provider"`
+	Status     string                `json:"status"`
+	Storage    string                `json:"storage"`
+	Public     bool                  `json:"public"`
+	PublicHost *string               `json:"public_host,omitempty"`
+	Error      *string               `json:"error,omitempty"`
+	Events     []knowledgeStoreEvent `json:"events,omitempty"`
+	CreatedAt  time.Time             `json:"created_at"`
 }

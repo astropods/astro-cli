@@ -24,18 +24,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type knowledgeEvent struct {
+	Type    string `json:"type"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	Count   int32  `json:"count"`
+}
+
 type knowledgeResponse struct {
-	ID         string    `json:"id"`
-	ARN        string    `json:"arn"`
-	Name       string    `json:"name"`
-	Provider   string    `json:"provider"`
-	Status     string    `json:"status"`
-	Storage    string    `json:"storage"`
-	Public     bool      `json:"public"`
-	PublicHost *string   `json:"public_host,omitempty"`
-	Error      *string   `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID         string           `json:"id"`
+	ARN        string           `json:"arn"`
+	Name       string           `json:"name"`
+	Provider   string           `json:"provider"`
+	Status     string           `json:"status"`
+	Storage    string           `json:"storage"`
+	Public     bool             `json:"public"`
+	PublicHost *string          `json:"public_host,omitempty"`
+	Error      *string          `json:"error,omitempty"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+	Events     []knowledgeEvent `json:"events,omitempty"`
 }
 
 func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) knowledgeResponse {
@@ -241,7 +249,7 @@ func ListKnowledgeStores(log *logger.Logger, ksStore *knowledgestore.Store) gin.
 	}
 }
 
-func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store) gin.HandlerFunc {
+func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -260,7 +268,25 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store) gin.Ha
 			return
 		}
 
-		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
+		resp := toKnowledgeResponse(ks)
+
+		if k8sClient != nil && ks.Status == knowledgestore.StatusProvisioning {
+			ns := k8s.KnowledgeNamespace(acct.ID)
+			evts, _ := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
+				FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", ks.ID),
+			})
+			if evts != nil && len(evts.Items) > 0 {
+				e := evts.Items[len(evts.Items)-1]
+				resp.Events = []knowledgeEvent{{
+					Type:    e.Type,
+					Reason:  e.Reason,
+					Message: e.Message,
+					Count:   e.Count,
+				}}
+			}
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
