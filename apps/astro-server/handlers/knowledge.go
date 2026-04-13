@@ -94,7 +94,7 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		}
 
 		storeID := deployid.New()
-		arn := fmt.Sprintf("arn:knowledge:%s:%s", acct.Name, req.Name)
+		arn := fmt.Sprintf("arn:knowledge:%s:%s", acct.ID, req.Name)
 		ns := k8s.KnowledgeNamespace(acct.ID)
 
 		var publicHost string
@@ -370,7 +370,11 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 					return
 				}
 
-				_, _ = fmt.Fprintf(c.Writer, "data: {\"status\":%q,\"store_id\":%q}\n\n", current.Status, current.ID)
+				errMsg := ""
+				if current.Error != nil {
+					errMsg = *current.Error
+				}
+				_, _ = fmt.Fprintf(c.Writer, "data: {\"status\":%q,\"store_id\":%q,\"error\":%q}\n\n", current.Status, current.ID, errMsg)
 
 				events, _ := k8sClient.Clientset().CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 					FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", ks.ID),

@@ -272,3 +272,127 @@ func TestDeleteKnowledgeStore_NotFoundIsOK(t *testing.T) {
 		t.Fatalf("DeleteKnowledgeStore: %v", err)
 	}
 }
+
+func TestDeleteKnowledgeStore_Public(t *testing.T) {
+	tr := newK8sTracker()
+	client, done := newTestKnowledgeClient(tr)
+	defer done()
+
+	accountID := "acct-pub"
+	ns := KnowledgeNamespace(accountID)
+	storeID := "sid-pub"
+
+	// Pre-seed all resources that a public store would have.
+	tr.add("statefulset:" + ns + "/" + storeID)
+	tr.add("service:" + ns + "/" + storeID)
+	tr.add("service:" + ns + "/" + storeID + "-lb")
+	tr.add("secret:" + ns + "/" + storeID + "-credentials")
+
+	if err := DeleteKnowledgeStore(context.Background(), client, accountID, storeID, true); err != nil {
+		t.Fatalf("DeleteKnowledgeStore: %v", err)
+	}
+
+	if tr.exists("statefulset:" + ns + "/" + storeID) {
+		t.Error("statefulset should have been deleted")
+	}
+	if tr.exists("service:" + ns + "/" + storeID) {
+		t.Error("clusterip service should have been deleted")
+	}
+	if tr.exists("service:" + ns + "/" + storeID + "-lb") {
+		t.Error("lb service should have been deleted")
+	}
+}
+
+// --- ProvisionKnowledgeStore ---
+
+func testProvisionParams(accountID, storeID string, public bool) KnowledgeProvisionParams {
+	return KnowledgeProvisionParams{
+		StoreID:    storeID,
+		AccountID:  accountID,
+		ARN:        "arn:knowledge:" + accountID + ":my-db",
+		Provider:   "postgres",
+		Storage:    "10Gi",
+		SecretName: storeID + "-credentials",
+		Public:     public,
+	}
+}
+
+func TestProvisionKnowledgeStore_Success(t *testing.T) {
+	tr := newK8sTracker()
+	client, done := newTestKnowledgeClient(tr)
+	defer done()
+
+	accountID := "acct-prov"
+	storeID := "sid-prov"
+	ns := KnowledgeNamespace(accountID)
+
+	if err := ProvisionKnowledgeStore(context.Background(), client, testProvisionParams(accountID, storeID, false)); err != nil {
+		t.Fatalf("ProvisionKnowledgeStore: %v", err)
+	}
+
+	if !tr.exists("statefulset:" + ns + "/" + storeID) {
+		t.Error("expected statefulset to be created")
+	}
+	if !tr.exists("service:" + ns + "/" + storeID) {
+		t.Error("expected clusterip service to be created")
+	}
+	if tr.exists("service:" + ns + "/" + storeID + "-lb") {
+		t.Error("lb service should not be created for non-public store")
+	}
+}
+
+func TestProvisionKnowledgeStore_Public(t *testing.T) {
+	tr := newK8sTracker()
+	client, done := newTestKnowledgeClient(tr)
+	defer done()
+
+	accountID := "acct-pub2"
+	storeID := "sid-pub2"
+	ns := KnowledgeNamespace(accountID)
+
+	if err := ProvisionKnowledgeStore(context.Background(), client, testProvisionParams(accountID, storeID, true)); err != nil {
+		t.Fatalf("ProvisionKnowledgeStore: %v", err)
+	}
+
+	if !tr.exists("statefulset:" + ns + "/" + storeID) {
+		t.Error("expected statefulset to be created")
+	}
+	if !tr.exists("service:" + ns + "/" + storeID) {
+		t.Error("expected clusterip service to be created")
+	}
+	if !tr.exists("service:" + ns + "/" + storeID + "-lb") {
+		t.Error("expected lb service to be created for public store")
+	}
+}
+
+func TestProvisionKnowledgeStore_UnknownProvider(t *testing.T) {
+	tr := newK8sTracker()
+	client, done := newTestKnowledgeClient(tr)
+	defer done()
+
+	p := testProvisionParams("acct-bad", "sid-bad", false)
+	p.Provider = "nonexistent"
+
+	if err := ProvisionKnowledgeStore(context.Background(), client, p); err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+}
+
+// TestKnowledgeLabels_NoARN is a regression test: ARNs contain colons which
+// Kubernetes rejects as label values. The ARN must not appear in labels.
+func TestKnowledgeLabels_NoARN(t *testing.T) {
+	labels := knowledgeLabels("acct-123", "store-456")
+
+	if _, ok := labels["astro.io/arn"]; ok {
+		t.Error("labels must not contain 'astro.io/arn': colons in ARN values are rejected by Kubernetes")
+	}
+	if labels["astro.io/account-id"] != "acct-123" {
+		t.Errorf("expected account-id 'acct-123', got %q", labels["astro.io/account-id"])
+	}
+	if labels["astro.io/store-id"] != "store-456" {
+		t.Errorf("expected store-id 'store-456', got %q", labels["astro.io/store-id"])
+	}
+	if labels["astro.io/component"] != "knowledge" {
+		t.Errorf("expected component 'knowledge', got %q", labels["astro.io/component"])
+	}
+}

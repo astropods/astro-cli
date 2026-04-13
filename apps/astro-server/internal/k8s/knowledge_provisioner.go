@@ -23,11 +23,10 @@ func KnowledgeNamespace(accountID string) string {
 }
 
 // knowledgeLabels returns the standard labels for a managed knowledge store resource.
-func knowledgeLabels(accountID, storeID, arn string) map[string]string {
+func knowledgeLabels(accountID, storeID string) map[string]string {
 	return map[string]string{
 		"astro.io/account-id": accountID,
 		"astro.io/store-id":   storeID,
-		"astro.io/arn":        arn,
 		"astro.io/component":  "knowledge",
 	}
 }
@@ -82,7 +81,7 @@ type KnowledgeProvisionParams struct {
 // a LoadBalancer Service for a managed knowledge store.
 func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p KnowledgeProvisionParams) error {
 	ns := KnowledgeNamespace(p.AccountID)
-	labels := knowledgeLabels(p.AccountID, p.StoreID, p.ARN)
+	labels := knowledgeLabels(p.AccountID, p.StoreID)
 	selector := knowledgeSelector(p.StoreID)
 
 	prov, ok := spec.LookupBuiltin("knowledge", p.Provider)

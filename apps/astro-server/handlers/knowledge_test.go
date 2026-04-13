@@ -352,6 +352,94 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 	}
 }
 
+// --- Name / storage validation ---
+
+func TestCreateKnowledgeStore_InvalidName(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"starts with hyphen", `{"name":"-bad","provider":"postgres"}`},
+		{"ends with hyphen", `{"name":"bad-","provider":"postgres"}`},
+		{"uppercase", `{"name":"MyStore","provider":"postgres"}`},
+		{"too long", `{"name":"` + strings.Repeat("a", 64) + `","provider":"postgres"}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			router, ksStore, _ := setupKS()
+			log := logger.New("error", "json")
+			router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, minimalCfg()))
+
+			req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateKnowledgeStore_InvalidStorage(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, minimalCfg()))
+
+	body := `{"name":"my-db","provider":"postgres","storage":"notasize"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCreateKnowledgeStore_ARN_UsesAccountID is a regression test: ARNs must
+// use the immutable account ID, not the account name which can change.
+func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, minimalCfg()))
+
+	acct := testAccount()
+	expectedARN := "arn:knowledge:" + acct.ID + ":pg-main"
+
+	// WithArgs verifies the ARN passed to INSERT uses account ID (arg $4), not account name.
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WithArgs(
+			sqlmock.AnyArg(), // $1: store ID
+			acct.ID,          // $2: account ID
+			"pg-main",        // $3: name
+			expectedARN,      // $4: ARN — must use account ID, not name
+			"postgres",       // $5: provider
+			sqlmock.AnyArg(), // $6: namespace
+			"10Gi",           // $7: storage
+			false,            // $8: public
+			sqlmock.AnyArg(), // $9: public_host
+			sqlmock.AnyArg(), // $10: encrypted_data_key
+			sqlmock.AnyArg(), // $11: kms_key_arn
+		).
+		WillReturnRows(knowledgeRow(acct.ID, acct.ID, "pg-main", "postgres", "provisioning"))
+
+	body := `{"name":"pg-main","provider":"postgres"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations (ARN arg check failed): %v", err)
+	}
+}
+
 // --- No account in context ---
 
 func TestKnowledgeHandlers_NoAccount(t *testing.T) {
