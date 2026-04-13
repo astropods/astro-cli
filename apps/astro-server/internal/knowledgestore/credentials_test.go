@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestValidateStorageSize(t *testing.T) {
+	valid := []string{"10Gi", "20Gi", "500Mi", "1Ti", "5G", "1024"}
+	for _, s := range valid {
+		if err := ValidateStorageSize(s); err != nil {
+			t.Errorf("ValidateStorageSize(%q) unexpected error: %v", s, err)
+		}
+	}
+
+	invalid := []struct {
+		size string
+		msg  string
+	}{
+		{"", "empty"},
+		{"0Gi", "zero"},
+		{"-10Gi", "negative"},
+		{"10gigabytes", "invalid unit"},
+		{"abc", "not a quantity"},
+	}
+	for _, tt := range invalid {
+		if err := ValidateStorageSize(tt.size); err == nil {
+			t.Errorf("ValidateStorageSize(%q) expected error for %s, got nil", tt.size, tt.msg)
+		}
+	}
+}
+
 func TestValidateStoreName(t *testing.T) {
 	valid := []string{
 		"db", "pg-main", "my-store", "postgres-prod", "a", "db1",

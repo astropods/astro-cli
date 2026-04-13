@@ -6,7 +6,26 @@ import (
 	"fmt"
 	"time"
 	"unicode"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
+
+// ValidateStorageSize checks that a storage size string is a valid Kubernetes
+// resource quantity (e.g. "10Gi", "20Gi", "500Mi"). Uses the same parser K8s
+// uses internally, so any value that passes here will work in a PVC spec.
+func ValidateStorageSize(size string) error {
+	if size == "" {
+		return fmt.Errorf("storage size must not be empty")
+	}
+	q, err := resource.ParseQuantity(size)
+	if err != nil {
+		return fmt.Errorf("invalid storage size %q: must be a valid Kubernetes quantity (e.g. 10Gi, 500Mi)", size)
+	}
+	if q.Sign() <= 0 {
+		return fmt.Errorf("storage size must be greater than zero")
+	}
+	return nil
+}
 
 // ValidateStoreName checks that a knowledge store name is safe for use in ARNs
 // and public DNS hostnames. Rules:

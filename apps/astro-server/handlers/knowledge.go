@@ -73,7 +73,17 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
+		storage := req.Storage
+		if storage == "" {
+			storage = "10Gi"
+		}
+
 		if err := knowledgestore.ValidateStoreName(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := knowledgestore.ValidateStorageSize(storage); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -81,11 +91,6 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		if _, ok := spec.LookupBuiltin("knowledge", req.Provider); !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported provider: %s", req.Provider)})
 			return
-		}
-
-		storage := req.Storage
-		if storage == "" {
-			storage = "10Gi"
 		}
 
 		storeID := deployid.New()
