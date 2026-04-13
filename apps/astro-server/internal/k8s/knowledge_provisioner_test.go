@@ -114,22 +114,34 @@ func (t *k8sTracker) handler() http.Handler {
 
 		// Service CREATE
 		case r.Method == http.MethodPost && strings.Contains(p, "/services") && !strings.Contains(p, "/services/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/api/v1/namespaces/"), "/")
+			ns := parts[0]
 			name := extractName(r)
+			t.add("service:" + ns + "/" + name)
 			w.WriteHeader(http.StatusCreated)
 			fmt.Fprintf(w, `{"apiVersion":"v1","kind":"Service","metadata":{"name":%q}}`, name)
 
 		// Service DELETE
 		case r.Method == http.MethodDelete && strings.Contains(p, "/services/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/api/v1/namespaces/"), "/")
+			ns, name := parts[0], parts[2]
+			t.del("service:" + ns + "/" + name)
 			fmt.Fprintf(w, `{"kind":"Status","status":"Success"}`)
 
 		// StatefulSet CREATE
 		case r.Method == http.MethodPost && strings.Contains(p, "/statefulsets"):
+			parts := strings.Split(strings.TrimPrefix(p, "/apis/apps/v1/namespaces/"), "/")
+			ns := parts[0]
 			name := extractName(r)
+			t.add("statefulset:" + ns + "/" + name)
 			w.WriteHeader(http.StatusCreated)
 			fmt.Fprintf(w, `{"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"name":%q}}`, name)
 
 		// StatefulSet DELETE
 		case r.Method == http.MethodDelete && strings.Contains(p, "/statefulsets/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/apis/apps/v1/namespaces/"), "/")
+			ns, name := parts[0], parts[2]
+			t.del("statefulset:" + ns + "/" + name)
 			fmt.Fprintf(w, `{"kind":"Status","status":"Success"}`)
 
 		default:
