@@ -502,7 +502,7 @@ CREATE TABLE public.knowledge_stores (
 );
 
 CREATE INDEX idx_knowledge_stores_account ON public.knowledge_stores(account_id);
-CREATE INDEX idx_knowledge_stores_status ON public.knowledge_stores(status) WHERE status = 'provisioning';
+CREATE INDEX idx_knowledge_stores_status ON public.knowledge_stores(status);
 
 CREATE TABLE public.knowledge_store_credentials (
     knowledge_store_id varchar(11) NOT NULL,
