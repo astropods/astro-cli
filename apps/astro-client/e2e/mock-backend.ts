@@ -387,7 +387,15 @@ const makeInitialDeployments = () => [
     created_at: nowIso,
     components: ["agent", "web", "slack"],
     external_urls: [],
-    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    workloads: [
+      {
+        name: "slack-config-full-agent",
+        kind: "Deployment",
+        component: "agent",
+        age: "2d",
+        containers: [{ name: "agent", state: "running", ready: true as boolean, restart_count: 0 }],
+      },
+    ],
     jobs: [],
   },
   {
@@ -440,6 +448,7 @@ const makeInitialDeployments = () => [
 
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
+let createdBlueprints = new Set<string>();
 
 const agentFor = (agentName: string) => ({
   name: agentName,
@@ -484,6 +493,7 @@ Bun.serve({
       deployments = makeInitialDeployments();
       storedPayloads = {};
       currentOrgRole = "admin";
+      createdBlueprints = new Set();
       return json({ ok: true });
     }
 
@@ -505,6 +515,18 @@ Bun.serve({
       const [, accountName, agentName] = templateMatch;
       if (accountName === ACCOUNT && agentName in templatesByAgent) {
         return json(templatesByAgent[agentName as keyof typeof templatesByAgent]);
+      }
+      // Fallback template for newly created blueprints
+      if (accountName === ACCOUNT && createdBlueprints.has(agentName)) {
+        return json({
+          spec: "deployment-template/v1",
+          source: { account: ACCOUNT, name: agentName, build: "build-new-1", registry: "registry.example.com" },
+          target: { runtime: "kubernetes" },
+          agent: { image: `registry.example.com/${ACCOUNT}/${agentName}:build-new-1`, endpoints: { http: { port: 8080 } } },
+          interfaces: { adapters: ["web"] },
+          variables: { ...baseVariables },
+          editable: ["variables.*.value", "interfaces.adapters"],
+        });
       }
       return json({ error: "not_found" }, 404);
     }
@@ -561,18 +583,62 @@ Bun.serve({
       return json({ error: "not_found" }, 404);
     }
 
+    const agentAvatarMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/avatar$/);
+    if (agentAvatarMatch && request.method === "POST") {
+      const [, accountName, agentName] = agentAvatarMatch;
+      return json({ avatar_url: `https://cdn.example.com/${accountName}/${agentName}/avatar.jpg` });
+    }
+
+    const agentArchiveMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/archive$/);
+    if (agentArchiveMatch && request.method === "POST") {
+      return json({ ok: true });
+    }
+
+    const deploymentHistoryMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment\/history$/);
+    if (deploymentHistoryMatch && request.method === "GET") {
+      const [, , agentName] = deploymentHistoryMatch;
+      const dep = deployments.find((d) => d.name === agentName);
+      if (!dep) return json({ deployments: [], count: 0 });
+      return json({
+        deployments: [
+          {
+            id: dep.id,
+            agent_name: agentName,
+            revision: 1,
+            build_id: dep.build_id,
+            namespace: dep.namespace,
+            display_name: dep.display_name,
+            is_current: true,
+            status: dep.status,
+            deployed_at: dep.created_at,
+            spec: {},
+          },
+        ],
+        count: 1,
+      });
+    }
+
     const agentMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)$/);
     if (agentMatch) {
       const [, accountName, agentName] = agentMatch;
-      if (accountName === ACCOUNT && agentName in templatesByAgent) {
+      if (accountName === ACCOUNT && (agentName in templatesByAgent || createdBlueprints.has(agentName))) {
         return json(agentFor(agentName));
       }
       return json({ error: "not_found" }, 404);
     }
 
+    if (pathname === "/api/v1/agents" && request.method === "GET") {
+      return json(accountAgents);
+    }
+
     const accountAgentsMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)$/);
     if (accountAgentsMatch) {
       const [, accountName] = accountAgentsMatch;
+      if (request.method === "POST") {
+        const body = (await request.json()) as { name: string; visibility?: string };
+        createdBlueprints.add(body.name);
+        return json({ account: accountName, name: body.name, registry: "registry.example.com", versions: [] }, 201);
+      }
       if (accountName === ACCOUNT) {
         return json(accountAgents);
       }
@@ -592,6 +658,96 @@ Bun.serve({
       const dep = deployments.find((d) => d.id === deploymentDetailMatch[1]);
       if (!dep) return json({ error: "not_found" }, 404);
       return json({ deployment: dep });
+    }
+
+    const deploymentLogsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/logs$/);
+    if (deploymentLogsMatch && request.method === "GET") {
+      const logs = [
+        "2024-01-01T00:00:00Z Starting agent server on :8080",
+        "2024-01-01T00:00:01Z Agent ready to accept requests",
+        "2024-01-01T00:00:02Z Listening for incoming requests",
+      ].join("\n");
+      return new Response(logs, { status: 200, headers: { "content-type": "text/plain" } });
+    }
+
+    const deploymentObsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/observability\/(metrics|summary|traces)$/);
+    if (deploymentObsMatch && request.method === "GET") {
+      const [, , obsType] = deploymentObsMatch;
+      if (obsType === "metrics") {
+        return json({
+          buckets: [
+            { timestamp: nowIso, trace_count: 50, avg_latency_ms: 500, p95_latency_ms: 1100, input_tokens: 1000, output_tokens: 800, error_count: 1 },
+            { timestamp: nowIso, trace_count: 100, avg_latency_ms: 546, p95_latency_ms: 1200, input_tokens: 2000, output_tokens: 1500, error_count: 2 },
+          ],
+          time_range: { start: nowIso, end: nowIso },
+          interval_minutes: 60,
+        });
+      }
+      if (obsType === "summary") {
+        return json({
+          total_traces: 150,
+          time_range: { start: nowIso, end: nowIso },
+          metrics: {
+            avg_latency_ms: 523,
+            p95_latency_ms: 1200,
+            error_rate: 0.02,
+            total_tokens: 3500,
+            traces_per_hour: 6.25,
+          },
+        });
+      }
+      if (obsType === "traces") {
+        return json({
+          traces: [
+            {
+              trace_id: "trace-1",
+              name: "chat completion",
+              status: "success",
+              latency_ms: 523,
+              total_tokens: 150,
+              input: "What is the weather today?",
+              output: "I don't have access to real-time weather data.",
+              timestamp: nowIso,
+            },
+            {
+              trace_id: "trace-2",
+              name: "tool call",
+              status: "success",
+              latency_ms: 200,
+              total_tokens: 80,
+              input: "Search for flights to NYC",
+              output: "Found 5 available flights.",
+              timestamp: nowIso,
+            },
+          ],
+          total: 2,
+          limit: 100,
+          offset: 0,
+        });
+      }
+    }
+
+    const deploymentStopMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/stop$/);
+    if (deploymentStopMatch && request.method === "POST") {
+      const depId = deploymentStopMatch[1]!;
+      deployments = deployments.map((d) =>
+        d.id === depId ? { ...d, status: "stopped", replicas: 0, ready: 0 } : d,
+      );
+      return json({ status: "stopped", deployment_id: depId });
+    }
+
+    const deploymentWakeupMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/wakeup$/);
+    if (deploymentWakeupMatch && request.method === "POST") {
+      const depId = deploymentWakeupMatch[1]!;
+      deployments = deployments.map((d) =>
+        d.id === depId ? { ...d, status: "healthy", replicas: 1, ready: 1 } : d,
+      );
+      return json({ status: "healthy", deployment_id: depId });
+    }
+
+    const deploymentRestartMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/restart$/);
+    if (deploymentRestartMatch && request.method === "POST") {
+      return json({ status: "restarting", pods: [] });
     }
 
     const triggerMatch = pathname.match(
@@ -727,8 +883,20 @@ Bun.serve({
 
     // Account detail (for display name update, rename, etc.)
     const accountDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)$/);
-    if (accountDetailMatch && (request.method === "PUT" || request.method === "PATCH")) {
-      return json({ ok: true });
+    if (accountDetailMatch) {
+      const [, accountName] = accountDetailMatch;
+      if (request.method === "GET") {
+        if (accountName === ACCOUNT) {
+          return json({ id: "acct-1", name: ACCOUNT, type: "personal", display_name: null });
+        }
+        if (accountName === ORG_ACCOUNT) {
+          return json({ id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID });
+        }
+        return json({ error: "not_found" }, 404);
+      }
+      if (request.method === "PUT" || request.method === "PATCH") {
+        return json({ ok: true });
+      }
     }
 
     const accountObsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/observability\/summary$/);
@@ -750,6 +918,10 @@ Bun.serve({
         active_deployments: { usage: 0 },
         active_agents: { usage: 0 },
       });
+    }
+
+    if (pathname === "/api/v1/accounts/search") {
+      return json({ results: [], count: 0 });
     }
 
     return json({ error: "not_found", path: pathname }, 404);
