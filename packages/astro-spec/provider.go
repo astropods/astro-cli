@@ -50,6 +50,7 @@ type BuiltinProvider struct {
 	Tolerations    []Toleration
 	WritableRootFS bool     // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
 	ExtraEmptyDirs []string // extra paths that need writable emptyDir mounts (e.g. "/qdrant/snapshots")
+	FsGroup        int64    // non-zero → pod runs as this uid/gid (overrides hardened default of 1000)
 }
 
 // builtinProviders is the single authoritative list of all platform-known providers.
@@ -115,6 +116,7 @@ var builtinProviders = []BuiltinProvider{
 		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
 		DefaultEnv:  map[string]string{"POSTGRES_HOST_AUTH_METHOD": "trust", "PGDATA": "/var/lib/postgresql/data/pgdata"},
+		FsGroup:     999, // postgres uid/gid — entrypoint skips chown when running as non-root
 	},
 	{
 		Name: "neo4j", Section: "knowledge",

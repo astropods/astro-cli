@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	knowledgeNSPrefix = "knlg0-"
+	knowledgeNSPrefix = "knowledge-"
 	knowledgeNSLabel  = "astro.io/namespace-type"
 	knowledgeNSValue  = "knowledge"
 )
@@ -98,13 +98,14 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 		AgentName:       p.StoreID,
 		BuildID:         p.StoreID,
 		Component:       "knowledge",
-		Container:       spec.ContainerConfig{Image: prov.Image},
+		Container:       spec.ContainerConfig{Image: prov.Image, Environment: prov.DefaultEnv},
 		Port:            int32(prov.DefaultPort), //nolint:gosec
 		SecretName:      p.SecretName,
 		StorageSize:     p.Storage,
 		Provider:        p.Provider,
 		ProviderSection: "knowledge",
 		LocalMode:       p.LocalMode,
+		FsGroup:         prov.FsGroup,
 	})
 	if err != nil {
 		return fmt.Errorf("build statefulset: %w", err)

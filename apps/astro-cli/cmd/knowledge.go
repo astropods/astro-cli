@@ -468,7 +468,11 @@ func streamKnowledgeEvents(ctx context.Context, account, name string) error {
 		}
 	}
 
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	// Stream closed before a terminal status was received (server restart, timeout, etc.).
+	return fmt.Errorf("event stream closed before store reached ready state — run '%s knowledge status <name>' to check", binaryName)
 }
 
 // knowledgeStoreResponse mirrors the server's knowledge response shape.

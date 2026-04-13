@@ -54,7 +54,7 @@ func TestStore_CreateAndGet(t *testing.T) {
 		Name:      "pg-main",
 		ARN:       "arn:knowledge:test-ks-account:pg-main",
 		Provider:  "postgres",
-		Namespace: "knlg0-" + accountID,
+		Namespace: "knowledge-" + accountID,
 		Storage:   "10Gi",
 	}
 
@@ -119,7 +119,7 @@ func TestStore_Create_UniqueConflict(t *testing.T) {
 		Name:      "dup-store",
 		ARN:       "arn:knowledge:test-ks-account:dup-store",
 		Provider:  "postgres",
-		Namespace: "knlg0-" + accountID,
+		Namespace: "knowledge-" + accountID,
 		Storage:   "10Gi",
 	}
 	if _, err := s.Create(p); err != nil {
@@ -146,7 +146,7 @@ func TestStore_ListByAccount(t *testing.T) {
 			Name:      name,
 			ARN:       "arn:knowledge:test-ks-account:" + name,
 			Provider:  "qdrant",
-			Namespace: "knlg0-" + accountID,
+			Namespace: "knowledge-" + accountID,
 			Storage:   "5Gi",
 		})
 		if err != nil {
@@ -172,7 +172,7 @@ func TestStore_SetStatus(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "status-store",
 		ARN: "arn:knowledge:test-ks-account:status-store", Provider: "redis",
-		Namespace: "knlg0-" + accountID, Storage: "1Gi",
+		Namespace: "knowledge-" + accountID, Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestStore_SetError(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "error-store",
 		ARN: "arn:knowledge:test-ks-account:error-store", Provider: "redis",
-		Namespace: "knlg0-" + accountID, Storage: "1Gi",
+		Namespace: "knowledge-" + accountID, Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestStore_SetPublicHost(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "pub-store",
 		ARN: "arn:knowledge:test-ks-account:pub-store", Provider: "postgres",
-		Namespace: "knlg0-" + accountID, Storage: "10Gi", Public: true,
+		Namespace: "knowledge-" + accountID, Storage: "10Gi", Public: true,
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestStore_Delete(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "delete-me",
 		ARN: "arn:knowledge:test-ks-account:delete-me", Provider: "redis",
-		Namespace: "knlg0-" + accountID, Storage: "1Gi",
+		Namespace: "knowledge-" + accountID, Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestStore_SaveAndGetCredentials(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "cred-store",
 		ARN: "arn:knowledge:test-ks-account:cred-store", Provider: "postgres",
-		Namespace: "knlg0-" + accountID, Storage: "10Gi",
+		Namespace: "knowledge-" + accountID, Storage: "10Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestStore_ListProvisioning(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "prov-store",
 		ARN: "arn:knowledge:test-ks-account:prov-store", Provider: "postgres",
-		Namespace: "knlg0-" + accountID, Storage: "10Gi",
+		Namespace: "knowledge-" + accountID, Storage: "10Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

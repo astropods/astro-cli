@@ -38,6 +38,7 @@ type StatefulSetConfig struct {
 	Tolerations      []corev1.Toleration               // Tolerations for tainted nodes
 	PostStartCommand []string                          // Lifecycle postStart exec command
 	LocalMode        bool                              // Skip security hardening (local K8s only)
+	FsGroup          int64                             // non-zero → pod/container run as this uid/gid (overrides hardened default of 1000)
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage.
@@ -174,6 +175,14 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		if prov.WritableRootFS && container.SecurityContext != nil {
 			container.SecurityContext.ReadOnlyRootFilesystem = boolPtr(false)
 		}
+
+		// Providers like postgres run their entrypoint as a specific uid/gid.
+		// Override the hardened default (1000) so the container starts as the
+		// provider's user and the mounted volume is pre-chowned by K8s.
+		if cfg.FsGroup != 0 && container.SecurityContext != nil {
+			uid := cfg.FsGroup
+			container.SecurityContext.RunAsUser = &uid
+		}
 	}
 
 	// Create VolumeClaimTemplate
@@ -244,6 +253,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 					}
 					if !cfg.LocalMode {
 						hardenPodSpec(&ps)
+						if cfg.FsGroup != 0 && ps.SecurityContext != nil {
+							uid := cfg.FsGroup
+							ps.SecurityContext.RunAsUser = &uid
+							ps.SecurityContext.FSGroup = &uid
+						}
 					}
 					return ps
 				}(),

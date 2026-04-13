@@ -174,7 +174,7 @@ func newTestKnowledgeClient(tracker *k8sTracker) (ClusterClient, func()) {
 
 func TestKnowledgeNamespace(t *testing.T) {
 	got := KnowledgeNamespace("550e8400-e29b-41d4-a716-446655440000")
-	want := "knlg0-550e8400-e29b-41d4-a716-446655440000"
+	want := "knowledge-550e8400-e29b-41d4-a716-446655440000"
 	if got != want {
 		t.Errorf("want %q, got %q", want, got)
 	}

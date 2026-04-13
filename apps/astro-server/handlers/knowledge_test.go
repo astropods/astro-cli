@@ -30,7 +30,7 @@ func knowledgeRow(id, accountID, name, provider, status string) *sqlmock.Rows {
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
 		provider, status,
-		"knlg0-"+accountID, "10Gi",
+		"knowledge-"+accountID, "10Gi",
 		false, nil, nil, nil, nil,
 		now, now,
 	)
@@ -218,7 +218,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 		rows.AddRow(
 			"id-"+name, testAccount().ID, name,
 			"arn:knowledge:acme:"+name, "qdrant", "ready",
-			"knlg0-"+testAccount().ID, "10Gi",
+			"knowledge-"+testAccount().ID, "10Gi",
 			false, nil, nil, nil, nil, now, now,
 		)
 	}
