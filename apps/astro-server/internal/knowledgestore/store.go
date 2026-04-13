@@ -3,8 +3,46 @@ package knowledgestore
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
+	"unicode"
 )
+
+// ValidateStoreName checks that a knowledge store name is safe for use in ARNs
+// and public DNS hostnames. Rules:
+//   - 1–63 characters (DNS label max)
+//   - lowercase alphanumeric and hyphens only
+//   - cannot start or end with a hyphen
+//   - no consecutive hyphens
+func ValidateStoreName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("store name must not be empty")
+	}
+	if len(name) > 63 {
+		return fmt.Errorf("store name must be at most 63 characters")
+	}
+	if name[0] == '-' {
+		return fmt.Errorf("store name must not start with a hyphen")
+	}
+	if name[len(name)-1] == '-' {
+		return fmt.Errorf("store name must not end with a hyphen")
+	}
+	prevHyphen := false
+	for _, ch := range name {
+		if ch == '-' {
+			if prevHyphen {
+				return fmt.Errorf("store name must not contain consecutive hyphens")
+			}
+			prevHyphen = true
+			continue
+		}
+		prevHyphen = false
+		if !unicode.IsLower(ch) && !unicode.IsDigit(ch) {
+			return fmt.Errorf("store name must contain only lowercase letters, digits, and hyphens")
+		}
+	}
+	return nil
+}
 
 // Store manages knowledge store record persistence in PostgreSQL.
 type Store struct {

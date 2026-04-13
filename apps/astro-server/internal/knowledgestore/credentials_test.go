@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+func TestValidateStoreName(t *testing.T) {
+	valid := []string{
+		"db", "pg-main", "my-store", "postgres-prod", "a", "db1",
+		"store-123", strings.Repeat("a", 63),
+	}
+	for _, name := range valid {
+		if err := ValidateStoreName(name); err != nil {
+			t.Errorf("ValidateStoreName(%q) unexpected error: %v", name, err)
+		}
+	}
+
+	invalid := []struct {
+		name string
+		msg  string
+	}{
+		{"", "empty"},
+		{strings.Repeat("a", 64), "too long"},
+		{"-db", "leading hyphen"},
+		{"db-", "trailing hyphen"},
+		{"my--store", "consecutive hyphens"},
+		{"My-Store", "uppercase"},
+		{"my store", "space"},
+		{"my_store", "underscore"},
+		{"my.store", "dot"},
+		{"arn:knowledge", "colon"},
+	}
+	for _, tt := range invalid {
+		if err := ValidateStoreName(tt.name); err == nil {
+			t.Errorf("ValidateStoreName(%q) expected error for %s, got nil", tt.name, tt.msg)
+		}
+	}
+}
+
 func TestGenerateCredentials_Postgres(t *testing.T) {
 	creds, err := GenerateCredentials("postgres")
 	if err != nil {

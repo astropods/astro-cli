@@ -73,6 +73,11 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
+		if err := knowledgestore.ValidateStoreName(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		if _, ok := spec.LookupBuiltin("knowledge", req.Provider); !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported provider: %s", req.Provider)})
 			return
