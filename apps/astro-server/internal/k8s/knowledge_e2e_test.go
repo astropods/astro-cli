@@ -87,7 +87,7 @@ func (r *knowledgeE2EResult) assertSecret(t *testing.T) {
 
 func (r *knowledgeE2EResult) assertStatefulSet(t *testing.T) {
 	t.Helper()
-	key := "statefulset:" + r.ns + "/" + r.storeID
+	key := "statefulset:" + r.ns + "/" + KnowledgeResourceName(r.storeID)
 	if !r.tracker.exists(key) {
 		t.Errorf("StatefulSet %q was not created", key)
 	}
@@ -95,7 +95,7 @@ func (r *knowledgeE2EResult) assertStatefulSet(t *testing.T) {
 
 func (r *knowledgeE2EResult) assertClusterIPService(t *testing.T) {
 	t.Helper()
-	key := "service:" + r.ns + "/" + r.storeID
+	key := "service:" + r.ns + "/" + KnowledgeResourceName(r.storeID)
 	if !r.tracker.exists(key) {
 		t.Errorf("ClusterIP service %q was not created", key)
 	}
@@ -103,7 +103,7 @@ func (r *knowledgeE2EResult) assertClusterIPService(t *testing.T) {
 
 func (r *knowledgeE2EResult) assertLoadBalancerService(t *testing.T, exists bool) {
 	t.Helper()
-	key := "service:" + r.ns + "/" + r.storeID + "-lb"
+	key := "service:" + r.ns + "/" + KnowledgeResourceName(r.storeID) + "-lb"
 	got := r.tracker.exists(key)
 	if exists && !got {
 		t.Errorf("LoadBalancer service %q should exist but was not created", key)
@@ -195,10 +195,10 @@ func TestKnowledgeE2E_NamespaceSharedAcrossStores(t *testing.T) {
 	if !tr.exists("ns:" + ns) {
 		t.Error("shared namespace was not created")
 	}
-	if !tr.exists("statefulset:" + ns + "/store-a") {
+	if !tr.exists("statefulset:" + ns + "/" + KnowledgeResourceName("store-a")) {
 		t.Error("statefulset store-a missing")
 	}
-	if !tr.exists("statefulset:" + ns + "/store-b") {
+	if !tr.exists("statefulset:" + ns + "/" + KnowledgeResourceName("store-b")) {
 		t.Error("statefulset store-b missing")
 	}
 }

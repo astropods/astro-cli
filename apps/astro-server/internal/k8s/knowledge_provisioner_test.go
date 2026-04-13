@@ -172,6 +172,26 @@ func newTestKnowledgeClient(tracker *k8sTracker) (ClusterClient, func()) {
 
 // --- Tests ---
 
+func TestKnowledgeResourceName(t *testing.T) {
+	cases := []struct {
+		storeID string
+		want    string
+	}{
+		{"abc-123-xyz", "kn-abc-123-xyz"},
+		{"387-c48-q2z", "kn-387-c48-q2z"}, // digit-leading store IDs are valid after prefix
+		{"000-000-000", "kn-000-000-000"},
+	}
+	for _, tc := range cases {
+		got := KnowledgeResourceName(tc.storeID)
+		if got != tc.want {
+			t.Errorf("KnowledgeResourceName(%q) = %q, want %q", tc.storeID, got, tc.want)
+		}
+		if got[0] < 'a' || got[0] > 'z' {
+			t.Errorf("KnowledgeResourceName(%q) = %q: must start with a letter (DNS-1035)", tc.storeID, got)
+		}
+	}
+}
+
 func TestKnowledgeNamespace(t *testing.T) {
 	got := KnowledgeNamespace("550e8400-e29b-41d4-a716-446655440000")
 	want := "knowledge-550e8400-e29b-41d4-a716-446655440000"
@@ -281,24 +301,25 @@ func TestDeleteKnowledgeStore_Public(t *testing.T) {
 	accountID := "acct-pub"
 	ns := KnowledgeNamespace(accountID)
 	storeID := "sid-pub"
+	rn := KnowledgeResourceName(storeID)
 
 	// Pre-seed all resources that a public store would have.
-	tr.add("statefulset:" + ns + "/" + storeID)
-	tr.add("service:" + ns + "/" + storeID)
-	tr.add("service:" + ns + "/" + storeID + "-lb")
+	tr.add("statefulset:" + ns + "/" + rn)
+	tr.add("service:" + ns + "/" + rn)
+	tr.add("service:" + ns + "/" + rn + "-lb")
 	tr.add("secret:" + ns + "/" + storeID + "-credentials")
 
 	if err := DeleteKnowledgeStore(context.Background(), client, accountID, storeID, true); err != nil {
 		t.Fatalf("DeleteKnowledgeStore: %v", err)
 	}
 
-	if tr.exists("statefulset:" + ns + "/" + storeID) {
+	if tr.exists("statefulset:" + ns + "/" + rn) {
 		t.Error("statefulset should have been deleted")
 	}
-	if tr.exists("service:" + ns + "/" + storeID) {
+	if tr.exists("service:" + ns + "/" + rn) {
 		t.Error("clusterip service should have been deleted")
 	}
-	if tr.exists("service:" + ns + "/" + storeID + "-lb") {
+	if tr.exists("service:" + ns + "/" + rn + "-lb") {
 		t.Error("lb service should have been deleted")
 	}
 }
@@ -325,18 +346,19 @@ func TestProvisionKnowledgeStore_Success(t *testing.T) {
 	accountID := "acct-prov"
 	storeID := "sid-prov"
 	ns := KnowledgeNamespace(accountID)
+	rn := KnowledgeResourceName(storeID)
 
 	if err := ProvisionKnowledgeStore(context.Background(), client, testProvisionParams(accountID, storeID, false)); err != nil {
 		t.Fatalf("ProvisionKnowledgeStore: %v", err)
 	}
 
-	if !tr.exists("statefulset:" + ns + "/" + storeID) {
+	if !tr.exists("statefulset:" + ns + "/" + rn) {
 		t.Error("expected statefulset to be created")
 	}
-	if !tr.exists("service:" + ns + "/" + storeID) {
+	if !tr.exists("service:" + ns + "/" + rn) {
 		t.Error("expected clusterip service to be created")
 	}
-	if tr.exists("service:" + ns + "/" + storeID + "-lb") {
+	if tr.exists("service:" + ns + "/" + rn + "-lb") {
 		t.Error("lb service should not be created for non-public store")
 	}
 }
@@ -349,18 +371,19 @@ func TestProvisionKnowledgeStore_Public(t *testing.T) {
 	accountID := "acct-pub2"
 	storeID := "sid-pub2"
 	ns := KnowledgeNamespace(accountID)
+	rn := KnowledgeResourceName(storeID)
 
 	if err := ProvisionKnowledgeStore(context.Background(), client, testProvisionParams(accountID, storeID, true)); err != nil {
 		t.Fatalf("ProvisionKnowledgeStore: %v", err)
 	}
 
-	if !tr.exists("statefulset:" + ns + "/" + storeID) {
+	if !tr.exists("statefulset:" + ns + "/" + rn) {
 		t.Error("expected statefulset to be created")
 	}
-	if !tr.exists("service:" + ns + "/" + storeID) {
+	if !tr.exists("service:" + ns + "/" + rn) {
 		t.Error("expected clusterip service to be created")
 	}
-	if !tr.exists("service:" + ns + "/" + storeID + "-lb") {
+	if !tr.exists("service:" + ns + "/" + rn + "-lb") {
 		t.Error("expected lb service to be created for public store")
 	}
 }

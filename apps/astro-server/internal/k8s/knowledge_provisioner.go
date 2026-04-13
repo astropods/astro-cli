@@ -22,6 +22,13 @@ func KnowledgeNamespace(accountID string) string {
 	return knowledgeNSPrefix + accountID
 }
 
+// KnowledgeResourceName returns the K8s resource name for a store.
+// Prefixed with "kn-" to guarantee the name starts with a letter,
+// satisfying the DNS-1035 requirement for Service names.
+func KnowledgeResourceName(storeID string) string {
+	return "kn-" + storeID
+}
+
 // knowledgeLabels returns the standard labels for a managed knowledge store resource.
 func knowledgeLabels(accountID, storeID string) map[string]string {
 	return map[string]string{
@@ -89,10 +96,12 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 		return fmt.Errorf("unknown provider: %s", p.Provider)
 	}
 
+	resourceName := KnowledgeResourceName(p.StoreID)
+
 	// Build the StatefulSet using the existing builder. We repurpose AgentName and BuildID
 	// as the store ID so the underlying label logic has a stable identity.
 	ss, err := BuildStatefulSet(StatefulSetConfig{
-		Name:            p.StoreID,
+		Name:            resourceName,
 		Namespace:       ns,
 		AccountID:       p.AccountID,
 		AgentName:       p.StoreID,
@@ -122,7 +131,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	}
 
 	// ClusterIP service — in-cluster access for agents.
-	clusterSvc := buildKnowledgeService(p.StoreID, ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeClusterIP) //nolint:gosec
+	clusterSvc := buildKnowledgeService(resourceName, ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeClusterIP) //nolint:gosec
 	_, err = client.Clientset().CoreV1().Services(ns).Create(ctx, clusterSvc, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create clusterip service: %w", err)
@@ -130,7 +139,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 
 	// LoadBalancer service — external access for public stores.
 	if p.Public {
-		lbSvc := buildKnowledgeService(p.StoreID+"-lb", ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeLoadBalancer) //nolint:gosec
+		lbSvc := buildKnowledgeService(resourceName+"-lb", ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeLoadBalancer) //nolint:gosec
 		_, err = client.Clientset().CoreV1().Services(ns).Create(ctx, lbSvc, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("create loadbalancer service: %w", err)
@@ -174,15 +183,16 @@ func ApplyKnowledgeSecret(ctx context.Context, client ClusterClient, accountID, 
 // Errors for not-found resources are ignored.
 func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, storeID string, public bool) error {
 	ns := KnowledgeNamespace(accountID)
+	resourceName := KnowledgeResourceName(storeID)
 
-	if err := client.Clientset().AppsV1().StatefulSets(ns).Delete(ctx, storeID, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+	if err := client.Clientset().AppsV1().StatefulSets(ns).Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete statefulset: %w", err)
 	}
-	if err := client.Clientset().CoreV1().Services(ns).Delete(ctx, storeID, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+	if err := client.Clientset().CoreV1().Services(ns).Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete clusterip service: %w", err)
 	}
 	if public {
-		if err := client.Clientset().CoreV1().Services(ns).Delete(ctx, storeID+"-lb", metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		if err := client.Clientset().CoreV1().Services(ns).Delete(ctx, resourceName+"-lb", metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("delete lb service: %w", err)
 		}
 	}
@@ -197,7 +207,7 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 // IsStatefulSetReady returns true if the store's StatefulSet has at least one ready replica.
 func IsStatefulSetReady(ctx context.Context, client ClusterClient, accountID, storeID string) (bool, error) {
 	ns := KnowledgeNamespace(accountID)
-	ss, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, storeID, metav1.GetOptions{})
+	ss, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, KnowledgeResourceName(storeID), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return false, nil
 	}
@@ -211,7 +221,7 @@ func IsStatefulSetReady(ctx context.Context, client ClusterClient, accountID, st
 // or an empty string if the cloud provider hasn't assigned one yet.
 func GetLoadBalancerHostname(ctx context.Context, client ClusterClient, accountID, storeID string) (string, error) {
 	ns := KnowledgeNamespace(accountID)
-	svc, err := client.Clientset().CoreV1().Services(ns).Get(ctx, storeID+"-lb", metav1.GetOptions{})
+	svc, err := client.Clientset().CoreV1().Services(ns).Get(ctx, KnowledgeResourceName(storeID)+"-lb", metav1.GetOptions{})
 	if err != nil {
 		return "", err
 	}

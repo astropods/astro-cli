@@ -273,7 +273,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 		if k8sClient != nil && ks.Status == knowledgestore.StatusProvisioning {
 			ns := k8s.KnowledgeNamespace(acct.ID)
 			evts, _ := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
-				FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", ks.ID),
+				FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", k8s.KnowledgeResourceName(ks.ID)),
 			})
 			if evts != nil && len(evts.Items) > 0 {
 				e := evts.Items[len(evts.Items)-1]
@@ -346,7 +346,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 
 		streamLogs(c, log,
 			lokiClient, loki.QueryParams{Namespace: ns, Workload: ks.ID, Limit: tailLines},
-			k8sClient, ns, ks.ID+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
+			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
 		)
 	}
 }
@@ -403,7 +403,7 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 				_, _ = fmt.Fprintf(c.Writer, "data: {\"status\":%q,\"store_id\":%q,\"error\":%q}\n\n", current.Status, current.ID, errMsg)
 
 				events, _ := k8sClient.Clientset().CoreV1().Events(ns).List(ctx, metav1.ListOptions{
-					FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", ks.ID),
+					FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", k8s.KnowledgeResourceName(ks.ID)),
 				})
 				if events != nil {
 					for _, evt := range events.Items {
