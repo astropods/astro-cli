@@ -153,13 +153,13 @@ function NewBlueprintContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Proactive name availability check — fires while user is typing on the setup step
+  // Proactive name availability check — archived blueprints don't block reuse (server unarchives on create)
   const slugIsValid = slug.length >= 4 && /^[a-z]/.test(slug);
   const { data: existingBlueprint } = useBlueprint(selectedOrg, slug, {
     enabled: activeStep === "setup" && slugIsValid && !isAlreadyPublished,
     retry: false,
   });
-  const nameIsTaken = !!existingBlueprint;
+  const nameIsTaken = !!existingBlueprint && !existingBlueprint.archived_at;
 
   // Poll for ast push — as soon as versions appear, route to the blueprint detail page.
   // isFetchedAfterMount prevents stale cache from a previously-deleted same-name blueprint

@@ -953,6 +953,7 @@ export interface Blueprint {
   registry: string;
   visibility?: string;
   avatar_url?: string;
+  archived_at?: string;
   versions: BlueprintVersion[];
   draft_card?: BlueprintCardData;
   heart_count?: number;

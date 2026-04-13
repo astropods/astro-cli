@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -43,6 +44,7 @@ type AgentResponse struct {
 	Registry   string                 `json:"registry"`
 	Visibility string                 `json:"visibility"`
 	AvatarURL  string                 `json:"avatar_url,omitempty"`
+	ArchivedAt *time.Time             `json:"archived_at,omitempty"`
 	Versions   []AgentVersionResponse `json:"versions"`
 	HeartCount int                    `json:"heart_count"`
 	Hearted    bool                   `json:"hearted"`
@@ -431,6 +433,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			Name:       agent.Name,
 			Registry:   agent.Registry,
 			Visibility: agent.Visibility,
+			ArchivedAt: agent.ArchivedAt,
 			Versions:   versions,
 			Metrics:    agentMetrics(mc[name], dc[name]),
 		}
