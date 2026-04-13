@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -309,56 +308,10 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 		ns := k8s.KnowledgeNamespace(acct.ID)
 		tailLines := int64(200)
 
-		if lokiClient != nil {
-			lines, err := lokiClient.QueryLogs(c.Request.Context(), loki.QueryParams{
-				Namespace: ns,
-				Workload:  ks.ID,
-				Limit:     tailLines,
-			})
-			if err != nil {
-				log.Error("Failed to query Loki logs", "error", err, "store_id", ks.ID)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query logs"})
-				return
-			}
-			var sb strings.Builder
-			for _, l := range lines {
-				sb.WriteString(l.Timestamp.UTC().Format(time.RFC3339Nano))
-				sb.WriteString(" ")
-				sb.WriteString(strings.TrimRight(l.Line, "\n"))
-				sb.WriteString("\n")
-			}
-			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
-			return
-		}
-
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
-			return
-		}
-
-		podName := ks.ID + "-0"
-		logOpts := &corev1.PodLogOptions{Container: "app", TailLines: &tailLines}
-		stream, err := k8sClient.Clientset().CoreV1().Pods(ns).GetLogs(podName, logOpts).Stream(c.Request.Context())
-		if err != nil {
-			log.Error("Failed to stream pod logs", "error", err, "pod", podName)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stream logs"})
-			return
-		}
-		defer stream.Close() //nolint:errcheck
-
-		buf := make([]byte, 32*1024)
-		c.Header("Content-Type", "text/plain; charset=utf-8")
-		c.Status(http.StatusOK)
-		for {
-			n, err := stream.Read(buf)
-			if n > 0 {
-				_, _ = c.Writer.Write(buf[:n])
-				c.Writer.Flush()
-			}
-			if err != nil {
-				break
-			}
-		}
+		streamLogs(c, log,
+			lokiClient, loki.QueryParams{Namespace: ns, Workload: ks.ID, Limit: tailLines},
+			k8sClient, ns, ks.ID+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
+		)
 	}
 }
 

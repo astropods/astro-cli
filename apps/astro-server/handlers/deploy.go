@@ -1788,59 +1788,31 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			}
 		}
 
-		// Loki path: query the centralized log store.
-		if lokiClient != nil {
-			p := loki.QueryParams{
-				Namespace: dep.Namespace,
-				Pod:       podName,
-				Workload:  workloadName,
-				Container: containerName,
-				Limit:     tailLines,
+		// Build Loki params (includes optional time range from query string).
+		lokiParams := loki.QueryParams{
+			Namespace: dep.Namespace,
+			Pod:       podName,
+			Workload:  workloadName,
+			Container: containerName,
+			Limit:     tailLines,
+		}
+		if s := c.Query("since"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				lokiParams.Start = t
+			} else if ns, err := strconv.ParseInt(s, 10, 64); err == nil {
+				lokiParams.Start = time.Unix(0, ns)
 			}
-			if s := c.Query("since"); s != "" {
-				if t, err := time.Parse(time.RFC3339, s); err == nil {
-					p.Start = t
-				} else if ns, err := strconv.ParseInt(s, 10, 64); err == nil {
-					p.Start = time.Unix(0, ns)
-				}
+		}
+		if u := c.Query("until"); u != "" {
+			if t, err := time.Parse(time.RFC3339, u); err == nil {
+				lokiParams.End = t
+			} else if ns, err := strconv.ParseInt(u, 10, 64); err == nil {
+				lokiParams.End = time.Unix(0, ns)
 			}
-			if u := c.Query("until"); u != "" {
-				if t, err := time.Parse(time.RFC3339, u); err == nil {
-					p.End = t
-				} else if ns, err := strconv.ParseInt(u, 10, 64); err == nil {
-					p.End = time.Unix(0, ns)
-				}
-			}
-
-			lines, err := lokiClient.QueryLogs(c.Request.Context(), p)
-			if err != nil {
-				log.Error("Failed to query Loki logs", "error", err, "namespace", dep.Namespace)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "failed to query logs",
-					"details": err.Error(),
-				})
-				return
-			}
-
-			var sb strings.Builder
-			for _, l := range lines {
-				sb.WriteString(l.Timestamp.UTC().Format(time.RFC3339Nano))
-				sb.WriteString(" ")
-				sb.WriteString(strings.TrimRight(l.Line, "\n"))
-				sb.WriteString("\n")
-			}
-			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
-			return
 		}
 
-		// K8s fallback: direct pod log stream (used when Loki is not configured).
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
-			return
-		}
-
-		// Resolve pod name: if only workload is provided, find a running pod for it.
-		if podName == "" && workloadName != "" {
+		// For the K8s fallback, resolve pod name from workload if needed.
+		if lokiClient == nil && podName == "" && workloadName != "" {
 			pods, listErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
 				LabelSelector: "app.kubernetes.io/managed-by=astro-server",
 			})
@@ -1865,7 +1837,6 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 						continue
 					}
 				}
-				// Prefer running pods
 				if podName == "" || p.Status.Phase == corev1.PodRunning {
 					podName = p.Name
 				}
@@ -1875,7 +1846,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			}
 		}
 
-		if podName == "" {
+		if lokiClient == nil && podName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pod or workload query parameter is required"})
 			return
 		}
@@ -1885,26 +1856,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			logOpts.Container = containerName
 		}
 
-		req := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts)
-		stream, err := req.Stream(c.Request.Context())
-		if err != nil {
-			log.Error("Failed to get pod logs", "error", err, "pod", podName)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to get pod logs",
-				"details": err.Error(),
-			})
-			return
-		}
-		defer stream.Close() //nolint:errcheck
-
-		logBytes, err := io.ReadAll(stream)
-		if err != nil {
-			log.Error("Failed to read pod logs", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read pod logs"})
-			return
-		}
-
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", logBytes)
+		streamLogs(c, log, lokiClient, lokiParams, k8sClient, dep.Namespace, podName, logOpts)
 	}
 }
 
