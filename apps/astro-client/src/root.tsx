@@ -17,9 +17,7 @@ import { queryClientConfig } from "./lib/queryClient";
 import { QueryAuthSync } from "./lib/QueryAuthSync";
 
 export const meta: Route.MetaFunction = () => [
-  { charSet: "utf-8" },
   { title: "Astro" },
-  { name: "viewport", content: "width=device-width, initial-scale=1.0" },
 ];
 
 export const links: Route.LinksFunction = () => [
@@ -33,6 +31,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <Meta />
         <Links />
       </head>

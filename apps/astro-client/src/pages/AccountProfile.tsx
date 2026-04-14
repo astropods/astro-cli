@@ -1,4 +1,4 @@
-import { useParams } from "react-router";
+import { useParams, type MetaFunction } from "react-router";
 import { useAccount } from "../api/queries/accounts";
 import { useDeployments } from "../api/queries/deployments";
 import { useAuth } from "../lib/auth";
@@ -16,6 +16,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+export const meta: MetaFunction = ({ params }) => [
+  { title: `${params.account} | Astro` },
+];
 
 function AccountProfileContent() {
   const { account } = useParams<{ account: string }>();

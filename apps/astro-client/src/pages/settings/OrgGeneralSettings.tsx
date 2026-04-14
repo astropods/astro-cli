@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, type MetaFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -19,6 +19,8 @@ import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { LeaveOrganizationDialog } from "@/components/settings/LeaveOrganizationDialog";
 import { DeleteOrganizationDialog } from "@/components/settings/DeleteOrganizationDialog";
+
+export const meta: MetaFunction = () => [{ title: "General - Organization Settings | Astro" }];
 
 function ProfileSection({ readOnly }: { readOnly?: boolean }) {
   const { orgSlug = "" } = useParams();

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import { useNavigate, useOutletContext, type MetaFunction } from "react-router";
 import { Play, Check, Loader2 } from "lucide-react";
 import type { ConfigureContext } from "./types";
 import { deploymentPath } from "@/lib/routes";
@@ -10,6 +10,8 @@ import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
+
+export const meta: MetaFunction = () => [{ title: "Configure Deployment | Astro" }];
 
 const FORM_ID = "configure-deployment-form";
 

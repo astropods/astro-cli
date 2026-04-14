@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useParams, type MetaFunction } from "react-router";
 import {
   MoreHorizontal,
   Loader2,
@@ -26,6 +26,8 @@ import { useAuth } from "@/lib/auth";
 import { formatRelativeTime } from "@/lib/deployment-utils";
 import { InviteMembersDialog } from "@/components/settings/InviteMembersDialog";
 import type { AccountMember } from "@/lib/api";
+
+export const meta: MetaFunction = () => [{ title: "Members - Organization Settings | Astro" }];
 
 const GRID_COLS = "grid-cols-[1.5fr_0.75fr_0.75fr_56px]";
 

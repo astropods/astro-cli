@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import type { MetaFunction } from 'react-router'
 import { Pencil, Trash2, Upload, MoreHorizontal, Loader2, Lock } from 'lucide-react'
 import { KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -34,6 +35,8 @@ import { useAuth } from '@/lib/auth'
 import { formatRelativeTime } from '@/lib/deployment-utils'
 import type { VaultEntry } from '@/lib/vault'
 import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
+
+export const meta: MetaFunction = () => [{ title: "Secrets - Settings | Astro" }];
 
 const GRID_COLS = 'grid-cols-[1.5fr_1.5fr_0.75fr_56px]'
 

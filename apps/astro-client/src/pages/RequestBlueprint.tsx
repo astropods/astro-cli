@@ -1,8 +1,10 @@
-import { Link } from "react-router";
+import { Link, type MetaFunction } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+
+export const meta: MetaFunction = () => [{ title: "Request Agent | Astro" }];
 
 export default function RequestBlueprint() {
   const handleSubmit = (e: React.FormEvent) => {

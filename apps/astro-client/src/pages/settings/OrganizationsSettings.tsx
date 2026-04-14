@@ -1,4 +1,4 @@
-import { Link } from 'react-router'
+import { Link, type MetaFunction } from 'react-router'
 import { Settings } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { InlineBadge } from '@/components/InlineBadge'
 import { UserAvatar } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
+
+export const meta: MetaFunction = () => [{ title: "Organizations - Settings | Astro" }];
 
 export default function OrganizationsSettings() {
   const { accounts } = useAuth()

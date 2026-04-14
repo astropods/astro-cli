@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useOutletContext } from "react-router";
+import { useOutletContext, type MetaFunction } from "react-router";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import type { ConfigureContext } from "./types";
+
+export const meta: MetaFunction = () => [{ title: "Danger Zone | Astro" }];
 
 export default function ConfigureDangerZone() {
   const { account, deployment } = useOutletContext<ConfigureContext>();

@@ -23,6 +23,8 @@ import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveReveal
 import type { AgentDeployment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+export const meta: Route.MetaFunction = () => [{ title: "Dashboard | Astro" }];
+
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   try {

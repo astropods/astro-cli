@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, type MetaFunction } from 'react-router';
 import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
 import { AccountNameInput } from '@/components/AccountNameInput';
@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DISPLAY_NAME_MAX_LENGTH } from '@/lib/constants';
+
+export const meta: MetaFunction = () => [{ title: "Get Started | Astro" }];
 
 export default function Onboarding() {
   const [name, setName] = useState('');

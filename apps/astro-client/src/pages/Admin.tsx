@@ -1,5 +1,8 @@
+import type { MetaFunction } from "react-router";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
+
+export const meta: MetaFunction = () => [{ title: "Admin | Astro" }];
 
 function AdminContent() {
   const { hasPermission } = useAuth();

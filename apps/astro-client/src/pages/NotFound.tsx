@@ -1,4 +1,6 @@
-import { Link } from "react-router";
+import { Link, type MetaFunction } from "react-router";
+
+export const meta: MetaFunction = () => [{ title: "Page Not Found | Astro" }];
 
 export default function NotFound() {
   return (

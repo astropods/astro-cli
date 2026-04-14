@@ -5,6 +5,8 @@ import { createServerApi } from "@/lib/api.server";
 import { useAuth } from "@/lib/auth";
 import { blueprintsPaths } from "@/lib/routes";
 
+export const meta: Route.MetaFunction = () => [{ title: "My Blueprints | Astro" }];
+
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const profile = await api.getProfile().catch(() => null);

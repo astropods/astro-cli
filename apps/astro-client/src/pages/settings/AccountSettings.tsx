@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MetaFunction } from "react-router";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
@@ -9,6 +10,8 @@ import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
+
+export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }];
 
 function ProfileSection() {
   const { personalAccount, refresh } = useAuth();

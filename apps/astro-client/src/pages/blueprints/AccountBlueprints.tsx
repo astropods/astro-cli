@@ -4,6 +4,10 @@ import { AccountBlueprintsList } from "@/components/browse/AccountBlueprintsList
 import { createServerApi } from "@/lib/api.server";
 import { blueprintsPaths } from "@/lib/routes";
 
+export const meta: Route.MetaFunction = ({ params }) => [
+  { title: `${params.account} Blueprints | Astro` },
+];
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const account = params.account ?? "";
   if (!account) return { blueprintsData: null };

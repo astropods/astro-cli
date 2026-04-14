@@ -3,7 +3,7 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useAuth } from "../lib/auth";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
-import { useNavigate } from "react-router";
+import { useNavigate, type MetaFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,8 @@ import {
 import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
+
+export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

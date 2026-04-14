@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, type MetaFunction } from "react-router";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useCreateAccount } from "../api/queries/accounts";
 import { useAuth } from "../lib/auth";
@@ -11,6 +11,8 @@ import { AccountNameInput } from "@/components/AccountNameInput";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
 import type { ApiError } from "@/lib/api";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
+
+export const meta: MetaFunction = () => [{ title: "New Organization | Astro" }];
 
 function OrganizationNewContent() {
   const [name, setName] = useState("");

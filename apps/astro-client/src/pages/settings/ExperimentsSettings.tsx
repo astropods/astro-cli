@@ -1,6 +1,9 @@
+import type { MetaFunction } from "react-router";
 import { FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useExperiments } from "@/lib/experiments";
+
+export const meta: MetaFunction = () => [{ title: "Experiments - Settings | Astro" }];
 
 interface ExperimentRowProps {
   title: string;

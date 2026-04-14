@@ -1,9 +1,12 @@
 import { useState } from "react";
+import type { MetaFunction } from "react-router";
 import { Loader2, Info } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useAccountUsage, useQuotaIncreaseRequests } from "@/api/queries";
 import type { UsageMeter } from "@/lib/api";
 import { formatNumber, RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
+
+export const meta: MetaFunction = () => [{ title: "Usage - Settings | Astro" }];
 
 function UsageBar({ usage, quota, onRequestIncrease }: { usage: number; quota: number; onRequestIncrease?: () => void }) {
   const pct = Math.min((usage / quota) * 100, 100);
