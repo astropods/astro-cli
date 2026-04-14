@@ -47,6 +47,18 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 		return fmt.Errorf("create ec2 client: %w", err)
 	}
 
+	// Pre-flight: check VPC endpoint count (AWS default limit is 50 per VPC).
+	if err := w.checkVPCEndpointLimit(ctx, ec2Client); err != nil {
+		w.setError(storeID, err.Error())
+		return err
+	}
+
+	// Pre-flight: check SG rule count (AWS default limit is 60 rules per SG).
+	if err := w.checkSGRuleLimit(ctx, ec2Client); err != nil {
+		w.setError(storeID, err.Error())
+		return err
+	}
+
 	out, err := ec2Client.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
 		VpcEndpointType:  ec2types.VpcEndpointTypeInterface,
 		VpcId:            aws.String(w.cfg.Deployment.PrivateLinkVpcID),
@@ -79,6 +91,62 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 
 	w.log.Info("PrivateLinkProvision: VPC endpoint created",
 		"store_id", storeID, "vpce_id", vpceID, "service", ep.EndpointService)
+	return nil
+}
+
+const (
+	// AWS default limits — request an increase if these are too low.
+	maxVPCEndpointsPerVPC  = 50
+	vpceWarningThreshold   = 45
+	maxSGRulesPerGroup     = 60
+	sgRuleWarningThreshold = 55
+)
+
+func (w *PrivateLinkProvisionWorker) checkVPCEndpointLimit(ctx context.Context, ec2Client knowledgestore.EC2Client) error {
+	out, err := ec2Client.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
+		Filters: []ec2types.Filter{{
+			Name:   aws.String("vpc-id"),
+			Values: []string{w.cfg.Deployment.PrivateLinkVpcID},
+		}},
+	})
+	if err != nil {
+		w.log.Warn("PrivateLinkProvision: failed to check VPC endpoint count (proceeding anyway)", "error", err)
+		return nil // non-fatal — let AWS reject it if over limit
+	}
+
+	count := len(out.VpcEndpoints)
+	if count >= maxVPCEndpointsPerVPC {
+		return fmt.Errorf("VPC endpoint limit reached: %d/%d interface endpoints in VPC %s — request an AWS limit increase via Service Quotas",
+			count, maxVPCEndpointsPerVPC, w.cfg.Deployment.PrivateLinkVpcID)
+	}
+	if count >= vpceWarningThreshold {
+		w.log.Warn("PrivateLinkProvision: approaching VPC endpoint limit",
+			"count", count, "limit", maxVPCEndpointsPerVPC, "vpc_id", w.cfg.Deployment.PrivateLinkVpcID)
+	}
+	return nil
+}
+
+func (w *PrivateLinkProvisionWorker) checkSGRuleLimit(ctx context.Context, ec2Client knowledgestore.EC2Client) error {
+	out, err := ec2Client.DescribeSecurityGroupRules(ctx, &ec2.DescribeSecurityGroupRulesInput{
+		Filters: []ec2types.Filter{{
+			Name:   aws.String("group-id"),
+			Values: []string{w.cfg.Deployment.PrivateLinkSGID},
+		}},
+	})
+	if err != nil {
+		w.log.Warn("PrivateLinkProvision: failed to check SG rule count (proceeding anyway)", "error", err)
+		return nil // non-fatal
+	}
+
+	count := len(out.SecurityGroupRules)
+	if count >= maxSGRulesPerGroup {
+		return fmt.Errorf("security group rule limit reached: %d/%d rules in SG %s — request an AWS limit increase or use fewer PrivateLink stores",
+			count, maxSGRulesPerGroup, w.cfg.Deployment.PrivateLinkSGID)
+	}
+	if count >= sgRuleWarningThreshold {
+		w.log.Warn("PrivateLinkProvision: approaching SG rule limit",
+			"count", count, "limit", maxSGRulesPerGroup, "sg_id", w.cfg.Deployment.PrivateLinkSGID)
+	}
 	return nil
 }
 

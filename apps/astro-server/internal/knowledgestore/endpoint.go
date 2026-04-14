@@ -85,7 +85,7 @@ func (s *Store) ListEndpointsByStatus(statuses ...string) ([]*Endpoint, error) {
 		args[i] = st
 	}
 
-	query := `SELECT ` + endpointColumns + ` FROM knowledge_store_endpoints WHERE status IN (` + strings.Join(placeholders, ",") + `)`
+	query := `SELECT ` + endpointColumns + ` FROM knowledge_store_endpoints WHERE status IN (` + strings.Join(placeholders, ",") + `)` //nolint:gosec // placeholders are $1,$2,... not user input
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
@@ -439,6 +440,18 @@ func AttachPrivateLink(log *logger.Logger, ksStore *knowledgestore.Store, cfg *c
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		if req.CloudProvider != "aws" && req.CloudProvider != "gcp" && req.CloudProvider != "azure" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported cloud provider %q (must be aws, gcp, or azure)", req.CloudProvider)})
+			return
+		}
+
+		if req.CloudProvider == "aws" {
+			if !strings.HasPrefix(req.Service, "com.amazonaws.vpce.") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "AWS endpoint service name must start with 'com.amazonaws.vpce.' (found in your AWS Console under VPC > Endpoint Services)"})
+				return
+			}
 		}
 
 		if _, err := ksStore.CreateEndpoint(knowledgestore.EndpointParams{
