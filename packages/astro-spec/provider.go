@@ -115,7 +115,7 @@ var builtinProviders = []BuiltinProvider{
 		Name: "postgres", Section: "knowledge",
 		Image: "pgvector/pgvector:pg17", DefaultPort: 5432,
 		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
-		HealthCheck: []string{"pg_isready", "-U", "postgres"},
+		HealthCheck: []string{"sh", "-c", `pg_isready -U "$POSTGRES_USER"`},
 		DefaultEnv:  map[string]string{"PGDATA": "/var/lib/postgresql/data/pgdata"},
 		FsGroup:     999, // postgres uid/gid — entrypoint skips chown when running as non-root
 		InitSQL:     "CREATE EXTENSION IF NOT EXISTS vector;",
