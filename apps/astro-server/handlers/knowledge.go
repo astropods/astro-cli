@@ -214,15 +214,16 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 		storageClass = *ks.StorageClass
 	}
 	if err := k8s.ProvisionKnowledgeStore(ctx, k8sClient, k8s.KnowledgeProvisionParams{
-		StoreID:      ks.ID,
-		AccountID:    ks.AccountID,
-		ARN:          ks.ARN,
-		Provider:     ks.Provider,
-		Storage:      ks.Storage,
-		StorageClass: storageClass,
-		SecretName:   secretName,
-		Public:       ks.Public,
-		LocalMode:    cfg.Deployment.K8sClientMode == "local",
+		StoreID:        ks.ID,
+		AccountID:      ks.AccountID,
+		ARN:            ks.ARN,
+		Provider:       ks.Provider,
+		Storage:        ks.Storage,
+		StorageClass:   storageClass,
+		SecretName:     secretName,
+		Public:         ks.Public,
+		LocalMode:      cfg.Deployment.K8sClientMode == "local",
+		PodSubnetCIDRs: cfg.Deployment.PodSubnetCIDRs,
 	}); err != nil {
 		log.Error("Failed to provision K8s resources", "error", err, "store_id", ks.ID)
 		if setErr := ksStore.SetError(ks.ID, "failed to provision: "+err.Error()); setErr != nil {

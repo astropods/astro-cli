@@ -8,8 +8,10 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -77,15 +79,16 @@ func EnsureKnowledgeNamespace(ctx context.Context, client ClusterClient, account
 
 // KnowledgeProvisionParams holds everything needed to create a managed store's K8s resources.
 type KnowledgeProvisionParams struct {
-	StoreID      string
-	AccountID    string
-	ARN          string
-	Provider     string
-	Storage      string // e.g. "20Gi"
-	StorageClass string // optional — falls back to cluster default if empty
-	SecretName   string // credentials secret to mount via envFrom
-	Public       bool
-	LocalMode    bool
+	StoreID        string
+	AccountID      string
+	ARN            string
+	Provider       string
+	Storage        string // e.g. "20Gi"
+	StorageClass   string // optional — falls back to cluster default if empty
+	SecretName     string // credentials secret to mount via envFrom
+	Public         bool
+	LocalMode      bool
+	PodSubnetCIDRs []string // used for network policy egress external rule
 }
 
 // ProvisionKnowledgeStore creates the StatefulSet, ClusterIP Service, and (if Public)
@@ -101,6 +104,9 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	}
 
 	resourceName := KnowledgeResourceName(p.StoreID)
+
+	// Per-provider resource requests/limits sized for production workloads.
+	providerResources := knowledgeProviderResources(p.Provider)
 
 	// Convert provider health check to spec.Healthcheck for liveness/readiness probes.
 	var healthcheck *spec.Healthcheck
@@ -129,6 +135,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 		LocalMode:       p.LocalMode,
 		FsGroup:         prov.FsGroup,
 		Healthcheck:     healthcheck,
+		Resources:       &providerResources,
 	})
 	if err != nil {
 		return fmt.Errorf("build statefulset: %w", err)
@@ -182,6 +189,11 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	_, err = client.Clientset().PolicyV1().PodDisruptionBudgets(ns).Create(ctx, pdb, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create pdb: %w", err)
+	}
+
+	// Network policies — deny-all default with explicit allow for agent namespaces.
+	if err := applyKnowledgeNetworkPolicies(ctx, client, ns, selector, int32(prov.DefaultPort), p.PodSubnetCIDRs); err != nil { //nolint:gosec
+		return fmt.Errorf("apply network policies: %w", err)
 	}
 
 	// ClusterIP service — in-cluster access for agents.
@@ -260,6 +272,103 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 	initCM := resourceName + "-init"
 	if err := client.Clientset().CoreV1().ConfigMaps(ns).Delete(ctx, initCM, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete init configmap: %w", err)
+	}
+
+	return nil
+}
+
+// knowledgeProviderResources returns production-sized resource requests/limits for each provider.
+func knowledgeProviderResources(provider string) corev1.ResourceRequirements {
+	type resourceDef struct{ cpuReq, memReq, cpuLim, memLim string }
+	defaults := map[string]resourceDef{
+		"postgres": {"250m", "256Mi", "1", "1Gi"},
+		"qdrant":   {"250m", "512Mi", "2", "2Gi"},
+		"redis":    {"50m", "64Mi", "500m", "256Mi"},
+		"neo4j":    {"500m", "512Mi", "2", "2Gi"},
+	}
+	d, ok := defaults[provider]
+	if !ok {
+		d = resourceDef{"100m", "128Mi", "500m", "512Mi"}
+	}
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(d.cpuReq),
+			corev1.ResourceMemory: resource.MustParse(d.memReq),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(d.cpuLim),
+			corev1.ResourceMemory: resource.MustParse(d.memLim),
+		},
+	}
+}
+
+// applyKnowledgeNetworkPolicies applies namespace isolation for a knowledge store namespace:
+//   - default-deny-all: blocks all ingress and egress by default
+//   - allow-knowledge-traffic: permits ingress from astro-managed namespaces on the DB port,
+//     intra-namespace traffic, and egress to DNS + external (for image pulls).
+func applyKnowledgeNetworkPolicies(ctx context.Context, client ClusterClient, ns string, selector map[string]string, dbPort int32, podSubnetCIDRs []string) error {
+	policyTypes := []networkingv1.PolicyType{
+		networkingv1.PolicyTypeIngress,
+		networkingv1.PolicyTypeEgress,
+	}
+
+	apply := func(np *networkingv1.NetworkPolicy) error {
+		_, err := client.Clientset().NetworkingV1().NetworkPolicies(ns).Create(ctx, np, metav1.CreateOptions{})
+		if apierrors.IsAlreadyExists(err) {
+			_, err = client.Clientset().NetworkingV1().NetworkPolicies(ns).Update(ctx, np, metav1.UpdateOptions{})
+		}
+		return err
+	}
+
+	// Policy 1: deny all by default.
+	if err := apply(&networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-deny-all", Namespace: ns},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: policyTypes,
+		},
+	}); err != nil {
+		return fmt.Errorf("default-deny-all: %w", err)
+	}
+
+	dbPortObj := intstr.FromInt32(dbPort)
+	externalBlock := networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: podSubnetCIDRs}
+	dnsPort53UDP := networkingv1.NetworkPolicyPort{Protocol: protocolPtr(corev1.ProtocolUDP), Port: portPtr(intstr.FromInt32(53))}
+	dnsPort53TCP := networkingv1.NetworkPolicyPort{Protocol: protocolPtr(corev1.ProtocolTCP), Port: portPtr(intstr.FromInt32(53))}
+
+	// Policy 2: allow ingress from astro-managed namespaces on the DB port,
+	// intra-namespace traffic, and egress to DNS + external.
+	if err := apply(&networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "allow-knowledge-traffic", Namespace: ns},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: selector},
+			PolicyTypes: policyTypes,
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				// Intra-namespace (health checks, etc.)
+				{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
+				// From agent namespaces managed by astro-server on the DB port.
+				{
+					From: []networkingv1.NetworkPolicyPeer{{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{"app.kubernetes.io/managed-by": "astro-server"},
+						},
+					}},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: protocolPtr(corev1.ProtocolTCP), Port: portPtr(dbPortObj)},
+					},
+				},
+			},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				// Intra-namespace.
+				{To: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
+				// DNS.
+				{Ports: []networkingv1.NetworkPolicyPort{dnsPort53UDP, dnsPort53TCP}},
+				// External (image pulls, etc.) — excludes pod subnets.
+				{To: []networkingv1.NetworkPolicyPeer{{IPBlock: &externalBlock}}},
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("allow-knowledge-traffic: %w", err)
 	}
 
 	return nil

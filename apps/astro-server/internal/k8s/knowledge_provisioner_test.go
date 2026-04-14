@@ -145,6 +145,22 @@ func (t *k8sTracker) handler() http.Handler {
 			t.del("service:" + ns + "/" + name)
 			fmt.Fprintf(w, `{"kind":"Status","status":"Success"}`)
 
+		// NetworkPolicy CREATE
+		case r.Method == http.MethodPost && strings.Contains(p, "/networkpolicies") && !strings.Contains(p, "/networkpolicies/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/apis/networking.k8s.io/v1/namespaces/"), "/")
+			ns := parts[0]
+			name := extractName(r)
+			t.add("netpol:" + ns + "/" + name)
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":%q}}`, name)
+
+		// NetworkPolicy UPDATE
+		case r.Method == http.MethodPut && strings.Contains(p, "/networkpolicies/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/apis/networking.k8s.io/v1/namespaces/"), "/")
+			ns, name := parts[0], parts[2]
+			t.add("netpol:" + ns + "/" + name)
+			fmt.Fprintf(w, `{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":%q}}`, name)
+
 		// PodDisruptionBudget CREATE
 		case r.Method == http.MethodPost && strings.Contains(p, "/poddisruptionbudgets") && !strings.Contains(p, "/poddisruptionbudgets/"):
 			parts := strings.Split(strings.TrimPrefix(p, "/apis/policy/v1/namespaces/"), "/")
