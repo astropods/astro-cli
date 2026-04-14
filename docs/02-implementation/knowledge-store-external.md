@@ -533,6 +533,36 @@ if store.Mode == "external":
 
 ---
 
+## IRSA Policy Scoping
+
+The EC2 permissions for PrivateLink should be split into two statements:
+
+1. **Describe/create** (broad — AWS does not support resource-level constraints for these):
+   - `ec2:CreateVpcEndpoint`, `ec2:DescribeVpcEndpoints`, `ec2:DescribeNetworkInterfaces`, `ec2:DeleteVpcEndpoints`, `ec2:ModifyVpcEndpoint`, `ec2:CreateTags`
+   - `Resource: "*"` (unavoidable)
+
+2. **Security group mutations** (scoped to the PrivateLink SG ARN):
+   - `ec2:AuthorizeSecurityGroupEgress`, `ec2:RevokeSecurityGroupEgress`
+   - `Resource: arn:aws:ec2:{region}:{account}:security-group/{sg-id}`
+
+This limits blast radius — even if the server is compromised, SG mutations are constrained to the single PrivateLink SG.
+
+---
+
+## Known Limitations
+
+**Security group rule limits.** The shared PrivateLink SG accumulates egress rules as stores are added. AWS SGs have a default limit of 60 rules (inbound + outbound combined). With many external stores, this will be hit. Mitigations: request a limit increase, or switch to a prefix list strategy.
+
+**VPC endpoint limits.** AWS default is 50 interface VPC endpoints per VPC per region. Request a limit increase proactively if expecting more than ~40 external PrivateLink stores per environment.
+
+**No connection health checks.** A store can be `status=ready` but actually unreachable (wrong credentials, firewall changed, endpoint service deregistered). Users discover this at agent deploy time or when queries fail. Health checks are out of scope for this phase.
+
+**NetworkPolicy reconciliation gap.** PrivateLink NetworkPolicies are created by the River worker at runtime, not by the CronJob. If the worker crashes mid-create, the NetworkPolicy may be missing until the next reconcile cycle picks it up. The CronJob can be extended as a fallback but is not specced here.
+
+**DNS propagation delay.** When a VPCE transitions to `available`, DNS entries may take a few seconds to propagate. The reconciler handles this by deferring to the next cycle if `DnsEntries` is empty on the first `available` poll.
+
+---
+
 ## What Is Not Built Here
 
 - Connector agent (QUIC tunnel for cross-cloud / on-premises)
@@ -540,4 +570,5 @@ if store.Mode == "external":
 - Azure Private Link automation (same pattern, different API)
 - Connection health checks (periodic connectivity verification)
 - PrivateLink cost tracking and passthrough billing
+- NetworkPolicy CronJob fallback reconciliation
 - UI (Knowledge section) — API-first; UI follows separately

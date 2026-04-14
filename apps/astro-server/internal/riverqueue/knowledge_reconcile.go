@@ -208,10 +208,14 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			}
 
 		case ec2types.StateAvailable:
-			dns := ""
-			if len(vpce.DnsEntries) > 0 {
-				dns = aws.ToString(vpce.DnsEntries[0].DnsName)
+			// DNS entries may take a few seconds to propagate after the VPCE
+			// transitions to available. Defer to next reconcile cycle if empty.
+			if len(vpce.DnsEntries) == 0 || aws.ToString(vpce.DnsEntries[0].DnsName) == "" {
+				w.log.Info("KnowledgeReconcile: VPCE available but DNS not yet propagated, will retry",
+					"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID)
+				continue
 			}
+			dns := aws.ToString(vpce.DnsEntries[0].DnsName)
 			if err := w.ksStore.SetEndpointReady(ep.KnowledgeStoreID, *ep.EndpointID, dns); err != nil {
 				w.log.Error("KnowledgeReconcile: failed to mark endpoint ready",
 					"error", err, "store_id", ep.KnowledgeStoreID)
