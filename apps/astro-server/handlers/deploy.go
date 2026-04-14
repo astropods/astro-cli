@@ -1899,10 +1899,8 @@ func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, names
 }
 
 // StreamDeploymentLogs streams live log lines for a deployment workload as Server-Sent Events.
-// On fresh connection, the last 15 minutes of logs are backfilled before live streaming begins.
-// On reconnect, Last-Event-ID resumes from the last received event without re-fetching history.
-// Loki path: QueryLogs backfill then WebSocket tail.
-// K8s fallback: streams pod logs with Follow=true and SinceTime.
+// Loki path: WebSocket tail from time.Now(). When Loki closes, the SSE closes and the browser reconnects.
+// K8s fallback: pod logs with Follow=true and SinceTime=now. Same close-and-reconnect behaviour.
 func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
@@ -1990,18 +1988,9 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		// K8s fallback: backfill the last 15 minutes on fresh connection; on reconnect resume from
-		// Last-Event-ID. SinceTime and TailLines are mutually exclusive in the K8s API.
-		// K8s SinceTime has second-level precision, so on reconnect lines at or before the cursor
-		// are filtered server-side to prevent duplicates.
-		var cursorNano int64
-		sinceTime := metav1.NewTime(time.Now().Add(-15 * time.Minute))
-		if raw := c.GetHeader("Last-Event-ID"); raw != "" {
-			if tsNano, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
-				cursorNano = tsNano
-				sinceTime = metav1.NewTime(time.Unix(0, tsNano+1))
-			}
-		}
+		// K8s fallback: tail from now — no backfill, no reconnect logic.
+		// When the pod stream ends the handler returns, closing the SSE response so the browser reconnects.
+		sinceTime := metav1.NewTime(time.Now())
 		logOpts := &corev1.PodLogOptions{Follow: true, SinceTime: &sinceTime, Timestamps: true}
 		if containerName != "" {
 			logOpts.Container = containerName
@@ -2028,9 +2017,6 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					ts = t
 					msg = line[idx+1:]
 				}
-			}
-			if cursorNano > 0 && ts.UnixNano() <= cursorNano {
-				continue
 			}
 			if !writeEvent(loki.LogLine{Timestamp: ts, Line: msg}) {
 				return
