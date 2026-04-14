@@ -292,9 +292,13 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	// Production only: ECR login init container writes docker credentials to a shared volume.
 	if destination != "" {
 		registryHost := strings.TrimPrefix(b.cfg.Deployment.RegistryURL, "https://")
+		// Derive the ECR repository name from the destination URI:
+		// destination = "{registryHost}/{repoName}:{tag}" → repoName = strip host prefix + tag suffix.
+		repoURI := strings.TrimPrefix(destination, registryHost+"/")
+		ecrRepoName := repoURI[:strings.LastIndex(repoURI, ":")]
 		ecrLoginCmd := fmt.Sprintf(
-			`HOME=/tmp TOKEN=$(aws ecr get-login-password --region %s) || { echo "ERROR: ECR login failed" >&2; exit 1; }; AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json && echo "ECR login successful for %s"`,
-			b.cfg.Deployment.AWSRegion, registryHost, registryHost,
+			`HOME=/tmp aws ecr create-repository --region %s --repository-name %s 2>/dev/null || true; TOKEN=$(aws ecr get-login-password --region %s) || { echo "ERROR: ECR login failed" >&2; exit 1; }; AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json && echo "ECR login successful for %s"`,
+			b.cfg.Deployment.AWSRegion, ecrRepoName, b.cfg.Deployment.AWSRegion, registryHost, registryHost,
 		)
 		volumes = append(volumes, corev1.Volume{
 			Name:         "docker-config",
