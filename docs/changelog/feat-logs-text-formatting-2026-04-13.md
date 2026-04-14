@@ -36,10 +36,6 @@ Level values from the server are normalised through `LEVEL_MAP` which maps raw s
 
 `ast knowledge logs` previously streamed the response as plain text line by line. It now decodes the JSON array via the shared `printLogs` helper (`cmd/logs.go`), which can be reused by any future log command.
 
-### Local Alloy test environment
-
-`dev/alloy-test/` contains a self-contained Loki + Alloy stack for testing the level extraction pipeline locally before deploying the Alloy config change to `astro-infra`. Run with `./run.sh`.
-
 ## Migration
 
 No action required for users. The `ast knowledge logs` CLI command output format is unchanged (timestamp, level, message per line). The Alloy pipeline change to extract `level` as a stream label is a separate follow-up in `astro-infra` — until that lands, all log lines will display as `INFO`.
