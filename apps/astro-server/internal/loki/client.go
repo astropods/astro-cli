@@ -98,21 +98,23 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	for _, stream := range result.Data.Result {
 		pod := stream.Stream["pod"]
 		container := stream.Stream["container"]
-		level := stream.Stream["level"]
+		streamLevel := stream.Stream["level"] // coarse fallback for old stream-label pipelines
 		for _, entry := range stream.Values {
-			if len(entry) != 2 {
-				continue
-			}
-			tsNano, err := strconv.ParseInt(entry[0], 10, 64)
+			tsNano, err := strconv.ParseInt(entry.Timestamp, 10, 64)
 			if err != nil {
 				continue
+			}
+			// Prefer per-entry structured metadata over the coarse stream label.
+			level := entry.Metadata["level"]
+			if level == "" {
+				level = streamLevel
 			}
 			lines = append(lines, LogLine{
 				Timestamp: time.Unix(0, tsNano),
 				Pod:       pod,
 				Container: container,
 				Level:     level,
-				Line:      entry[1],
+				Line:      entry.Line,
 			})
 		}
 	}
@@ -141,6 +143,37 @@ func buildSelector(namespace, pod, workload, container string) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
+// logEntryValue is a single Loki value tuple: [timestamp, line] or
+// [timestamp, line, metadata]. The third element is present when the Alloy
+// pipeline emits structured metadata (e.g. stage.structured_metadata).
+type logEntryValue struct {
+	Timestamp string
+	Line      string
+	Metadata  map[string]string
+}
+
+func (v *logEntryValue) UnmarshalJSON(data []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) < 2 {
+		return fmt.Errorf("loki value entry: expected at least 2 elements, got %d", len(raw))
+	}
+	if err := json.Unmarshal(raw[0], &v.Timestamp); err != nil {
+		return fmt.Errorf("loki value entry: parse timestamp: %w", err)
+	}
+	if err := json.Unmarshal(raw[1], &v.Line); err != nil {
+		return fmt.Errorf("loki value entry: parse line: %w", err)
+	}
+	if len(raw) >= 3 {
+		if err := json.Unmarshal(raw[2], &v.Metadata); err != nil {
+			return fmt.Errorf("loki value entry: parse metadata: %w", err)
+		}
+	}
+	return nil
+}
+
 // queryRangeResponse is the Loki /loki/api/v1/query_range response envelope.
 type queryRangeResponse struct {
 	Status string `json:"status"`
@@ -148,7 +181,7 @@ type queryRangeResponse struct {
 		ResultType string `json:"resultType"`
 		Result     []struct {
 			Stream map[string]string `json:"stream"`
-			Values [][]string        `json:"values"` // [[unix_nano_str, log_line], ...]
+			Values []logEntryValue   `json:"values"`
 		} `json:"result"`
 	} `json:"data"`
 }

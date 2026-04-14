@@ -278,6 +278,7 @@ func TestQueryLogs_TimeRange(t *testing.T) {
 }
 
 func TestQueryLogs_LevelFromStreamLabel(t *testing.T) {
+	// Backward-compat: pipelines that still emit level as a stream label.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{
@@ -319,5 +320,78 @@ func TestQueryLogs_LevelFromStreamLabel(t *testing.T) {
 	}
 	if lines[2].Level != "" {
 		t.Errorf("lines[2].Level = %q, want \"\" (absent label)", lines[2].Level)
+	}
+}
+
+func TestQueryLogs_LevelFromStructuredMetadata(t *testing.T) {
+	// Pipelines using stage.structured_metadata emit level as a per-entry
+	// metadata field; the stream itself has no level label.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod"},
+					"values": [
+						["1000000000", "something went wrong", {"level": "error"}],
+						["2000000000", "all good",             {"level": "info"}],
+						["3000000000", "no metadata"]
+					]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\"", lines[0].Level)
+	}
+	if lines[1].Level != "info" {
+		t.Errorf("lines[1].Level = %q, want \"info\"", lines[1].Level)
+	}
+	if lines[2].Level != "" {
+		t.Errorf("lines[2].Level = %q, want \"\" (no metadata, no stream label)", lines[2].Level)
+	}
+}
+
+func TestQueryLogs_StructuredMetadataTakesPrecedenceOverStreamLabel(t *testing.T) {
+	// Per-entry metadata is more accurate than the coarse stream-level label.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod", "level": "info"},
+					"values": [
+						["1000000000", "oh no", {"level": "error"}]
+					]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("got %d lines, want 1", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\" (metadata wins over stream label)", lines[0].Level)
 	}
 }
