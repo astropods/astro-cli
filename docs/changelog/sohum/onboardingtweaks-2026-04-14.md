@@ -1,22 +1,25 @@
-# GitHub Onboarding Tweaks
+# GitHub Import Path & Onboarding Tweaks
 
 ## Summary
 
-Polishes the GitHub import path in the blueprint creation wizard and the GitHub connection panel on the draft detail page. Fixes an infinite "initializing" state in the wizard, restricts repo selection to repos where the user has admin access, and replaces the generic "push to trigger" placeholder with three distinct visual states that reflect actual build progress.
+Adds a GitHub import path to the new blueprint wizard, letting users connect an existing repo instead of starting from scratch. Complements this with matching changes to the draft detail page so the setup instructions adapt to the chosen path, and adds an account-level GitHub OAuth flow so the wizard can initiate OAuth without being tied to a specific blueprint.
 
 ## Design
 
-**Admin-only repo filter**: GitHub webhook installation requires admin permission on the target repository. `ListRepos` on the server now filters the `/user/repos` response to only include repos where `permissions.admin === true`, so users only see repos they can actually connect.
+**New wizard step — "Starting point"**: A `source` step is inserted between identity setup and publish. Users choose between "Set up locally" (existing CLI flow, unchanged) or "Import from GitHub". Selecting import triggers account-level GitHub OAuth; on return the wizard restores its state from `sessionStorage` and drops the user back into repo selection without losing their name/org/visibility choices.
 
-**Three-state GitHub sidebar** (`ConnectedRepoView`):
-- *Waiting* (amber pulsing dot): shown when `status.builds.length === 0` — the webhook is installed but no `astropods.yml` has been detected yet.
-- *In-flight* (build rows): shown when builds exist but the latest is not `"registered"` — displays recent build rows with status indicators.
-- *Live* (static green dot): shown when the latest build status is `"registered"` — a green dot with "Live" label and the commit message.
+**Account-level GitHub OAuth** (`POST /accounts/:account/github/connect`, `GET /accounts/:account/github/callback`): Previously the only OAuth entry point was blueprint-specific (`/agents/:account/:name/github/connect`). The new endpoints are blueprint-agnostic — they issue or reuse a Pipes token and accept a `redirect_to` field so the callback can return the browser to any frontend URL (e.g. `/new/custom?github_connected=true`). Repo listing is also exposed at `GET /accounts/:account/github/repos`.
 
-These states mirror the container-path experience; the amber → green transition is the signal that the first push with `astropods.yml` was processed.
+**Admin-only repo filter**: `ListRepos` on the GitHub client now filters to repos where `permissions.admin === true`. Webhook installation requires admin access, so non-admin repos were always going to fail at link time — showing them was misleading.
 
-**Wizard infinite-initializing fix**: `githubLink.mutateAsync` had `.catch(() => {})` removed in a prior cleanup, which caused link failures to bubble up to the outer try/catch and leave the wizard stuck on "publishing". The `.catch(() => {})` is restored specifically on `githubLink.mutateAsync` — link failures are non-fatal (recoverable from the detail page) and must not block wizard advancement.
+**Wizard publish wires up the link**: After blueprint creation, if the user chose the import path and selected a repo, `githubLink` is called in the same publish batch. Failures are swallowed (`.catch(() => {})`) so a webhook error doesn't strand the wizard in "initializing". The link can be recovered from the detail page sidebar.
+
+**Draft detail page adapts to path**: `BlueprintDetailContent` now receives `githubRepoName` and `visibility`. When a GitHub repo is connected it switches the "Finish setup" panel to a two-step GitHub flow (drop in `astropods.yml`, commit & push) instead of the three-step CLI flow. The panel header icon also swaps from terminal to the GitHub mark.
+
+**GitHub sidebar waiting state**: `ConnectedRepoView` now shows an amber pulsing dot with "Waiting for astropods.yml" when `builds.length === 0`, replacing the previous static text. Once a webhook fires and builds appear, the existing build rows render as before.
+
+**Auto-advance after publish** (import path): The review step no longer auto-navigates to the blueprint detail page when `sourcePath === "import"` — the user needs to land on the draft page to see the GitHub setup instructions, not skip past it.
 
 ## Migration
 
-No migration required.
+No migration required. Existing blueprints and the local CLI path are unaffected.
