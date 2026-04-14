@@ -83,10 +83,30 @@ var knowledgeConnectCmd = &cobra.Command{
 	RunE:  runKnowledgeConnect,
 }
 
+var knowledgePrivateLinkCmd = &cobra.Command{
+	Use:   "privatelink",
+	Short: "Manage PrivateLink endpoints for knowledge stores",
+}
+
+var knowledgePrivateLinkAttachCmd = &cobra.Command{
+	Use:   "attach --store <name> --provider aws --service <service-name> --region <region>",
+	Short: "Attach a PrivateLink endpoint to an external knowledge store",
+	RunE:  runKnowledgePrivateLinkAttach,
+}
+
+var knowledgePrivateLinkDetachCmd = &cobra.Command{
+	Use:   "detach --store <name>",
+	Short: "Detach a PrivateLink endpoint from a knowledge store",
+	RunE:  runKnowledgePrivateLinkDetach,
+}
+
 func init() {
 	rootCmd.AddCommand(knowledgeCmd)
 	knowledgeCmd.AddCommand(knowledgeCreateCmd)
 	knowledgeCmd.AddCommand(knowledgeConnectCmd)
+	knowledgeCmd.AddCommand(knowledgePrivateLinkCmd)
+	knowledgePrivateLinkCmd.AddCommand(knowledgePrivateLinkAttachCmd)
+	knowledgePrivateLinkCmd.AddCommand(knowledgePrivateLinkDetachCmd)
 	knowledgeCmd.AddCommand(knowledgeListCmd)
 	knowledgeCmd.AddCommand(knowledgeStatusCmd)
 	knowledgeCmd.AddCommand(knowledgeLogsCmd)
@@ -96,6 +116,7 @@ func init() {
 	for _, c := range []*cobra.Command{
 		knowledgeCreateCmd, knowledgeConnectCmd, knowledgeListCmd, knowledgeStatusCmd,
 		knowledgeLogsCmd, knowledgeCredentialsCmd, knowledgeDeleteCmd,
+		knowledgePrivateLinkAttachCmd, knowledgePrivateLinkDetachCmd,
 	} {
 		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astro server URL (overrides profile/default)")
 		c.Flags().StringVar(&knowledgeAccount, "account", "", "Account name (overrides profile default)")
@@ -127,6 +148,17 @@ func init() {
 	_ = knowledgeConnectCmd.MarkFlagRequired("name")
 	_ = knowledgeConnectCmd.MarkFlagRequired("host")
 	_ = knowledgeConnectCmd.MarkFlagRequired("port")
+
+	knowledgePrivateLinkAttachCmd.Flags().String("store", "", "Store name")
+	knowledgePrivateLinkAttachCmd.Flags().String("provider", "aws", "Cloud provider (aws, gcp, azure)")
+	knowledgePrivateLinkAttachCmd.Flags().String("service", "", "VPC endpoint service name")
+	knowledgePrivateLinkAttachCmd.Flags().String("region", "", "AWS region of the endpoint service")
+	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("store")
+	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("service")
+	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("region")
+
+	knowledgePrivateLinkDetachCmd.Flags().String("store", "", "Store name")
+	_ = knowledgePrivateLinkDetachCmd.MarkFlagRequired("store")
 }
 
 // knowledgeAPIBase returns the effective server URL for knowledge API calls.
@@ -398,7 +430,7 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 		statusColor = colorGreen
 	case "error":
 		statusColor = colorRed
-	case "provisioning":
+	case "provisioning", "connecting", "pending-acceptance":
 		statusColor = colorYellow
 	}
 
@@ -537,6 +569,157 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runKnowledgePrivateLinkAttach(cmd *cobra.Command, _ []string) error {
+	account, _, err := getUserNamespace(false, knowledgeAccount)
+	if err != nil {
+		return err
+	}
+
+	store, _ := cmd.Flags().GetString("store")
+	provider, _ := cmd.Flags().GetString("provider")
+	service, _ := cmd.Flags().GetString("service")
+	region, _ := cmd.Flags().GetString("region")
+
+	fmt.Printf("%s→%s Attaching PrivateLink to %s%s%s\n", colorCyan, colorReset, colorBold, store, colorReset)
+
+	body := map[string]any{
+		"cloud_provider": provider,
+		"service":        service,
+		"region":         region,
+	}
+
+	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
+		knowledgePath(account, store)+"/privatelink", body)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusAccepted {
+		var respBody map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&respBody)
+		if msg, ok := respBody["error"].(string); ok {
+			return fmt.Errorf("server error: %s", msg)
+		}
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	fmt.Printf("  %sService:%s %s\n", colorDim, colorReset, service)
+	fmt.Printf("  %sRegion:%s  %s\n", colorDim, colorReset, region)
+	fmt.Println()
+
+	// Poll until the store reaches a terminal state.
+	if err := pollKnowledgePrivateLink(cmd.Context(), account, store); err != nil {
+		fmt.Println()
+		return err
+	}
+
+	return nil
+}
+
+func runKnowledgePrivateLinkDetach(cmd *cobra.Command, _ []string) error {
+	account, _, err := getUserNamespace(false, knowledgeAccount)
+	if err != nil {
+		return err
+	}
+
+	store, _ := cmd.Flags().GetString("store")
+
+	fmt.Printf("Detach PrivateLink from %s%s%s? [y/N] ", colorBold, store, colorReset)
+	var confirm string
+	_, _ = fmt.Scanln(&confirm)
+	if strings.ToLower(strings.TrimSpace(confirm)) != "y" {
+		fmt.Println("Aborted.")
+		return nil
+	}
+
+	resp, err := knowledgeRequest(cmd.Context(), http.MethodDelete,
+		knowledgePath(account, store)+"/privatelink", nil)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusAccepted {
+		var respBody map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&respBody)
+		if msg, ok := respBody["error"].(string); ok {
+			return fmt.Errorf("server error: %s", msg)
+		}
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	fmt.Printf("%s✓%s PrivateLink detach initiated for %s%s%s\n", colorGreen, colorReset, colorBold, store, colorReset)
+	return nil
+}
+
+// pollKnowledgePrivateLink polls the store status during PrivateLink attachment.
+// It detects the pending-acceptance state and prints an action-required message.
+func pollKnowledgePrivateLink(ctx context.Context, account, name string) error {
+	const (
+		pollInterval = 3 * time.Second
+		timeout      = 15 * time.Minute
+	)
+	deadline := time.Now().Add(timeout)
+	printedAcceptance := false
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+
+		resp, err := knowledgeRequest(ctx, http.MethodGet, knowledgePath(account, name), nil)
+		if err != nil {
+			fmt.Print(".")
+			continue
+		}
+		var s knowledgeStoreResponse
+		_ = json.NewDecoder(resp.Body).Decode(&s)
+		_ = resp.Body.Close()
+
+		switch s.Status {
+		case "connecting":
+			fmt.Printf("\r%sStatus:%s connecting", colorDim, colorReset)
+		case "pending-acceptance":
+			if !printedAcceptance {
+				printedAcceptance = true
+				fmt.Printf("\r%sStatus:%s %spending-acceptance%s\n", colorDim, colorReset, colorYellow, colorReset)
+				fmt.Println()
+				fmt.Printf("  %sAction required:%s accept the endpoint connection request in your AWS console.\n", colorBold, colorReset)
+				if s.Endpoint != nil {
+					fmt.Printf("  %sEndpoint service:%s %s\n", colorDim, colorReset, s.Endpoint.EndpointService)
+					if s.Endpoint.EndpointID != nil {
+						fmt.Printf("  %sVPC endpoint:%s     %s\n", colorDim, colorReset, *s.Endpoint.EndpointID)
+					}
+				}
+				fmt.Println()
+				fmt.Printf("  Waiting for acceptance")
+			} else {
+				fmt.Print(".")
+			}
+		case "ready":
+			dns := ""
+			if s.Endpoint != nil && s.Endpoint.EndpointDNS != nil {
+				dns = *s.Endpoint.EndpointDNS
+			}
+			fmt.Printf("\n%s✓%s PrivateLink ready", colorGreen, colorReset)
+			if dns != "" {
+				fmt.Printf(" — endpoint: %s", dns)
+			}
+			fmt.Println()
+			return nil
+		case "error":
+			if s.Error != nil && *s.Error != "" {
+				return fmt.Errorf("PrivateLink failed: %s", *s.Error)
+			}
+			return fmt.Errorf("PrivateLink failed")
+		}
+	}
+	return fmt.Errorf("timed out waiting for PrivateLink to become ready")
+}
+
 // pollKnowledgeReady polls the status endpoint every 3 seconds until the store
 // reaches a terminal state. Avoids long-lived SSE connections that proxies drop.
 func pollKnowledgeReady(ctx context.Context, account, name string) error {
@@ -595,17 +778,28 @@ type knowledgeStoreEvent struct {
 	Count   int32  `json:"count"`
 }
 
+type knowledgeStoreEndpointResponse struct {
+	CloudProvider   string  `json:"cloud_provider"`
+	EndpointService string  `json:"endpoint_service"`
+	Region          string  `json:"region"`
+	EndpointID      *string `json:"endpoint_id,omitempty"`
+	EndpointDNS     *string `json:"endpoint_dns,omitempty"`
+	Status          string  `json:"status"`
+	Error           *string `json:"error,omitempty"`
+}
+
 type knowledgeStoreResponse struct {
-	ID         string                `json:"id"`
-	ARN        string                `json:"arn"`
-	Name       string                `json:"name"`
-	Provider   string                `json:"provider"`
-	Mode       string                `json:"mode"`
-	Status     string                `json:"status"`
-	Storage    string                `json:"storage"`
-	Public     bool                  `json:"public"`
-	PublicHost *string               `json:"public_host,omitempty"`
-	Error      *string               `json:"error,omitempty"`
-	Events     []knowledgeStoreEvent `json:"events,omitempty"`
-	CreatedAt  time.Time             `json:"created_at"`
+	ID         string                          `json:"id"`
+	ARN        string                          `json:"arn"`
+	Name       string                          `json:"name"`
+	Provider   string                          `json:"provider"`
+	Mode       string                          `json:"mode"`
+	Status     string                          `json:"status"`
+	Storage    string                          `json:"storage"`
+	Public     bool                            `json:"public"`
+	PublicHost *string                         `json:"public_host,omitempty"`
+	Endpoint   *knowledgeStoreEndpointResponse `json:"endpoint,omitempty"`
+	Error      *string                         `json:"error,omitempty"`
+	Events     []knowledgeStoreEvent           `json:"events,omitempty"`
+	CreatedAt  time.Time                       `json:"created_at"`
 }
