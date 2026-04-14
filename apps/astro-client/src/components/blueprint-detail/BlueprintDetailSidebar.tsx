@@ -25,6 +25,8 @@ export interface SidebarCardProps {
   recommendedAgents?: BlueprintCardProps[];
   initialAccountData?: AccountPublic;
   canEdit?: boolean;
+  githubRepoName?: string;
+  githubBranch?: string;
 }
 
 export function SidebarCard({
@@ -37,6 +39,8 @@ export function SidebarCard({
   recommendedAgents = [],
   initialAccountData,
   canEdit,
+  githubRepoName,
+  githubBranch,
 }: SidebarCardProps) {
   const latestVersion = agent.versions[0];
   const version = latestVersion?.version ?? latestVersion?.build_id?.slice(0, 8);
@@ -102,7 +106,7 @@ export function SidebarCard({
       )}
 
       {canEdit && experiments.githubAutoBuild && (
-        <GitHubConnectionPanel account={agent.account} name={agent.name} />
+        <GitHubConnectionPanel account={agent.account} name={agent.name} preConnectedRepo={githubRepoName} preConnectedBranch={githubBranch} />
       )}
 
       {recommendedAgents.length > 0 && (

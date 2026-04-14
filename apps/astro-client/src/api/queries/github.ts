@@ -41,6 +41,7 @@ export function useGitHubRebuild(account: string, name: string) {
   });
 }
 
+
 export function useGitHubBuildLogs(account: string, name: string, buildId: string, opts?: { enabled?: boolean; refetchInterval?: number | false }) {
   return useQuery({
     queryKey: ['github', account, name, 'builds', buildId, 'logs'],
@@ -75,5 +76,19 @@ export function useGitHubDisconnect(account: string, name: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
     },
+  });
+}
+
+export function useGitHubAccountConnect(account: string) {
+  return useMutation({
+    mutationFn: (redirectTo: string) => api.gitHubConnectAccount(account, redirectTo),
+  });
+}
+
+export function useGitHubAccountRepos(account: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: githubKeys.accountRepos(account),
+    queryFn: () => api.gitHubListAccountRepos(account),
+    enabled: (opts?.enabled ?? true) && !!account,
   });
 }

@@ -29,13 +29,16 @@ import {
 } from "@/api/queries/github";
 import type { GitHubBuild } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useExperiments } from "@/lib/experiments";
 
 interface GitHubConnectionPanelProps {
   account: string;
   name: string;
+  preConnectedRepo?: string;
+  preConnectedBranch?: string;
 }
 
-export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelProps) {
+export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConnectedBranch }: GitHubConnectionPanelProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const githubConnected = searchParams.get("github_connected") === "true";
 
@@ -67,7 +70,12 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
     });
   }
 
-  if (statusLoading) {
+  // Use the server-confirmed repo if connected; fall back to the wizard-supplied repo
+  // so the panel never flashes back to "Connect" while the status query is in flight or
+  // if the server is slightly behind the just-completed githubLink call.
+  const effectiveRepo = status?.connected ? status.repo_full_name : preConnectedRepo;
+
+  if (statusLoading && !preConnectedRepo) {
     return (
       <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
@@ -81,11 +89,11 @@ export function GitHubConnectionPanel({ account, name }: GitHubConnectionPanelPr
   return (
     <>
       <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
-        {status?.connected ? (
+        {status?.connected || effectiveRepo ? (
           <ConnectedRepoView
             account={account}
             name={name}
-            status={status}
+            status={status?.connected ? status : { repo_full_name: effectiveRepo, branch: preConnectedBranch, builds: [] }}
             rebuild={rebuild}
             disconnect={disconnect}
           />
@@ -146,10 +154,12 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
             <span className="truncate">{status.repo_full_name}</span>
             <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
           </a>
-          <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
-            <GitBranch className="h-3 w-3" />
-            <span>{status.branch}</span>
-          </div>
+          {status.branch && (
+            <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
+              <GitBranch className="h-3 w-3" />
+              <span>{status.branch}</span>
+            </div>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -181,7 +191,35 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
         </DropdownMenu>
       </div>
 
-      {status.builds.length > 0 && (
+      {status.builds.length === 0 && (
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <span className="relative flex h-2 w-2 shrink-0 mt-0.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+          </span>
+          <span>
+            Waiting for{" "}
+            <span className="font-mono text-foreground">astropods.yml</span>
+            {status.branch && (
+              <> on <span className="font-mono text-foreground">{status.branch}</span></>
+            )}
+          </span>
+        </div>
+      )}
+
+      {status.builds.length > 0 && status.builds[0].status === "registered" && (
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <span className="relative flex h-2 w-2 shrink-0 mt-0.5">
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
+          <span className="text-green-700 dark:text-green-400 font-medium">Live</span>
+          {status.builds[0].commit_message && (
+            <span className="truncate text-muted-foreground">· {status.builds[0].commit_message}</span>
+          )}
+        </div>
+      )}
+
+      {status.builds.length > 0 && status.builds[0].status !== "registered" && (
         <div className="space-y-1.5">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-mono">Recent Builds</p>
           <div className="space-y-1">
@@ -190,12 +228,6 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
             ))}
           </div>
         </div>
-      )}
-
-      {status.builds.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          Push to <span className="font-mono">{status.branch}</span> to trigger a build.
-        </p>
       )}
     </div>
   );
@@ -523,6 +555,7 @@ interface RepoSelectorDialogProps {
 function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorDialogProps) {
   const { data: reposData, isLoading: reposLoading } = useGitHubRepos(account, name, { enabled: open });
   const link = useGitHubLink(account, name);
+  const { setExperiment } = useExperiments();
 
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("main");
@@ -538,7 +571,12 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
     if (!selectedRepo) return;
     link.mutate(
       { repo_full_name: selectedRepo, branch: selectedBranch },
-      { onSuccess: () => onOpenChange(false) }
+      {
+        onSuccess: () => {
+          setExperiment("githubAutoBuild", true);
+          onOpenChange(false);
+        },
+      }
     );
   }
 

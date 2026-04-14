@@ -56,3 +56,26 @@ export const NoSummary: Story = {
     readme: "## ReadMe\n\nMinimal content block.",
   },
 };
+
+export const DraftLocal: Story = {
+  args: {
+    account: "sohumonlocal",
+    name: "api-changelog-writer",
+    categories: ["PRODUCTIVITY"],
+    isDraft: true,
+    canEdit: true,
+    visibility: "private",
+  },
+};
+
+export const DraftGitHub: Story = {
+  args: {
+    account: "sohumonlocal",
+    name: "api-changelog-writer",
+    categories: ["PRODUCTIVITY"],
+    isDraft: true,
+    canEdit: true,
+    githubRepoName: "sohumonlocal/api-changelog-writer",
+    visibility: "private",
+  },
+};

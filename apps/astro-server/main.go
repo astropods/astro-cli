@@ -1286,6 +1286,32 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			)
 		}
 
+		// Account-level GitHub connection routes (blueprint-agnostic, for the new blueprint wizard)
+		accountGitHubRoutes := protected.Group("/accounts/:account")
+		accountGitHubRoutes.Use(middleware.ResolveAccount(accountStore))
+		accountGitHubRoutes.Use(middleware.RequireAccountMember(accountStore))
+		{
+			api.POST(accountGitHubRoutes, "/github/connect", "Start account-level GitHub OAuth",
+				handlers.GitHubAccountConnect(log, pipesClient, githubCfg),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.GET(accountGitHubRoutes, "/github/repos", "List GitHub repos for account",
+				handlers.GitHubAccountListRepos(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			// Callback is a browser GET from the OAuth redirect — same auth middleware, no body
+			api.GET(accountGitHubRoutes, "/github/callback", "Account-level GitHub OAuth callback",
+				handlers.GitHubAccountCallback(log, pipesClient, githubCfg),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+		}
+
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)
 		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, queue))
 	}

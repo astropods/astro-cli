@@ -1,8 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint } from "@/api/queries";
+import { useExperiments } from "@/lib/experiments";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink } from "@/api/queries";
+import type { GitHubRepo } from "@/lib/api";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
-import { useNavigate, type MetaFunction } from "react-router";
+import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +22,8 @@ import { Camera } from "lucide-react";
 import {
   ArrowPathIcon,
   BuildingOffice2Icon,
+  CommandLineIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
@@ -29,9 +33,22 @@ export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Step = "setup" | "publishing" | "review";
+type Step = "setup" | "source" | "publishing" | "review";
+type SourcePath = "fresh" | "import" | null;
+
+// ─── Icons ───────────────────────────────────────────────────────────────────
+
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+    </svg>
+  );
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const WIZARD_STATE_KEY = "astro:new-blueprint-wizard";
 
 function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9-\s]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
@@ -39,6 +56,7 @@ function slugify(str: string): string {
 
 const STEPS: { id: Step; label: string; description: string }[] = [
   { id: "setup", label: "Identity", description: "Provide a name and image for your agent." },
+  { id: "source", label: "Starting point", description: "Start from scratch or bring in existing code." },
   { id: "publishing", label: "Initializing...", description: "Creating your blueprint in the registry." },
   { id: "review", label: "Review", description: "Your blueprint is ready." },
 ];
@@ -52,6 +70,8 @@ function NewBlueprintContent() {
     () => [...accounts].sort((a, b) => a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name)),
     [accounts],
   );
+
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Step state
   const [activeStep, setActiveStep] = useState<Step>("setup");
@@ -67,10 +87,41 @@ function NewBlueprintContent() {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const slug = useMemo(() => slugify(name), [name]);
 
+  // Source step state
+  const [sourcePath, setSourcePath] = useState<SourcePath>(null);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState("main");
+
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
   const isCreatingBlueprint = createBlueprint.isPending || uploadAvatar.isPending;
   const navigate = useNavigate();
+
+  const accountConnect = useGitHubAccountConnect(selectedOrg);
+  const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected });
+  const githubLink = useGitHubLink(selectedOrg, slug);
+
+  // Restore wizard state when returning from GitHub OAuth
+  useEffect(() => {
+    if (searchParams.get("github_connected") !== "true") return;
+    const saved = sessionStorage.getItem(WIZARD_STATE_KEY);
+    if (saved) {
+      try {
+        const { name: n, selectedOrg: org, visibility: vis } = JSON.parse(saved) as { name: string; selectedOrg: string; visibility: "public" | "private" };
+        setName(n);
+        setSelectedOrg(org);
+        setVisibility(vis);
+        sessionStorage.removeItem(WIZARD_STATE_KEY);
+      } catch { /* ignore */ }
+    }
+    setSourcePath("import");
+    setGithubConnected(true);
+    setActiveStep("source");
+    setCompletedSteps(new Set<Step>(["setup"]));
+    setSearchParams({}, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Proactive name availability check — fires while user is typing on the setup step
   const slugIsValid = slug.length >= 4 && /^[a-z]/.test(slug);
@@ -88,10 +139,20 @@ function NewBlueprintContent() {
     refetchInterval: 5_000,
   });
   useEffect(() => {
-    if (activeStep === "review" && isFetchedAfterMount && publishedBlueprint && publishedBlueprint.versions.length > 0) {
+    if (activeStep === "review" && isFetchedAfterMount && publishedBlueprint && publishedBlueprint.versions.length > 0 && sourcePath !== "import") {
       navigate(`/${selectedOrg}/${slug}`);
     }
-  }, [activeStep, publishedBlueprint, isFetchedAfterMount, selectedOrg, slug, navigate]);
+  }, [activeStep, publishedBlueprint, isFetchedAfterMount, selectedOrg, slug, navigate, sourcePath]);
+
+  const { setExperiment } = useExperiments();
+
+  const handleGoToBlueprint = useCallback(() => {
+    if (sourcePath === "import" && selectedRepo) {
+      setExperiment("githubAutoBuild", true);
+      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch }));
+    }
+    navigate(`/${selectedOrg}/${slug}`);
+  }, [sourcePath, selectedRepo, selectedOrg, slug, navigate, setExperiment]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {
@@ -109,9 +170,30 @@ function NewBlueprintContent() {
   const reviewPanelRef = useRef<HTMLDivElement>(null);
 
 
+  const handleContinueToSource = useCallback(() => {
+    setCompletedSteps(prev => { const s = new Set(prev); s.add("setup"); return s; });
+    setActiveStep("source");
+  }, []);
+
+  const handleGitHubConnect = useCallback(async () => {
+    try {
+      sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ name, selectedOrg, visibility }));
+      const res = await accountConnect.mutateAsync("/new/custom");
+      if (res.connected) {
+        // Token already exists via Pipes — skip OAuth, go straight to repo selection
+        sessionStorage.removeItem(WIZARD_STATE_KEY);
+        setGithubConnected(true);
+      } else if (res.redirect_url) {
+        window.location.href = res.redirect_url;
+      }
+    } catch {
+      sessionStorage.removeItem(WIZARD_STATE_KEY);
+    }
+  }, [accountConnect, name, selectedOrg, visibility]);
+
   const handlePublish = useCallback(async () => {
     if (isCreatingBlueprint) return;
-    setCompletedSteps(prev => { const s = new Set(prev); s.add("setup"); return s; });
+    setCompletedSteps(prev => { const s = new Set(prev); s.add("source"); return s; });
     setActiveStep("publishing");
 
     try {
@@ -123,6 +205,12 @@ function NewBlueprintContent() {
           if (avatarFile) {
             await uploadAvatar.mutateAsync({ account: selectedOrg, name: slug, file: avatarFile }).catch(() => {});
             bustAgentAvatar(selectedOrg, slug, avatarFile);
+          }
+          if (sourcePath === "import" && selectedRepo) {
+            await githubLink.mutateAsync({
+              repo_full_name: selectedRepo.full_name,
+              branch: selectedBranch,
+            }).catch(() => {});
           }
         })(),
         new Promise(resolve => setTimeout(resolve, 2000)),
@@ -181,6 +269,155 @@ function NewBlueprintContent() {
                 style={{ width: `${100 / STEPS.length}%` }}
               >
                 <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col min-h-[460px]">
+
+                  {/* ── Source ── */}
+                  {step.id === "source" && i <= activeStepIndex && (
+                    <div className="flex flex-col flex-1">
+                      <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
+                        <p className="text-sm font-semibold mb-0.5">Starting point</p>
+                        <p className="text-xs text-muted-foreground mb-5">Start from scratch or bring in existing code.</p>
+                        <div className="space-y-3">
+
+                          {/* Set up locally */}
+                          <button
+                            type="button"
+                            onClick={() => setSourcePath("fresh")}
+                            className={cn(
+                              "flex w-full cursor-pointer items-start gap-4 rounded-lg border p-4 text-left transition-all",
+                              sourcePath === "fresh" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
+                            )}
+                          >
+                            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
+                              {sourcePath === "fresh" && <div className="size-2.5 rounded-full bg-primary" />}
+                            </div>
+                            <CommandLineIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
+                            <div className="flex-1">
+                              <h3 className="text-sm font-semibold mb-0.5">Set up locally</h3>
+                              <p className="text-xs leading-relaxed text-muted-foreground">
+                                Scaffold a new agent with the Astro CLI and build it locally.
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Set up with GitHub */}
+                          <div className={cn(
+                            "w-full rounded-lg border transition-all",
+                            sourcePath === "import" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card"
+                          )}>
+                            <button
+                              type="button"
+                              onClick={() => setSourcePath("import")}
+                              className="w-full cursor-pointer text-left p-4"
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
+                                  {sourcePath === "import" && <div className="size-2.5 rounded-full bg-primary" />}
+                                </div>
+                                <GitHubIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
+                                <div className="flex-1">
+                                  <h3 className="text-sm font-semibold mb-0.5">Set up with GitHub</h3>
+                                  <p className="text-xs leading-relaxed text-muted-foreground">
+                                    Connect a repo — any git push will automatically build and push your agent.
+                                  </p>
+                                </div>
+                              </div>
+                            </button>
+
+                            {sourcePath === "import" && (
+                              <div className="border-t border-border px-4 pb-4 pt-3">
+                                {!githubConnected ? (
+                                  <div className="space-y-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-2"
+                                      onClick={handleGitHubConnect}
+                                      disabled={accountConnect.isPending}
+                                    >
+                                      {accountConnect.isPending
+                                        ? <ArrowPathIcon className="size-4 animate-spin" />
+                                        : <GitHubIcon className="size-4" />
+                                      }
+                                      {accountConnect.isPending ? "Connecting..." : "Connect GitHub"}
+                                    </Button>
+                                    {accountConnect.isError && (
+                                      <p className="text-xs text-destructive">Failed to connect. Please try again.</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    <p className="inline-flex items-center gap-1.5 text-xs text-foreground">
+                                      <CheckCircleIcon className="size-3.5 text-green-700" />
+                                      GitHub connected
+                                    </p>
+                                    <Select
+                                      value={selectedRepo?.full_name ?? ""}
+                                      onValueChange={(value) => {
+                                        const repo = accountRepos.data?.repos.find(r => r.full_name === value) ?? null;
+                                        setSelectedRepo(repo);
+                                        setSelectedBranch(repo?.default_branch || "main");
+                                      }}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder={accountRepos.isLoading ? "Loading repositories..." : "Select a repository"} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {accountRepos.data?.repos.map((repo) => (
+                                          <SelectItem key={repo.full_name} value={repo.full_name}>
+                                            <span className="flex items-center gap-2">
+                                              <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                                              {repo.full_name}
+                                              {repo.private && <span className="text-[10px] text-muted-foreground">private</span>}
+                                            </span>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {selectedRepo && (
+                                      <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="main">main</SelectItem>
+                                          <SelectItem value="master">master</SelectItem>
+                                          {selectedRepo.default_branch && !["main", "master"].includes(selectedRepo.default_branch) && (
+                                            <SelectItem value={selectedRepo.default_branch}>
+                                              {selectedRepo.default_branch}
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                        </div>
+                      </div>
+                      <div className="border-t border-border px-6 py-4 flex items-center justify-between">
+                        <Button variant="outline" size="sm" onClick={() => setActiveStep("setup")}>Back</Button>
+                        <Button
+                          size="sm"
+                          onClick={handlePublish}
+                          disabled={
+                            isCreatingBlueprint ||
+                            !sourcePath ||
+                            (sourcePath === "import" && (!githubConnected || !selectedRepo))
+                          }
+                        >
+                          {isCreatingBlueprint ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <ArrowPathIcon className="size-4 animate-spin" />
+                              Creating...
+                            </span>
+                          ) : "Create blueprint"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Publishing ── */}
                   {step.id === "publishing" && i <= activeStepIndex && (
@@ -325,8 +562,8 @@ function NewBlueprintContent() {
                         </div>
                       </div>
                       <div className="border-t border-border px-6 py-4 flex items-center justify-end">
-                        <Button size="sm" onClick={handlePublish} disabled={slug.length < 4 || !/^[a-z]/.test(slug) || nameIsTaken}>
-                          Create blueprint
+                        <Button size="sm" onClick={handleContinueToSource} disabled={slug.length < 4 || !/^[a-z]/.test(slug) || nameIsTaken}>
+                          Continue
                         </Button>
                       </div>
                     </div>
@@ -346,12 +583,10 @@ function NewBlueprintContent() {
                           <span className="text-base font-semibold text-foreground">Blueprint initialized</span>
                         </div>
                         <div className="relative size-20 overflow-hidden rounded-2xl border border-border">
-                          {avatarPreviewUrl ? (
-                            <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
-                          ) : (
-                            <BlueprintIdentity account={selectedOrg} name={slug} size={80} className="size-full" />
-                          )}
-                          {/* Scan line */}
+                          {avatarPreviewUrl
+                            ? <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
+                            : <BlueprintIdentity account={selectedOrg} name={slug} size={80} className="size-full" />
+                          }
                           <div
                             className="absolute left-0 right-0 h-[2px] opacity-80"
                             style={{
@@ -360,7 +595,6 @@ function NewBlueprintContent() {
                               boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-teal-500) 30%, transparent)",
                             }}
                           />
-                          {/* Corner brackets */}
                           <div className="absolute top-1.5 left-1.5 size-3 border-t-2 border-l-2 border-teal-500/50 rounded-tl-sm" />
                           <div className="absolute top-1.5 right-1.5 size-3 border-t-2 border-r-2 border-teal-500/50 rounded-tr-sm" />
                           <div className="absolute bottom-1.5 left-1.5 size-3 border-b-2 border-l-2 border-teal-500/50 rounded-bl-sm" />
@@ -371,20 +605,20 @@ function NewBlueprintContent() {
                           <p className="mt-0.5 font-mono text-xs text-muted-foreground">{selectedOrg}/{slug}</p>
                         </div>
                       </div>
-
                       <div className="border-t border-border flex items-center justify-between px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-stone-300" />
                           <div>
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Up next</p>
-                            <p className="text-sm text-foreground">Set up your agent in code</p>
+                            <p className="text-sm text-foreground">
+                              {sourcePath === "import" ? "Finish setup in your repo" : "Set up your agent in code"}
+                            </p>
                           </div>
                         </div>
-                        <Button size="sm" onClick={() => navigate(`/${selectedOrg}/${slug}`)}>
-                          Continue setup →
+                        <Button size="sm" onClick={handleGoToBlueprint}>
+                          {sourcePath === "import" ? "View blueprint →" : "Continue setup →"}
                         </Button>
                       </div>
-
                       <style>{`
                         @keyframes scanLine {
                           0%, 100% { top: 10%; }

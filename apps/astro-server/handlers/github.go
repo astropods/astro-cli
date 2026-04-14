@@ -180,6 +180,138 @@ func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerF
 	}
 }
 
+// GitHubAccountConnectRequest is the body for the account-level connect endpoint.
+type GitHubAccountConnectRequest struct {
+	RedirectTo string `json:"redirect_to"`
+}
+
+// GitHubAccountConnect handles POST /api/v1/accounts/:account/github/connect.
+// Blueprint-agnostic OAuth initiation — the redirect_to body field controls where the
+// browser lands after OAuth completes (e.g. "/new/custom").
+func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		var req GitHubAccountConnectRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		// Check if the user already has a GitHub token via Pipes.
+		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err == nil {
+			c.JSON(http.StatusOK, gin.H{"connected": true})
+			return
+		}
+
+		if !errors.Is(err, pipes.ErrNeedsReauthorization) && !errors.Is(err, pipes.ErrNotInstalled) {
+			log.Error("pipes: get access token", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check GitHub connection"})
+			return
+		}
+
+		// Encode redirect_to into the callback URL so the callback knows where to send the browser.
+		callbackURL := fmt.Sprintf("%s/api/v1/accounts/%s/github/callback?redirect_to=%s",
+			cfg.WebhookBaseURL, acct.Name, req.RedirectTo)
+
+		authURL, err := pipesClient.GetAuthorizationURL(c.Request.Context(), pipes.GetAuthorizationURLInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+			ReturnTo:       callbackURL,
+		})
+		if err != nil {
+			log.Error("pipes: get authorization URL", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate GitHub authorization URL"})
+			return
+		}
+
+		c.JSON(http.StatusOK, GitHubConnectResponse{RedirectURL: authURL})
+	}
+}
+
+// GitHubAccountCallback handles GET /api/v1/accounts/:account/github/callback.
+// WorkOS redirects here after GitHub OAuth. Reads redirect_to from the query string
+// and sends the browser back to the frontend wizard with ?github_connected=true.
+func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.Redirect(http.StatusFound, cfg.FrontendURL+"?github_error=not_authenticated")
+			return
+		}
+
+		redirectTo := c.Query("redirect_to")
+		if redirectTo == "" {
+			redirectTo = "/new/custom"
+		}
+
+		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			log.Error("pipes: token unavailable after account callback", "error", err, "user", session.UserID)
+			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?github_error=token_unavailable")
+			return
+		}
+
+		c.Redirect(http.StatusFound, fmt.Sprintf("%s%s?github_connected=true", cfg.FrontendURL, redirectTo))
+	}
+}
+
+// GitHubAccountListRepos handles GET /api/v1/accounts/:account/github/repos.
+// Blueprint-agnostic repo listing — reuses the Pipes token, no agent scope required.
+func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			if errors.Is(err, pipes.ErrNotInstalled) || errors.Is(err, pipes.ErrNeedsReauthorization) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get GitHub token"})
+			return
+		}
+
+		gh := githubclient.New(token.AccessToken)
+		repos, err := gh.ListRepos(c.Request.Context())
+		if err != nil {
+			log.Error("github: list account repos", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list GitHub repos"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"repos": repos})
+	}
+}
+
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
 func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {

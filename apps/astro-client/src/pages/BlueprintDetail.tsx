@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import {
   BlueprintDetailBreadcrumb,
   BlueprintDetailContent,
@@ -9,6 +11,7 @@ import {
   SidebarCard,
 } from "@/components/blueprint-detail";
 import { useBlueprint, useBlueprints } from "@/api/queries/blueprints";
+import { useGitHubStatus } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import {
@@ -20,6 +23,56 @@ import {
   getBlueprintCapabilities,
 } from "@/lib/blueprint-utils";
 import type { AccountPublic } from "@/lib/api";
+
+// ─── Build success overlay ────────────────────────────────────────────────────
+
+function BuildSuccessOverlay({ account, name, onDismiss }: { account: string; name: string; onDismiss: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={containerRef}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
+      style={{ background: "radial-gradient(ellipse at 50% 0%, hsla(40,50%,90%,0.95) 0%, hsla(40,30%,96%,0.98) 60%), hsl(40,20%,97%)" }}
+    >
+      <LiveRevealConfetti containerRef={containerRef} />
+      <div className="flex flex-col items-center gap-6 text-center px-6">
+        <div className="relative size-20 overflow-hidden rounded-2xl border border-border shadow-sm">
+          <BlueprintIdentity account={account} name={name} size={80} className="size-full" />
+          <div
+            className="absolute left-0 right-0 h-[2px] opacity-80"
+            style={{
+              background: "linear-gradient(90deg, transparent, var(--color-teal-500), transparent)",
+              animation: "scanLine 2.5s ease-in-out infinite",
+              boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-teal-500) 30%, transparent)",
+            }}
+          />
+        </div>
+        <div>
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
+              <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2.5 6l2.5 2.5 4.5-5" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold">Blueprint is live</h2>
+          </div>
+          <p className="font-mono text-sm text-muted-foreground">{account}/{name}</p>
+        </div>
+        <Button onClick={onDismiss}>
+          View blueprint →
+        </Button>
+      </div>
+      <style>{`
+        @keyframes scanLine {
+          0%, 100% { top: 10%; }
+          50% { top: 85%; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -160,6 +213,40 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const isDraft = blueprint.versions.length === 0;
   const canEdit = isAuthenticated && accounts.some((a) => a.name === blueprint.account);
 
+  const { data: githubStatus } = useGitHubStatus(blueprint.account, blueprint.name, {
+    enabled: isDraft && canEdit,
+  });
+
+  // Read the repo that was selected in the wizard — written to sessionStorage before navigating here.
+  // Falls back to the server-confirmed value once useGitHubStatus resolves, then clears the entry.
+  const sessionKey = `astro:github-repo:${blueprint.account}/${blueprint.name}`;
+  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string } | undefined>(() => {
+    try {
+      const raw = sessionStorage.getItem(sessionKey);
+      return raw ? JSON.parse(raw) : undefined;
+    } catch { return undefined; }
+  });
+  useEffect(() => {
+    if (githubStatus?.repo_full_name && sessionGithub) {
+      sessionStorage.removeItem(sessionKey);
+      setSessionGithub(undefined);
+    }
+  }, [githubStatus?.repo_full_name, sessionGithub, sessionKey]);
+
+  const githubRepoName = githubStatus?.repo_full_name ?? sessionGithub?.repo;
+  const githubBranch = githubStatus?.branch ?? sessionGithub?.branch;
+
+  // Detect draft → published transition and show success overlay for the GitHub path.
+  const [showBuildSuccess, setShowBuildSuccess] = useState(false);
+  const wasDraftRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (wasDraftRef.current === true && !isDraft && githubRepoName) {
+      setShowBuildSuccess(true);
+    }
+    wasDraftRef.current = isDraft;
+  }, [isDraft, githubRepoName]);
+
+
   const integrations = getBlueprintIntegrations(blueprint);
   const categories = getBlueprintCategories(blueprint);
   const readme = getBlueprintReadme(blueprint);
@@ -168,6 +255,13 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
+      {showBuildSuccess && (
+        <BuildSuccessOverlay
+          account={blueprint.account}
+          name={blueprint.name}
+          onDismiss={() => setShowBuildSuccess(false)}
+        />
+      )}
       <BlueprintDetailBreadcrumb account={blueprint.account} blueprintName={blueprint.name} hearted={blueprint.hearted} heartCount={blueprint.heart_count} />
 
       <div className="flex flex-1 overflow-y-auto">
@@ -180,6 +274,8 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           readme={readme}
           isDraft={isDraft}
           onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}
+          githubRepoName={githubRepoName}
+          visibility={blueprint.visibility}
           mobileSidebar={
             <SidebarCard
               agent={blueprint}
@@ -190,6 +286,8 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
               recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
               canEdit={canEdit}
+              githubRepoName={githubRepoName}
+              githubBranch={githubBranch}
             />
           }
         />
@@ -203,6 +301,8 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
           canEdit={canEdit}
+          githubRepoName={githubRepoName}
+          githubBranch={githubBranch}
         />
       </div>
       </div>

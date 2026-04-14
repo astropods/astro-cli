@@ -41,6 +41,26 @@ function StepNumber({ n, isLast = false }: { n: number; isLast?: boolean }) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+    </svg>
+  );
+}
+
+function YmlBlock({ content }: { content: string }) {
+  return (
+    <div className="overflow-hidden rounded-md border border-border-strong bg-surface">
+      <div className="flex items-center justify-between border-b border-border-strong bg-stone-200 px-4 py-2 dark:bg-muted/30">
+        <span className="text-[11px] leading-4 font-mono text-muted-foreground">astropods.yml</span>
+        <CopyButton copyText={content} className="border-stone-300/60 bg-transparent text-stone-500 hover:border-stone-400/60 hover:bg-stone-300/40 hover:text-stone-700" />
+      </div>
+      <pre className="overflow-x-auto px-4 py-3 font-mono text-xs leading-relaxed text-foreground">{content}</pre>
+    </div>
+  );
+}
+
 export interface BlueprintDetailContentProps {
   account: string;
   name: string;
@@ -50,6 +70,8 @@ export interface BlueprintDetailContentProps {
   mobileSidebar?: ReactNode;
   isDraft?: boolean;
   onArchive?: () => void;
+  githubRepoName?: string;
+  visibility?: string;
 }
 
 export function BlueprintDetailContent({
@@ -61,7 +83,10 @@ export function BlueprintDetailContent({
   mobileSidebar,
   isDraft = false,
   onArchive,
+  githubRepoName,
+  visibility = "private",
 }: BlueprintDetailContentProps) {
+  const astropodsYml = `spec: package/v1\nname: ${name}\n\nmeta:\n  visibility: ${visibility}\n\nagent:\n  build:\n    context: .\n    dockerfile: Dockerfile`;
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
       <BlueprintDetailHeader
@@ -83,7 +108,10 @@ export function BlueprintDetailContent({
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <div className="flex items-center gap-2">
-              <CommandLineIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              {githubRepoName
+                ? <GitHubIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                : <CommandLineIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              }
               <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
                 Finish setup
               </span>
@@ -111,46 +139,77 @@ export function BlueprintDetailContent({
           </div>
 
           <div className="px-6 py-6">
-            <div className="space-y-0">
-              <section className="flex gap-4">
-                <StepNumber n={1} />
-                <div className="flex-1 pb-8">
-                  <h3 className="text-sm font-semibold mb-3 pt-1">Install the Astro CLI</h3>
-                  <CodeBlock command="curl -fsSL https://astropods.ai/install | sh" />
-                </div>
-              </section>
-              <section className="flex gap-4">
-                <StepNumber n={2} />
-                <div className="flex-1 pb-8">
-                  <h3 className="text-sm font-semibold mb-3 pt-1">Scaffold & configure your agent</h3>
-                  <div className="space-y-3">
-                    <CodeBlock command={`ast create ${name}`} />
-                    <CodeBlock command={`cd ${name} && ast dev`} />
+            {githubRepoName ? (
+              /* GitHub path */
+              <div className="space-y-0">
+                <section className="flex gap-4">
+                  <StepNumber n={1} />
+                  <div className="flex-1 pb-8">
+                    <h3 className="text-sm font-semibold mb-1 pt-1">Add your config file</h3>
+                    <p className="text-muted-foreground mb-3 text-xs">
+                      Drop this into the root of{" "}
+                      <span className="font-mono text-foreground">{githubRepoName}</span>.
+                    </p>
+                    <YmlBlock content={astropodsYml} />
                   </div>
-                  <p className="text-muted-foreground mt-2 text-xs">
-                    This creates your project locally. Fill in your{" "}
-                    <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-teal-600 transition-colors">
-                      agent.md<ArrowUpRight className="size-3" />
-                    </Link>{" "}and
-                    configure your agent before pushing.
-                  </p>
-                </div>
-              </section>
-              <section className="flex gap-4">
-                <StepNumber n={3} isLast />
-                <div className="flex-1 pb-2">
-                  <h3 className="text-sm font-semibold mb-3 pt-1">Push to the registry</h3>
-                  <div className="space-y-3">
-                    <CodeBlock command="ast login" />
-                    <CodeBlock command="ast push" />
+                </section>
+                <section className="flex gap-4">
+                  <StepNumber n={2} isLast />
+                  <div className="flex-1 pb-2">
+                    <h3 className="text-sm font-semibold mb-3 pt-1">Commit and push</h3>
+                    <div className="space-y-3">
+                      <CodeBlock command="git add astropods.yml" />
+                      <CodeBlock command={`git commit -m "Add astropods.yml"`} />
+                      <CodeBlock command="git push" />
+                    </div>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      Every push to this repo will automatically build and register a new version of your blueprint.
+                    </p>
                   </div>
-                  <p className="text-muted-foreground mt-2 text-xs">
-                    Use <span className="font-mono text-foreground">ast push --build</span>{" "}
-                    to force a rebuild before pushing.
-                  </p>
-                </div>
-              </section>
-            </div>
+                </section>
+              </div>
+            ) : (
+              /* Local path */
+              <div className="space-y-0">
+                <section className="flex gap-4">
+                  <StepNumber n={1} />
+                  <div className="flex-1 pb-8">
+                    <h3 className="text-sm font-semibold mb-3 pt-1">Install the Astro CLI</h3>
+                    <CodeBlock command="curl -fsSL https://astropods.ai/install | sh" />
+                  </div>
+                </section>
+                <section className="flex gap-4">
+                  <StepNumber n={2} />
+                  <div className="flex-1 pb-8">
+                    <h3 className="text-sm font-semibold mb-3 pt-1">Scaffold & configure your agent</h3>
+                    <div className="space-y-3">
+                      <CodeBlock command={`ast create ${name}`} />
+                      <CodeBlock command={`cd ${name} && ast dev`} />
+                    </div>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      This creates your project locally. Fill in your{" "}
+                      <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-teal-600 transition-colors">
+                        agent.md<ArrowUpRight className="size-3" />
+                      </Link>{" "}and configure your agent before pushing.
+                    </p>
+                  </div>
+                </section>
+                <section className="flex gap-4">
+                  <StepNumber n={3} isLast />
+                  <div className="flex-1 pb-2">
+                    <h3 className="text-sm font-semibold mb-3 pt-1">Push to the registry</h3>
+                    <div className="space-y-3">
+                      <CodeBlock command="ast login" />
+                      <CodeBlock command="ast push" />
+                    </div>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      Use <span className="font-mono text-foreground">ast push --build</span>{" "}
+                      to force a rebuild before pushing.
+                    </p>
+                  </div>
+                </section>
+              </div>
+            )}
           </div>
 
           {/* Need more support? */}

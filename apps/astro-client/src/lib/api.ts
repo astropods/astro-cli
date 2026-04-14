@@ -863,6 +863,20 @@ class ApiClient {
       { method: 'DELETE' }
     );
   }
+
+  // Account-level GitHub connection (blueprint-agnostic)
+  async gitHubConnectAccount(account: string, redirectTo: string): Promise<GitHubConnectResponse> {
+    return this.request<GitHubConnectResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/connect`,
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
+    );
+  }
+
+  async gitHubListAccountRepos(account: string): Promise<{ repos: GitHubRepo[] }> {
+    return this.request<{ repos: GitHubRepo[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/repos`
+    );
+  }
 }
 
 export interface ConfigMapResponse {

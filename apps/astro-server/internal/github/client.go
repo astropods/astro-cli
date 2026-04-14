@@ -34,6 +34,9 @@ type Repo struct {
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
 	Private       bool   `json:"private"`
+	Permissions   struct {
+		Admin bool `json:"admin"`
+	} `json:"permissions"`
 }
 
 // Commit holds the minimal commit metadata returned by GetCommit.
@@ -80,11 +83,18 @@ func (c *Client) GetBranchHead(ctx context.Context, repoFullName, branch string)
 	return result.Commit.SHA, nil
 }
 
-// ListRepos returns up to 100 repos the authenticated user has access to, sorted by recent push.
+// ListRepos returns repos the authenticated user has admin access to, sorted by recent push.
+// Only admin repos are returned because webhook installation requires admin permission.
 func (c *Client) ListRepos(ctx context.Context) ([]Repo, error) {
-	var repos []Repo
-	if err := c.get(ctx, "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator", &repos); err != nil {
+	var all []Repo
+	if err := c.get(ctx, "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator", &all); err != nil {
 		return nil, fmt.Errorf("github: list repos: %w", err)
+	}
+	var repos []Repo
+	for _, r := range all {
+		if r.Permissions.Admin {
+			repos = append(repos, r)
+		}
 	}
 	return repos, nil
 }
