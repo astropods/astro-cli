@@ -262,7 +262,7 @@ function NewBlueprintContent() {
     } catch {
       // error state shown in publishing card
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile]);
+  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan, rebuild]);
 
   const avatarPreview = avatarPreviewUrl ? (
     <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
