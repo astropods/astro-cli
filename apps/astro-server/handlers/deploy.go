@@ -1927,6 +1927,11 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		c.Header("X-Accel-Buffering", "no")
 		c.Status(http.StatusOK)
 
+		// Disable the per-connection write deadline for streaming responses.
+		// The server-level WriteTimeout would otherwise kill the SSE connection
+		// after the configured timeout (default 10s).
+		_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+
 		flusher := c.Writer.(http.Flusher)
 
 		writeEvent := func(ll loki.LogLine) bool {
@@ -1960,19 +1965,39 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					if !sentReady {
 						log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
 						writeErrorEvent("failed to connect to log stream")
+						return
 					}
-					return
+					// Reconnect dial failed; keep the SSE open and retry after a pause.
+					select {
+					case <-time.After(500 * time.Millisecond):
+					case <-c.Request.Context().Done():
+						return
+					}
+					continue
 				}
 				if !sentReady {
 					fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
 					flusher.Flush()
 					sentReady = true
 				}
-				for ll := range ch {
-					if !writeEvent(ll) {
-						return
+				keepalive := time.NewTicker(30 * time.Second)
+			drain:
+				for {
+					select {
+					case ll, ok := <-ch:
+						if !ok {
+							break drain
+						}
+						if !writeEvent(ll) {
+							keepalive.Stop()
+							return
+						}
+					case <-keepalive.C:
+						fmt.Fprintf(c.Writer, ": keepalive\n\n") //nolint:errcheck
+						flusher.Flush()
 					}
 				}
+				keepalive.Stop()
 				if c.Request.Context().Err() != nil {
 					return
 				}
