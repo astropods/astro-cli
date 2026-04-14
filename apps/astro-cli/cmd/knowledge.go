@@ -456,7 +456,7 @@ func pollKnowledgeReady(ctx context.Context, account, name string) error {
 		}
 		var s knowledgeStoreResponse
 		_ = json.NewDecoder(resp.Body).Decode(&s)
-		resp.Body.Close() //nolint:errcheck
+		_ = resp.Body.Close()
 
 		if len(s.Events) > 0 {
 			e := s.Events[0]
