@@ -193,7 +193,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	}
 
 	// Network policies — deny-all default with explicit allow for agent namespaces.
-	if err := applyKnowledgeNetworkPolicies(ctx, client, ns, selector, int32(prov.DefaultPort), p.PodSubnetCIDRs); err != nil { //nolint:gosec
+	if err := applyKnowledgeNetworkPolicies(ctx, client, ns, selector, int32(prov.DefaultPort), p.PodSubnetCIDRs, p.Public); err != nil { //nolint:gosec
 		return fmt.Errorf("apply network policies: %w", err)
 	}
 
@@ -317,7 +317,7 @@ func knowledgeProviderResources(provider string) corev1.ResourceRequirements {
 //   - default-deny-all: blocks all ingress and egress by default
 //   - allow-knowledge-traffic: permits ingress from astro-managed namespaces on the DB port,
 //     intra-namespace traffic, and egress to DNS + external (for image pulls).
-func applyKnowledgeNetworkPolicies(ctx context.Context, client ClusterClient, ns string, selector map[string]string, dbPort int32, podSubnetCIDRs []string) error {
+func applyKnowledgeNetworkPolicies(ctx context.Context, client ClusterClient, ns string, selector map[string]string, dbPort int32, podSubnetCIDRs []string, public bool) error {
 	policyTypes := []networkingv1.PolicyType{
 		networkingv1.PolicyTypeIngress,
 		networkingv1.PolicyTypeEgress,
@@ -349,26 +349,36 @@ func applyKnowledgeNetworkPolicies(ctx context.Context, client ClusterClient, ns
 
 	// Policy 2: allow ingress from astro-managed namespaces on the DB port,
 	// intra-namespace traffic, and egress to DNS + external.
+	ingressRules := []networkingv1.NetworkPolicyIngressRule{
+		// Intra-namespace (health checks, etc.)
+		{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
+		// From agent namespaces managed by astro-server on the DB port.
+		{
+			From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app.kubernetes.io/managed-by": "astro-server"},
+				},
+			}},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{Protocol: protocolPtr(corev1.ProtocolTCP), Port: portPtr(dbPortObj)},
+			},
+		},
+	}
+	if public {
+		// External clients and NLB health checks on the DB port.
+		ingressRules = append(ingressRules, networkingv1.NetworkPolicyIngressRule{
+			From: []networkingv1.NetworkPolicyPeer{{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0"}}},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{Protocol: protocolPtr(corev1.ProtocolTCP), Port: portPtr(dbPortObj)},
+			},
+		})
+	}
 	if err := apply(&networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "allow-knowledge-traffic", Namespace: ns},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: selector},
 			PolicyTypes: policyTypes,
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				// Intra-namespace (health checks, etc.)
-				{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
-				// From agent namespaces managed by astro-server on the DB port.
-				{
-					From: []networkingv1.NetworkPolicyPeer{{
-						NamespaceSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{"app.kubernetes.io/managed-by": "astro-server"},
-						},
-					}},
-					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: protocolPtr(corev1.ProtocolTCP), Port: portPtr(dbPortObj)},
-					},
-				},
-			},
+			Ingress:     ingressRules,
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				// Intra-namespace.
 				{To: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
