@@ -203,31 +203,6 @@ type tailWSMessage struct {
 	} `json:"streams"`
 }
 
-// tailFrameToLines converts a single Loki tail WebSocket frame into LogLine values.
-func tailFrameToLines(frame tailWSMessage) []LogLine {
-	var lines []LogLine
-	for _, stream := range frame.Streams {
-		pod := stream.Stream["pod"]
-		container := stream.Stream["container"]
-		for _, entry := range stream.Values {
-			if len(entry) != 2 {
-				continue
-			}
-			tsNano, err := strconv.ParseInt(entry[0], 10, 64)
-			if err != nil {
-				continue
-			}
-			lines = append(lines, LogLine{
-				Timestamp: time.Unix(0, tsNano),
-				Pod:       pod,
-				Container: container,
-				Line:      entry[1],
-			})
-		}
-	}
-	return lines
-}
-
 const tailReadDeadline = 90 * time.Second
 
 // TailLogs connects to Loki's WebSocket tail endpoint and streams new log lines
@@ -263,33 +238,57 @@ func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, e
 
 	ch := make(chan LogLine, 64)
 
-	// Close the connection when the context is cancelled so ReadMessage unblocks promptly.
-	go func() {
-		<-ctx.Done()
-		_ = conn.Close()
-	}()
-
 	go func() {
 		defer close(ch)
 		defer func() { _ = conn.Close() }()
 
+		// When the context is cancelled, close the connection so ReadMessage
+		// unblocks promptly. Using a separate goroutine that exits when the
+		// reader returns (via done channel) avoids leaking it.
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = conn.Close()
+			case <-done:
+			}
+		}()
+
+		var frame tailWSMessage
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(tailReadDeadline))
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
+			_, msg, readErr := conn.ReadMessage()
+			if readErr != nil {
 				return
 			}
 
-			var frame tailWSMessage
+			frame.Streams = frame.Streams[:0]
 			if err := json.Unmarshal(msg, &frame); err != nil {
 				continue
 			}
 
-			for _, line := range tailFrameToLines(frame) {
-				select {
-				case ch <- line:
-				case <-ctx.Done():
-					return
+			for _, stream := range frame.Streams {
+				pod := stream.Stream["pod"]
+				container := stream.Stream["container"]
+				for _, entry := range stream.Values {
+					if len(entry) != 2 {
+						continue
+					}
+					tsNano, parseErr := strconv.ParseInt(entry[0], 10, 64)
+					if parseErr != nil {
+						continue
+					}
+					select {
+					case ch <- LogLine{
+						Timestamp: time.Unix(0, tsNano),
+						Pod:       pod,
+						Container: container,
+						Line:      entry[1],
+					}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}

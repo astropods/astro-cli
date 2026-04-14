@@ -1963,6 +1963,11 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return true
 		}
 
+		writeStatusEvent := func(status string) {
+			fmt.Fprintf(c.Writer, "event: status\ndata: {\"status\":%q}\n\n", status) //nolint:errcheck
+			flusher.Flush()
+		}
+
 		writeErrorEvent := func(message string) {
 			log.Debug("SSE sending error event", "deployment", dep.ID, "message", message)
 			fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message) //nolint:errcheck
@@ -1970,7 +1975,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		writeHeartbeat := func() bool {
-			_, err := fmt.Fprintf(c.Writer, ": heartbeat\n\n")
+			_, err := fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {}\n\n")
 			if err != nil {
 				log.Debug("SSE heartbeat write failed, client likely disconnected", "deployment", dep.ID, "error", err)
 				return false
@@ -1989,6 +1994,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 			for {
 				connectCount++
+				writeStatusEvent("connecting")
 				log.Debug("Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
 					"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 
@@ -2017,6 +2023,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					continue
 				}
 				firstConnect = false
+				writeStatusEvent("streaming")
 				log.Debug("Loki tail connected", "deployment", dep.ID, "attempt", connectCount)
 
 				alive := true
@@ -2025,6 +2032,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					case ll, ok := <-ch:
 						if !ok {
 							log.Debug("Loki tail channel closed, will reconnect", "deployment", dep.ID)
+							writeStatusEvent("reconnecting")
 							alive = false
 							continue
 						}
@@ -2078,6 +2086,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			logOpts.Container = containerName
 		}
 
+		writeStatusEvent("connecting")
 		log.Debug("K8s pod log stream starting", "deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
 		if streamErr != nil {
@@ -2087,6 +2096,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 		defer stream.Close() //nolint:errcheck
+		writeStatusEvent("streaming")
 		log.Debug("K8s pod log stream connected", "deployment", dep.ID, "pod", podName)
 
 		// Pipe scanner into a channel so we can select with the heartbeat ticker.
