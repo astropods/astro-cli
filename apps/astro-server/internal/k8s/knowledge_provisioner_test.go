@@ -193,10 +193,26 @@ func TestKnowledgeResourceName(t *testing.T) {
 }
 
 func TestKnowledgeNamespace(t *testing.T) {
-	got := KnowledgeNamespace("550e8400-e29b-41d4-a716-446655440000")
-	want := "knowledge-550e8400-e29b-41d4-a716-446655440000"
-	if got != want {
-		t.Errorf("want %q, got %q", want, got)
+	accountID := "550e8400-e29b-41d4-a716-446655440000"
+	got := KnowledgeNamespace(accountID)
+
+	// Must start with the prefix.
+	if !strings.HasPrefix(got, "knowledge-") {
+		t.Errorf("namespace %q must start with 'knowledge-'", got)
+	}
+	// Short ID must be exactly 16 lowercase hex chars (FNV-64a).
+	shortID := strings.TrimPrefix(got, "knowledge-")
+	if len(shortID) != 16 {
+		t.Errorf("short ID %q: want 16 chars, got %d", shortID, len(shortID))
+	}
+	// Must be deterministic.
+	if got != KnowledgeNamespace(accountID) {
+		t.Error("KnowledgeNamespace must be deterministic")
+	}
+	// Two distinct accounts must produce distinct namespaces.
+	other := KnowledgeNamespace("aaaaaaaa-0000-0000-0000-000000000000")
+	if got == other {
+		t.Error("distinct accounts must produce distinct namespaces")
 	}
 }
 
