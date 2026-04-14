@@ -1303,6 +1303,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)
+			api.GET(accountGitHubRoutes, "/github/scan", "Scan repo for astropods.yml",
+				handlers.GitHubAccountScan(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
 			// Callback is a browser GET from the OAuth redirect — same auth middleware, no body
 			api.GET(accountGitHubRoutes, "/github/callback", "Account-level GitHub OAuth callback",
 				handlers.GitHubAccountCallback(log, pipesClient, githubCfg),

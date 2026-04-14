@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth";
 import { useExperiments } from "@/lib/experiments";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink } from "@/api/queries";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubStatus } from "@/api/queries";
 import type { GitHubRepo } from "@/lib/api";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
@@ -92,6 +92,7 @@ function NewBlueprintContent() {
   const [githubConnected, setGithubConnected] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [selectedBranch, setSelectedBranch] = useState("main");
+  const [scanResult, setScanResult] = useState<"scanning" | "found" | "not-found" | null>(null);
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
@@ -101,6 +102,23 @@ function NewBlueprintContent() {
   const accountConnect = useGitHubAccountConnect(selectedOrg);
   const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected });
   const githubLink = useGitHubLink(selectedOrg, slug);
+  const accountScan = useGitHubAccountScan(selectedOrg);
+  const rebuild = useGitHubRebuild(selectedOrg, slug);
+
+  // Poll GitHub status while waiting for a build triggered by the scan fast-path.
+  const { data: buildStatus } = useGitHubStatus(selectedOrg, slug, {
+    enabled: activeStep === "publishing" && scanResult === "found",
+    refetchInterval: 3000,
+  });
+
+  // Once the build completes on the scan fast-path, advance to review.
+  useEffect(() => {
+    if (activeStep !== "publishing" || scanResult !== "found") return;
+    if (buildStatus?.builds[0]?.status === "registered") {
+      setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
+      setActiveStep("review");
+    }
+  }, [buildStatus, activeStep, scanResult]);
 
   // Restore wizard state when returning from GitHub OAuth
   useEffect(() => {
@@ -153,6 +171,14 @@ function NewBlueprintContent() {
     }
     navigate(`/${selectedOrg}/${slug}`);
   }, [sourcePath, selectedRepo, selectedOrg, slug, navigate, setExperiment]);
+
+  // Auto-route on the review step when the scan fast-path succeeded (build registered).
+  useEffect(() => {
+    if (activeStep !== "review" || scanResult !== "found") return;
+    setExperiment("githubAutoBuild", true);
+    const t = setTimeout(() => navigate(`/${selectedOrg}/${slug}`), 1500);
+    return () => clearTimeout(t);
+  }, [activeStep, scanResult, selectedOrg, slug, navigate, setExperiment]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {
@@ -215,6 +241,22 @@ function NewBlueprintContent() {
         })(),
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
+
+      // Scan fast-path: if the repo already has astropods.yml, trigger a build immediately.
+      if (sourcePath === "import" && selectedRepo) {
+        setScanResult("scanning");
+        try {
+          const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch });
+          if (scan.found) {
+            setScanResult("found");
+            rebuild.mutate();
+            // Stay on publishing — useEffect above will advance to review once build registers.
+            return;
+          }
+        } catch { /* treat scan errors as not-found */ }
+        setScanResult("not-found");
+      }
+
       setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
       setActiveStep("review");
     } catch {
@@ -438,7 +480,13 @@ function NewBlueprintContent() {
                         </div>
                       </div>
                       <div className="text-center">
-                        <p className="text-sm font-semibold">Initializing {slug || "your agent"}…</p>
+                        <p className="text-sm font-semibold">
+                          {scanResult === "scanning"
+                            ? `Scanning ${selectedRepo?.full_name ?? "repo"}…`
+                            : scanResult === "found"
+                            ? `Building ${slug}…`
+                            : `Initializing ${slug || "your agent"}…`}
+                        </p>
                         <p className="mt-0.5 font-mono text-xs text-muted-foreground">{selectedOrg}/{slug}</p>
                       </div>
                       <div className="flex gap-2">

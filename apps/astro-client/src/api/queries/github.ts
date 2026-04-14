@@ -2,11 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type GitHubLinkInput } from '../../lib/api';
 import { githubKeys, blueprintKeys } from './keys';
 
-export function useGitHubStatus(account: string, name: string, opts?: { enabled?: boolean }) {
+export function useGitHubStatus(account: string, name: string, opts?: { enabled?: boolean; refetchInterval?: number | false }) {
   const result = useQuery({
     queryKey: githubKeys.status(account, name),
     queryFn: () => api.getGitHubStatus(account, name),
     enabled: (opts?.enabled ?? true) && !!account && !!name,
+    refetchInterval: opts?.refetchInterval,
   });
 
   // Poll every 5 seconds only while the most recent build is still in-flight.
@@ -90,5 +91,12 @@ export function useGitHubAccountRepos(account: string, opts?: { enabled?: boolea
     queryKey: githubKeys.accountRepos(account),
     queryFn: () => api.gitHubListAccountRepos(account),
     enabled: (opts?.enabled ?? true) && !!account,
+  });
+}
+
+export function useGitHubAccountScan(account: string) {
+  return useMutation({
+    mutationFn: ({ repo, branch }: { repo: string; branch: string }) =>
+      api.gitHubAccountScan(account, repo, branch),
   });
 }

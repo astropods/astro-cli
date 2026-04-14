@@ -877,6 +877,13 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/github/repos`
     );
   }
+
+  async gitHubAccountScan(account: string, repo: string, branch: string): Promise<{ found: boolean }> {
+    const params = new URLSearchParams({ repo, branch });
+    return this.request<{ found: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
+    );
+  }
 }
 
 export interface ConfigMapResponse {

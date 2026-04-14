@@ -312,6 +312,44 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 	}
 }
 
+// GitHubAccountScan handles GET /api/v1/accounts/:account/github/scan.
+// Returns whether astropods.yml exists in the given repo at the given branch.
+func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		repo := c.Query("repo")
+		branch := c.Query("branch")
+		if repo == "" || branch == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "repo and branch are required"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+			return
+		}
+
+		content, err := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, repo, branch, "astropods.yml")
+		if err != nil {
+			log.Warn("github scan: fetch astropods.yml", "error", err, "repo", repo)
+			c.JSON(http.StatusOK, gin.H{"found": false})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"found": content != ""})
+	}
+}
+
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
 func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
