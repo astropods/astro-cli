@@ -108,8 +108,8 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
     <div className="rounded-[6px] p-4" style={panelStyle}>
       <div className="flex items-start justify-between gap-3">
         {title ? (
-          <div className="flex items-center gap-1.5 mb-2">
-            <Icon size={16} style={toneTextStyle} />
+          <div className="flex items-start gap-1.5 mb-2">
+            <Icon size={16} className="shrink-0 mt-[1px]" style={toneTextStyle} />
             <span className="text-sm font-medium" style={toneTextStyle}>{title}</span>
           </div>
         ) : (
@@ -228,8 +228,8 @@ export function ActionPanel({
   return (
     <>
       <div className="rounded-[6px] px-4 py-3" style={{ background: toneConfig.backgroundColor, border: `1px solid ${toneConfig.borderColor}` }}>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Icon size={15} className="shrink-0" style={{ color: toneConfig.textColor }} />
+        <div className="flex items-start gap-3 flex-wrap">
+          <Icon size={16} className="shrink-0 mt-[1px]" style={{ color: toneConfig.textColor }} />
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium" style={{ color: toneConfig.textColor }}>{title}</span>
           </div>
