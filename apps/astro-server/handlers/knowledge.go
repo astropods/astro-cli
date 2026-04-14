@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
@@ -352,9 +353,39 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 
 		ns := k8s.KnowledgeNamespace(acct.ID)
 		tailLines := int64(200)
+		if tl := c.Query("tailLines"); tl != "" {
+			if parsed, err := strconv.ParseInt(tl, 10, 64); err == nil && parsed > 0 {
+				tailLines = parsed
+			}
+		}
+
+		// Knowledge stores are long-lived and often quiet after startup,
+		// so default to a 24h lookback (vs 1h for agent deployments).
+		lokiParams := loki.QueryParams{
+			Namespace: ns,
+			Workload:  k8s.KnowledgeResourceName(ks.ID),
+			Container: "app",
+			Limit:     tailLines,
+			Start:     time.Now().Add(-24 * time.Hour),
+			Direction: "backward",
+		}
+		if s := c.Query("since"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				lokiParams.Start = t
+			} else if ns, err := strconv.ParseInt(s, 10, 64); err == nil {
+				lokiParams.Start = time.Unix(0, ns)
+			}
+		}
+		if u := c.Query("until"); u != "" {
+			if t, err := time.Parse(time.RFC3339, u); err == nil {
+				lokiParams.End = t
+			} else if ns, err := strconv.ParseInt(u, 10, 64); err == nil {
+				lokiParams.End = time.Unix(0, ns)
+			}
+		}
 
 		streamLogs(c, log,
-			lokiClient, loki.QueryParams{Namespace: ns, Workload: k8s.KnowledgeResourceName(ks.ID), Limit: tailLines},
+			lokiClient, lokiParams,
 			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
 		)
 	}
