@@ -103,7 +103,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   const tabEnabled = activeTab !== null;
 
   // Historical (non-live) query — one-shot fetch, no polling.
-  const { data: logsRaw, isLoading: histLoading, isFetching: histFetching, isError } = useDeploymentLogs(
+  const { data: logsRaw, isLoading: histLoading, isError } = useDeploymentLogs(
     deployment.id,
     activeTab?.workloadName ?? "",
     activeTab?.containerName ?? "",
@@ -128,15 +128,8 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTailing, activeTab?.workloadName, activeTab?.containerName, deployment.id]);
 
-  // While the historical refetch is in-flight (after stopping live), keep showing
-  // stream lines so the count doesn't drop to stale cached data.
-  const logs = useMemo(() => {
-    if (isTailing) return streamLines;
-    if (histFetching && streamLines.length > 0) return streamLines;
-    return logsRaw ?? [];
-  }, [isTailing, streamLines, logsRaw, histFetching]);
-
-  const isLoading = isTailing ? false : (histLoading || (histFetching && streamLines.length === 0));
+  const logs = isTailing ? streamLines : (logsRaw ?? []);
+  const isLoading = !isTailing && histLoading;
   let logError: string | undefined;
   if (isTailing) logError = streamError;
   else if (isError) logError = "Failed to load logs.";

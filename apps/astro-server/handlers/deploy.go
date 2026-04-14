@@ -1898,9 +1898,7 @@ func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, names
 	return podName, nil
 }
 
-// StreamDeploymentLogs streams live log lines for a deployment workload as Server-Sent Events.
-// Loki path: WebSocket tail from time.Now(). When Loki closes, the SSE closes and the browser reconnects.
-// K8s fallback: pod logs with Follow=true and SinceTime=now. Same close-and-reconnect behaviour.
+// StreamDeploymentLogs streams log lines for a deployment workload as Server-Sent Events.
 func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
@@ -1947,9 +1945,6 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		if lokiClient != nil {
-			// Loki path: tail from now — no backfill, no reconnect loop.
-			// When the Loki WebSocket closes the channel closes and we return,
-			// which ends the SSE response so the browser can reconnect.
 			ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
 				Namespace: dep.Namespace,
 				Pod:       podName,
@@ -1988,8 +1983,6 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		// K8s fallback: tail from now — no backfill, no reconnect logic.
-		// When the pod stream ends the handler returns, closing the SSE response so the browser reconnects.
 		sinceTime := metav1.NewTime(time.Now())
 		logOpts := &corev1.PodLogOptions{Follow: true, SinceTime: &sinceTime, Timestamps: true}
 		if containerName != "" {

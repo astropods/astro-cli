@@ -452,7 +452,7 @@ class ApiClient {
     container: string,
     since?: string,
   ): Promise<import('./log-utils').LogEntry[]> {
-    const params = new URLSearchParams({ workload: workloadName, container, tailLines: '5000' });
+    const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
     const response = await fetch(url, {

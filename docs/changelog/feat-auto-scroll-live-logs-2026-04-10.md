@@ -1,46 +1,35 @@
-# Live Log Streaming
+# Tail Log Streaming
 
 ## Summary
 
-Adds a live log streaming mode to the deployment logs view. Clicking the Live button opens a persistent SSE connection that backfills the last 15 minutes of history server-side and then tails new lines in real time. Reconnects resume from the last received event without re-fetching history, so the view stays stable if the connection drops or the WebSocket read deadline fires on a quiet stream.
+Adds a live tail mode to the deployment logs view. Clicking **Tail** opens an SSE connection that streams new log lines from the moment the connection opens — no history is backfilled. When the server-side stream closes (Loki WebSocket disconnect or pod stream end), the SSE response ends and the browser's `EventSource` reconnects automatically, showing a "Reconnecting…" indicator in the toolbar.
 
 ## Design
 
 ### Backend — `GET /api/v1/deployments/:id/logs/stream`
 
-The endpoint accepts `workload`, `container`, and `pod` query params and returns `text/event-stream`. Two backend paths share the same SSE wire format.
+Accepts `workload`, `container`, and `pod` query params and returns `text/event-stream`. Both backend paths follow the same pattern: open the log source from `time.Now()`, emit `event: ready`, forward lines until the source closes, then return. Closing the handler ends the SSE response so the browser reconnects.
 
-Every emitted log event carries an `id:` field set to the log line's nanosecond Unix timestamp. On reconnect the browser automatically sends this back as `Last-Event-ID`; the server uses it to resume from the cursor instead of replaying history.
+**Loki path:** dials Loki's WebSocket tail with `Start=time.Now()`. On dial error, emits `event: error` and returns. Otherwise emits `event: ready` and ranges over the channel until it closes.
 
-**Loki path** (production):
-
-On fresh connection (no `Last-Event-ID`): fetches the last 15 minutes via `QueryLogs`, emits each line as a data event, then dials Loki's WebSocket tail starting at `lastBackfillLine+1ns`. Starting the tail immediately after the last backfill timestamp closes the gap that would otherwise exist between when `QueryLogs` ran and when the tail WebSocket connected. `event: ready` is emitted once the tail WebSocket is open.
-
-On reconnect (`Last-Event-ID` present): skips the backfill entirely and opens the tail from `cursor+1ns`.
-
-**K8s fallback** (local dev / no Loki):
-
-On fresh connection: sets `SinceTime=now-15min` to stream the last 15 minutes.
-
-On reconnect: sets `SinceTime` from the `Last-Event-ID` cursor. Because the K8s API serialises `SinceTime` at second-level precision, lines at or before the cursor are filtered server-side to prevent duplicates.
-
-```
-Frontend (EventSource) → GET /deployments/:id/logs/stream
-  ├── Loki: QueryLogs (backfill) → TailLogs WebSocket (tail from lastLine+1ns)
-  └── K8s: CoreV1().Pods().GetLogs(Follow=true, SinceTime=now-15min or cursor)
-```
+**K8s fallback:** calls `CoreV1().Pods().GetLogs` with `Follow=true` and `SinceTime=time.Now()`. Emits `event: ready`, then scans lines until the stream ends.
 
 ### Frontend
 
-`useDeploymentLogsStream` manages the `EventSource` lifecycle and accumulates lines via a reducer. On fresh connection it starts with an empty line buffer; the server streams the backfill before emitting `event: ready`. `LogsTab` shows the existing historical logs (from the polling hook) until `ready` fires — at which point the stream already contains the full backfill — then switches cleanly to the stream with no visible flash or line-count jump. No client-side seeding or timestamp filtering is needed.
+**`LogStreamProvider`** is a React context provider mounted at the `ActiveDetailView` level. It holds a single `EventSource` and manages stream state (`idle → connecting → tailing → reconnecting`). Because the provider lives above the tab strip, the connection survives switching between Monitor, Deployments, and Logs tabs within the same deployment view.
 
-Live mode is disabled when switching container tabs so each tab loads its own fresh stream on enable.
+- `startStream(deploymentId, workload, container)` — closes any existing connection, opens a new `EventSource`, accumulates lines (capped at 5000).
+- `stopStream()` — closes the connection and resets state.
+- Unmount cleanup closes the connection when navigating away from the deployment.
 
-`LogViewer` additions:
-- **Auto-scroll**: follows new lines as they arrive unless the user has scrolled up.
-- **Jump to bottom**: floating button restores auto-scroll when the user is scrolled up.
-- **Live button deactivates on time-range open**: opening the time selector automatically exits live mode.
+**`LogsTab`** manages container sub-tabs and the `isTailing` toggle. Historical logs use `useDeploymentLogs` (TanStack Query, one-shot fetch) when not tailing. Switching container tabs or turning off Tail reverts to historical mode. An auto-disconnect fires after 30 seconds if the user navigates away from the Logs tab while tailing.
+
+**`LogViewer`** additions:
+- **Tail toggle**: pulsing dot when active; turns off automatically when the time-range selector is opened.
+- **Reconnecting indicator**: spinner shown while `EventSource` is auto-retrying.
+- **Auto-scroll**: follows new lines unless the user has scrolled up.
+- **Jump to bottom**: floating button restores auto-scroll.
 
 ## Migration
 
-No changes required. The live toggle opens an SSE stream rather than polling. Operators running behind a proxy should verify `WRITE_TIMEOUT=0` so SSE connections are not closed by the server's default write timeout.
+No changes required. The Tail button replaces the previous Live button. No proxy configuration changes are needed beyond ensuring SSE connections are not cut by a write timeout.
