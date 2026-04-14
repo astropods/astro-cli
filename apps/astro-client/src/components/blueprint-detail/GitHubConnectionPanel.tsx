@@ -207,26 +207,11 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
         </div>
       )}
 
-      {status.builds.length > 0 && status.builds[0].status === "registered" && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
-          <span className="relative flex h-2 w-2 shrink-0 mt-0.5">
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-          </span>
-          <span className="text-green-700 dark:text-green-400 font-medium">Live</span>
-          {status.builds[0].commit_message && (
-            <span className="truncate text-muted-foreground">· {status.builds[0].commit_message}</span>
-          )}
-        </div>
-      )}
-
-      {status.builds.length > 0 && status.builds[0].status !== "registered" && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-mono">Recent Builds</p>
-          <div className="space-y-1">
-            {status.builds.slice(0, 2).map((build) => (
-              <BuildRow key={build.id} build={build} account={account} name={name} />
-            ))}
-          </div>
+      {status.builds.length > 0 && (
+        <div className="space-y-1">
+          {status.builds.slice(0, 2).map((build) => (
+            <BuildRow key={build.id} build={build} account={account} name={name} />
+          ))}
         </div>
       )}
     </div>
