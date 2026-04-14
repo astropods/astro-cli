@@ -1,0 +1,37 @@
+import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+export type StatusBadgeColor = 'success' | 'warning' | 'error' | 'muted';
+
+const COLOR: Record<StatusBadgeColor, { bg: string; bdr: string; fg: string }> = {
+  success: { bg: 'rgba(21,130,125,0.08)',                                          bdr: 'rgba(21,130,125,0.22)',                                          fg: 'var(--color-teal-600)'   },
+  warning: { bg: 'color-mix(in oklch, var(--color-yellow-500) 12%, transparent)', bdr: 'color-mix(in oklch, var(--color-yellow-500) 28%, transparent)', fg: 'var(--color-yellow-600)' },
+  error:   { bg: 'color-mix(in oklch, var(--color-coral-600) 12%, transparent)',  bdr: 'color-mix(in oklch, var(--color-coral-600) 28%, transparent)',  fg: 'var(--color-coral-600)'  },
+  muted:   { bg: 'var(--muted)',                                                   bdr: 'var(--border)',                                                  fg: 'var(--muted-foreground)' },
+};
+
+export interface StatusBadgeProps {
+  color: StatusBadgeColor;
+  indicator?: boolean;
+  spinning?: boolean;
+  outline?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}
+
+export function StatusBadge({ color, indicator = false, spinning = false, outline = false, className, children }: StatusBadgeProps) {
+  const s = COLOR[color];
+  return (
+    <span
+      className={cn("inline-flex items-center gap-[5px] px-[10px] py-1 rounded-full font-mono font-normal text-label tracking-[0.06em] border", className)}
+      style={{ background: outline ? 'transparent' : s.bg, borderColor: s.bdr, color: s.fg }}
+    >
+      {indicator && (
+        spinning
+          ? <Loader2 size={12} className="dp-spin shrink-0" />
+          : <span className="size-[5px] rounded-full shrink-0 bg-current" />
+      )}
+      {children}
+    </span>
+  );
+}
