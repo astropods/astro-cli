@@ -20,6 +20,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
+	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"

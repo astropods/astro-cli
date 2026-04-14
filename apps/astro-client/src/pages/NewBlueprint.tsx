@@ -170,7 +170,7 @@ function NewBlueprintContent() {
       sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch }));
     }
     navigate(`/${selectedOrg}/${slug}`);
-  }, [sourcePath, selectedRepo, selectedOrg, slug, navigate, setExperiment]);
+  }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, navigate, setExperiment]);
 
   // Auto-route on the review step when the scan fast-path succeeded (build registered).
   useEffect(() => {
