@@ -345,7 +345,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 		tailLines := int64(200)
 
 		streamLogs(c, log,
-			lokiClient, loki.QueryParams{Namespace: ns, Workload: ks.ID, Limit: tailLines},
+			lokiClient, loki.QueryParams{Namespace: ns, Workload: k8s.KnowledgeResourceName(ks.ID), Limit: tailLines},
 			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
 		)
 	}

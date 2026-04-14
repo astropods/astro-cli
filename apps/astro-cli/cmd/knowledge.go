@@ -192,8 +192,7 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 	fmt.Println()
 	fmt.Printf("%s→%s Provisioning", colorCyan, colorReset)
 
-	// Stream events until the store reaches a terminal state.
-	if err := streamKnowledgeEvents(cmd.Context(), account, created.Name); err != nil {
+	if err := pollKnowledgeReady(cmd.Context(), account, created.Name); err != nil {
 		fmt.Println()
 		return err
 	}
@@ -426,86 +425,54 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// streamKnowledgeEvents connects to the /events SSE endpoint and prints
-// progress until the store reaches a terminal state (ready or error).
-func streamKnowledgeEvents(ctx context.Context, account, name string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		knowledgeAPIBase()+fmt.Sprintf("/api/v1/accounts/%s/knowledge/%s/events",
-			url.PathEscape(account), url.PathEscape(name)),
-		nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("X-Cli-Version", version)
-	if err := auth.AddAuthHeader(ctx, req, binaryName); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
+// pollKnowledgeReady polls the status endpoint every 3 seconds until the store
+// reaches a terminal state. Avoids long-lived SSE connections that proxies drop.
+func pollKnowledgeReady(ctx context.Context, account, name string) error {
+	const (
+		pollInterval = 3 * time.Second
+		timeout      = 15 * time.Minute
+	)
+	deadline := time.Now().Add(timeout)
+	lastEvent := ""
 
-	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("failed to connect to event stream: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("events stream returned status %d", resp.StatusCode)
-	}
-
-	type statusEvent struct {
-		Status  string `json:"status"`
-		StoreID string `json:"store_id"`
-		Error   string `json:"error"`
-		Type    string `json:"type"`
-		Reason  string `json:"reason"`
-		Message string `json:"message"`
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	seen := make(map[string]bool)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		resp, err := knowledgeRequest(ctx, http.MethodGet, knowledgePath(account, name), nil)
+		if err != nil {
+			fmt.Print(".")
 			continue
 		}
-		payload := strings.TrimPrefix(line, "data: ")
+		var s knowledgeStoreResponse
+		_ = json.NewDecoder(resp.Body).Decode(&s)
+		resp.Body.Close() //nolint:errcheck
 
-		var evt statusEvent
-		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
-			continue
-		}
-
-		if evt.Error != "" {
-			return fmt.Errorf("store error: %s", evt.Error)
-		}
-
-		// Deduplicate K8s events by reason+message.
-		if evt.Reason != "" {
-			key := evt.Reason + ":" + evt.Message
-			if seen[key] {
-				continue
+		if len(s.Events) > 0 {
+			e := s.Events[0]
+			key := e.Reason + ":" + e.Message
+			if key != lastEvent {
+				lastEvent = key
+				fmt.Printf("\n  %s%s:%s %s", colorDim, e.Reason, colorReset, e.Message)
 			}
-			seen[key] = true
-			fmt.Printf("\n  %s%s:%s %s", colorDim, evt.Reason, colorReset, evt.Message)
 		} else {
 			fmt.Print(".")
 		}
 
-		if evt.Status == "ready" {
+		switch s.Status {
+		case "ready":
 			return nil
-		}
-		if evt.Status == "error" {
+		case "error":
+			if s.Error != nil && *s.Error != "" {
+				return fmt.Errorf("provisioning failed: %s", *s.Error)
+			}
 			return fmt.Errorf("provisioning failed")
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	// Stream closed before a terminal status was received (server restart, timeout, etc.).
-	return fmt.Errorf("event stream closed before store reached ready state — run '%s knowledge status <name>' to check", binaryName)
+	return fmt.Errorf("timed out waiting for store to become ready")
 }
 
 // knowledgeStoreResponse mirrors the server's knowledge response shape.
