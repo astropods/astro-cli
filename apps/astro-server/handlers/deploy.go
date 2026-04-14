@@ -1912,14 +1912,26 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		if lokiClient == nil && k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
-			return
-		}
-
 		workloadName := c.Query("workload")
 		containerName := c.Query("container")
 		podName := c.Query("pod")
+		backend := "none"
+		if lokiClient != nil {
+			backend = "loki"
+		} else if k8sClient != nil {
+			backend = "k8s"
+		}
+
+		log.Debug("SSE stream requested",
+			"deployment", dep.ID, "namespace", dep.Namespace,
+			"workload", workloadName, "container", containerName, "pod", podName,
+			"backend", backend)
+
+		if lokiClient == nil && k8sClient == nil {
+			log.Warn("SSE stream rejected: no log backend configured", "deployment", dep.ID)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
+			return
+		}
 
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
@@ -1934,10 +1946,17 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 		flusher := c.Writer.(http.Flusher)
 
+		// Send the ready event immediately so the browser confirms the SSE
+		// handshake before we block on Loki dial or K8s pod resolution.
+		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+		flusher.Flush()
+		log.Debug("SSE ready event sent", "deployment", dep.ID)
+
 		writeEvent := func(ll loki.LogLine) bool {
 			payload, _ := json.Marshal(lokiLineToEntry(ll))
 			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
 			if writeErr != nil {
+				log.Debug("SSE write failed, client likely disconnected", "deployment", dep.ID, "error", writeErr)
 				return false
 			}
 			flusher.Flush()
@@ -1945,15 +1964,34 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		writeErrorEvent := func(message string) {
+			log.Debug("SSE sending error event", "deployment", dep.ID, "message", message)
 			fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message) //nolint:errcheck
 			flusher.Flush()
 		}
 
+		writeHeartbeat := func() bool {
+			_, err := fmt.Fprintf(c.Writer, ": heartbeat\n\n")
+			if err != nil {
+				log.Debug("SSE heartbeat write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+
 		if lokiClient != nil {
 			// Loki's tail WebSocket closes periodically. Reconnect server-side so the
-			// SSE connection stays open. event: ready is only sent on the first connect.
-			sentReady := false
+			// SSE connection stays open.
+			heartbeat := time.NewTicker(5 * time.Second)
+			defer heartbeat.Stop()
+			firstConnect := true
+			connectCount := 0
+
 			for {
+				connectCount++
+				log.Debug("Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
+					"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
+
 				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
 					Namespace: dep.Namespace,
 					Pod:       podName,
@@ -1962,36 +2000,52 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					Start:     time.Now(),
 				})
 				if tailErr != nil {
-					if !sentReady {
-						log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
+					if firstConnect {
+						log.Error("Loki tail initial dial failed", "error", tailErr,
+							"deployment", dep.ID, "namespace", dep.Namespace)
 						writeErrorEvent("failed to connect to log stream")
 						return
 					}
-					// Reconnect dial failed; keep the SSE open and retry after a pause.
+					log.Warn("Loki tail reconnect failed, retrying", "error", tailErr,
+						"deployment", dep.ID, "attempt", connectCount)
 					select {
 					case <-time.After(500 * time.Millisecond):
 					case <-c.Request.Context().Done():
+						log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
 						return
 					}
 					continue
 				}
-				if !sentReady {
-					fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
-					flusher.Flush()
-					sentReady = true
-				}
-				for ll := range ch {
-					if !writeEvent(ll) {
+				firstConnect = false
+				log.Debug("Loki tail connected", "deployment", dep.ID, "attempt", connectCount)
+
+				alive := true
+				for alive {
+					select {
+					case ll, ok := <-ch:
+						if !ok {
+							log.Debug("Loki tail channel closed, will reconnect", "deployment", dep.ID)
+							alive = false
+							continue
+						}
+						if !writeEvent(ll) {
+							return
+						}
+					case <-heartbeat.C:
+						if !writeHeartbeat() {
+							return
+						}
+					case <-c.Request.Context().Done():
+						log.Debug("SSE client disconnected", "deployment", dep.ID)
 						return
 					}
 				}
-				if c.Request.Context().Err() != nil {
-					return
-				}
+
 				// Brief pause before reconnecting to avoid tight loops if Loki is unavailable.
 				select {
 				case <-time.After(500 * time.Millisecond):
 				case <-c.Request.Context().Done():
+					log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
 					return
 				}
 			}
@@ -1999,16 +2053,21 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 		// K8s fallback: resolve pod then stream with Follow=true.
 		if podName == "" && workloadName != "" {
+			log.Debug("Resolving pod for K8s stream", "deployment", dep.ID,
+				"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 			resolved, resolveErr := resolvePodForStream(c.Request.Context(), k8sClient, dep.Namespace, workloadName, containerName)
 			if resolveErr != nil {
-				log.Error("Failed to list pods for stream", "error", resolveErr)
+				log.Error("Failed to list pods for stream", "error", resolveErr,
+					"deployment", dep.ID, "namespace", dep.Namespace, "workload", workloadName)
 				writeErrorEvent("failed to list pods")
 				return
 			}
 			podName = resolved
+			log.Debug("Resolved pod for K8s stream", "deployment", dep.ID, "pod", podName)
 		}
 
 		if podName == "" {
+			log.Warn("SSE stream rejected: no pod or workload specified", "deployment", dep.ID)
 			writeErrorEvent("pod or workload required")
 			return
 		}
@@ -2019,29 +2078,64 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			logOpts.Container = containerName
 		}
 
+		log.Debug("K8s pod log stream starting", "deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
 		if streamErr != nil {
-			log.Error("Failed to stream pod logs", "error", streamErr, "pod", podName)
+			log.Error("Failed to stream pod logs", "error", streamErr,
+				"deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 			writeErrorEvent("failed to stream pod logs")
 			return
 		}
 		defer stream.Close() //nolint:errcheck
+		log.Debug("K8s pod log stream connected", "deployment", dep.ID, "pod", podName)
 
-		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
-		flusher.Flush()
-
-		scanner := bufio.NewScanner(stream)
-		for scanner.Scan() {
-			line := scanner.Text()
-			ts := time.Now()
-			msg := line
-			if idx := strings.IndexByte(line, ' '); idx > 0 {
-				if t, parseErr := time.Parse(time.RFC3339Nano, line[:idx]); parseErr == nil {
-					ts = t
-					msg = line[idx+1:]
+		// Pipe scanner into a channel so we can select with the heartbeat ticker.
+		lines := make(chan loki.LogLine)
+		go func() {
+			defer close(lines)
+			scanner := bufio.NewScanner(stream)
+			for scanner.Scan() {
+				line := scanner.Text()
+				ts := time.Now()
+				msg := line
+				if idx := strings.IndexByte(line, ' '); idx > 0 {
+					if t, parseErr := time.Parse(time.RFC3339Nano, line[:idx]); parseErr == nil {
+						ts = t
+						msg = line[idx+1:]
+					}
+				}
+				select {
+				case lines <- loki.LogLine{Timestamp: ts, Line: msg}:
+				case <-c.Request.Context().Done():
+					return
 				}
 			}
-			if !writeEvent(loki.LogLine{Timestamp: ts, Line: msg}) {
+			if err := scanner.Err(); err != nil {
+				log.Debug("K8s pod log scanner error", "deployment", dep.ID, "pod", podName, "error", err)
+			} else {
+				log.Debug("K8s pod log stream ended", "deployment", dep.ID, "pod", podName)
+			}
+		}()
+
+		heartbeat := time.NewTicker(5 * time.Second)
+		defer heartbeat.Stop()
+
+		for {
+			select {
+			case ll, ok := <-lines:
+				if !ok {
+					log.Debug("K8s log channel closed, ending SSE stream", "deployment", dep.ID, "pod", podName)
+					return
+				}
+				if !writeEvent(ll) {
+					return
+				}
+			case <-heartbeat.C:
+				if !writeHeartbeat() {
+					return
+				}
+			case <-c.Request.Context().Done():
+				log.Debug("SSE client disconnected", "deployment", dep.ID)
 				return
 			}
 		}
