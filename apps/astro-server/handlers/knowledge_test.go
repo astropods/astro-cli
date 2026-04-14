@@ -26,11 +26,19 @@ var knowledgeColumns = []string{
 }
 
 func knowledgeRow(id, accountID, name, provider, status string) *sqlmock.Rows {
+	return knowledgeRowWithMode(id, accountID, name, provider, "managed", status)
+}
+
+func externalKnowledgeRow(id, accountID, name, provider, status string) *sqlmock.Rows {
+	return knowledgeRowWithMode(id, accountID, name, provider, "external", status)
+}
+
+func knowledgeRowWithMode(id, accountID, name, provider, mode, status string) *sqlmock.Rows {
 	now := time.Now()
 	return sqlmock.NewRows(knowledgeColumns).AddRow(
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
-		provider, "managed", status,
+		provider, mode, status,
 		"10Gi", nil, // storage, storage_class
 		false, nil, nil, nil, nil,
 		now, now,
@@ -440,6 +448,282 @@ func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations (ARN arg check failed): %v", err)
+	}
+}
+
+// --- ConnectKnowledgeStore ---
+
+func TestConnectKnowledgeStore_Success(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "postgres-prod", "postgres", "ready"))
+	// No KMS configured in minimalCfg() — SaveCredentials is skipped.
+
+	body := `{"name":"postgres-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp knowledgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Mode != knowledgestore.ModeExternal {
+		t.Errorf("expected mode %q, got %q", knowledgestore.ModeExternal, resp.Mode)
+	}
+	if resp.Status != knowledgestore.StatusReady {
+		t.Errorf("expected status %q, got %q", knowledgestore.StatusReady, resp.Status)
+	}
+	if resp.Provider != "postgres" {
+		t.Errorf("expected provider 'postgres', got %q", resp.Provider)
+	}
+}
+
+func TestConnectKnowledgeStore_MissingHost(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	body := `{"name":"pg-prod","provider":"postgres","port":5432}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing host, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_MissingPort(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing port, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_InvalidProvider(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	body := `{"name":"my-store","provider":"cassandra","host":"db.example.com","port":9042}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for unsupported provider, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_InvalidName(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	body := `{"name":"My-Store","provider":"postgres","host":"db.example.com","port":5432}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid name, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_MissingCredentials(t *testing.T) {
+	router, ksStore, _ := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	// Postgres requires PASSWORD but it's not provided.
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"mydb","username":"app"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing credentials, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_Conflict(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WillReturnError(&pq.Error{Code: "23505", Message: "duplicate key"})
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_DBError(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectKnowledgeStore_ARNUsesAccountID(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg()))
+
+	acct := testAccount()
+	expectedARN := arn.KnowledgeStore(acct.ID, "pg-prod")
+
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WithArgs(
+			sqlmock.AnyArg(), // $1: store ID
+			acct.ID,          // $2: account ID
+			"pg-prod",        // $3: name
+			expectedARN,      // $4: ARN
+			"postgres",       // $5: provider
+			"external",       // $6: mode
+			"ready",          // $7: status
+			"",               // $8: storage (empty for external — DB default applies)
+			sqlmock.AnyArg(), // $9: storage_class (nil)
+			false,            // $10: public
+			sqlmock.AnyArg(), // $11: public_host
+			sqlmock.AnyArg(), // $12: encrypted_data_key
+			sqlmock.AnyArg(), // $13: kms_key_arn
+		).
+		WillReturnRows(externalKnowledgeRow(acct.ID, acct.ID, "pg-prod", "postgres", "ready"))
+	// No KMS configured in minimalCfg() — SaveCredentials is skipped.
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// --- DeleteKnowledgeStore (external) ---
+
+func TestDeleteKnowledgeStore_ExternalSkipsK8s(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	// Pass nil for k8sClient — if the handler tried to use it for an external store, it would panic.
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil))
+
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
+	mock.ExpectExec("DELETE FROM knowledge_stores").WillReturnResult(sqlmock.NewResult(1, 1))
+
+	req := httptest.NewRequest(http.MethodDelete, "/knowledge/pg-prod", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// --- ListKnowledgeStores (mixed modes) ---
+
+func TestListKnowledgeStores_MixedModes(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	router.GET("/knowledge", ListKnowledgeStores(log, ksStore))
+
+	rows := sqlmock.NewRows(knowledgeColumns)
+	now := time.Now()
+	rows.AddRow(
+		"id-managed", testAccount().ID, "pg-main",
+		"arn:knowledge:acme:pg-main", "postgres", "managed", "ready",
+		"20Gi", nil, false, nil, nil, nil, nil, now, now,
+	)
+	rows.AddRow(
+		"id-external", testAccount().ID, "pg-prod",
+		"arn:knowledge:acme:pg-prod", "postgres", "external", "ready",
+		"10Gi", nil, false, nil, nil, nil, nil, now, now,
+	)
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").WillReturnRows(rows)
+
+	req := httptest.NewRequest(http.MethodGet, "/knowledge", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var resp []knowledgeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(resp))
+	}
+
+	modes := map[string]bool{}
+	for _, r := range resp {
+		modes[r.Mode] = true
+	}
+	if !modes["managed"] || !modes["external"] {
+		t.Errorf("expected both managed and external modes, got %v", modes)
 	}
 }
 
