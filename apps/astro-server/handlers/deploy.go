@@ -1978,29 +1978,82 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				}
 			}
 
-			tailParams := loki.QueryParams{
-				Namespace: dep.Namespace,
-				Pod:       podName,
-				Workload:  workloadName,
-				Container: containerName,
-				Start:     tailStart,
-			}
-			ch, tailErr := lokiClient.TailLogs(c.Request.Context(), tailParams)
-			if tailErr != nil {
-				log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
-				writeErrorEvent("failed to connect to log stream")
-				return
+			// Capture a floor so reconnects don't drift forward when the agent is idle.
+			if tailStart.IsZero() {
+				tailStart = time.Now()
 			}
 
-			fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
-			flusher.Flush()
+			// Heartbeat keeps the SSE connection alive through proxies (ALB/nginx) that
+			// close idle connections before our Loki WebSocket idle timeout fires.
+			heartbeat := time.NewTicker(30 * time.Second)
+			defer heartbeat.Stop()
 
-			for ll := range ch {
-				if !writeEvent(ll) {
+			// Reconnect to Loki internally whenever its WebSocket closes (idle timeout,
+			// transient error, Loki-side connection limit). Keeping the SSE connection open
+			// prevents the browser from reconnecting and triggering a duplicate backfill.
+			sentReady := false
+			lastTs := tailStart
+			for {
+				if c.Request.Context().Err() != nil {
 					return
 				}
+				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
+					Namespace: dep.Namespace,
+					Pod:       podName,
+					Workload:  workloadName,
+					Container: containerName,
+					Start:     lastTs,
+				})
+				if tailErr != nil {
+					if c.Request.Context().Err() != nil {
+						return
+					}
+					log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
+					if !sentReady {
+						writeErrorEvent("failed to connect to log stream")
+						return
+					}
+					select {
+					case <-c.Request.Context().Done():
+						return
+					case <-time.After(2 * time.Second):
+					}
+					continue
+				}
+				if !sentReady {
+					fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+					flusher.Flush()
+					sentReady = true
+				}
+			drain:
+				for {
+					select {
+					case ll, ok := <-ch:
+						if !ok {
+							break drain
+						}
+						if !writeEvent(ll) {
+							return
+						}
+						lastTs = ll.Timestamp.Add(time.Nanosecond)
+					case <-heartbeat.C:
+						if _, err := fmt.Fprintf(c.Writer, ": heartbeat\n\n"); err != nil {
+							return
+						}
+						flusher.Flush()
+					case <-c.Request.Context().Done():
+						return
+					}
+				}
+				// Loki WebSocket closed — brief backoff before reconnect to avoid
+				// rapid connection cycling (which exhausts OS ephemeral ports in tests
+				// and hammers Loki in low-traffic windows).
+				select {
+				case <-c.Request.Context().Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
 			}
-			return
 		}
 
 		// K8s fallback: resolve pod then stream with Follow=true.

@@ -101,7 +101,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
   const tabEnabled = !!(activeTab?.workloadName && activeTab?.containerName);
 
   // Historical (non-live) query — one-shot fetch, no polling.
-  const { data: logsRaw, isLoading: histLoading, isError } = useDeploymentLogs(
+  const { data: logsRaw, isLoading: histLoading, isFetching: histFetching, isError } = useDeploymentLogs(
     deployment.id,
     activeTab?.workloadName ?? "",
     activeTab?.containerName ?? "",
@@ -128,12 +128,15 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
 
   // Show historical logs until the server signals ready (after backfill completes),
   // then switch to the stream which already contains the full backfill + live lines.
-  const logs = useMemo(
-    () => isLive && streamIsLive ? streamLines : (logsRaw ?? []),
-    [isLive, streamIsLive, streamLines, logsRaw],
-  );
+  // While the historical refetch is in-flight (after stopping live), keep showing
+  // stream lines so the count doesn't drop to stale cached data.
+  const logs = useMemo(() => {
+    if (isLive && streamIsLive) return streamLines;
+    if (!isLive && histFetching && streamLines.length > 0) return streamLines;
+    return logsRaw ?? [];
+  }, [isLive, streamIsLive, streamLines, logsRaw, histFetching]);
 
-  const isLoading = isLive ? false : histLoading;
+  const isLoading = isLive ? false : (histLoading || (histFetching && streamLines.length === 0));
   let logError: string | undefined;
   if (isLive) logError = streamIsLive ? undefined : streamError;
   else if (isError) logError = "Failed to load logs.";

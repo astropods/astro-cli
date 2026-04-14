@@ -3230,23 +3230,25 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
 
-	// Collect SSE lines until EOF (handler exits after WS closes).
+	// Collect SSE lines; cancel once we have all expected output so the test
+	// doesn't wait for the full 5-second context timeout.
 	var sseLines []string
+	var logLines, eventLines []string
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line != "" {
-			sseLines = append(sseLines, line)
+		if line == "" {
+			continue
 		}
-	}
-
-	// Expect: event:ready (emitted on connect), then both log data lines from tail.
-	var logLines, eventLines []string
-	for _, l := range sseLines {
-		if strings.HasPrefix(l, "data:") && l != "data: {}" {
-			logLines = append(logLines, l)
-		} else if strings.HasPrefix(l, "event:") {
-			eventLines = append(eventLines, l)
+		sseLines = append(sseLines, line)
+		if strings.HasPrefix(line, "data:") && line != "data: {}" {
+			logLines = append(logLines, line)
+		} else if strings.HasPrefix(line, "event:") {
+			eventLines = append(eventLines, line)
+		}
+		if len(logLines) >= 2 && len(eventLines) >= 1 {
+			cancel()
+			break
 		}
 	}
 
@@ -3317,6 +3319,8 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 	for scanner.Scan() {
 		if line := scanner.Text(); strings.HasPrefix(line, "id:") {
 			idLines = append(idLines, line)
+			cancel() // got what we need; stop waiting for the 5-second timeout
+			break
 		}
 	}
 
