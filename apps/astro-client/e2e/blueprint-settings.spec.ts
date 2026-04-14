@@ -69,8 +69,8 @@ test("archive blueprint from account profile: dialog, confirm, POST fires", asyn
   await expect(blueprintCard).toBeVisible({ timeout: 5_000 });
   await blueprintCard.click();
 
-  // Click "Archive agent" in the dropdown
-  await page.getByRole("menuitem", { name: /archive agent/i }).click();
+  // Click "Archive" in the dropdown
+  await page.getByRole("menuitem", { name: /^archive$/i }).click();
 
   // Archive dialog appears
   await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });
