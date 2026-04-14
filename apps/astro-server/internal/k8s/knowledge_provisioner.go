@@ -87,6 +87,7 @@ type KnowledgeProvisionParams struct {
 	StorageClass   string // optional — falls back to cluster default if empty
 	SecretName     string // credentials secret to mount via envFrom
 	Public         bool
+	PublicHost     string // friendly CNAME for external-dns (e.g. name.account.knowledge.domain)
 	LocalMode      bool
 	PodSubnetCIDRs []string // used for network policy egress external rule
 }
@@ -206,6 +207,12 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	// LoadBalancer service — external access for public stores.
 	if p.Public {
 		lbSvc := buildKnowledgeService(resourceName+"-lb", ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeLoadBalancer) //nolint:gosec
+		if p.PublicHost != "" {
+			if lbSvc.Annotations == nil {
+				lbSvc.Annotations = make(map[string]string)
+			}
+			lbSvc.Annotations["external-dns.alpha.kubernetes.io/hostname"] = p.PublicHost
+		}
 		_, err = client.Clientset().CoreV1().Services(ns).Create(ctx, lbSvc, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("create loadbalancer service: %w", err)

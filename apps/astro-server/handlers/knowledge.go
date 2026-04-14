@@ -214,6 +214,10 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 	if ks.StorageClass != nil {
 		storageClass = *ks.StorageClass
 	}
+	var publicHost string
+	if ks.PublicHost != nil {
+		publicHost = *ks.PublicHost
+	}
 	if err := k8s.ProvisionKnowledgeStore(ctx, k8sClient, k8s.KnowledgeProvisionParams{
 		StoreID:        ks.ID,
 		AccountID:      ks.AccountID,
@@ -223,6 +227,7 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 		StorageClass:   storageClass,
 		SecretName:     secretName,
 		Public:         ks.Public,
+		PublicHost:     publicHost,
 		LocalMode:      cfg.Deployment.K8sClientMode == "local",
 		PodSubnetCIDRs: cfg.Deployment.PodSubnetCIDRs,
 	}); err != nil {

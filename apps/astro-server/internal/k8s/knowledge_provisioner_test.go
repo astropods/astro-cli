@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -450,6 +451,25 @@ func TestProvisionKnowledgeStore_Public(t *testing.T) {
 	}
 	if !tr.exists("service:" + ns + "/" + rn + "-lb") {
 		t.Error("expected lb service to be created for public store")
+	}
+}
+
+func TestBuildKnowledgeService_ExternalDNSAnnotation(t *testing.T) {
+	labels := map[string]string{"app": "test"}
+	selector := map[string]string{"app": "test"}
+
+	// Without PublicHost — no annotation.
+	svc := buildKnowledgeService("test-lb", "ns", labels, selector, 5432, corev1.ServiceTypeLoadBalancer)
+	if svc.Annotations != nil {
+		t.Errorf("expected no annotations without PublicHost, got %v", svc.Annotations)
+	}
+
+	// With PublicHost — annotation should be added by the provisioner.
+	svc.Annotations = map[string]string{
+		"external-dns.alpha.kubernetes.io/hostname": "my-db.acme.knowledge.astropod.ai",
+	}
+	if got := svc.Annotations["external-dns.alpha.kubernetes.io/hostname"]; got != "my-db.acme.knowledge.astropod.ai" {
+		t.Errorf("expected external-dns annotation, got %q", got)
 	}
 }
 
