@@ -98,16 +98,20 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	for _, stream := range result.Data.Result {
 		pod := stream.Stream["pod"]
 		container := stream.Stream["container"]
-		streamLevel := stream.Stream["level"] // coarse fallback for old stream-label pipelines
+		streamLevel := stream.Stream["level"]            // explicit stream label (legacy pipelines)
+		detectedLevel := stream.Stream["detected_level"] // Loki 3.x auto-detection
 		for _, entry := range stream.Values {
 			tsNano, err := strconv.ParseInt(entry.Timestamp, 10, 64)
 			if err != nil {
 				continue
 			}
-			// Prefer per-entry structured metadata over the coarse stream label.
+			// Prefer: structured metadata > explicit stream label > Loki auto-detected level.
 			level := entry.Metadata["level"]
 			if level == "" {
 				level = streamLevel
+			}
+			if level == "" {
+				level = detectedLevel
 			}
 			lines = append(lines, LogLine{
 				Timestamp: time.Unix(0, tsNano),

@@ -395,3 +395,63 @@ func TestQueryLogs_StructuredMetadataTakesPrecedenceOverStreamLabel(t *testing.T
 		t.Errorf("lines[0].Level = %q, want \"error\" (metadata wins over stream label)", lines[0].Level)
 	}
 }
+
+func TestQueryLogs_LevelFromDetectedLevel(t *testing.T) {
+	// Loki 3.x auto-detects level and exposes it as "detected_level" stream label.
+	// Used as final fallback when neither metadata nor explicit stream label is set.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod", "detected_level": "error"},
+					"values": [
+						["1000000000", "something went wrong"],
+						["2000000000", "all good"]
+					]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\" (from detected_level)", lines[0].Level)
+	}
+}
+
+func TestQueryLogs_ExplicitLevelTakesPrecedenceOverDetectedLevel(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod", "level": "warn", "detected_level": "info"},
+					"values": [["1000000000", "ambiguous"]]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if lines[0].Level != "warn" {
+		t.Errorf("lines[0].Level = %q, want \"warn\" (explicit level wins over detected_level)", lines[0].Level)
+	}
+}
