@@ -207,10 +207,14 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	// LoadBalancer service — external access for public stores.
 	if p.Public {
 		lbSvc := buildKnowledgeService(resourceName+"-lb", ns, labels, selector, int32(prov.DefaultPort), corev1.ServiceTypeLoadBalancer) //nolint:gosec
+		if lbSvc.Annotations == nil {
+			lbSvc.Annotations = make(map[string]string)
+		}
+		// AWS Load Balancer Controller annotations for internet-facing NLB.
+		lbSvc.Annotations["service.beta.kubernetes.io/aws-load-balancer-type"] = "external"
+		lbSvc.Annotations["service.beta.kubernetes.io/aws-load-balancer-nlb-target-type"] = "ip"
+		lbSvc.Annotations["service.beta.kubernetes.io/aws-load-balancer-scheme"] = "internet-facing"
 		if p.PublicHost != "" {
-			if lbSvc.Annotations == nil {
-				lbSvc.Annotations = make(map[string]string)
-			}
 			lbSvc.Annotations["external-dns.alpha.kubernetes.io/hostname"] = p.PublicHost
 		}
 		_, err = client.Clientset().CoreV1().Services(ns).Create(ctx, lbSvc, metav1.CreateOptions{})
