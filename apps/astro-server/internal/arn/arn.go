@@ -16,7 +16,7 @@ import (
 // UUID using FNV-64a. Used in ARNs and K8s resource names.
 func AccountShortID(accountID string) string {
 	h := fnv.New64a()
-	h.Write([]byte(accountID))
+	_, _ = h.Write([]byte(accountID))
 	return fmt.Sprintf("%016x", h.Sum64())
 }
 
