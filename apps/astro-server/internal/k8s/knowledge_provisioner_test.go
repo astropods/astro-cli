@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -346,7 +347,7 @@ func testProvisionParams(accountID, storeID string, public bool) KnowledgeProvis
 	return KnowledgeProvisionParams{
 		StoreID:    storeID,
 		AccountID:  accountID,
-		ARN:        "arn:knowledge:" + accountID + ":my-db",
+		ARN:        arn.KnowledgeStore(accountID, "my-db"),
 		Provider:   "postgres",
 		Storage:    "10Gi",
 		SecretName: storeID + "-credentials",

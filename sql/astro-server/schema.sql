@@ -486,7 +486,6 @@ CREATE TABLE public.knowledge_stores (
     arn                varchar      NOT NULL,
     provider           varchar      NOT NULL,
     status             varchar      NOT NULL DEFAULT 'provisioning',
-    namespace          varchar      NOT NULL,
     storage            varchar      NOT NULL DEFAULT '10Gi',
     public             boolean      NOT NULL DEFAULT false,
     public_host        varchar,

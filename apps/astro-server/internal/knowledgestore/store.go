@@ -81,7 +81,6 @@ type KnowledgeStore struct {
 	ARN              string
 	Provider         string
 	Status           string
-	Namespace        string
 	Storage          string
 	Public           bool
 	PublicHost       *string
@@ -98,14 +97,14 @@ const (
 	StatusError        = "error"
 )
 
-const storeColumns = `id, account_id, name, arn, provider, status, namespace, storage,
+const storeColumns = `id, account_id, name, arn, provider, status, storage,
        public, public_host, encrypted_data_key, kms_key_arn, error, created_at, updated_at`
 
 func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error) {
 	var s KnowledgeStore
 	err := row.Scan(
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
-		&s.Status, &s.Namespace, &s.Storage, &s.Public, &s.PublicHost,
+		&s.Status, &s.Storage, &s.Public, &s.PublicHost,
 		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -122,7 +121,6 @@ type CreateParams struct {
 	Name             string
 	ARN              string
 	Provider         string
-	Namespace        string
 	Storage          string
 	Public           bool
 	PublicHost       string
@@ -145,11 +143,11 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 
 	row := s.db.QueryRow(`
 		INSERT INTO knowledge_stores
-		  (id, account_id, name, arn, provider, namespace, storage, public, public_host, encrypted_data_key, kms_key_arn)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		  (id, account_id, name, arn, provider, storage, public, public_host, encrypted_data_key, kms_key_arn)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING `+storeColumns,
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
-		p.Namespace, p.Storage, p.Public, publicHost, encKey, kmsARN,
+		p.Storage, p.Public, publicHost, encKey, kmsARN,
 	)
 	return scanStore(row)
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
@@ -102,8 +103,7 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		}
 
 		storeID := deployid.New()
-		arn := fmt.Sprintf("arn:knowledge:%s:%s", acct.ID, req.Name)
-		ns := k8s.KnowledgeNamespace(acct.ID)
+		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
 
 		var publicHost string
 		if req.Public && cfg.Deployment.KnowledgeDomain != "" {
@@ -149,9 +149,8 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			ID:               storeID,
 			AccountID:        acct.ID,
 			Name:             req.Name,
-			ARN:              arn,
+			ARN:              storeARN,
 			Provider:         req.Provider,
-			Namespace:        ns,
 			Storage:          storage,
 			Public:           req.Public,
 			PublicHost:       publicHost,

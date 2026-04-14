@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 )
 
@@ -48,7 +49,7 @@ func runKnowledgeE2E(t *testing.T, accountID, storeID, provider string, public b
 	if err := ProvisionKnowledgeStore(ctx, client, KnowledgeProvisionParams{
 		StoreID:    storeID,
 		AccountID:  accountID,
-		ARN:        "arn:knowledge:" + accountID + ":" + storeID,
+		ARN:        arn.KnowledgeStore(accountID, storeID),
 		Provider:   provider,
 		Storage:    "10Gi",
 		SecretName: secretName,
@@ -176,7 +177,7 @@ func TestKnowledgeE2E_NamespaceSharedAcrossStores(t *testing.T) {
 	_ = ApplyKnowledgeSecret(ctx, client, accountID, "store-a", "store-a-credentials", map[string]string{})
 	if err := ProvisionKnowledgeStore(ctx, client, KnowledgeProvisionParams{
 		StoreID: "store-a", AccountID: accountID,
-		ARN: "arn:knowledge:acct-shared:store-a", Provider: "postgres",
+		ARN: arn.KnowledgeStore("acct-shared", "store-a"), Provider: "postgres",
 		Storage: "10Gi", SecretName: "store-a-credentials", LocalMode: true,
 	}); err != nil {
 		t.Fatalf("ProvisionKnowledgeStore store-a: %v", err)
@@ -185,7 +186,7 @@ func TestKnowledgeE2E_NamespaceSharedAcrossStores(t *testing.T) {
 	_ = ApplyKnowledgeSecret(ctx, client, accountID, "store-b", "store-b-credentials", map[string]string{})
 	if err := ProvisionKnowledgeStore(ctx, client, KnowledgeProvisionParams{
 		StoreID: "store-b", AccountID: accountID,
-		ARN: "arn:knowledge:acct-shared:store-b", Provider: "qdrant",
+		ARN: arn.KnowledgeStore("acct-shared", "store-b"), Provider: "qdrant",
 		Storage: "5Gi", SecretName: "store-b-credentials", LocalMode: true,
 	}); err != nil {
 		t.Fatalf("ProvisionKnowledgeStore store-b: %v", err)

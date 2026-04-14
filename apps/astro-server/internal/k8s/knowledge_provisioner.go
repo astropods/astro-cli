@@ -3,8 +3,8 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 
+	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,17 +18,9 @@ const (
 	knowledgeNSValue  = "knowledge"
 )
 
-// accountShortID returns a stable 16-char hex ID derived from the full account
-// UUID using FNV-64a. Used in K8s resource names where the full UUID is too long.
-func accountShortID(accountID string) string {
-	h := fnv.New64a()
-	h.Write([]byte(accountID))
-	return fmt.Sprintf("%016x", h.Sum64())
-}
-
 // KnowledgeNamespace returns the K8s namespace name for an account's managed knowledge stores.
 func KnowledgeNamespace(accountID string) string {
-	return knowledgeNSPrefix + accountShortID(accountID)
+	return knowledgeNSPrefix + arn.AccountShortID(accountID)
 }
 
 // KnowledgeResourceName returns the K8s resource name for a store.

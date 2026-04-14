@@ -10,6 +10,7 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -19,7 +20,7 @@ import (
 )
 
 var knowledgeColumns = []string{
-	"id", "account_id", "name", "arn", "provider", "status", "namespace", "storage",
+	"id", "account_id", "name", "arn", "provider", "status", "storage",
 	"public", "public_host", "encrypted_data_key", "kms_key_arn", "error",
 	"created_at", "updated_at",
 }
@@ -30,7 +31,7 @@ func knowledgeRow(id, accountID, name, provider, status string) *sqlmock.Rows {
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
 		provider, status,
-		"knowledge-"+accountID, "10Gi",
+		"10Gi",
 		false, nil, nil, nil, nil,
 		now, now,
 	)
@@ -218,7 +219,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 		rows.AddRow(
 			"id-"+name, testAccount().ID, name,
 			"arn:knowledge:acme:"+name, "qdrant", "ready",
-			"knowledge-"+testAccount().ID, "10Gi",
+			"10Gi",
 			false, nil, nil, nil, nil, now, now,
 		)
 	}
@@ -400,29 +401,28 @@ func TestCreateKnowledgeStore_InvalidStorage(t *testing.T) {
 }
 
 // TestCreateKnowledgeStore_ARN_UsesAccountID is a regression test: ARNs must
-// use the immutable account ID, not the account name which can change.
+// use the short account ID (FNV-64a hash), not the account name which can change.
 func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, minimalCfg()))
 
 	acct := testAccount()
-	expectedARN := "arn:knowledge:" + acct.ID + ":pg-main"
+	expectedARN := arn.KnowledgeStore(acct.ID, "pg-main")
 
-	// WithArgs verifies the ARN passed to INSERT uses account ID (arg $4), not account name.
+	// WithArgs verifies the ARN passed to INSERT uses the short account ID (arg $4), not the name.
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WithArgs(
 			sqlmock.AnyArg(), // $1: store ID
 			acct.ID,          // $2: account ID
 			"pg-main",        // $3: name
-			expectedARN,      // $4: ARN — must use account ID, not name
+			expectedARN,      // $4: ARN — must use short account ID, not name
 			"postgres",       // $5: provider
-			sqlmock.AnyArg(), // $6: namespace
-			"10Gi",           // $7: storage
-			false,            // $8: public
-			sqlmock.AnyArg(), // $9: public_host
-			sqlmock.AnyArg(), // $10: encrypted_data_key
-			sqlmock.AnyArg(), // $11: kms_key_arn
+			"10Gi",           // $6: storage
+			false,            // $7: public
+			sqlmock.AnyArg(), // $8: public_host
+			sqlmock.AnyArg(), // $9: encrypted_data_key
+			sqlmock.AnyArg(), // $10: kms_key_arn
 		).
 		WillReturnRows(knowledgeRow(acct.ID, acct.ID, "pg-main", "postgres", "provisioning"))
 
