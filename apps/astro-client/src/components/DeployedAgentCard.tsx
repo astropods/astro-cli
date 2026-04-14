@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon, ArrowUpCircleIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
-import { DeploymentStatusBadge } from "@/components/DeploymentStatusBadge";
+import { DeploymentStatusBadge } from "@/components/deployed-agent/DeploymentStatusBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { InlineBadge } from "@/components/InlineBadge";
+import { Tag } from "@/components/Tag";
 import { formatRelativeTime, formatDaysActive } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
@@ -166,18 +166,10 @@ export function DeployedAgentCard({
           <div className="mt-1 flex items-center gap-2">
             <DeploymentStatusBadge status={status} />
             {hasNewBuildAvailable && (
-              <InlineBadge
-                shape="square"
-                className="font-sans text-[12px] normal-case py-0.5 px-2"
-                style={{
-                  color: "var(--color-yellow-700)",
-                  background: "transparent",
-                  borderColor: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
-                }}
-              >
-                <ArrowUpCircleIcon className="size-3 shrink-0 mr-1" />
+              <Tag color="yellow" className="gap-1">
+                <ArrowUpCircleIcon className="size-3 shrink-0" />
                 Update available
-              </InlineBadge>
+              </Tag>
             )}
           </div>
         </div>

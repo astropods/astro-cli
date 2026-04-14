@@ -1,5 +1,6 @@
 import { Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tag } from "@/components/Tag";
 import type { DomainUrl } from "./history/types";
 
 interface DomainsPanelProps {
@@ -22,9 +23,7 @@ export function DomainsPanel({ urls }: DomainsPanelProps) {
             {u.url}
           </span>
           {u.type && (
-            <span className="font-mono text-label tracking-[0.08em] px-1.5 py-0.5 rounded bg-muted text-stone-500 shrink-0">
-              {u.type}
-            </span>
+            <Tag className="shrink-0">{u.type}</Tag>
           )}
         </div>
       ))}

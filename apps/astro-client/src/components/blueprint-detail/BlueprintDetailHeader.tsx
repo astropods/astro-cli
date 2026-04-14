@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Camera } from "lucide-react";
 import { ArchiveBoxIcon, EllipsisHorizontalIcon } from "@heroicons/react/24/outline";
 import { InlineBadge } from "@/components/InlineBadge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { ArchiveBlueprintDialog } from "@/components/ArchiveBlueprintDialog";
@@ -91,9 +92,7 @@ export function BlueprintDetailHeader({
             <h1 className="m-0 flex flex-wrap items-center gap-2 font-mono text-xl font-bold leading-none text-foreground">
               {name}
               {isDraft && (
-                <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                  Finish setup
-                </InlineBadge>
+                <StatusBadge color="warning">Finish setup</StatusBadge>
               )}
             </h1>
             {onArchive && (

@@ -7,28 +7,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { InlineBadge } from "@/components/InlineBadge";
+import { HistoryStatusBadge } from "./HistoryStatusBadge";
+import { Tag } from "@/components/Tag";
 import { cn } from "@/lib/utils";
-import { statusLabel } from "./history/utils";
 import type { DeploymentHistoryTableRow } from "./history/types";
 
-const UNDEPLOYED_BADGE_STYLE: React.CSSProperties = {
-  color: "var(--color-stone-500)",
-  background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
-};
-
-const DEPLOY_TYPE_BADGE: Record<"initial" | "config", React.CSSProperties> = {
-  initial: {
-    color: "var(--color-teal-700)",
-    background: "color-mix(in oklch, var(--color-teal-700) 10%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-teal-700) 22%, transparent)",
-  },
-  config: {
-    color: "var(--color-blue-600)",
-    background: "color-mix(in oklch, var(--color-blue-600) 10%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-blue-600) 22%, transparent)",
-  },
-};
 
 export interface BuildHistoryGroupProps {
   rows: DeploymentHistoryTableRow[]; // all rows for this build_id, newest first
@@ -82,9 +65,7 @@ export function BuildHistoryGroup({
 
         {/* Status */}
         <div className="flex justify-end items-center">
-          <InlineBadge variant="soft" style={UNDEPLOYED_BADGE_STYLE}>
-            {statusLabel("undeployed")}
-          </InlineBadge>
+          <HistoryStatusBadge status="undeployed" />
         </div>
 
         {/* Duration */}
@@ -123,9 +104,9 @@ export function BuildHistoryGroup({
                   #{row.source.revision}
                 </span>
               )}
-              <InlineBadge variant="soft" shape="square" style={DEPLOY_TYPE_BADGE[deployType]}>
+              <Tag color={deployType === "initial" ? "teal" : "blue"}>
                 {deployType === "initial" ? "Initial deploy" : "Config change"}
-              </InlineBadge>
+              </Tag>
             </div>
 
             {/* Status — empty, inherits group's undeployed */}

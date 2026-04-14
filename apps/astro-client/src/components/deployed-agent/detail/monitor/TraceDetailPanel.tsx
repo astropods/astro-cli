@@ -3,9 +3,9 @@ import { Copy, Check, ArrowUpRight, ArrowDownLeft, ChevronRight } from "lucide-r
 import { QueueListIcon, ChevronUpIcon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
-import { InlineBadge } from "@/components/InlineBadge";
 import type { TraceRow } from "./MonitorTab";
-import { TRACE_STATUS_STYLE, formatLatencyMs } from "./MonitorTab";
+import { formatLatencyMs } from "./MonitorTab";
+import { TraceStatusBadge } from "./TraceStatusBadge";
 
 const PANEL_SHELL_CLASS = "flex h-full w-full flex-col";
 const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
@@ -90,7 +90,6 @@ function SectionAccordion({
 }
 
 export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavigate, fullPage = false }: TraceDetailPanelProps) {
-  const st = TRACE_STATUS_STYLE[trace.status];
 
   return (
     <div className={fullPage ? "flex flex-1 flex-col overflow-hidden" : PANEL_SHELL_CLASS}>
@@ -125,7 +124,7 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
       <div className="flex shrink-0 flex-col gap-1 border-b border-border px-5 py-3">
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-body text-foreground">{trace.time}</span>
-          <InlineBadge variant="soft" style={st.badgeStyle}>{st.label}</InlineBadge>
+          <TraceStatusBadge status={trace.status} />
         </div>
         <div className="flex items-center gap-2">
           <span className="font-mono text-body-sm text-muted-foreground">{formatLatencyMs(trace.latency)}</span>

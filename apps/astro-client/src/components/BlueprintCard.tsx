@@ -4,7 +4,7 @@ import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon } from "@heroico
 import { BlueprintIdentity } from "./BlueprintIdentity";
 import { UserAvatar } from "./UserAvatar";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
-import { InlineBadge } from "@/components/InlineBadge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { ArchiveBlueprintDialog } from "@/components/ArchiveBlueprintDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -96,7 +96,7 @@ export function BlueprintCard({
               <div className="flex items-center gap-2">
                 <span className="truncate text-heading-4 text-foreground">{name}</span>
                 {isDraft
-                  ? <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>Finish setup</InlineBadge>
+                  ? <StatusBadge color="warning">Finish setup</StatusBadge>
                   : visibility === "private" && <PrivacyBadge />
                 }
               </div>
@@ -219,7 +219,7 @@ export function BlueprintCard({
             <h3 className="flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
               {isDraft
-                ? <InlineBadge shape="pill" variant="soft" className="normal-case" style={{ color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>Finish setup</InlineBadge>
+                ? <StatusBadge color="warning">Finish setup</StatusBadge>
                 : visibility === "private" && <PrivacyBadge onClick={(e) => e.preventDefault()} />
               }
             </h3>

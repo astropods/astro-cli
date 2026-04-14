@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Download, Share2, X } from "lucide-react";
+import { ArrowRight, Download, Loader2, Share2, X } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
@@ -134,8 +134,8 @@ export function LiveRevealOverlay({
       >
         <div className="-mt-16 flex flex-col items-center gap-2">
           <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[color-mix(in_oklch,_var(--color-yellow-500)_28%,_transparent)] bg-[color-mix(in_oklch,_var(--color-yellow-500)_12%,_transparent)] px-3 py-1.5 font-mono text-label tracking-[0.08em] text-[var(--color-yellow-500)]">
-            <span className="size-1.5 rounded-full bg-[var(--color-yellow-500)]" />
-            DEPLOYING
+            <Loader2 size={12} className="dp-spin shrink-0" />
+            Deploying
           </span>
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
             {(deployment.display_name ?? deployment.name)} is deploying!

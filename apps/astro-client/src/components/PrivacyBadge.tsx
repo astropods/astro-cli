@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { InlineBadge } from "@/components/InlineBadge";
+import { Tag } from "@/components/Tag";
 import {
   Tooltip,
   TooltipContent,
@@ -17,16 +17,7 @@ export function PrivacyBadge({ className, onClick }: PrivacyBadgeProps) {
     <TooltipProvider delayDuration={500}>
       <Tooltip>
         <TooltipTrigger asChild onClick={onClick}>
-          <InlineBadge
-            variant="soft"
-            className={cn("cursor-default", className)}
-            style={{
-              color: "var(--color-foreground)",
-              background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
-            }}
-          >
-            Private
-          </InlineBadge>
+          <Tag className={cn("cursor-default", className)}>Private</Tag>
         </TooltipTrigger>
         <TooltipContent>Only visible to members with access</TooltipContent>
       </Tooltip>

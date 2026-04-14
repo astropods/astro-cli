@@ -13,7 +13,7 @@ import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { InlineBadge } from "@/components/InlineBadge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { SidePanel } from "./SidePanel";
 import { DeploymentStatusBadge } from "@/components/deployed-agent/DeploymentStatusBadge";
 import { KebabMenu } from "./shared/KebabMenu";
@@ -314,9 +314,7 @@ export function ActiveDetailView({
                       tone="warning"
                       title={
                         <span>
-                          <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2 text-yellow-700" style={{ borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                            Update
-                          </InlineBadge>
+                          <StatusBadge color="warning" className="mr-2">Update</StatusBadge>
                           A new build is available for this agent.
                         </span>
                       }

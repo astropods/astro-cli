@@ -1,53 +1,14 @@
 import { MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { InlineBadge } from "@/components/InlineBadge";
+import { HistoryStatusBadge, HISTORY_STATUS_FG } from "./HistoryStatusBadge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { statusLabel } from "./history/utils";
-import type { DeployHistoryStatus, DeploymentHistoryTableRow } from "./history/types";
+import type { DeploymentHistoryTableRow } from "./history/types";
 
-const STATUS_BADGE_STYLE: Record<DeployHistoryStatus, React.CSSProperties> = {
-  active: {
-    color: "var(--color-teal-600)",
-    background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
-  },
-  deploying: {
-    color: "var(--color-yellow-700)",
-    background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
-  },
-  undeploying: {
-    color: "var(--color-stone-500)",
-    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
-  },
-  inactive: {
-    color: "var(--color-stone-500)",
-    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
-  },
-  failed: {
-    color: "var(--color-coral-600)",
-    background: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
-  },
-  undeployed: {
-    color: "var(--color-stone-500)",
-    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
-  },
-  restarting: {
-    color: "var(--color-yellow-600)",
-    background: "color-mix(in oklch, var(--color-yellow-600) 12%, transparent)",
-  },
-  pausing: {
-    color: "var(--color-coral-600)",
-    background: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
-  },
-  resuming: {
-    color: "var(--color-teal-600)",
-    background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
-  },
-};
 
 interface DeploymentHistoryRowProps {
   row: DeploymentHistoryTableRow;
@@ -83,7 +44,7 @@ export function DeploymentHistoryRow({
         gridTemplateColumns: gridColumns,
         gap: gridGap,
         padding,
-        ...(isCurrent && { boxShadow: `inset 3px 0 0 ${STATUS_BADGE_STYLE[row.status].color}` }),
+        ...(isCurrent && { boxShadow: `inset 3px 0 0 ${HISTORY_STATUS_FG[row.status]}` }),
       }}
     >
       {/* Name */}
@@ -95,9 +56,7 @@ export function DeploymentHistoryRow({
 
       {/* Status */}
       <div className="flex justify-end items-center">
-        <InlineBadge variant="soft" style={STATUS_BADGE_STYLE[row.status]}>
-          {statusLabel(row.status)}
-        </InlineBadge>
+        <HistoryStatusBadge status={row.status} />
       </div>
 
       {/* Duration */}

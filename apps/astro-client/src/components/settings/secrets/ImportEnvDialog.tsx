@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { WarningPanel } from '@/components/ui/status-panel'
-import { InlineBadge } from '@/components/InlineBadge'
+import { StatusBadge } from '@/components/StatusBadge'
 import {
   Dialog,
   DialogContent,
@@ -132,9 +132,7 @@ export function ImportEnvDialog({ open, isPending, existingNames, onClose, onImp
                       {importAsSecret ? '••••••••' : (line.value || '—')}
                     </span>
                     {conflicts.find(c => c.name === line.name) && (
-                      <InlineBadge variant="soft" className="text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 shrink-0">
-                        overwrites existing
-                      </InlineBadge>
+                      <StatusBadge color="warning" outline className="shrink-0">overwrites existing</StatusBadge>
                     )}
                   </div>
                 ))}

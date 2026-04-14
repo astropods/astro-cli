@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { Activity, Copy, Check, X } from "lucide-react";
@@ -11,7 +10,7 @@ import { api } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { InlineBadge } from "@/components/InlineBadge";
+import { TraceStatusBadge } from "./TraceStatusBadge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect, MultiSelectTrigger, MultiSelectValue, MultiSelectContent, MultiSelectAllItem, MultiSelectItem } from "@/components/ui/multi-select";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
@@ -77,29 +76,6 @@ export interface TraceRow {
   output?: string;
 }
 
-export const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
-  success: {
-    label: "Success",
-    badgeStyle: {
-      color: "var(--color-teal-600)",
-      background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
-    },
-  },
-  error: {
-    label: "Error",
-    badgeStyle: {
-      color: "var(--color-red-700)",
-      background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
-    },
-  },
-  timeout: {
-    label: "Timeout",
-    badgeStyle: {
-      color: "var(--color-yellow-700)",
-      background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
-    },
-  },
-};
 
 function fmtTokens(n: number) {
   return Math.round(n).toLocaleString();
@@ -905,7 +881,6 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                 </div>
               )}
               {visibleTraceRows.map((trace) => {
-                const st = TRACE_STATUS_STYLE[trace.status];
                 const externalId = middleEllipsis(trace.id);
                 const copied = copiedTraceId === trace.id;
                 return (
@@ -925,9 +900,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                       </div>
                       {!isCompact ? <span /> : null}
                       <div style={{ width: "100%", display: "flex", justifyContent: "flex-start" }}>
-                        <InlineBadge variant="soft" style={st.badgeStyle}>
-                          {st.label}
-                        </InlineBadge>
+                        <TraceStatusBadge status={trace.status} />
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
                         <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>

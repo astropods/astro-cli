@@ -3,7 +3,7 @@ import { Settings } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { InlineBadge } from '@/components/InlineBadge'
+import { Tag } from '@/components/Tag'
 import { UserAvatar } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
 
@@ -53,12 +53,9 @@ export default function OrganizationsSettings() {
                 <div className="flex items-center gap-2.5">
                   <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
                   {org.role && (
-                    <InlineBadge
-                      variant="soft"
-                      className={org.role === 'admin' ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300' : 'bg-stone-200 dark:bg-stone-700'}
-                    >
-                      {org.role}
-                    </InlineBadge>
+                    <Tag color={org.role === 'admin' ? 'blue' : 'default'}>
+                      {org.role === 'admin' ? 'Admin' : 'Member'}
+                    </Tag>
                   )}
                 </div>
               </div>

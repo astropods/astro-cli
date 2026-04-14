@@ -1,4 +1,4 @@
-import { InlineBadge } from "@/components/InlineBadge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 
 const LABEL_NEW_BUILD = "New build";
@@ -25,7 +25,7 @@ export function BuildUpdateBadge({
   const versionLabel = hasBothBuildIds ? `${currentBuildId} ${ARROW} ${latestBuildId}` : null;
 
   return (
-    <InlineBadge className={cn(stacked && "flex-col items-start gap-0.5 normal-case", className)}>
+    <StatusBadge color="warning" className={cn(stacked && "flex-col items-start gap-0.5", className)}>
       {versionLabel ? (
         stacked ? (
           <span className="flex flex-col items-start gap-0.5">
@@ -41,6 +41,6 @@ export function BuildUpdateBadge({
       ) : (
         <span>{prefix}</span>
       )}
-    </InlineBadge>
+    </StatusBadge>
   );
 }

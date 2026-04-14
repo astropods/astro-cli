@@ -7,7 +7,7 @@ import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/de
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
-import { InlineBadge } from "@/components/InlineBadge";
+import { Tag } from "@/components/Tag";
 import type { AgentDeployment } from "@/lib/api";
 
 const PANEL_FORM_ID = "configure-side-panel-form";
@@ -104,21 +104,15 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
           {rollbackContext && (
             <>
               <span className="font-mono text-mono-sm text-amber-700 font-medium">Rollback</span>
-              <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
-                Config {rollbackContext.revision}
-              </InlineBadge>
-              <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
-                {rollbackContext.buildId.slice(0, 8)}
-              </InlineBadge>
+              <Tag className="px-1.5 h-[18px]">Config {rollbackContext.revision}</Tag>
+              <Tag className="px-1.5 h-[18px]">{rollbackContext.buildId.slice(0, 8)}</Tag>
             </>
           )}
           {readOnly && !rollbackContext && (
             <>
               <span className="font-mono text-mono-sm text-muted-foreground font-medium">Viewing</span>
               {revisionNumber != null && (
-                <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
-                  Config {revisionNumber}
-                </InlineBadge>
+                <Tag className="px-1.5 h-[18px]">Config {revisionNumber}</Tag>
               )}
               <span className="font-mono text-mono-sm text-faint-foreground">— read only</span>
             </>
@@ -126,13 +120,9 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
           {isNewBuild && !rollbackContext && (
             <>
               <span className="font-mono text-mono-sm font-medium" style={{ color: "var(--color-yellow-700)" }}>Update</span>
-              <InlineBadge variant="soft" className="normal-case font-mono text-[11px] px-1.5 h-[18px]" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                {deployment.build_id.slice(0, 8)}
-              </InlineBadge>
+              <Tag color="yellow" className="px-1.5 h-[18px]">{deployment.build_id.slice(0, 8)}</Tag>
               <span className="font-mono text-[11px] text-muted-foreground">→</span>
-              <InlineBadge variant="soft" className="normal-case font-mono text-[11px] px-1.5 h-[18px]" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
-                {template.source.build.slice(0, 8)}
-              </InlineBadge>
+              <Tag color="yellow" className="px-1.5 h-[18px]">{template.source.build.slice(0, 8)}</Tag>
             </>
           )}
         </div>

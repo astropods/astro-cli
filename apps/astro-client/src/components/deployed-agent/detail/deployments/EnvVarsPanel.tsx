@@ -1,15 +1,16 @@
 import { cn } from "@/lib/utils";
+import { Tag, type TagColor } from "@/components/Tag";
 import type { MappedEnvVar } from "./history/types";
 
 interface EnvVarsPanelProps {
   vars: MappedEnvVar[];
 }
 
-const SOURCE_STYLES = {
-  input: "bg-teal-600/10 text-teal-600",
-  injected: "bg-amber-700/10 text-amber-800",
-  static: "bg-muted text-muted-foreground",
-} as const;
+const SOURCE_COLOR: Record<"input" | "injected" | "static", TagColor> = {
+  input:    "blue",
+  injected: "yellow",
+  static:   "default",
+};
 
 export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
   return (
@@ -48,9 +49,7 @@ export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
                   {!v.value ? "empty" : v.secret ? "•••••••••" : v.value}
                 </span>
               </div>
-              <span className={cn("font-mono text-label tracking-[0.08em] px-1.5 py-0.5 rounded shrink-0", SOURCE_STYLES[sourceKey])}>
-                {sourceKey}
-              </span>
+              <Tag color={SOURCE_COLOR[sourceKey]} className="shrink-0">{sourceKey}</Tag>
             </div>
           );
         })
