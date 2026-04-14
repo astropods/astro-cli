@@ -95,6 +95,7 @@ func init() {
 	knowledgeCreateCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j")
 	knowledgeCreateCmd.Flags().String("name", "", "Store name")
 	knowledgeCreateCmd.Flags().String("storage", "10Gi", "Storage size (e.g. 20Gi)")
+	knowledgeCreateCmd.Flags().String("storage-class", "", "Kubernetes StorageClass name (default: cluster default)")
 	knowledgeCreateCmd.Flags().Bool("public", false, "Expose the store publicly with a DNS hostname")
 	_ = knowledgeCreateCmd.MarkFlagRequired("provider")
 	_ = knowledgeCreateCmd.MarkFlagRequired("name")
@@ -149,18 +150,24 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	provider, _ := cmd.Flags().GetString("provider")
 	storage, _ := cmd.Flags().GetString("storage")
+	storageClass, _ := cmd.Flags().GetString("storage-class")
 	public, _ := cmd.Flags().GetBool("public")
 
 	fmt.Printf("%s→%s Creating knowledge store %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset)
 
+	body := map[string]any{
+		"name":     name,
+		"provider": provider,
+		"storage":  storage,
+		"public":   public,
+	}
+	if storageClass != "" {
+		body["storage_class"] = storageClass
+	}
+
 	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
 		fmt.Sprintf("/api/v1/accounts/%s/knowledge", url.PathEscape(account)),
-		map[string]any{
-			"name":     name,
-			"provider": provider,
-			"storage":  storage,
-			"public":   public,
-		},
+		body,
 	)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
