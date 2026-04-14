@@ -153,11 +153,14 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
           const label = wl ? tabLabel(wl, tab.containerName) : tab.containerName;
           const isActive = key === activeKey;
           return (
-            <button
+            <div
               key={key}
+              role="tab"
+              tabIndex={0}
               onClick={() => { dispatch({ type: "focus", key }); setIsTailing(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { dispatch({ type: "focus", key }); setIsTailing(false); } }}
               className={cn(
-                "group flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
+                "group flex items-center gap-1.5 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
                 isActive
                   ? "font-medium text-foreground border-b-[var(--color-teal-600)]"
                   : "font-normal text-faint-foreground border-b-transparent hover:text-foreground",
@@ -178,7 +181,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
               >
                 <X size={9} />
               </Button>
-            </button>
+            </div>
           );
         })}
 

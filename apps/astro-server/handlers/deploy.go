@@ -1945,26 +1945,44 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		if lokiClient != nil {
-			ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
-				Namespace: dep.Namespace,
-				Pod:       podName,
-				Workload:  workloadName,
-				Container: containerName,
-				Start:     time.Now(),
-			})
-			if tailErr != nil {
-				log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
-				writeErrorEvent("failed to connect to log stream")
-				return
-			}
-			fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
-			flusher.Flush()
-			for ll := range ch {
-				if !writeEvent(ll) {
+			// Loki's tail WebSocket closes periodically. Reconnect server-side so the
+			// SSE connection stays open. event: ready is only sent on the first connect.
+			sentReady := false
+			for {
+				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
+					Namespace: dep.Namespace,
+					Pod:       podName,
+					Workload:  workloadName,
+					Container: containerName,
+					Start:     time.Now(),
+				})
+				if tailErr != nil {
+					if !sentReady {
+						log.Error("Failed to connect to Loki tail", "error", tailErr, "namespace", dep.Namespace)
+						writeErrorEvent("failed to connect to log stream")
+					}
+					return
+				}
+				if !sentReady {
+					fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+					flusher.Flush()
+					sentReady = true
+				}
+				for ll := range ch {
+					if !writeEvent(ll) {
+						return
+					}
+				}
+				if c.Request.Context().Err() != nil {
+					return
+				}
+				// Brief pause before reconnecting to avoid tight loops if Loki is unavailable.
+				select {
+				case <-time.After(500 * time.Millisecond):
+				case <-c.Request.Context().Done():
 					return
 				}
 			}
-			return
 		}
 
 		// K8s fallback: resolve pod then stream with Follow=true.

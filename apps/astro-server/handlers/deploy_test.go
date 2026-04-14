@@ -3164,7 +3164,7 @@ func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
-	// Mock Loki: tail WS delivers one live line then closes.
+	// Mock Loki: tail WS delivers one live line then stays open until the client disconnects.
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
@@ -3184,9 +3184,7 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 		}
 		data, _ := json.Marshal(frame)
 		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
-		conn.WriteMessage(websocket.CloseMessage,      //nolint:errcheck
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		conn.ReadMessage() //nolint:errcheck
+		conn.ReadMessage()                             //nolint:errcheck — blocks until client disconnects
 	}))
 	defer lokiSrv.Close()
 
@@ -3224,7 +3222,7 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
 
-	// Scan until EOF — handler returns when Loki WS closes, ending the SSE stream.
+	// Read until we have the ready event and the log line, then cancel.
 	var logLines, eventLines []string
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -3236,6 +3234,9 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 			logLines = append(logLines, line)
 		} else if strings.HasPrefix(line, "event:") {
 			eventLines = append(eventLines, line)
+		}
+		if len(logLines) >= 1 && len(eventLines) >= 1 {
+			cancel()
 		}
 	}
 
@@ -3251,7 +3252,7 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
-	// Tail WS sends one line with timestamp 2000000000 ns then closes.
+	// Tail WS sends one line with timestamp 2000000000 ns then stays open until client disconnects.
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
@@ -3269,9 +3270,8 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 			}},
 		}
 		data, _ := json.Marshal(frame)
-		conn.WriteMessage(websocket.TextMessage, data)                                                            //nolint:errcheck
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
-		conn.ReadMessage()                                                                                        //nolint:errcheck
+		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+		conn.ReadMessage()                             //nolint:errcheck — blocks until client disconnects
 	}))
 	defer lokiSrv.Close()
 
@@ -3320,8 +3320,10 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 	}
 }
 
-func TestStreamDeploymentLogs_LokiPath_ClosesWhenWSCloses(t *testing.T) {
-	// Verify that when the Loki WebSocket closes, the SSE response ends (EOF).
+func TestStreamDeploymentLogs_LokiPath_ReconnectsWhenWSCloses(t *testing.T) {
+	// Verify that when the Loki WS closes the handler reconnects server-side without
+	// closing the SSE. The SSE should only end once the client cancels.
+	dialed := make(chan struct{}, 10)
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
@@ -3331,6 +3333,7 @@ func TestStreamDeploymentLogs_LokiPath_ClosesWhenWSCloses(t *testing.T) {
 		if err != nil {
 			return
 		}
+		dialed <- struct{}{}
 		defer conn.Close()                                                                                        //nolint:errcheck
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
 		conn.ReadMessage()                                                                                        //nolint:errcheck
@@ -3364,14 +3367,20 @@ func TestStreamDeploymentLogs_LokiPath_ClosesWhenWSCloses(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	// Scanner should reach EOF once the handler returns (Loki WS closed).
+	// Wait for at least 2 dials to confirm the handler reconnected after the first WS close.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-dialed:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for Loki dial %d", i+1)
+		}
+	}
+
+	// Cancel the client — the SSE should now close.
+	cancel()
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 	}
-	if err := scanner.Err(); err != nil {
-		t.Errorf("unexpected scanner error: %v", err)
-	}
-	// If we reach here without the context timing out, the SSE stream closed as expected.
 }
 
 // --- StopDeployment tests ---

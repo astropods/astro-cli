@@ -42,7 +42,7 @@ function reducer(state: LogStreamState, action: LogStreamAction): LogStreamState
     case "stream_error":
       return { ...state, error: action.message };
     case "reconnecting":
-      return { ...state, status: "reconnecting", error: undefined };
+      return { lines: [], status: "reconnecting", error: undefined };
     case "reset":
       return initialState;
   }

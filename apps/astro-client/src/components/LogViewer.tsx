@@ -137,13 +137,6 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
             {isTailing && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
           </Button>
         )}
-        {isReconnecting && (
-          <span className="flex items-center gap-1 font-sans text-body-sm text-faint-foreground">
-            <Loader2 size={10} className="dp-spin shrink-0" />
-            Reconnecting…
-          </span>
-        )}
-
         <Select
           value={timeRange}
           onOpenChange={(open) => { if (open && isTailing) onTailToggle?.(); }}
@@ -175,6 +168,11 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
             <Loader2 size={14} className="dp-spin" />
             Loading logs…
+          </div>
+        ) : isReconnecting ? (
+          <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+            <Loader2 size={14} className="dp-spin" />
+            Reconnecting…
           </div>
         ) : error ? (
           <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
