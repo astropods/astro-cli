@@ -62,14 +62,16 @@ func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN st
 	}, nil
 }
 
-type knowledgeEvent struct {
+// KnowledgeEvent is a single provisioning event for a knowledge store.
+type KnowledgeEvent struct {
 	Type    string `json:"type"`
 	Reason  string `json:"reason"`
 	Message string `json:"message"`
 	Count   int32  `json:"count"`
 }
 
-type knowledgeResponse struct {
+// KnowledgeResponse is the API representation of a knowledge store.
+type KnowledgeResponse struct {
 	ID           string           `json:"id"`
 	ARN          string           `json:"arn"`
 	Name         string           `json:"name"`
@@ -83,11 +85,14 @@ type knowledgeResponse struct {
 	Error        *string          `json:"error,omitempty"`
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
-	Events       []knowledgeEvent `json:"events,omitempty"`
+	Events       []KnowledgeEvent `json:"events,omitempty"`
 }
 
-func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) knowledgeResponse {
-	return knowledgeResponse{
+// KnowledgeCredentialsResponse holds decrypted credentials for a knowledge store.
+type KnowledgeCredentialsResponse map[string]string
+
+func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
+	return KnowledgeResponse{
 		ID:           ks.ID,
 		ARN:          ks.ARN,
 		Name:         ks.Name,
@@ -388,7 +393,7 @@ func ListKnowledgeStores(log *logger.Logger, ksStore *knowledgestore.Store) gin.
 			return
 		}
 
-		resp := make([]knowledgeResponse, 0, len(stores))
+		resp := make([]KnowledgeResponse, 0, len(stores))
 		for _, s := range stores {
 			resp = append(resp, toKnowledgeResponse(s))
 		}
@@ -424,7 +429,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 			})
 			if evts != nil && len(evts.Items) > 0 {
 				e := evts.Items[len(evts.Items)-1]
-				resp.Events = []knowledgeEvent{{
+				resp.Events = []KnowledgeEvent{{
 					Type:    e.Type,
 					Reason:  e.Reason,
 					Message: e.Message,

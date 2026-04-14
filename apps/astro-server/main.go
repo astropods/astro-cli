@@ -775,7 +775,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(202, &handlers.ErrorResponse{}),
+					oapispec.Response(202, &handlers.KnowledgeResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
@@ -783,7 +783,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
@@ -791,14 +791,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, &[]handlers.KnowledgeResponse{}),
 				)
 				api.GET(accountMember, "/knowledge/:name", "Get a knowledge store", handlers.GetKnowledgeStore(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 				api.DELETE(accountMember, "/knowledge/:name", "Delete a managed knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient),
@@ -806,7 +806,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 				api.GET(accountMember, "/knowledge/:name/logs", "Stream knowledge store logs", handlers.GetKnowledgeStoreLogs(log, ksStore, k8sClient, lokiClient),
@@ -814,21 +814,21 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, nil),
 				)
 				api.GET(accountMember, "/knowledge/:name/events", "Stream knowledge store provisioning events", handlers.GetKnowledgeStoreEvents(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, nil),
 				)
 				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(200, &handlers.KnowledgeCredentialsResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 			}

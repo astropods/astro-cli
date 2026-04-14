@@ -171,7 +171,7 @@ func TestCreateKnowledgeStore_Success_NoKMS(t *testing.T) {
 		t.Errorf("expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp knowledgeResponse
+	var resp KnowledgeResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestListKnowledgeStores_Empty(t *testing.T) {
 		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp []knowledgeResponse
+	var resp []KnowledgeResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
 
-	var resp []knowledgeResponse
+	var resp []KnowledgeResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if len(resp) != 2 {
 		t.Errorf("expected 2 items, got %d", len(resp))
@@ -267,7 +267,7 @@ func TestGetKnowledgeStore_Found(t *testing.T) {
 		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp knowledgeResponse
+	var resp KnowledgeResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp.Name != "pg-main" {
 		t.Errorf("expected name 'pg-main', got %q", resp.Name)
@@ -473,7 +473,7 @@ func TestConnectKnowledgeStore_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp knowledgeResponse
+	var resp KnowledgeResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
@@ -710,7 +710,7 @@ func TestListKnowledgeStores_MixedModes(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 
-	var resp []knowledgeResponse
+	var resp []KnowledgeResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
