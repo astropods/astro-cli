@@ -1,25 +1,45 @@
-const ISO_TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/;
-const BASIC_TS_RE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(.*)$/;
-const FMT_TS_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/;
+// ── Structured log entry ───────────────────────────────────────────────────────
 
-export const LOG_SUCCESS_RE = /✓|\bconnected\b|\bready\b|\bhealthy\b|\binitialized\b|\bregistered\b|\bsuccess\b|\bloaded\b|\bcomplete\b/i;
-export const LOG_ERROR_RE = /\berror\b|\bfailed\b|\bexception\b|\bfatal\b/i;
-export const LOG_WARN_RE = /\bwarn\b|\bwarning\b|\bretry\b|\battempt\b/i;
+export interface LogEntry {
+  timestamp: string | null;
+  level: string | null;
+  message: string;
+}
 
-export function logLineColorClass(line: string): string {
-  if (LOG_SUCCESS_RE.test(line)) return "text-green-700";
-  if (LOG_ERROR_RE.test(line)) return "text-coral-600";
-  if (LOG_WARN_RE.test(line)) return "text-yellow-600";
+// ── Level normalisation ────────────────────────────────────────────────────────
+
+export type LogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL";
+
+const LEVEL_MAP: Record<string, LogLevel> = {
+  trace:   "TRACE",
+  debug:   "DEBUG",
+  info:    "INFO",
+  warn:    "WARN",
+  warning: "WARN",
+  error:   "ERROR",
+  err:     "ERROR",
+  fatal:   "FATAL",
+  crit:    "FATAL",
+  critical:"FATAL",
+};
+
+export function normalizeLevel(level: string | null): LogLevel {
+  if (!level) return "INFO";
+  return LEVEL_MAP[level.toLowerCase()] ?? "INFO";
+}
+
+export function levelColorClass(level: string | null): string {
+  const normalized = normalizeLevel(level);
+  if (normalized === "ERROR" || normalized === "FATAL") return "text-coral-600";
+  if (normalized === "WARN") return "text-yellow-600";
+  if (normalized === "INFO") return "text-blue-500";
+  if (normalized === "DEBUG" || normalized === "TRACE") return "text-faint-foreground";
   return "text-foreground";
 }
 
-export function splitLogLineTimestamp(line: string): { timestamp: string | null; message: string } {
-  const iso = line.match(ISO_TS_RE);
-  if (iso) return { timestamp: iso[1], message: iso[2] };
-  const basic = line.match(BASIC_TS_RE);
-  if (basic) return { timestamp: basic[1], message: basic[2] };
-  return { timestamp: null, message: line };
-}
+// ── Timestamp formatting ───────────────────────────────────────────────────────
+
+const FMT_TS_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/;
 
 export function formatLogTimestamp(timestamp: string | null): string {
   if (!timestamp) return "—";

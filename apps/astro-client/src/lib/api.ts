@@ -451,7 +451,7 @@ class ApiClient {
     workloadName: string,
     container: string,
     since?: string,
-  ): Promise<string> {
+  ): Promise<import('./log-utils').LogEntry[]> {
     const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
@@ -467,7 +467,7 @@ class ApiClient {
       error.status = response.status;
       throw error;
     }
-    return response.text();
+    return response.json();
   }
 
   // Fetch ConfigMap data for a deployment

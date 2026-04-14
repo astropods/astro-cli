@@ -87,17 +87,12 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
     [openTabs, activeKey],
   );
 
-  const { data: logsRaw, isLoading, isError } = useDeploymentLogs(
+  const { data: logs = [], isLoading, isError } = useDeploymentLogs(
     deployment.id,
     activeTab?.workloadName ?? "",
     activeTab?.containerName ?? "",
     timeRange,
     { enabled: !!(activeTab?.workloadName && activeTab?.containerName) },
-  );
-
-  const logs = useMemo(
-    () => (logsRaw ? logsRaw.split("\n").filter(Boolean) : []),
-    [logsRaw],
   );
 
   if (workloads.length === 0) {

@@ -44,6 +44,7 @@ type LogLine struct {
 	Timestamp time.Time
 	Pod       string
 	Container string
+	Level     string
 	Line      string
 }
 
@@ -97,6 +98,7 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	for _, stream := range result.Data.Result {
 		pod := stream.Stream["pod"]
 		container := stream.Stream["container"]
+		level := stream.Stream["level"]
 		for _, entry := range stream.Values {
 			if len(entry) != 2 {
 				continue
@@ -109,6 +111,7 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 				Timestamp: time.Unix(0, tsNano),
 				Pod:       pod,
 				Container: container,
+				Level:     level,
 				Line:      entry[1],
 			})
 		}

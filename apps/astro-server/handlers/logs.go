@@ -3,6 +3,7 @@ package handlers
 import (
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 )
+
+type logEntry struct {
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+}
 
 // streamLogs writes pod logs to the gin response. It queries Loki if a client
 // is configured, otherwise falls back to direct K8s pod log streaming.
@@ -32,14 +39,15 @@ func streamLogs(
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query logs", "details": err.Error()})
 			return
 		}
-		var sb strings.Builder
+		entries := make([]logEntry, 0, len(lines))
 		for _, l := range lines {
-			sb.WriteString(l.Timestamp.UTC().Format(time.RFC3339Nano))
-			sb.WriteString(" ")
-			sb.WriteString(strings.TrimRight(l.Line, "\n"))
-			sb.WriteString("\n")
+			entries = append(entries, logEntry{
+				Timestamp: l.Timestamp.UTC().Format(time.RFC3339Nano),
+				Level:     l.Level,
+				Message:   strings.TrimRight(l.Line, "\n"),
+			})
 		}
-		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
+		c.JSON(http.StatusOK, entries)
 		return
 	}
 
@@ -62,5 +70,20 @@ func streamLogs(
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read pod logs"})
 		return
 	}
-	c.Data(http.StatusOK, "text/plain; charset=utf-8", logBytes)
+
+	k8sTS := regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$`)
+	rawLines := strings.Split(strings.TrimRight(string(logBytes), "\n"), "\n")
+	entries := make([]logEntry, 0, len(rawLines))
+	for _, line := range rawLines {
+		if line == "" {
+			continue
+		}
+		entry := logEntry{Message: line}
+		if m := k8sTS.FindStringSubmatch(line); m != nil {
+			entry.Timestamp = m[1]
+			entry.Message = m[2]
+		}
+		entries = append(entries, entry)
+	}
+	c.JSON(http.StatusOK, entries)
 }

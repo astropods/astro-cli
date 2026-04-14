@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { LOG_ERROR_RE, LOG_WARN_RE } from "@/lib/log-utils";
+import { normalizeLevel, type LogEntry } from "@/lib/log-utils";
 
 export type LogFilter = "errors" | "warnings";
 
-export function useLogFiltering(logs: string[], search: string) {
+export function useLogFiltering(logs: LogEntry[], search: string) {
   const [activeFilters, setActiveFilters] = useState<Set<LogFilter>>(new Set());
 
   const toggleFilter = (f: LogFilter) =>
@@ -18,13 +18,16 @@ export function useLogFiltering(logs: string[], search: string) {
     let errs = 0;
     let warns = 0;
     const lowerSearch = search.toLowerCase();
-    const result: string[] = [];
+    const result: LogEntry[] = [];
 
-    for (const l of logs) {
-      const isErr = LOG_ERROR_RE.test(l);
-      const isWarn = LOG_WARN_RE.test(l);
+    for (const entry of logs) {
+      const level = normalizeLevel(entry.level);
+      const isErr = level === "ERROR" || level === "FATAL";
+      const isWarn = level === "WARN";
       if (isErr) errs++;
       if (isWarn) warns++;
+
+      if (lowerSearch && !entry.message.toLowerCase().includes(lowerSearch)) continue;
 
       if (activeFilters.size > 0) {
         const wantErr = activeFilters.has("errors");
@@ -33,8 +36,7 @@ export function useLogFiltering(logs: string[], search: string) {
         if (wantErr && !wantWarn && !isErr) continue;
         if (wantWarn && !wantErr && !isWarn) continue;
       }
-      if (lowerSearch && !l.toLowerCase().includes(lowerSearch)) continue;
-      result.push(l);
+      result.push(entry);
     }
 
     return { errCount: errs, warnCount: warns, filtered: result };

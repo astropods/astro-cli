@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { splitLogLineTimestamp, formatLogTimestamp, logLineColorClass } from "@/lib/log-utils";
+import { formatLogTimestamp, levelColorClass, normalizeLevel, type LogEntry } from "@/lib/log-utils";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
 
 export type LogTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
@@ -24,7 +24,7 @@ const FILTER_CONFIGS = [
 ] as const;
 
 interface LogViewerProps {
-  logs: string[];
+  logs: LogEntry[];
   isLoading?: boolean;
   isCompact?: boolean;
   timeRange: LogTimeRange;
@@ -99,14 +99,14 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         </Select>
 
         <CopyButton
-          copyText={() => filtered.join("\n")}
+          copyText={() => filtered.map((e) => `${e.timestamp ?? ""} ${e.level ?? ""} ${e.message}`.trim()).join("\n")}
           title="Copy logs"
           resetMs={900}
         />
       </div>
 
       {/* Log stream */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-background py-2.5 pb-3.5">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-background py-2.5 pb-3.5 overflow-x-auto">
         {isLoading ? (
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
             <Loader2 size={14} className="dp-spin" />
@@ -121,28 +121,19 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
             {logs.length === 0 ? "No log lines in this time window" : "No matching lines"}
           </div>
         ) : (
-          filtered.map((line, li) => {
-            const parsed = splitLogLineTimestamp(line);
+          filtered.map((entry, li) => {
+            const level = normalizeLevel(entry.level);
+            const lvlClass = levelColorClass(entry.level);
             return (
-              <div key={li} className="dp-log flex items-baseline py-px">
-                <span className="font-mono text-mono-sm text-faint-foreground min-w-[44px] text-right pr-3 shrink-0 select-none">
-                  {li + 1}
+              <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
+                <span className="text-faint-foreground shrink-0 w-[24ch]">
+                  {formatLogTimestamp(entry.timestamp)}
                 </span>
-                <span
-                  className={cn(
-                    "font-mono text-mono-sm text-faint-foreground pr-3 shrink-0",
-                    isCompact ? "min-w-32" : "min-w-[190px]",
-                  )}
-                >
-                  {formatLogTimestamp(parsed.timestamp)}
+                <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
+                  {level}
                 </span>
-                <span
-                  className={cn(
-                    "font-mono text-mono-md leading-[1.75] whitespace-pre-wrap break-words",
-                    logLineColorClass(line),
-                  )}
-                >
-                  {parsed.message}
+                <span className="text-foreground whitespace-nowrap">
+                  {entry.message}
                 </span>
               </div>
             );

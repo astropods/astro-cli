@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,10 +22,9 @@ export function PodLogViewer({ deploymentId, workload }: { deploymentId: string;
     ? containerParam
     : workload.containers[0]?.name ?? "";
   const [timeRange, setTimeRange] = useState("1h");
-  const { data: logs, isLoading, error: logsError, refetch } = useDeploymentLogs(
+  const { data: lines = [], isLoading, error: logsError, refetch } = useDeploymentLogs(
     deploymentId, workload.name, selectedContainer, timeRange,
   );
-  const lines = useMemo(() => (logs ?? "").split("\n"), [logs]);
   const listRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useWindowVirtualizer({
@@ -129,7 +128,7 @@ export function PodLogViewer({ deploymentId, workload }: { deploymentId: string;
                   {virtualRow.index + 1}
                 </span>
                 <span className="text-stone-100 px-3 whitespace-pre-wrap break-all min-w-0 py-px">
-                  {lines[virtualRow.index]}
+                  {lines[virtualRow.index]?.message ?? ""}
                 </span>
               </div>
             ))}
