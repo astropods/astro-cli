@@ -97,9 +97,11 @@ const (
 	ModeManaged  = "managed"
 	ModeExternal = "external"
 
-	StatusProvisioning = "provisioning"
-	StatusReady        = "ready"
-	StatusError        = "error"
+	StatusProvisioning      = "provisioning"
+	StatusConnecting        = "connecting"
+	StatusPendingAcceptance = "pending-acceptance"
+	StatusReady             = "ready"
+	StatusError             = "error"
 )
 
 const storeColumns = `id, account_id, name, arn, provider, mode, status, storage, storage_class,

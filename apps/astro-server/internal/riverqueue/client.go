@@ -214,6 +214,18 @@ func (q *Queue) InsertOpenMeterBackfillJob(ctx context.Context) error {
 	return err
 }
 
+// InsertPrivateLinkProvisionJob enqueues a job to create a VPC endpoint.
+func (q *Queue) InsertPrivateLinkProvisionJob(ctx context.Context, storeID string) error {
+	_, err := q.Insert(ctx, PrivateLinkProvisionArgs{StoreID: storeID}, nil)
+	return err
+}
+
+// InsertPrivateLinkDeleteJob enqueues a job to delete a VPC endpoint.
+func (q *Queue) InsertPrivateLinkDeleteJob(ctx context.Context, storeID, endpointID string) error {
+	_, err := q.Insert(ctx, PrivateLinkDeleteArgs{StoreID: storeID, EndpointID: endpointID}, nil)
+	return err
+}
+
 // NewInsertOnly creates a Queue that can only insert jobs (no workers, no periodic jobs).
 // Used by the API process to enqueue deploy/undeploy/wakeup jobs without running workers.
 func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) (*Queue, error) {

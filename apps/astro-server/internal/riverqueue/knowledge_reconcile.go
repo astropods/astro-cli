@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 )
 
 // KnowledgeReconcileArgs are the job arguments for the knowledge store reconciler.
@@ -18,11 +21,12 @@ type KnowledgeReconcileArgs struct{}
 
 func (KnowledgeReconcileArgs) Kind() string { return "knowledge_reconcile" }
 
-// KnowledgeReconcileWorker reconciles managed knowledge store state.
+// KnowledgeReconcileWorker reconciles knowledge store state.
 //
-// It runs periodically and does two things:
-//  1. Advances provisioning stores to ready/error once their StatefulSet is healthy.
-//  2. Recreates missing K8s credentials secrets for ready stores (cluster migration recovery).
+// It runs periodically and does three things:
+//  1. Advances provisioning managed stores to ready/error once their StatefulSet is healthy.
+//  2. Recreates missing K8s credentials secrets for ready managed stores (cluster migration recovery).
+//  3. Polls PrivateLink endpoints (connecting/pending-acceptance) and advances them.
 type KnowledgeReconcileWorker struct {
 	river.WorkerDefaults[KnowledgeReconcileArgs]
 	ksStore *knowledgestore.Store
@@ -31,12 +35,11 @@ type KnowledgeReconcileWorker struct {
 }
 
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
-	if w.k8s == nil {
-		return nil
+	if w.k8s != nil {
+		w.reconcileProvisioning(ctx)
+		w.ensureSecrets(ctx)
 	}
-
-	w.reconcileProvisioning(ctx)
-	w.ensureSecrets(ctx)
+	w.reconcilePrivateLink(ctx)
 
 	return nil
 }
@@ -149,6 +152,92 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context) {
 		}
 
 		w.log.Info("KnowledgeReconcile: recreated missing credentials secret", "store_id", ks.ID)
+	}
+}
+
+// reconcilePrivateLink checks PrivateLink endpoints in connecting/pending-acceptance
+// states and advances them based on the VPC endpoint status from AWS.
+func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
+	endpoints, err := w.ksStore.ListEndpointsByStatus(
+		knowledgestore.StatusConnecting,
+		knowledgestore.StatusPendingAcceptance,
+	)
+	if err != nil {
+		w.log.Error("KnowledgeReconcile: failed to list PrivateLink endpoints", "error", err)
+		return
+	}
+	if len(endpoints) == 0 {
+		return
+	}
+
+	// Lazy-load EC2 client only when there are endpoints to check.
+	var ec2Client knowledgestore.EC2Client
+	for _, ep := range endpoints {
+		if ep.EndpointID == nil || *ep.EndpointID == "" {
+			// VPCE not yet created — provision worker hasn't run yet.
+			continue
+		}
+
+		if ec2Client == nil {
+			ec2Client, err = knowledgestore.NewEC2Client(ctx)
+			if err != nil {
+				w.log.Error("KnowledgeReconcile: failed to create EC2 client", "error", err)
+				return
+			}
+		}
+
+		out, err := ec2Client.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
+			VpcEndpointIds: []string{*ep.EndpointID},
+		})
+		if err != nil {
+			w.log.Error("KnowledgeReconcile: failed to describe VPC endpoint",
+				"error", err, "store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID)
+			continue
+		}
+		if len(out.VpcEndpoints) == 0 {
+			w.setEndpointAndStoreError(ep.KnowledgeStoreID, "VPC endpoint not found")
+			continue
+		}
+
+		vpce := out.VpcEndpoints[0]
+		switch vpce.State {
+		case ec2types.StatePendingAcceptance:
+			if ep.Status != knowledgestore.StatusPendingAcceptance {
+				_ = w.ksStore.SetEndpointStatus(ep.KnowledgeStoreID, knowledgestore.StatusPendingAcceptance)
+				_ = w.ksStore.SetStatus(ep.KnowledgeStoreID, knowledgestore.StatusPendingAcceptance)
+			}
+
+		case ec2types.StateAvailable:
+			dns := ""
+			if len(vpce.DnsEntries) > 0 {
+				dns = aws.ToString(vpce.DnsEntries[0].DnsName)
+			}
+			if err := w.ksStore.SetEndpointReady(ep.KnowledgeStoreID, *ep.EndpointID, dns); err != nil {
+				w.log.Error("KnowledgeReconcile: failed to mark endpoint ready",
+					"error", err, "store_id", ep.KnowledgeStoreID)
+				continue
+			}
+			if err := w.ksStore.SetStatus(ep.KnowledgeStoreID, knowledgestore.StatusReady); err != nil {
+				w.log.Error("KnowledgeReconcile: failed to mark store ready",
+					"error", err, "store_id", ep.KnowledgeStoreID)
+				continue
+			}
+			w.log.Info("KnowledgeReconcile: PrivateLink endpoint ready",
+				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "dns", dns)
+
+		case ec2types.StateRejected, ec2types.StateFailed, ec2types.StateDeleted:
+			reason := fmt.Sprintf("VPC endpoint %s: %s", *ep.EndpointID, vpce.State)
+			w.setEndpointAndStoreError(ep.KnowledgeStoreID, reason)
+		}
+	}
+}
+
+func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg string) {
+	if err := w.ksStore.SetEndpointError(storeID, errMsg); err != nil {
+		w.log.Error("KnowledgeReconcile: failed to record endpoint error", "error", err, "store_id", storeID)
+	}
+	if err := w.ksStore.SetError(storeID, errMsg); err != nil {
+		w.log.Error("KnowledgeReconcile: failed to record store error", "error", err, "store_id", storeID)
 	}
 }
 

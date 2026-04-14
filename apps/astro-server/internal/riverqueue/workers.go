@@ -132,12 +132,26 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	river.AddWorker(workers, rw)
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
+	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
 	river.AddWorker(workers, &KnowledgeReconcileWorker{
-		ksStore: knowledgestore.NewStore(cfg.DB),
+		ksStore: ksStoreForWorkers,
 		k8s:     cfg.K8sClient,
 		log:     cfg.Logger,
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
+
+	river.AddWorker(workers, &PrivateLinkProvisionWorker{
+		ksStore: ksStoreForWorkers,
+		cfg:     cfg.ServerConfig,
+		log:     cfg.Logger,
+	})
+	log.Info("river: registered worker", "worker", "PrivateLinkProvisionWorker")
+
+	river.AddWorker(workers, &PrivateLinkDeleteWorker{
+		ksStore: ksStoreForWorkers,
+		log:     cfg.Logger,
+	})
+	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
 		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sClient, cfg.ServerConfig, log)

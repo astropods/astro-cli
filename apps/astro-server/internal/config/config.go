@@ -190,6 +190,10 @@ type DeploymentConfig struct {
 	MessagingOIDCClientID         string // MESSAGING_OIDC_CLIENT_ID — OIDC client ID
 	MessagingOIDCClientSecret     string // MESSAGING_OIDC_CLIENT_SECRET — OIDC client secret
 	MessagingOIDCSessionTimeout   int    // MESSAGING_OIDC_SESSION_TIMEOUT — session duration in seconds (default 3600)
+	// PrivateLink automation — managed cluster VPC where VPC endpoints are created at runtime
+	PrivateLinkVpcID     string   // PRIVATELINK_VPC_ID — managed cluster VPC ID (empty = PrivateLink disabled)
+	PrivateLinkSubnetIDs []string // PRIVATELINK_SUBNET_IDS — comma-separated private subnet IDs
+	PrivateLinkSGID      string   // PRIVATELINK_SG_ID — security group for PrivateLink endpoints
 }
 
 // Load loads configuration from environment variables with defaults
@@ -248,6 +252,9 @@ func Load() (*Config, error) {
 			MessagingOIDCClientID:         getEnv("MESSAGING_OIDC_CLIENT_ID", ""),
 			MessagingOIDCClientSecret:     getEnv("MESSAGING_OIDC_CLIENT_SECRET", ""),
 			MessagingOIDCSessionTimeout:   getEnvInt("MESSAGING_OIDC_SESSION_TIMEOUT", 3600),
+			PrivateLinkVpcID:              getEnv("PRIVATELINK_VPC_ID", ""),
+			PrivateLinkSubnetIDs:          getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
+			PrivateLinkSGID:               getEnv("PRIVATELINK_SG_ID", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -70,22 +71,34 @@ type KnowledgeEvent struct {
 	Count   int32  `json:"count"`
 }
 
+// KnowledgeEndpointResponse is the API representation of a PrivateLink endpoint.
+type KnowledgeEndpointResponse struct {
+	CloudProvider   string  `json:"cloud_provider"`
+	EndpointService string  `json:"endpoint_service"`
+	Region          string  `json:"region"`
+	EndpointID      *string `json:"endpoint_id,omitempty"`
+	EndpointDNS     *string `json:"endpoint_dns,omitempty"`
+	Status          string  `json:"status"`
+	Error           *string `json:"error,omitempty"`
+}
+
 // KnowledgeResponse is the API representation of a knowledge store.
 type KnowledgeResponse struct {
-	ID           string           `json:"id"`
-	ARN          string           `json:"arn"`
-	Name         string           `json:"name"`
-	Provider     string           `json:"provider"`
-	Mode         string           `json:"mode"`
-	Status       string           `json:"status"`
-	Storage      string           `json:"storage"`
-	StorageClass *string          `json:"storage_class,omitempty"`
-	Public       bool             `json:"public"`
-	PublicHost   *string          `json:"public_host,omitempty"`
-	Error        *string          `json:"error,omitempty"`
-	CreatedAt    time.Time        `json:"created_at"`
-	UpdatedAt    time.Time        `json:"updated_at"`
-	Events       []KnowledgeEvent `json:"events,omitempty"`
+	ID           string                    `json:"id"`
+	ARN          string                    `json:"arn"`
+	Name         string                    `json:"name"`
+	Provider     string                    `json:"provider"`
+	Mode         string                    `json:"mode"`
+	Status       string                    `json:"status"`
+	Storage      string                    `json:"storage"`
+	StorageClass *string                   `json:"storage_class,omitempty"`
+	Public       bool                      `json:"public"`
+	PublicHost   *string                   `json:"public_host,omitempty"`
+	Endpoint     *KnowledgeEndpointResponse `json:"endpoint,omitempty"`
+	Error        *string                   `json:"error,omitempty"`
+	CreatedAt    time.Time                 `json:"created_at"`
+	UpdatedAt    time.Time                 `json:"updated_at"`
+	Events       []KnowledgeEvent          `json:"events,omitempty"`
 }
 
 // KnowledgeCredentialsResponse holds decrypted credentials for a knowledge store.
@@ -378,6 +391,134 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 	}
 }
 
+// AttachPrivateLink creates a PrivateLink endpoint for an external knowledge store.
+func AttachPrivateLink(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil {
+			log.Error("Failed to get knowledge store", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
+			return
+		}
+		if ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+		if ks.Mode != knowledgestore.ModeExternal {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "PrivateLink is only available for external stores"})
+			return
+		}
+
+		existing, err := ksStore.GetEndpoint(ks.ID)
+		if err != nil {
+			log.Error("Failed to check existing endpoint", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check endpoint"})
+			return
+		}
+		if existing != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "store already has a PrivateLink endpoint"})
+			return
+		}
+
+		if cfg.Deployment.PrivateLinkVpcID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PrivateLink is not configured on this platform"})
+			return
+		}
+
+		var req struct {
+			CloudProvider string `json:"cloud_provider" binding:"required"`
+			Service       string `json:"service" binding:"required"`
+			Region        string `json:"region" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if _, err := ksStore.CreateEndpoint(knowledgestore.EndpointParams{
+			KnowledgeStoreID: ks.ID,
+			CloudProvider:    req.CloudProvider,
+			EndpointService:  req.Service,
+			Region:           req.Region,
+		}); err != nil {
+			log.Error("Failed to create endpoint record", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create endpoint"})
+			return
+		}
+
+		if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusConnecting); err != nil {
+			log.Error("Failed to update store status", "error", err, "store_id", ks.ID)
+		}
+
+		if err := queue.InsertPrivateLinkProvisionJob(c.Request.Context(), ks.ID); err != nil {
+			log.Error("Failed to enqueue PrivateLink provision job", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue provision job"})
+			return
+		}
+
+		log.Info("PrivateLink attach initiated", "store_id", ks.ID, "service", req.Service)
+		c.JSON(http.StatusAccepted, gin.H{"status": "connecting"})
+	}
+}
+
+// DetachPrivateLink removes a PrivateLink endpoint from an external knowledge store.
+func DetachPrivateLink(log *logger.Logger, ksStore *knowledgestore.Store, queue *riverqueue.Queue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil {
+			log.Error("Failed to get knowledge store", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
+			return
+		}
+		if ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+
+		ep, err := ksStore.GetEndpoint(ks.ID)
+		if err != nil {
+			log.Error("Failed to get endpoint", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get endpoint"})
+			return
+		}
+		if ep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store has no PrivateLink endpoint"})
+			return
+		}
+
+		endpointID := ""
+		if ep.EndpointID != nil {
+			endpointID = *ep.EndpointID
+		}
+
+		if err := queue.InsertPrivateLinkDeleteJob(c.Request.Context(), ks.ID, endpointID); err != nil {
+			log.Error("Failed to enqueue PrivateLink delete job", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue delete job"})
+			return
+		}
+
+		// Revert store to ready — it's still a usable external store, just without PrivateLink.
+		if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
+			log.Error("Failed to update store status", "error", err, "store_id", ks.ID)
+		}
+
+		log.Info("PrivateLink detach initiated", "store_id", ks.ID, "endpoint_id", endpointID)
+		c.JSON(http.StatusAccepted, gin.H{"status": "detaching"})
+	}
+}
+
 func ListKnowledgeStores(log *logger.Logger, ksStore *knowledgestore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
@@ -422,6 +563,19 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 
 		resp := toKnowledgeResponse(ks)
 
+		// Include PrivateLink endpoint info if present.
+		if ep, epErr := ksStore.GetEndpoint(ks.ID); epErr == nil && ep != nil {
+			resp.Endpoint = &KnowledgeEndpointResponse{
+				CloudProvider:   ep.CloudProvider,
+				EndpointService: ep.EndpointService,
+				Region:          ep.Region,
+				EndpointID:      ep.EndpointID,
+				EndpointDNS:     ep.EndpointDNS,
+				Status:          ep.Status,
+				Error:           ep.Error,
+			}
+		}
+
 		if k8sClient != nil && ks.Status == knowledgestore.StatusProvisioning {
 			ns := k8s.KnowledgeNamespace(acct.ID)
 			evts, _ := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
@@ -442,7 +596,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 	}
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -466,6 +620,18 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 				log.Error("Failed to delete K8s resources", "error", err, "store_id", ks.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete store resources"})
 				return
+			}
+		}
+
+		// Enqueue PrivateLink cleanup if the store has an endpoint.
+		// Capture the VPCE ID before the DB row is cascade-deleted.
+		if ep, epErr := ksStore.GetEndpoint(ks.ID); epErr == nil && ep != nil && queue != nil {
+			endpointID := ""
+			if ep.EndpointID != nil {
+				endpointID = *ep.EndpointID
+			}
+			if err := queue.InsertPrivateLinkDeleteJob(c.Request.Context(), ks.ID, endpointID); err != nil {
+				log.Error("Failed to enqueue PrivateLink delete job", "error", err, "store_id", ks.ID)
 			}
 		}
 

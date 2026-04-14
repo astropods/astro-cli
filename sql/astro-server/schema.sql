@@ -513,3 +513,20 @@ CREATE TABLE public.knowledge_store_credentials (
     CONSTRAINT knowledge_store_credentials_pkey PRIMARY KEY (knowledge_store_id, key),
     CONSTRAINT knowledge_store_credentials_store_fkey FOREIGN KEY (knowledge_store_id) REFERENCES public.knowledge_stores(id) ON DELETE CASCADE
 );
+
+CREATE TABLE public.knowledge_store_endpoints (
+    knowledge_store_id varchar(11) NOT NULL,
+    cloud_provider     varchar     NOT NULL,
+    endpoint_service   varchar     NOT NULL,
+    region             varchar     NOT NULL,
+    endpoint_id        varchar,
+    endpoint_dns       varchar,
+    status             varchar     NOT NULL DEFAULT 'connecting',
+    error              text,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT knowledge_store_endpoints_pkey PRIMARY KEY (knowledge_store_id),
+    CONSTRAINT knowledge_store_endpoints_store_fkey FOREIGN KEY (knowledge_store_id) REFERENCES public.knowledge_stores(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_knowledge_store_endpoints_status ON public.knowledge_store_endpoints(status);
