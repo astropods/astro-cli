@@ -129,7 +129,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
   // Show historical logs until the server signals ready (after backfill completes),
   // then switch to the stream which already contains the full backfill + live lines.
   const logs = useMemo(
-    () => isLive && streamIsLive ? streamLines : (logsRaw ? logsRaw.split("\n").filter(Boolean) : []),
+    () => isLive && streamIsLive ? streamLines : (logsRaw ?? []),
     [isLive, streamIsLive, streamLines, logsRaw],
   );
 

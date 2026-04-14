@@ -20,6 +20,14 @@ type logEntry struct {
 	Message   string `json:"message"`
 }
 
+func lokiLineToEntry(ll loki.LogLine) logEntry {
+	return logEntry{
+		Timestamp: ll.Timestamp.UTC().Format(time.RFC3339Nano),
+		Level:     ll.Level,
+		Message:   strings.TrimRight(ll.Line, "\n"),
+	}
+}
+
 // streamLogs writes pod logs to the gin response. It queries Loki if a client
 // is configured, otherwise falls back to direct K8s pod log streaming.
 // Returns without writing if neither backend is available (503).
@@ -41,11 +49,7 @@ func streamLogs(
 		}
 		entries := make([]logEntry, 0, len(lines))
 		for _, l := range lines {
-			entries = append(entries, logEntry{
-				Timestamp: l.Timestamp.UTC().Format(time.RFC3339Nano),
-				Level:     l.Level,
-				Message:   strings.TrimRight(l.Line, "\n"),
-			})
+			entries = append(entries, lokiLineToEntry(l))
 		}
 		c.JSON(http.StatusOK, entries)
 		return

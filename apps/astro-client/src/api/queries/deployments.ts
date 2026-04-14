@@ -2,6 +2,7 @@ import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tansta
 import { useEffect, useReducer } from 'react';
 import { useApiClient } from '../../lib/api-context';
 import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
+import type { LogEntry } from '@/lib/log-utils';
 import { deploymentKeys } from './keys';
 
 /**
@@ -110,7 +111,7 @@ export function useDeploymentLogs(
 }
 
 type StreamLogState = {
-  lines: string[];
+  lines: LogEntry[];
   isLive: boolean;
   error: string | undefined;
 };
@@ -118,7 +119,7 @@ type StreamLogState = {
 type StreamLogAction =
   | { type: 'reset' }
   | { type: 'connecting' }
-  | { type: 'message'; line: string }
+  | { type: 'message'; line: LogEntry }
   | { type: 'ready' }
   | { type: 'stream_error'; message: string }
   | { type: 'disconnected' };
@@ -162,8 +163,8 @@ export function useDeploymentLogsStream(
 
     es.onmessage = (e: MessageEvent) => {
       try {
-        const parsed = JSON.parse(e.data) as { timestamp: string; line: string };
-        dispatch({ type: 'message', line: `${parsed.timestamp} ${parsed.line}` });
+        const parsed = JSON.parse(e.data) as { timestamp: string; level: string; message: string };
+        dispatch({ type: 'message', line: { timestamp: parsed.timestamp, level: parsed.level || null, message: parsed.message } });
       } catch {
         // ignore malformed events
       }

@@ -1934,13 +1934,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		flusher := c.Writer.(http.Flusher)
 
 		writeEvent := func(ll loki.LogLine) bool {
-			payload, _ := json.Marshal(struct {
-				Timestamp string `json:"timestamp"`
-				Line      string `json:"line"`
-			}{
-				Timestamp: ll.Timestamp.UTC().Format(time.RFC3339Nano),
-				Line:      strings.TrimRight(ll.Line, "\n"),
-			})
+			payload, _ := json.Marshal(lokiLineToEntry(ll))
 			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
 			if writeErr != nil {
 				return false
