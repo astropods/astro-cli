@@ -51,6 +51,7 @@ type BuiltinProvider struct {
 	WritableRootFS bool     // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
 	ExtraEmptyDirs []string // extra paths that need writable emptyDir mounts (e.g. "/qdrant/snapshots")
 	FsGroup        int64    // non-zero → pod runs as this uid/gid (overrides hardened default of 1000)
+	InitSQL        string   // optional SQL run via /docker-entrypoint-initdb.d/ on first boot (postgres-compatible images only)
 }
 
 // builtinProviders is the single authoritative list of all platform-known providers.
@@ -115,8 +116,9 @@ var builtinProviders = []BuiltinProvider{
 		Image: "pgvector/pgvector:pg17", DefaultPort: 5432,
 		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
-		DefaultEnv:  map[string]string{"POSTGRES_HOST_AUTH_METHOD": "trust", "PGDATA": "/var/lib/postgresql/data/pgdata"},
+		DefaultEnv:  map[string]string{"PGDATA": "/var/lib/postgresql/data/pgdata"},
 		FsGroup:     999, // postgres uid/gid — entrypoint skips chown when running as non-root
+		InitSQL:     "CREATE EXTENSION IF NOT EXISTS vector;",
 	},
 	{
 		Name: "neo4j", Section: "knowledge",

@@ -113,6 +113,22 @@ func (t *k8sTracker) handler() http.Handler {
 			t.del("secret:" + ns + "/" + name)
 			fmt.Fprintf(w, `{"kind":"Status","status":"Success"}`)
 
+		// ConfigMap CREATE
+		case r.Method == http.MethodPost && strings.Contains(p, "/configmaps") && !strings.Contains(p, "/configmaps/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/api/v1/namespaces/"), "/")
+			ns := parts[0]
+			name := extractName(r)
+			t.add("configmap:" + ns + "/" + name)
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":%q}}`, name)
+
+		// ConfigMap DELETE
+		case r.Method == http.MethodDelete && strings.Contains(p, "/configmaps/"):
+			parts := strings.Split(strings.TrimPrefix(p, "/api/v1/namespaces/"), "/")
+			ns, name := parts[0], parts[2]
+			t.del("configmap:" + ns + "/" + name)
+			fmt.Fprintf(w, `{"kind":"Status","status":"Success"}`)
+
 		// Service CREATE
 		case r.Method == http.MethodPost && strings.Contains(p, "/services") && !strings.Contains(p, "/services/"):
 			parts := strings.Split(strings.TrimPrefix(p, "/api/v1/namespaces/"), "/")

@@ -6,6 +6,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,6 +100,14 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 
 	resourceName := KnowledgeResourceName(p.StoreID)
 
+	// Convert provider health check to spec.Healthcheck for liveness/readiness probes.
+	var healthcheck *spec.Healthcheck
+	if len(prov.HealthCheck) > 0 {
+		healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
+	} else if prov.HealthPath != "" {
+		healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
+	}
+
 	// Build the StatefulSet using the existing builder. We repurpose AgentName and BuildID
 	// as the store ID so the underlying label logic has a stable identity.
 	ss, err := BuildStatefulSet(StatefulSetConfig{
@@ -116,6 +125,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 		ProviderSection: "knowledge",
 		LocalMode:       p.LocalMode,
 		FsGroup:         prov.FsGroup,
+		Healthcheck:     healthcheck,
 	})
 	if err != nil {
 		return fmt.Errorf("build statefulset: %w", err)
@@ -125,6 +135,39 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	ss.Labels = labels
 	ss.Spec.Template.Labels = labels
 	ss.Spec.Selector.MatchLabels = selector
+
+	// Retain PVCs when the StatefulSet is deleted so data survives accidental deletion.
+	// Delete PVCs from scaled-down replicas to avoid orphaned volumes.
+	ss.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+		WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+		WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+	}
+
+	// If the provider has init SQL, create a ConfigMap and mount it at the postgres
+	// init directory so it runs on first boot.
+	if prov.InitSQL != "" {
+		cm := buildInitSQLConfigMap(resourceName, ns, labels, prov.InitSQL)
+		_, cmErr := client.Clientset().CoreV1().ConfigMaps(ns).Create(ctx, cm, metav1.CreateOptions{})
+		if cmErr != nil && !apierrors.IsAlreadyExists(cmErr) {
+			return fmt.Errorf("create init configmap: %w", cmErr)
+		}
+		ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+			Name: "initdb",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: resourceName + "-init"},
+				},
+			},
+		})
+		ss.Spec.Template.Spec.Containers[0].VolumeMounts = append(
+			ss.Spec.Template.Spec.Containers[0].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "initdb",
+				MountPath: "/docker-entrypoint-initdb.d",
+				ReadOnly:  true,
+			},
+		)
+	}
 
 	_, err = client.Clientset().AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -201,8 +244,25 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 	if err := client.Clientset().CoreV1().Secrets(ns).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete secret: %w", err)
 	}
+	initCM := resourceName + "-init"
+	if err := client.Clientset().CoreV1().ConfigMaps(ns).Delete(ctx, initCM, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete init configmap: %w", err)
+	}
 
 	return nil
+}
+
+func buildInitSQLConfigMap(resourceName, ns string, labels map[string]string, sql string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName + "-init",
+			Namespace: ns,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"init.sql": sql,
+		},
+	}
 }
 
 // IsStatefulSetReady returns true if the store's StatefulSet has at least one ready replica.
