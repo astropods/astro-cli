@@ -18,6 +18,10 @@ func printLogs(body io.Reader) error {
 	if err := json.NewDecoder(body).Decode(&entries); err != nil {
 		return fmt.Errorf("failed to decode logs: %w", err)
 	}
+	if len(entries) == 0 {
+		fmt.Println("No logs found.")
+		return nil
+	}
 	for _, e := range entries {
 		level := e.Level
 		if level == "" {

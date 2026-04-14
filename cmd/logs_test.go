@@ -78,8 +78,13 @@ func TestPrintLogs_NoTimestampOmitsIt(t *testing.T) {
 
 func TestPrintLogs_EmptyArray(t *testing.T) {
 	body := strings.NewReader(`[]`)
-	if err := printLogs(body); err != nil {
-		t.Fatalf("unexpected error on empty array: %v", err)
+	out := captureStdout(t, func() {
+		if err := printLogs(body); err != nil {
+			t.Fatalf("unexpected error on empty array: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No logs found") {
+		t.Errorf("expected 'No logs found' message for empty array, got:\n%s", out)
 	}
 }
 
