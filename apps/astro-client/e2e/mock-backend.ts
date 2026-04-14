@@ -662,12 +662,11 @@ Bun.serve({
 
     const deploymentLogsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/logs$/);
     if (deploymentLogsMatch && request.method === "GET") {
-      const logs = [
-        "2024-01-01T00:00:00Z Starting agent server on :8080",
-        "2024-01-01T00:00:01Z Agent ready to accept requests",
-        "2024-01-01T00:00:02Z Listening for incoming requests",
-      ].join("\n");
-      return new Response(logs, { status: 200, headers: { "content-type": "text/plain" } });
+      return json([
+        { timestamp: "2024-01-01T00:00:00Z", level: null, message: "Starting agent server on :8080" },
+        { timestamp: "2024-01-01T00:00:01Z", level: null, message: "Agent ready to accept requests" },
+        { timestamp: "2024-01-01T00:00:02Z", level: null, message: "Listening for incoming requests" },
+      ]);
     }
 
     const deploymentObsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/observability\/(metrics|summary|traces)$/);
