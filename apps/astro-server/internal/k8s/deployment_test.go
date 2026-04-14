@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -420,8 +421,8 @@ func TestBuildDeployment(t *testing.T) {
 			t.Fatal("expected exec probe for postgres")
 		}
 		cmd := container.LivenessProbe.Exec.Command
-		if len(cmd) < 2 || cmd[0] != "pg_isready" {
-			t.Errorf("expected [pg_isready -U postgres], got %v", cmd)
+		if len(cmd) < 3 || cmd[0] != "sh" || cmd[1] != "-c" || !strings.Contains(cmd[2], "pg_isready") {
+			t.Errorf("expected [sh -c pg_isready ...], got %v", cmd)
 		}
 	})
 
