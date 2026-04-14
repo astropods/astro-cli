@@ -74,11 +74,14 @@ func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
 				continue
 			}
 			// DNS CNAME creation is handled by external DNS controller (e.g. external-dns).
-			// Record the LB hostname so the API can surface it.
-			if err := w.ksStore.SetPublicHost(ks.ID, host); err != nil {
-				w.log.Error("KnowledgeReconcile: failed to set public host",
-					"error", err, "store_id", ks.ID)
-				continue
+			// Only record the LB hostname if the create handler didn't already
+			// set a friendly CNAME (e.g. name.account.knowledge.domain).
+			if ks.PublicHost == nil || *ks.PublicHost == "" {
+				if err := w.ksStore.SetPublicHost(ks.ID, host); err != nil {
+					w.log.Error("KnowledgeReconcile: failed to set public host",
+						"error", err, "store_id", ks.ID)
+					continue
+				}
 			}
 		}
 
