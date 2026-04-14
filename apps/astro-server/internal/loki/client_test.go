@@ -276,3 +276,48 @@ func TestQueryLogs_TimeRange(t *testing.T) {
 		t.Errorf("end = %q, want 2000000000000", gotEnd)
 	}
 }
+
+func TestQueryLogs_LevelFromStreamLabel(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [
+					{
+						"stream": {"pod": "my-pod", "level": "error"},
+						"values": [["1000000000", "something went wrong"]]
+					},
+					{
+						"stream": {"pod": "my-pod", "level": "info"},
+						"values": [["2000000000", "all good"]]
+					},
+					{
+						"stream": {"pod": "my-pod"},
+						"values": [["3000000000", "no level label"]]
+					}
+				]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\"", lines[0].Level)
+	}
+	if lines[1].Level != "info" {
+		t.Errorf("lines[1].Level = %q, want \"info\"", lines[1].Level)
+	}
+	if lines[2].Level != "" {
+		t.Errorf("lines[2].Level = %q, want \"\" (absent label)", lines[2].Level)
+	}
+}

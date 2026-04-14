@@ -2790,12 +2790,31 @@ func TestGetDeploymentLogs_LokiPath(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
-		t.Errorf("Content-Type = %q, want text/plain; charset=utf-8", ct)
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
-	want := "1970-01-01T00:00:01Z line one\n1970-01-01T00:00:02Z line two\n"
-	if got := w.Body.String(); got != want {
-		t.Errorf("body = %q, want %q", got, want)
+	var entries []struct {
+		Timestamp string `json:"timestamp"`
+		Level     string `json:"level"`
+		Message   string `json:"message"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&entries); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	if entries[0].Timestamp != "1970-01-01T00:00:01Z" {
+		t.Errorf("entries[0].Timestamp = %q, want 1970-01-01T00:00:01Z", entries[0].Timestamp)
+	}
+	if entries[0].Message != "line one" {
+		t.Errorf("entries[0].Message = %q, want \"line one\"", entries[0].Message)
+	}
+	if entries[1].Timestamp != "1970-01-01T00:00:02Z" {
+		t.Errorf("entries[1].Timestamp = %q, want 1970-01-01T00:00:02Z", entries[1].Timestamp)
+	}
+	if entries[1].Message != "line two" {
+		t.Errorf("entries[1].Message = %q, want \"line two\"", entries[1].Message)
 	}
 }
 

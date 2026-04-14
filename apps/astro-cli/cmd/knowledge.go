@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -354,11 +353,7 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-	}
-	return scanner.Err()
+	return printLogs(resp.Body)
 }
 
 func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {

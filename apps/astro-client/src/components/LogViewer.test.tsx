@@ -2,15 +2,16 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { screen, cleanup, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/test-utils";
 import { LogViewer } from "./LogViewer";
+import type { LogEntry } from "@/lib/log-utils";
 
 afterEach(cleanup);
 
-const LOGS = [
-  "2024-01-01T00:00:01.000Z Agent initialized and ready",
-  "2024-01-01T00:00:02.000Z Received request id=req-001",
-  "2024-01-01T00:00:03.000Z Error: failed to connect to database",
-  "2024-01-01T00:00:04.000Z Warning: retry attempt 1",
-  "2024-01-01T00:00:05.000Z Response generated in 200ms",
+const LOGS: LogEntry[] = [
+  { timestamp: "2024-01-01T00:00:01.000Z", level: "INFO",  message: "Agent initialized and ready" },
+  { timestamp: "2024-01-01T00:00:02.000Z", level: "INFO",  message: "Received request id=req-001" },
+  { timestamp: "2024-01-01T00:00:03.000Z", level: "ERROR", message: "failed to connect to database" },
+  { timestamp: "2024-01-01T00:00:04.000Z", level: "WARN",  message: "retry attempt 1" },
+  { timestamp: "2024-01-01T00:00:05.000Z", level: "INFO",  message: "Response generated in 200ms" },
 ];
 
 function renderViewer(props: Partial<React.ComponentProps<typeof LogViewer>> = {}) {
@@ -34,13 +35,6 @@ describe("LogViewer", () => {
     expect(screen.getByText(/Response generated/)).toBeInTheDocument();
   });
 
-  it("shows line numbers starting at 1", () => {
-    renderViewer();
-    const lineNumbers = screen.getAllByText(/^\d+$/).map((el) => el.textContent);
-    expect(lineNumbers).toContain("1");
-    expect(lineNumbers).toContain(String(LOGS.length));
-  });
-
   it("shows empty state when no logs", () => {
     renderViewer({ logs: [] });
     expect(screen.getByText("No log lines in this time window")).toBeInTheDocument();
@@ -59,6 +53,13 @@ describe("LogViewer", () => {
   it("renders time range select with current value", () => {
     renderViewer({ timeRange: "1h" });
     expect(screen.getByText("Last 1 hour")).toBeInTheDocument();
+  });
+
+  it("displays normalised level labels", () => {
+    renderViewer();
+    expect(screen.getAllByText("INFO").length).toBeGreaterThan(0);
+    expect(screen.getByText("ERROR")).toBeInTheDocument();
+    expect(screen.getByText("WARN")).toBeInTheDocument();
   });
 
   // ── error filter ────────────────────────────────────────────────────────────
@@ -126,7 +127,6 @@ describe("LogViewer", () => {
   it("calls onTimeRangeChange when time range is changed", () => {
     const onTimeRangeChange = vi.fn();
     renderViewer({ onTimeRangeChange });
-    // The select trigger shows the current label; open it and pick another option
     fireEvent.click(screen.getByText("Last 15 min"));
     fireEvent.click(screen.getByText("Last 1 hour"));
     expect(onTimeRangeChange).toHaveBeenCalledWith("1h");

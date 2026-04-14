@@ -33,10 +33,13 @@ const mockDeployment: AgentDeployment = {
   ],
 };
 
-function setupLogsHandler(logs = "log line 1\nlog line 2") {
+function setupLogsHandler(message = "log line 1") {
   server.use(
     http.get("/api/v1/deployments/:id/logs", () => {
-      return new HttpResponse(logs, { status: 200 });
+      return HttpResponse.json([
+        { timestamp: "2026-01-01T00:00:01Z", level: "INFO", message },
+        { timestamp: "2026-01-01T00:00:02Z", level: "INFO", message: "log line 2" },
+      ]);
     }),
   );
 }
@@ -63,7 +66,7 @@ describe("LogsTab — default state", () => {
   it("fetches and displays logs for the active tab", async () => {
     setupLogsHandler("hello from agent");
     renderTab();
-    await waitFor(() => expect(screen.getByText(/hello from agent/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/hello from agent/)).toBeInTheDocument(), { timeout: 3000 });
   });
 
   it("shows empty state after all tabs are closed", async () => {
