@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { renderWithProviders } from "@/test/test-utils";
 import { LogsTab } from "./LogsTab";
+import { LogStreamProvider } from "../LogStreamProvider";
 import type { AgentDeployment } from "@/lib/api";
 
 afterEach(cleanup);
@@ -46,7 +47,9 @@ function setupLogsHandler(message = "log line 1") {
 
 function renderTab(props: Partial<React.ComponentProps<typeof LogsTab>> = {}) {
   return renderWithProviders(
-    <LogsTab deployment={mockDeployment} isCompact={false} {...props} />,
+    <LogStreamProvider>
+      <LogsTab deployment={mockDeployment} isCompact={false} {...props} />
+    </LogStreamProvider>,
   );
 }
 

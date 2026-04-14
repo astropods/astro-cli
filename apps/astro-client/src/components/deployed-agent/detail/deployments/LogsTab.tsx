@@ -12,7 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
-import { useDeploymentLogs, useDeploymentLogsStream } from "@/api/queries/deployments";
+import { useDeploymentLogs } from "@/api/queries/deployments";
+import { useLogStream } from "../LogStreamProvider";
 import type { AgentDeployment, WorkloadDetail } from "@/lib/api";
 
 interface LogTab {
@@ -66,22 +67,26 @@ function tabReducer(state: TabState, action: TabAction): TabState {
 interface LogsTabProps {
   deployment: AgentDeployment;
   isCompact: boolean;
+  isVisible?: boolean;
 }
 
-export function LogsTab({ deployment, isCompact }: LogsTabProps) {
+export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProps) {
   const workloads = deployment.workloads ?? [];
 
   const [{ tabs: openTabs, activeKey }, dispatch] = useReducer(tabReducer, { tabs: [], activeKey: null });
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
   const [isLive, setIsLive] = useState(false);
 
-  // Pre-load the first container tab and make it active when the deployment changes
+  // Pre-load the first container tab and make it active when the deployment changes.
+  // Also stop any running stream so it doesn't carry over to a different deployment.
   useEffect(() => {
     const first = workloads
       .flatMap((wl) => (wl.containers ?? []).map((c) => ({ workloadName: wl.name, containerName: c.name })))
       .slice(0, 1);
     dispatch({ type: "reset", preload: first, activeKey: first[0] ? tabKey(first[0]) : null });
     setIsLive(false);
+    stopStream();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deployment.id]);
 
   const activeTab = useMemo(
@@ -98,6 +103,17 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
     prevActiveKeyRef.current = activeKey;
   }, [activeKey]);
 
+  // Auto-disconnect after 30 s when the user navigates away from the Logs tab while live.
+  useEffect(() => {
+    if (isVisible || !isLive) return;
+    const timer = setTimeout(() => {
+      stopStream();
+      setIsLive(false);
+    }, 30_000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, isLive]);
+
   const tabEnabled = !!(activeTab?.workloadName && activeTab?.containerName);
 
   // Historical (non-live) query — one-shot fetch, no polling.
@@ -112,33 +128,32 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
     },
   );
 
-  // Live streaming via SSE — only active when live mode is on.
-  // The server backfills the last 15 minutes on fresh connection then tails from there.
-  // On reconnect, Last-Event-ID resumes from the last received event.
-  const {
-    lines: streamLines,
-    isLive: streamIsLive,
-    error: streamError,
-  } = useDeploymentLogsStream(
-    deployment.id,
-    activeTab?.workloadName ?? "",
-    activeTab?.containerName ?? "",
-    isLive && tabEnabled,
-  );
+  // Live streaming — managed by LogStreamProvider so the connection survives tab switches.
+  const { lines: streamLines, status: streamStatus, error: streamError, startStream, stopStream } = useLogStream();
+  const streamIsLive = streamStatus === "live";
+  const isReconnecting = streamStatus === "reconnecting";
 
-  // Show historical logs until the server signals ready (after backfill completes),
-  // then switch to the stream which already contains the full backfill + live lines.
+  // Start/stop the stream when live mode or the active container changes.
+  useEffect(() => {
+    if (isLive && tabEnabled && activeTab) {
+      startStream(deployment.id, activeTab.workloadName, activeTab.containerName);
+    } else if (!isLive) {
+      stopStream();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, activeTab?.workloadName, activeTab?.containerName, deployment.id]);
+
   // While the historical refetch is in-flight (after stopping live), keep showing
   // stream lines so the count doesn't drop to stale cached data.
   const logs = useMemo(() => {
-    if (isLive && streamIsLive) return streamLines;
-    if (!isLive && histFetching && streamLines.length > 0) return streamLines;
+    if (isLive) return streamLines;
+    if (histFetching && streamLines.length > 0) return streamLines;
     return logsRaw ?? [];
-  }, [isLive, streamIsLive, streamLines, logsRaw, histFetching]);
+  }, [isLive, streamLines, logsRaw, histFetching]);
 
   const isLoading = isLive ? false : (histLoading || (histFetching && streamLines.length === 0));
   let logError: string | undefined;
-  if (isLive) logError = streamIsLive ? undefined : streamError;
+  if (isLive) logError = streamError;
   else if (isError) logError = "Failed to load logs.";
 
 
@@ -257,6 +272,7 @@ export function LogsTab({ deployment, isCompact }: LogsTabProps) {
             onTimeRangeChange={setTimeRange}
             error={logError}
             isLive={isLive && streamIsLive}
+            isReconnecting={isReconnecting}
             onLiveToggle={() => setIsLive((v) => !v)}
           />
         )}

@@ -22,6 +22,7 @@ import type { TraceRow } from "./monitor/MonitorTab";
 import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
 import { LogsTab } from "./deployments/LogsTab";
+import { LogStreamProvider } from "./LogStreamProvider";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { cn } from "@/lib/utils";
@@ -149,6 +150,7 @@ export function ActiveDetailView({
   }, []);
 
   return (
+    <LogStreamProvider>
     <div className="flex flex-1 min-h-0 overflow-hidden relative bg-muted">
       <div className="flex flex-1 flex-col min-w-0 min-h-0">
 
@@ -302,6 +304,7 @@ export function ActiveDetailView({
             <LogsTab
               deployment={renderedDeployment}
               isCompact={isCompact}
+              isVisible={tab === 'logs'}
             />
           </div>
           <div
@@ -406,5 +409,6 @@ export function ActiveDetailView({
         </SidePanel>
       )}
     </div>
+    </LogStreamProvider>
   )
 }

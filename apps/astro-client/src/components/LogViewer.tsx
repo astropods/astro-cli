@@ -33,10 +33,11 @@ interface LogViewerProps {
   leading?: React.ReactNode;
   error?: string;
   isLive?: boolean;
+  isReconnecting?: boolean;
   onLiveToggle?: () => void;
 }
 
-export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isLive = false, onLiveToggle }: LogViewerProps) {
+export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isLive = false, isReconnecting = false, onLiveToggle }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
 
@@ -132,9 +133,15 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
                 isLive ? "bg-teal-500 animate-pulse" : "bg-muted-foreground",
               )}
             />
-            Live
+            Tail
             {isLive && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
           </Button>
+        )}
+        {isReconnecting && (
+          <span className="flex items-center gap-1 font-sans text-body-sm text-faint-foreground">
+            <Loader2 size={10} className="dp-spin shrink-0" />
+            Reconnecting…
+          </span>
         )}
 
         <Select

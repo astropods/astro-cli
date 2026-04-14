@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3165,33 +3164,29 @@ func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
-	// Mock Loki server: query_range returns historical line; tail WS delivers live line.
+	// Mock Loki: tail WS delivers one live line then closes.
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/loki/api/v1/query_range":
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"my-pod"},"values":[["1000000000","historical line"]]}]}}`)) //nolint:errcheck
-		case "/loki/api/v1/tail":
-			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
-			if err != nil {
-				t.Errorf("websocket upgrade: %v", err)
-				return
-			}
-			defer conn.Close() //nolint:errcheck
-			frame := map[string]interface{}{
-				"streams": []map[string]interface{}{{
-					"stream": map[string]string{"pod": "my-pod"},
-					"values": [][]string{{"2000000000", "live line"}},
-				}},
-			}
-			data, _ := json.Marshal(frame)
-			conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
-			conn.WriteMessage(websocket.CloseMessage,      //nolint:errcheck
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			conn.ReadMessage() //nolint:errcheck
-		default:
+		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
+			return
 		}
+		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("websocket upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+		frame := map[string]interface{}{
+			"streams": []map[string]interface{}{{
+				"stream": map[string]string{"pod": "my-pod"},
+				"values": [][]string{{"2000000000", "live line"}},
+			}},
+		}
+		data, _ := json.Marshal(frame)
+		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+		conn.WriteMessage(websocket.CloseMessage,      //nolint:errcheck
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		conn.ReadMessage() //nolint:errcheck
 	}))
 	defer lokiSrv.Close()
 
@@ -3208,7 +3203,6 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// Use a real HTTP server so SSE streaming (http.Flusher) works.
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -3230,9 +3224,7 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
 
-	// Collect SSE lines; cancel once we have all expected output so the test
-	// doesn't wait for the full 5-second context timeout.
-	var sseLines []string
+	// Scan until EOF — handler returns when Loki WS closes, ending the SSE stream.
 	var logLines, eventLines []string
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -3240,26 +3232,18 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		sseLines = append(sseLines, line)
 		if strings.HasPrefix(line, "data:") && line != "data: {}" {
 			logLines = append(logLines, line)
 		} else if strings.HasPrefix(line, "event:") {
 			eventLines = append(eventLines, line)
 		}
-		if len(logLines) >= 2 && len(eventLines) >= 1 {
-			cancel()
-			break
-		}
 	}
 
-	if len(logLines) < 2 {
-		t.Errorf("got %d log data lines, want ≥2; all lines: %v", len(logLines), sseLines)
+	if len(logLines) != 1 {
+		t.Errorf("got %d log lines, want 1", len(logLines))
 	}
-	if len(logLines) >= 1 && !strings.Contains(logLines[0], "historical line") {
-		t.Errorf("first log line should contain historical line, got: %s", logLines[0])
-	}
-	if len(logLines) >= 2 && !strings.Contains(logLines[len(logLines)-1], "live line") {
-		t.Errorf("last log line should contain live line, got: %s", logLines[len(logLines)-1])
+	if len(logLines) == 1 && !strings.Contains(logLines[0], "live line") {
+		t.Errorf("log line should contain live line, got: %s", logLines[0])
 	}
 	if len(eventLines) == 0 || !strings.Contains(eventLines[0], "ready") {
 		t.Errorf("expected event: ready, got: %v", eventLines)
@@ -3267,23 +3251,27 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
-	// Timestamp 1000000000 ns = 1s since epoch — delivered via backfill query_range.
+	// Tail WS sends one line with timestamp 2000000000 ns then closes.
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/loki/api/v1/query_range":
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"p"},"values":[["1000000000","log line"]]}]}}`)) //nolint:errcheck
-		case "/loki/api/v1/tail":
-			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
-			if err != nil {
-				return
-			}
-			defer conn.Close()                                                                                        //nolint:errcheck
-			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
-			conn.ReadMessage()                                                                                        //nolint:errcheck
-		default:
+		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
+			return
 		}
+		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+		frame := map[string]interface{}{
+			"streams": []map[string]interface{}{{
+				"stream": map[string]string{"pod": "p"},
+				"values": [][]string{{"2000000000", "log line"}},
+			}},
+		}
+		data, _ := json.Marshal(frame)
+		conn.WriteMessage(websocket.TextMessage, data)                                                            //nolint:errcheck
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+		conn.ReadMessage()                                                                                        //nolint:errcheck
 	}))
 	defer lokiSrv.Close()
 
@@ -3319,7 +3307,7 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 	for scanner.Scan() {
 		if line := scanner.Text(); strings.HasPrefix(line, "id:") {
 			idLines = append(idLines, line)
-			cancel() // got what we need; stop waiting for the 5-second timeout
+			cancel()
 			break
 		}
 	}
@@ -3327,19 +3315,18 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 	if len(idLines) == 0 {
 		t.Fatal("expected id: fields in SSE output, got none")
 	}
-	if !strings.Contains(idLines[0], "1000000000") {
-		t.Errorf("id field = %q, want nanosecond timestamp 1000000000", idLines[0])
+	if !strings.Contains(idLines[0], "2000000000") {
+		t.Errorf("id field = %q, want nanosecond timestamp 2000000000", idLines[0])
 	}
 }
 
-func TestStreamDeploymentLogs_LokiPath_LastEventID_AdjustsHistStart(t *testing.T) {
-	var gotStart string
+func TestStreamDeploymentLogs_LokiPath_ClosesWhenWSCloses(t *testing.T) {
+	// Verify that when the Loki WebSocket closes, the SSE response ends (EOF).
 	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/loki/api/v1/tail" {
 			http.NotFound(w, r)
 			return
 		}
-		gotStart = r.URL.Query().Get("start")
 		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -3371,82 +3358,20 @@ func TestStreamDeploymentLogs_LokiPath_LastEventID_AdjustsHistStart(t *testing.T
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
 		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
-	req.Header.Set("Last-Event-ID", "5000000000")
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
-	// Tail WS should receive start=5000000001 (Last-Event-ID + 1 ns, exclusive).
-	if gotStart != "5000000001" {
-		t.Errorf("Loki tail start = %q, want 5000000001", gotStart)
+	// Scanner should reach EOF once the handler returns (Loki WS closed).
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
 	}
-}
-
-func TestStreamDeploymentLogs_LokiPath_LastEventID_InvalidIgnored(t *testing.T) {
-	var gotStart string
-	before := time.Now()
-	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/loki/api/v1/query_range":
-			// Backfill is attempted on invalid Last-Event-ID; return empty result.
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`)) //nolint:errcheck
-		case "/loki/api/v1/tail":
-			gotStart = r.URL.Query().Get("start")
-			conn, err := streamWSUpgrader.Upgrade(w, r, nil)
-			if err != nil {
-				return
-			}
-			defer conn.Close()                                                                                        //nolint:errcheck
-			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
-			conn.ReadMessage()                                                                                        //nolint:errcheck
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer lokiSrv.Close()
-
-	lokiClient := loki.New(lokiSrv.URL)
-	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
-
-	depID := deployid.New()
-	acctID := uuid.New().String()
-	now := time.Now()
-
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
-			"My Agent", `{}`, "active", now, nil))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	srv := httptest.NewServer(router)
-	defer srv.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
-	req.Header.Set("Last-Event-ID", "not-a-number")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request: %v", err)
+	if err := scanner.Err(); err != nil {
+		t.Errorf("unexpected scanner error: %v", err)
 	}
-	resp.Body.Close()
-
-	// Invalid Last-Event-ID is ignored — tail should start from approximately now.
-	startNano, err := strconv.ParseInt(gotStart, 10, 64)
-	if err != nil {
-		t.Fatalf("parse tail start %q: %v", gotStart, err)
-	}
-	gotTime := time.Unix(0, startNano)
-	if gotTime.Before(before) || gotTime.After(time.Now().Add(5*time.Second)) {
-		t.Errorf("tail start %v should be approximately now", gotTime)
-	}
+	// If we reach here without the context timing out, the SSE stream closed as expected.
 }
 
 // --- StopDeployment tests ---

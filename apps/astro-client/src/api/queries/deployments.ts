@@ -1,8 +1,6 @@
 import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useReducer } from 'react';
 import { useApiClient } from '../../lib/api-context';
 import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
-import type { LogEntry } from '@/lib/log-utils';
 import { deploymentKeys } from './keys';
 
 /**
@@ -110,92 +108,6 @@ export function useDeploymentLogs(
   });
 }
 
-type StreamLogState = {
-  lines: LogEntry[];
-  isLive: boolean;
-  error: string | undefined;
-};
-
-type StreamLogAction =
-  | { type: 'reset' }
-  | { type: 'connecting' }
-  | { type: 'message'; line: LogEntry }
-  | { type: 'ready' }
-  | { type: 'stream_error'; message: string }
-  | { type: 'disconnected' };
-
-const initialStreamState: StreamLogState = { lines: [], isLive: false, error: undefined };
-const MAX_STREAM_LINES = 5000;
-
-function streamLogReducer(state: StreamLogState, action: StreamLogAction): StreamLogState {
-  switch (action.type) {
-    case 'reset':         return initialStreamState;
-    case 'connecting':    return { lines: [], isLive: false, error: undefined };
-    case 'message': {
-      const lines = [...state.lines, action.line];
-      return { ...state, lines: lines.length > MAX_STREAM_LINES ? lines.slice(-MAX_STREAM_LINES) : lines, error: undefined };
-    }
-    case 'ready':         return { ...state, isLive: true, error: undefined };
-    case 'stream_error':  return { ...state, error: action.message };
-    case 'disconnected':  return { ...state, isLive: false, error: 'Log stream disconnected' };
-  }
-}
-
-export function useDeploymentLogsStream(
-  deploymentId: string,
-  workloadName: string,
-  container: string,
-  enabled: boolean,
-): StreamLogState {
-  const api = useApiClient();
-  const [state, dispatch] = useReducer(streamLogReducer, initialStreamState);
-
-  useEffect(() => {
-    if (!enabled || !deploymentId || !workloadName || !container) {
-      dispatch({ type: 'reset' });
-      return;
-    }
-
-    dispatch({ type: 'connecting' });
-
-    const url = api.getDeploymentLogsStreamUrl(deploymentId, workloadName, container);
-    const es = new EventSource(url);
-
-    es.onmessage = (e: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(e.data) as { timestamp: string; level: string; message: string };
-        dispatch({ type: 'message', line: { timestamp: parsed.timestamp, level: parsed.level || null, message: parsed.message } });
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    es.addEventListener('ready', () => dispatch({ type: 'ready' }));
-
-    // Named 'error' listener: receives server-emitted "event: error" SSE frames (application errors).
-    es.addEventListener('error', (e: Event) => {
-      try {
-        const me = e as MessageEvent;
-        const parsed = JSON.parse(me.data) as { message?: string };
-        dispatch({ type: 'stream_error', message: parsed.message ?? 'Stream error' });
-      } catch {
-        // ignore parse errors on the error event
-      }
-    });
-
-    // onerror: fires on transport-level failure (connection dropped/refused).
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        dispatch({ type: 'disconnected' });
-      }
-      // CONNECTING state means browser is auto-retrying — do nothing
-    };
-
-    return () => es.close();
-  }, [enabled, deploymentId, workloadName, container, api]);
-
-  return state;
-}
 
 export function useUndeployAgent(account: string) {
   const api = useApiClient();

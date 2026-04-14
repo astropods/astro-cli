@@ -126,24 +126,24 @@ describe("LogViewer", () => {
 
   it("does not render live button without onLiveToggle", () => {
     renderViewer();
-    expect(screen.queryByRole("button", { name: /Live/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Tail/i })).not.toBeInTheDocument();
   });
 
   it("renders live button when onLiveToggle is provided", () => {
     renderViewer({ onLiveToggle: vi.fn() });
-    expect(screen.getByRole("button", { name: /Live/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Tail/i })).toBeInTheDocument();
   });
 
   it("calls onLiveToggle when live button is clicked", () => {
     const onLiveToggle = vi.fn();
     renderViewer({ onLiveToggle });
-    fireEvent.click(screen.getByRole("button", { name: /Live/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Tail/i }));
     expect(onLiveToggle).toHaveBeenCalledOnce();
   });
 
   it("shows pulsing indicator when live is active", () => {
     renderViewer({ onLiveToggle: vi.fn(), isLive: true });
-    const dot = screen.getByRole("button", { name: /Live/i }).querySelector("span");
+    const dot = screen.getByRole("button", { name: /Tail/i }).querySelector("span");
     expect(dot?.className).toContain("animate-pulse");
   });
 
