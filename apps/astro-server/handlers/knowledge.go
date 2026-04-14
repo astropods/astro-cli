@@ -26,6 +26,42 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// encryptedCredentials holds the result of encrypting credentials with KMS.
+type encryptedCredentials struct {
+	Credentials []knowledgestore.Credential
+	DataKey     []byte
+	KMSKeyARN   string
+}
+
+// encryptKnowledgeCreds encrypts a set of plaintext credentials using KMS envelope
+// encryption. Returns nil if kmsKeyARN is empty (KMS not configured).
+func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN string, creds map[string]string) (*encryptedCredentials, error) {
+	if kmsKeyARN == "" {
+		return nil, nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Error("Failed to load AWS config", "error", err)
+		return nil, fmt.Errorf("failed to initialize KMS")
+	}
+	kmsClient := kms.NewFromConfig(awsCfg)
+	enc, err := envelope.NewEncryptor(ctx, kmsClient, kmsKeyARN)
+	if err != nil {
+		log.Error("Failed to create KMS encryptor", "error", err)
+		return nil, fmt.Errorf("failed to encrypt credentials")
+	}
+	encrypted, err := knowledgestore.EncryptCredentials(enc, creds)
+	if err != nil {
+		log.Error("Failed to encrypt credentials", "error", err)
+		return nil, fmt.Errorf("failed to encrypt credentials")
+	}
+	return &encryptedCredentials{
+		Credentials: encrypted,
+		DataKey:     enc.EncryptedDataKey,
+		KMSKeyARN:   kmsKeyARN,
+	}, nil
+}
+
 type knowledgeEvent struct {
 	Type    string `json:"type"`
 	Reason  string `json:"reason"`
@@ -38,6 +74,7 @@ type knowledgeResponse struct {
 	ARN          string           `json:"arn"`
 	Name         string           `json:"name"`
 	Provider     string           `json:"provider"`
+	Mode         string           `json:"mode"`
 	Status       string           `json:"status"`
 	Storage      string           `json:"storage"`
 	StorageClass *string          `json:"storage_class,omitempty"`
@@ -55,6 +92,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) knowledgeResponse {
 		ARN:          ks.ARN,
 		Name:         ks.Name,
 		Provider:     ks.Provider,
+		Mode:         ks.Mode,
 		Status:       ks.Status,
 		Storage:      ks.Storage,
 		StorageClass: ks.StorageClass,
@@ -121,32 +159,17 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
+		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, plainCreds)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
 		var encryptedDataKey []byte
 		var kmsKeyARN string
-		var encryptedCreds []knowledgestore.Credential
-
-		if cfg.Deployment.KMSKeyARN != "" {
-			awsCfg, err := awsconfig.LoadDefaultConfig(c.Request.Context())
-			if err != nil {
-				log.Error("Failed to load AWS config", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
-				return
-			}
-			kmsClient := kms.NewFromConfig(awsCfg)
-			enc, err := envelope.NewEncryptor(c.Request.Context(), kmsClient, cfg.Deployment.KMSKeyARN)
-			if err != nil {
-				log.Error("Failed to create KMS encryptor", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt credentials"})
-				return
-			}
-			encryptedCreds, err = knowledgestore.EncryptCredentials(enc, plainCreds)
-			if err != nil {
-				log.Error("Failed to encrypt credentials", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt credentials"})
-				return
-			}
-			encryptedDataKey = enc.EncryptedDataKey
-			kmsKeyARN = cfg.Deployment.KMSKeyARN
+		if enc != nil {
+			encryptedDataKey = enc.DataKey
+			kmsKeyARN = enc.KMSKeyARN
 		}
 
 		ks, err := ksStore.Create(knowledgestore.CreateParams{
@@ -173,8 +196,8 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
-		if len(encryptedCreds) > 0 {
-			if err := ksStore.SaveCredentials(storeID, encryptedCreds); err != nil {
+		if enc != nil {
+			if err := ksStore.SaveCredentials(storeID, enc.Credentials); err != nil {
 				// Non-fatal — reconciler will not be able to recover the secret, but the
 				// K8s secret created in provisionStoreAsync will still work until cluster migration.
 				log.Error("Failed to save credentials", "error", err, "store_id", storeID)
@@ -239,6 +262,115 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 	}
 
 	log.Info("Knowledge store K8s resources provisioned", "store_id", ks.ID, "provider", ks.Provider)
+}
+
+// ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
+// No K8s resources are created — the platform is a credential broker only.
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		var req struct {
+			Name     string `json:"name" binding:"required"`
+			Provider string `json:"provider" binding:"required"`
+			Host     string `json:"host" binding:"required"`
+			Port     int    `json:"port" binding:"required"`
+			Database string `json:"database"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+			APIKey   string `json:"api_key"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := knowledgestore.ValidateStoreName(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if _, ok := spec.LookupBuiltin("knowledge", req.Provider); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported provider: %s", req.Provider)})
+			return
+		}
+
+		// Build credential map from request fields.
+		creds := map[string]string{
+			"HOST": req.Host,
+			"PORT": strconv.Itoa(req.Port),
+		}
+		if req.Database != "" {
+			creds["DATABASE"] = req.Database
+		}
+		if req.Username != "" {
+			creds["USERNAME"] = req.Username
+		}
+		if req.Password != "" {
+			creds["PASSWORD"] = req.Password
+		}
+		if req.APIKey != "" {
+			creds["API_KEY"] = req.APIKey
+		}
+
+		if err := knowledgestore.ValidateExternalCredentials(req.Provider, creds); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		storeID := deployid.New()
+		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
+
+		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, creds)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		var encryptedDataKey []byte
+		var kmsKeyARN string
+		if enc != nil {
+			encryptedDataKey = enc.DataKey
+			kmsKeyARN = enc.KMSKeyARN
+		}
+
+		ks, err := ksStore.Create(knowledgestore.CreateParams{
+			ID:               storeID,
+			AccountID:        acct.ID,
+			Name:             req.Name,
+			ARN:              storeARN,
+			Provider:         req.Provider,
+			Mode:             knowledgestore.ModeExternal,
+			Status:           knowledgestore.StatusReady,
+			EncryptedDataKey: encryptedDataKey,
+			KMSKeyARN:        kmsKeyARN,
+		})
+		if err != nil {
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+				c.JSON(http.StatusConflict, gin.H{"error": "a knowledge store with this name already exists"})
+				return
+			}
+			log.Error("Failed to create external knowledge store record", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create store"})
+			return
+		}
+
+		if enc != nil {
+			if err := ksStore.SaveCredentials(storeID, enc.Credentials); err != nil {
+				log.Error("Failed to save credentials", "error", err, "store_id", storeID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save credentials"})
+				return
+			}
+		}
+
+		log.Info("External knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
+		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
+	}
 }
 
 func ListKnowledgeStores(log *logger.Logger, ksStore *knowledgestore.Store) gin.HandlerFunc {
@@ -324,7 +456,7 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
-		if k8sClient != nil {
+		if k8sClient != nil && ks.Mode != knowledgestore.ModeExternal {
 			if err := k8s.DeleteKnowledgeStore(c.Request.Context(), k8sClient, acct.ID, ks.ID, ks.Public); err != nil {
 				log.Error("Failed to delete K8s resources", "error", err, "store_id", ks.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete store resources"})

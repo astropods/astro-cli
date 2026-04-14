@@ -73,13 +73,14 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// KnowledgeStore represents a single managed knowledge store record.
+// KnowledgeStore represents a single knowledge store record (managed or external).
 type KnowledgeStore struct {
 	ID               string
 	AccountID        string
 	Name             string
 	ARN              string
 	Provider         string
+	Mode             string // "managed" or "external"
 	Status           string
 	Storage          string
 	StorageClass     *string
@@ -93,19 +94,22 @@ type KnowledgeStore struct {
 }
 
 const (
+	ModeManaged  = "managed"
+	ModeExternal = "external"
+
 	StatusProvisioning = "provisioning"
 	StatusReady        = "ready"
 	StatusError        = "error"
 )
 
-const storeColumns = `id, account_id, name, arn, provider, status, storage, storage_class,
+const storeColumns = `id, account_id, name, arn, provider, mode, status, storage, storage_class,
        public, public_host, encrypted_data_key, kms_key_arn, error, created_at, updated_at`
 
 func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error) {
 	var s KnowledgeStore
 	err := row.Scan(
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
-		&s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
+		&s.Mode, &s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
 		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -122,6 +126,8 @@ type CreateParams struct {
 	Name             string
 	ARN              string
 	Provider         string
+	Mode             string // "managed" (default) or "external"
+	Status           string // initial status — "provisioning" for managed, "ready" for external
 	Storage          string
 	StorageClass     string // optional — empty means cluster default
 	Public           bool
@@ -143,13 +149,22 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 		kmsARN = &p.KMSKeyARN
 	}
 
+	mode := p.Mode
+	if mode == "" {
+		mode = ModeManaged
+	}
+	status := p.Status
+	if status == "" {
+		status = StatusProvisioning
+	}
+
 	row := s.db.QueryRow(`
 		INSERT INTO knowledge_stores
-		  (id, account_id, name, arn, provider, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		  (id, account_id, name, arn, provider, mode, status, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING `+storeColumns,
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
-		p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN,
+		mode, status, p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN,
 	)
 	return scanStore(row)
 }
@@ -242,10 +257,11 @@ func (s *Store) Delete(id string) error {
 	return err
 }
 
-// ListProvisioning returns all stores currently in the provisioning state.
-// Used by the reconciler to check for readiness.
+// ListProvisioning returns all managed stores currently in the provisioning state.
+// Used by the reconciler to check for readiness. External stores are excluded
+// because they have no K8s resources to reconcile.
 func (s *Store) ListProvisioning() ([]*KnowledgeStore, error) {
-	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1`, StatusProvisioning)
+	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1 AND mode = $2`, StatusProvisioning, ModeManaged)
 	if err != nil {
 		return nil, err
 	}
@@ -262,10 +278,11 @@ func (s *Store) ListProvisioning() ([]*KnowledgeStore, error) {
 	return stores, rows.Err()
 }
 
-// ListReady returns all ready stores. Used by the reconciler to ensure
+// ListReady returns all managed ready stores. Used by the reconciler to ensure
 // K8s secrets exist (recreate after cluster migration or accidental deletion).
+// External stores are excluded — they have no K8s namespace or secrets.
 func (s *Store) ListReady() ([]*KnowledgeStore, error) {
-	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1`, StatusReady)
+	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1 AND mode = $2`, StatusReady, ModeManaged)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +349,39 @@ func (s *Store) GetCredentials(storeID string) ([]Credential, error) {
 		creds = append(creds, c)
 	}
 	return creds, rows.Err()
+}
+
+// ExternalCredentialKeys returns the required credential keys for an external
+// store of the given provider. These are the keys the user must supply when
+// connecting an existing database.
+func ExternalCredentialKeys(provider string) []string {
+	switch provider {
+	case "postgres":
+		return []string{"HOST", "PORT", "DATABASE", "USERNAME", "PASSWORD"}
+	case "qdrant":
+		return []string{"HOST", "PORT", "API_KEY"}
+	case "redis":
+		return []string{"HOST", "PORT", "PASSWORD"}
+	case "neo4j":
+		return []string{"HOST", "PORT", "USERNAME", "PASSWORD"}
+	case "pinecone":
+		return []string{"HOST", "API_KEY"}
+	case "mysql":
+		return []string{"HOST", "PORT", "DATABASE", "USERNAME", "PASSWORD"}
+	default:
+		return []string{"HOST", "PORT"}
+	}
+}
+
+// ValidateExternalCredentials checks that all required credential keys for the
+// given provider are present and non-empty in the supplied map.
+func ValidateExternalCredentials(provider string, creds map[string]string) error {
+	for _, key := range ExternalCredentialKeys(provider) {
+		if creds[key] == "" {
+			return fmt.Errorf("missing required credential: %s", key)
+		}
+	}
+	return nil
 }
 
 func nullableString(s string) *string {

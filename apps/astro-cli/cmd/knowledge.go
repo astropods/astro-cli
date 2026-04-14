@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
@@ -21,6 +22,13 @@ import (
 var knowledgeServerURL string
 var knowledgeAccount string
 var knowledgeOutput string // -o / --output: "" (default) or "json"
+
+func displayMode(mode string) string {
+	if mode == "" {
+		return "managed"
+	}
+	return mode
+}
 
 var knowledgeCmd = &cobra.Command{
 	Use:   "knowledge",
@@ -68,9 +76,17 @@ var knowledgeDeleteCmd = &cobra.Command{
 	RunE:  runKnowledgeDelete,
 }
 
+var knowledgeConnectCmd = &cobra.Command{
+	Use:   "connect --provider <provider> --name <name> --host <host> --port <port>",
+	Short: "Connect an external knowledge store",
+	Long:  `Onboard an existing database by providing connection details. The platform stores credentials encrypted under an ARN.`,
+	RunE:  runKnowledgeConnect,
+}
+
 func init() {
 	rootCmd.AddCommand(knowledgeCmd)
 	knowledgeCmd.AddCommand(knowledgeCreateCmd)
+	knowledgeCmd.AddCommand(knowledgeConnectCmd)
 	knowledgeCmd.AddCommand(knowledgeListCmd)
 	knowledgeCmd.AddCommand(knowledgeStatusCmd)
 	knowledgeCmd.AddCommand(knowledgeLogsCmd)
@@ -78,7 +94,7 @@ func init() {
 	knowledgeCmd.AddCommand(knowledgeDeleteCmd)
 
 	for _, c := range []*cobra.Command{
-		knowledgeCreateCmd, knowledgeListCmd, knowledgeStatusCmd,
+		knowledgeCreateCmd, knowledgeConnectCmd, knowledgeListCmd, knowledgeStatusCmd,
 		knowledgeLogsCmd, knowledgeCredentialsCmd, knowledgeDeleteCmd,
 	} {
 		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astro server URL (overrides profile/default)")
@@ -98,6 +114,19 @@ func init() {
 	knowledgeCreateCmd.Flags().Bool("public", false, "Expose the store publicly with a DNS hostname")
 	_ = knowledgeCreateCmd.MarkFlagRequired("provider")
 	_ = knowledgeCreateCmd.MarkFlagRequired("name")
+
+	knowledgeConnectCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j, pinecone")
+	knowledgeConnectCmd.Flags().String("name", "", "Store name")
+	knowledgeConnectCmd.Flags().String("host", "", "Database host")
+	knowledgeConnectCmd.Flags().Int("port", 0, "Database port")
+	knowledgeConnectCmd.Flags().String("database", "", "Database name (if applicable)")
+	knowledgeConnectCmd.Flags().String("username", "", "Database username")
+	knowledgeConnectCmd.Flags().String("password", "", "Database password (prompted if omitted)")
+	knowledgeConnectCmd.Flags().String("api-key", "", "API key (for providers like Pinecone/Qdrant)")
+	_ = knowledgeConnectCmd.MarkFlagRequired("provider")
+	_ = knowledgeConnectCmd.MarkFlagRequired("name")
+	_ = knowledgeConnectCmd.MarkFlagRequired("host")
+	_ = knowledgeConnectCmd.MarkFlagRequired("port")
 }
 
 // knowledgeAPIBase returns the effective server URL for knowledge API calls.
@@ -207,6 +236,86 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
+	account, _, err := getUserNamespace(false, knowledgeAccount)
+	if err != nil {
+		return err
+	}
+
+	name, _ := cmd.Flags().GetString("name")
+	provider, _ := cmd.Flags().GetString("provider")
+	host, _ := cmd.Flags().GetString("host")
+	port, _ := cmd.Flags().GetInt("port")
+	database, _ := cmd.Flags().GetString("database")
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+	apiKey, _ := cmd.Flags().GetString("api-key")
+
+	// Prompt for password interactively if not provided via flag.
+	if password == "" && apiKey == "" {
+		fmt.Print("Password: ")
+		raw, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec
+		if err != nil {
+			return fmt.Errorf("failed to read password: %w", err)
+		}
+		fmt.Println()
+		password = string(raw)
+	}
+
+	fmt.Printf("%s→%s Connecting external store %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset)
+
+	body := map[string]any{
+		"name":     name,
+		"provider": provider,
+		"host":     host,
+		"port":     port,
+	}
+	if database != "" {
+		body["database"] = database
+	}
+	if username != "" {
+		body["username"] = username
+	}
+	if password != "" {
+		body["password"] = password
+	}
+	if apiKey != "" {
+		body["api_key"] = apiKey
+	}
+
+	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
+		fmt.Sprintf("/api/v1/accounts/%s/knowledge/connect", url.PathEscape(account)),
+		body,
+	)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode == http.StatusConflict {
+		return fmt.Errorf("a knowledge store named %q already exists in account %q", name, account)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var respBody map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&respBody)
+		if msg, ok := respBody["error"].(string); ok {
+			return fmt.Errorf("server error: %s", msg)
+		}
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	var created knowledgeStoreResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	fmt.Printf("  %sARN:%s      %s\n", colorDim, colorReset, created.ARN)
+	fmt.Printf("  %sProvider:%s %s\n", colorDim, colorReset, created.Provider)
+	fmt.Printf("  %sMode:%s     %s\n", colorDim, colorReset, created.Mode)
+	fmt.Printf("%s✓%s Store %s%s%s connected\n", colorGreen, colorReset, colorBold, name, colorReset)
+	return nil
+}
+
 func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 	account, _, err := getUserNamespace(false, knowledgeAccount)
 	if err != nil {
@@ -239,7 +348,7 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tSTATUS\tSTORAGE\tARN")
+	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tMODE\tSTATUS\tSTORAGE\tARN")
 	for _, s := range stores {
 		var statusStr string
 		switch s.Status {
@@ -250,7 +359,7 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 		default:
 			statusStr = s.Status
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, statusStr, s.Storage, s.ARN)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, displayMode(s.Mode), statusStr, s.Storage, s.ARN)
 	}
 	return w.Flush()
 }
@@ -296,6 +405,7 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%sName:%s     %s\n", colorDim, colorReset, s.Name)
 	fmt.Printf("%sARN:%s      %s\n", colorDim, colorReset, s.ARN)
 	fmt.Printf("%sProvider:%s %s\n", colorDim, colorReset, s.Provider)
+	fmt.Printf("%sMode:%s     %s\n", colorDim, colorReset, displayMode(s.Mode))
 	fmt.Printf("%sStatus:%s   %s%s%s\n", colorDim, colorReset, statusColor, s.Status, colorReset)
 	fmt.Printf("%sStorage:%s  %s\n", colorDim, colorReset, s.Storage)
 	if s.PublicHost != nil && *s.PublicHost != "" {
@@ -490,6 +600,7 @@ type knowledgeStoreResponse struct {
 	ARN        string                `json:"arn"`
 	Name       string                `json:"name"`
 	Provider   string                `json:"provider"`
+	Mode       string                `json:"mode"`
 	Status     string                `json:"status"`
 	Storage    string                `json:"storage"`
 	Public     bool                  `json:"public"`

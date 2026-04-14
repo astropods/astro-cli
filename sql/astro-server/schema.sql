@@ -485,6 +485,7 @@ CREATE TABLE public.knowledge_stores (
     name               varchar      NOT NULL,
     arn                varchar      NOT NULL,
     provider           varchar      NOT NULL,
+    mode               varchar      NOT NULL DEFAULT 'managed',
     status             varchar      NOT NULL DEFAULT 'provisioning',
     storage            varchar      NOT NULL DEFAULT '10Gi',
     storage_class      varchar,

@@ -779,13 +779,21 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/knowledge", "List managed knowledge stores", handlers.ListKnowledgeStores(log, ksStore),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg),
+					oapispec.Tags("Knowledge"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ErrorResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(409, &handlers.ErrorResponse{}),
+				)
+				api.GET(accountMember, "/knowledge", "List knowledge stores", handlers.ListKnowledgeStores(log, ksStore),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/knowledge/:name", "Get a managed knowledge store", handlers.GetKnowledgeStore(log, ksStore, k8sClient),
+				api.GET(accountMember, "/knowledge/:name", "Get a knowledge store", handlers.GetKnowledgeStore(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
