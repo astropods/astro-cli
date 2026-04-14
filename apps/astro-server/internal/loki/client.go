@@ -106,11 +106,14 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 				continue
 			}
 			// Prefer: structured metadata > explicit stream label > Loki auto-detected level.
+			// Loki sets detected_level to "unknown" when it can't parse a level
+			// from the log line — discard it so consumers see an empty string
+			// rather than a misleading value.
 			level := entry.Metadata["level"]
 			if level == "" {
 				level = streamLevel
 			}
-			if level == "" {
+			if level == "" && detectedLevel != "unknown" {
 				level = detectedLevel
 			}
 			lines = append(lines, LogLine{

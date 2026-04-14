@@ -430,6 +430,43 @@ func TestQueryLogs_LevelFromDetectedLevel(t *testing.T) {
 	}
 }
 
+func TestQueryLogs_DetectedLevelUnknown_DiscardedAsEmpty(t *testing.T) {
+	// Loki sets detected_level to "unknown" when it can't parse a level from
+	// the log line. We discard it so the API returns an empty level instead.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod", "detected_level": "unknown"},
+					"values": [
+						["1000000000", "Starting Sasbot..."],
+						["2000000000", "Sasbot is ready and listening for messages"]
+					]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	if lines[0].Level != "" {
+		t.Errorf("lines[0].Level = %q, want \"\" (unknown should be discarded)", lines[0].Level)
+	}
+	if lines[1].Level != "" {
+		t.Errorf("lines[1].Level = %q, want \"\" (unknown should be discarded)", lines[1].Level)
+	}
+}
+
 func TestQueryLogs_ExplicitLevelTakesPrecedenceOverDetectedLevel(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
