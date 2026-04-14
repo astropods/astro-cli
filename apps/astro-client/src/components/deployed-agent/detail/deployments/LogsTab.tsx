@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { ChevronDown, Plus, Terminal, X } from "lucide-react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -31,8 +31,6 @@ function tabLabel(wl: WorkloadDetail, containerName: string): string {
   return (wl.containers ?? []).length <= 1 ? service : `${service} / ${containerName}`;
 }
 
-// ── Tab state ─────────────────────────────────────────────────────────────────
-
 type TabState = { tabs: LogTab[]; activeKey: string | null };
 type TabAction =
   | { type: "open"; tab: LogTab }
@@ -62,8 +60,6 @@ function tabReducer(state: TabState, action: TabAction): TabState {
   }
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
-
 interface LogsTabProps {
   deployment: AgentDeployment;
   isCompact: boolean;
@@ -75,7 +71,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
 
   const [{ tabs: openTabs, activeKey }, dispatch] = useReducer(tabReducer, { tabs: [], activeKey: null });
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
-  const [isLive, setIsLive] = useState(false);
+  const [isTailing, setIsTailing] = useState(false);
 
   // Pre-load the first container tab and make it active when the deployment changes.
   // Also stop any running stream so it doesn't carry over to a different deployment.
@@ -84,8 +80,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
       .flatMap((wl) => (wl.containers ?? []).map((c) => ({ workloadName: wl.name, containerName: c.name })))
       .slice(0, 1);
     dispatch({ type: "reset", preload: first, activeKey: first[0] ? tabKey(first[0]) : null });
-    setIsLive(false);
-    stopStream();
+    setIsTailing(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deployment.id]);
 
@@ -94,27 +89,18 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
     [openTabs, activeKey],
   );
 
-  // Disable live mode when switching tabs so the new tab loads fresh historical logs.
-  const prevActiveKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevActiveKeyRef.current !== null && prevActiveKeyRef.current !== activeKey) {
-      setIsLive(false);
-    }
-    prevActiveKeyRef.current = activeKey;
-  }, [activeKey]);
-
   // Auto-disconnect after 30 s when the user navigates away from the Logs tab while live.
   useEffect(() => {
-    if (isVisible || !isLive) return;
+    if (isVisible || !isTailing) return;
     const timer = setTimeout(() => {
       stopStream();
-      setIsLive(false);
+      setIsTailing(false);
     }, 30_000);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, isLive]);
+  }, [isVisible, isTailing]);
 
-  const tabEnabled = !!(activeTab?.workloadName && activeTab?.containerName);
+  const tabEnabled = activeTab !== null;
 
   // Historical (non-live) query — one-shot fetch, no polling.
   const { data: logsRaw, isLoading: histLoading, isFetching: histFetching, isError } = useDeploymentLogs(
@@ -123,37 +109,36 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
     activeTab?.containerName ?? "",
     timeRange,
     {
-      enabled: !isLive && tabEnabled,
+      enabled: !isTailing && tabEnabled,
       refetchInterval: false,
     },
   );
 
   // Live streaming — managed by LogStreamProvider so the connection survives tab switches.
   const { lines: streamLines, status: streamStatus, error: streamError, startStream, stopStream } = useLogStream();
-  const streamIsLive = streamStatus === "live";
   const isReconnecting = streamStatus === "reconnecting";
 
   // Start/stop the stream when live mode or the active container changes.
   useEffect(() => {
-    if (isLive && tabEnabled && activeTab) {
+    if (isTailing && tabEnabled && activeTab) {
       startStream(deployment.id, activeTab.workloadName, activeTab.containerName);
-    } else if (!isLive) {
+    } else if (!isTailing) {
       stopStream();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLive, activeTab?.workloadName, activeTab?.containerName, deployment.id]);
+  }, [isTailing, activeTab?.workloadName, activeTab?.containerName, deployment.id]);
 
   // While the historical refetch is in-flight (after stopping live), keep showing
   // stream lines so the count doesn't drop to stale cached data.
   const logs = useMemo(() => {
-    if (isLive) return streamLines;
+    if (isTailing) return streamLines;
     if (histFetching && streamLines.length > 0) return streamLines;
     return logsRaw ?? [];
-  }, [isLive, streamLines, logsRaw, histFetching]);
+  }, [isTailing, streamLines, logsRaw, histFetching]);
 
-  const isLoading = isLive ? false : (histLoading || (histFetching && streamLines.length === 0));
+  const isLoading = isTailing ? false : (histLoading || (histFetching && streamLines.length === 0));
   let logError: string | undefined;
-  if (isLive) logError = streamError;
+  if (isTailing) logError = streamError;
   else if (isError) logError = "Failed to load logs.";
 
 
@@ -168,7 +153,6 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
-      {/* ── Tab strip ────────────────────────────────────────────────── */}
       <div className="flex items-center bg-muted border-b border-border flex-shrink-0 px-[clamp(16px,4vw,108px)] py-0 gap-0">
         {openTabs.map((tab) => {
           const key = tabKey(tab);
@@ -178,7 +162,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
           return (
             <button
               key={key}
-              onClick={() => dispatch({ type: "focus", key })}
+              onClick={() => { dispatch({ type: "focus", key }); setIsTailing(false); }}
               className={cn(
                 "group flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
                 isActive
@@ -191,7 +175,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Close ${label}`}
-                onClick={(e) => { e.stopPropagation(); dispatch({ type: "close", key }); }}
+                onClick={(e) => { e.stopPropagation(); dispatch({ type: "close", key }); setIsTailing(false); }}
                 className={cn(
                   "rounded-full transition-colors",
                   isActive
@@ -251,7 +235,6 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
         </DropdownMenu>}
       </div>
 
-      {/* ── Log viewer card ──────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-hidden py-5 px-[clamp(16px,4vw,108px)]">
         {activeKey === null ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 bg-surface rounded-lg border border-border">
@@ -271,9 +254,9 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
             timeRange={timeRange}
             onTimeRangeChange={setTimeRange}
             error={logError}
-            isLive={isLive && streamIsLive}
+            isTailing={isTailing}
             isReconnecting={isReconnecting}
-            onLiveToggle={() => setIsLive((v) => !v)}
+            onTailToggle={() => setIsTailing((v) => !v)}
           />
         )}
       </div>

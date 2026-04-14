@@ -43,17 +43,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange" | "isLive" | "onLiveToggle"> & { withLive?: boolean; startLive?: boolean }) {
+function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange" | "isTailing" | "onTailToggle"> & { withTail?: boolean; startTail?: boolean }) {
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
-  const [isLive, setIsLive] = useState(args.startLive ?? false);
-  const { withLive, startLive, ...rest } = args;
+  const [isTailing, setIsLive] = useState(args.startTail ?? false);
+  const { withTail, startTail, ...rest } = args;
   return (
     <LogViewer
       {...rest}
       timeRange={timeRange}
       onTimeRangeChange={setTimeRange}
-      isLive={withLive ? isLive : undefined}
-      onLiveToggle={withLive ? () => setIsLive((v) => !v) : undefined}
+      isTailing={withTail ? isTailing : undefined}
+      onTailToggle={withTail ? () => setIsLive((v) => !v) : undefined}
     />
   );
 }
@@ -71,11 +71,11 @@ export const Loading: Story = {
 };
 
 export const Live: Story = {
-  render: () => <Controlled logs={SAMPLE_LOGS} withLive startLive />,
+  render: () => <Controlled logs={SAMPLE_LOGS} withTail startTail />,
 };
 
 export const LiveConnecting: Story = {
-  render: () => <Controlled logs={[]} withLive startLive isLoading />,
+  render: () => <Controlled logs={[]} withTail startTail isLoading />,
 };
 
 export const Compact: Story = {

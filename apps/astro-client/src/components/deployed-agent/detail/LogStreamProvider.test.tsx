@@ -94,7 +94,7 @@ describe("LogStreamProvider", () => {
     act(() => result.current.startStream("dep-1", "wl", "app"));
     act(() => MockEventSource.latest().emitEvent("ready"));
 
-    expect(result.current.status).toBe("live");
+    expect(result.current.status).toBe("tailing");
     expect(result.current.error).toBeUndefined();
   });
 

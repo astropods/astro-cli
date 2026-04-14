@@ -124,41 +124,41 @@ describe("LogViewer", () => {
     expect(onTimeRangeChange).toHaveBeenCalledWith("1h");
   });
 
-  it("does not render live button without onLiveToggle", () => {
+  it("does not render live button without onTailToggle", () => {
     renderViewer();
     expect(screen.queryByRole("button", { name: /Tail/i })).not.toBeInTheDocument();
   });
 
-  it("renders live button when onLiveToggle is provided", () => {
-    renderViewer({ onLiveToggle: vi.fn() });
+  it("renders live button when onTailToggle is provided", () => {
+    renderViewer({ onTailToggle: vi.fn() });
     expect(screen.getByRole("button", { name: /Tail/i })).toBeInTheDocument();
   });
 
-  it("calls onLiveToggle when live button is clicked", () => {
-    const onLiveToggle = vi.fn();
-    renderViewer({ onLiveToggle });
+  it("calls onTailToggle when live button is clicked", () => {
+    const onTailToggle = vi.fn();
+    renderViewer({ onTailToggle });
     fireEvent.click(screen.getByRole("button", { name: /Tail/i }));
-    expect(onLiveToggle).toHaveBeenCalledOnce();
+    expect(onTailToggle).toHaveBeenCalledOnce();
   });
 
   it("shows pulsing indicator when live is active", () => {
-    renderViewer({ onLiveToggle: vi.fn(), isLive: true });
+    renderViewer({ onTailToggle: vi.fn(), isTailing: true });
     const dot = screen.getByRole("button", { name: /Tail/i }).querySelector("span");
     expect(dot?.className).toContain("animate-pulse");
   });
 
-  it("calls onLiveToggle when time range selector is opened while live", () => {
-    const onLiveToggle = vi.fn();
-    renderViewer({ onLiveToggle, isLive: true });
+  it("calls onTailToggle when time range selector is opened while live", () => {
+    const onTailToggle = vi.fn();
+    renderViewer({ onTailToggle, isTailing: true });
     fireEvent.click(screen.getByText("Last 15 min"));
-    expect(onLiveToggle).toHaveBeenCalledOnce();
+    expect(onTailToggle).toHaveBeenCalledOnce();
   });
 
-  it("does not call onLiveToggle when time range is opened while not live", () => {
-    const onLiveToggle = vi.fn();
-    renderViewer({ onLiveToggle, isLive: false });
+  it("does not call onTailToggle when time range is opened while not live", () => {
+    const onTailToggle = vi.fn();
+    renderViewer({ onTailToggle, isTailing: false });
     fireEvent.click(screen.getByText("Last 15 min"));
-    expect(onLiveToggle).not.toHaveBeenCalled();
+    expect(onTailToggle).not.toHaveBeenCalled();
   });
 
   it("renders error message when error prop is set", () => {

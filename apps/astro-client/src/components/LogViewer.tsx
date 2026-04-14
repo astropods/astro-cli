@@ -32,12 +32,12 @@ interface LogViewerProps {
   /** Optional content rendered at the left of the toolbar */
   leading?: React.ReactNode;
   error?: string;
-  isLive?: boolean;
+  isTailing?: boolean;
   isReconnecting?: boolean;
-  onLiveToggle?: () => void;
+  onTailToggle?: () => void;
 }
 
-export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isLive = false, isReconnecting = false, onLiveToggle }: LogViewerProps) {
+export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
 
@@ -117,24 +117,24 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         </div>
 
         {/* Live toggle + Time range */}
-        {onLiveToggle && (
+        {onTailToggle && (
           <Button
             variant="outline"
             size="sm"
-            onClick={onLiveToggle}
+            onClick={onTailToggle}
             className={cn(
               "font-sans text-body-sm gap-[5px]",
-              isLive ? "bg-muted font-medium" : "font-normal",
+              isTailing ? "bg-muted font-medium" : "font-normal",
             )}
           >
             <span
               className={cn(
                 "size-1.5 rounded-full shrink-0",
-                isLive ? "bg-teal-500 animate-pulse" : "bg-muted-foreground",
+                isTailing ? "bg-teal-500 animate-pulse" : "bg-muted-foreground",
               )}
             />
             Tail
-            {isLive && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
+            {isTailing && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
           </Button>
         )}
         {isReconnecting && (
@@ -146,7 +146,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
 
         <Select
           value={timeRange}
-          onOpenChange={(open) => { if (open && isLive) onLiveToggle?.(); }}
+          onOpenChange={(open) => { if (open && isTailing) onTailToggle?.(); }}
           onValueChange={(v) => onTimeRangeChange(v as LogTimeRange)}
         >
           <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)]">

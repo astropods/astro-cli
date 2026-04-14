@@ -108,7 +108,6 @@ export function useDeploymentLogs(
   });
 }
 
-
 export function useUndeployAgent(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();

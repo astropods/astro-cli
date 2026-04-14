@@ -2,9 +2,7 @@ import { createContext, useContext, useEffect, useReducer, useRef, type ReactNod
 import { useApiClient } from "@/lib/api-context";
 import type { LogEntry } from "@/lib/log-utils";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export type LogStreamStatus = "idle" | "connecting" | "live" | "reconnecting";
+export type LogStreamStatus = "idle" | "connecting" | "tailing" | "reconnecting";
 
 interface LogStreamState {
   lines: LogEntry[];
@@ -14,7 +12,7 @@ interface LogStreamState {
 
 type LogStreamAction =
   | { type: "connecting" }
-  | { type: "live" }
+  | { type: "tailing" }
   | { type: "message"; line: LogEntry }
   | { type: "stream_error"; message: string }
   | { type: "reconnecting" }
@@ -28,19 +26,15 @@ export interface LogStreamContextValue {
   stopStream: () => void;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
 const MAX_STREAM_LINES = 5000;
 const initialState: LogStreamState = { lines: [], status: "idle", error: undefined };
-
-// ── Reducer ───────────────────────────────────────────────────────────────────
 
 function reducer(state: LogStreamState, action: LogStreamAction): LogStreamState {
   switch (action.type) {
     case "connecting":
       return { lines: [], status: "connecting", error: undefined };
-    case "live":
-      return { ...state, status: "live", error: undefined };
+    case "tailing":
+      return { ...state, status: "tailing", error: undefined };
     case "message": {
       const lines = [...state.lines, action.line];
       return { ...state, lines: lines.length > MAX_STREAM_LINES ? lines.slice(-MAX_STREAM_LINES) : lines };
@@ -54,8 +48,6 @@ function reducer(state: LogStreamState, action: LogStreamAction): LogStreamState
   }
 }
 
-// ── Context ───────────────────────────────────────────────────────────────────
-
 const LogStreamContext = createContext<LogStreamContextValue | null>(null);
 
 export function useLogStream(): LogStreamContextValue {
@@ -63,8 +55,6 @@ export function useLogStream(): LogStreamContextValue {
   if (!ctx) throw new Error("useLogStream must be used within LogStreamProvider");
   return ctx;
 }
-
-// ── Provider ──────────────────────────────────────────────────────────────────
 
 export function LogStreamProvider({ children }: { children: ReactNode }) {
   const api = useApiClient();
@@ -107,7 +97,7 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
 
     es.addEventListener("ready", () => {
       hasBeenLive = true;
-      dispatch({ type: "live" });
+      dispatch({ type: "tailing" });
     });
 
     es.addEventListener("error", (e: Event) => {
