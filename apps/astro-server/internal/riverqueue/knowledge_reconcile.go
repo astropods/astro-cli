@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -29,9 +30,10 @@ func (KnowledgeReconcileArgs) Kind() string { return "knowledge_reconcile" }
 //  3. Polls PrivateLink endpoints (connecting/pending-acceptance) and advances them.
 type KnowledgeReconcileWorker struct {
 	river.WorkerDefaults[KnowledgeReconcileArgs]
-	ksStore *knowledgestore.Store
-	k8s     k8s.ClusterClient
-	log     *logger.Logger
+	ksStore      *knowledgestore.Store
+	k8s          k8s.ClusterClient
+	prefixListID string // PRIVATELINK_PREFIX_LIST_ID — empty means prefix list management is disabled
+	log          *logger.Logger
 }
 
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
@@ -216,6 +218,16 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 				continue
 			}
 			dns := aws.ToString(vpce.DnsEntries[0].DnsName)
+
+			// Add VPCE ENI IPs to the managed prefix list so the SG allows traffic.
+			if w.prefixListID != "" {
+				if err := addVPCEToPrefix(ctx, ec2Client, w.prefixListID, *ep.EndpointID, ep.KnowledgeStoreID, w.log); err != nil {
+					w.log.Error("KnowledgeReconcile: failed to add ENI IPs to prefix list",
+						"error", err, "store_id", ep.KnowledgeStoreID)
+					// Non-fatal — store is reachable via DNS, prefix list entry can be retried next cycle.
+				}
+			}
+
 			if err := w.ksStore.SetEndpointReady(ep.KnowledgeStoreID, *ep.EndpointID, dns); err != nil {
 				w.log.Error("KnowledgeReconcile: failed to mark endpoint ready",
 					"error", err, "store_id", ep.KnowledgeStoreID)
@@ -243,6 +255,128 @@ func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg stri
 	if err := w.ksStore.SetError(storeID, errMsg); err != nil {
 		w.log.Error("KnowledgeReconcile: failed to record store error", "error", err, "store_id", storeID)
 	}
+}
+
+// addVPCEToPrefix resolves the ENI private IPs for a VPC endpoint and adds them
+// to the managed prefix list. Each entry is tagged with the store ID as the
+// description so it can be removed on delete.
+func addVPCEToPrefix(ctx context.Context, ec2Client knowledgestore.EC2Client, prefixListID, vpceID, storeID string, log *logger.Logger) error {
+	// Resolve ENI IPs for this VPCE.
+	eniOut, err := ec2Client.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{
+		Filters: []ec2types.Filter{{
+			Name:   aws.String("vpc-endpoint-id"),
+			Values: []string{vpceID},
+		}},
+	})
+	if err != nil {
+		return fmt.Errorf("describe network interfaces: %w", err)
+	}
+
+	var entries []ec2types.AddPrefixListEntry
+	for _, eni := range eniOut.NetworkInterfaces {
+		if eni.PrivateIpAddress != nil {
+			entries = append(entries, ec2types.AddPrefixListEntry{
+				Cidr:        aws.String(*eni.PrivateIpAddress + "/32"),
+				Description: aws.String("knowledge:" + storeID),
+			})
+		}
+	}
+	if len(entries) == 0 {
+		log.Warn("addVPCEToPrefix: no ENI IPs found", "vpce_id", vpceID, "store_id", storeID)
+		return nil
+	}
+
+	version, err := getPrefixListVersion(ctx, ec2Client, prefixListID)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2Client.ModifyManagedPrefixList(ctx, &ec2.ModifyManagedPrefixListInput{
+		PrefixListId:   aws.String(prefixListID),
+		CurrentVersion: version,
+		AddEntries:     entries,
+	})
+	if err != nil {
+		// Duplicate entries (crash recovery) are not an error — the IPs are already there.
+		if isPrefixListDuplicateError(err) {
+			log.Info("addVPCEToPrefix: entries already exist (idempotent)", "store_id", storeID)
+			return nil
+		}
+		return fmt.Errorf("modify prefix list: %w", err)
+	}
+
+	log.Info("addVPCEToPrefix: added ENI IPs to prefix list",
+		"prefix_list", prefixListID, "vpce_id", vpceID, "store_id", storeID, "count", len(entries))
+	return nil
+}
+
+// removeStoreFromPrefix removes all prefix list entries tagged with the given store ID.
+func removeStoreFromPrefix(ctx context.Context, ec2Client knowledgestore.EC2Client, prefixListID, storeID string, log *logger.Logger) error {
+	entriesOut, err := ec2Client.GetManagedPrefixListEntries(ctx, &ec2.GetManagedPrefixListEntriesInput{
+		PrefixListId: aws.String(prefixListID),
+	})
+	if err != nil {
+		return fmt.Errorf("get prefix list entries: %w", err)
+	}
+
+	desc := "knowledge:" + storeID
+	var toRemove []ec2types.RemovePrefixListEntry
+	for _, e := range entriesOut.Entries {
+		if aws.ToString(e.Description) == desc {
+			toRemove = append(toRemove, ec2types.RemovePrefixListEntry{
+				Cidr: e.Cidr,
+			})
+		}
+	}
+	if len(toRemove) == 0 {
+		return nil
+	}
+
+	version, err := getPrefixListVersion(ctx, ec2Client, prefixListID)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2Client.ModifyManagedPrefixList(ctx, &ec2.ModifyManagedPrefixListInput{
+		PrefixListId:   aws.String(prefixListID),
+		CurrentVersion: version,
+		RemoveEntries:  toRemove,
+	})
+	if err != nil {
+		// Entry already gone (e.g. manual cleanup) is not an error.
+		if isPrefixListMissingEntryError(err) {
+			log.Info("removeStoreFromPrefix: entries already removed (idempotent)", "store_id", storeID)
+			return nil
+		}
+		return fmt.Errorf("modify prefix list: %w", err)
+	}
+
+	log.Info("removeStoreFromPrefix: removed ENI IPs from prefix list",
+		"prefix_list", prefixListID, "store_id", storeID, "count", len(toRemove))
+	return nil
+}
+
+// getPrefixListVersion fetches the current version of a managed prefix list
+// (required for optimistic locking on ModifyManagedPrefixList).
+func getPrefixListVersion(ctx context.Context, ec2Client knowledgestore.EC2Client, prefixListID string) (*int64, error) {
+	out, err := ec2Client.DescribeManagedPrefixLists(ctx, &ec2.DescribeManagedPrefixListsInput{
+		PrefixListIds: []string{prefixListID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe prefix list: %w", err)
+	}
+	if len(out.PrefixLists) == 0 {
+		return nil, fmt.Errorf("prefix list %s not found", prefixListID)
+	}
+	return out.PrefixLists[0].Version, nil
+}
+
+func isPrefixListDuplicateError(err error) bool {
+	return strings.Contains(err.Error(), "Duplicate") || strings.Contains(err.Error(), "duplicate")
+}
+
+func isPrefixListMissingEntryError(err error) bool {
+	return strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "InvalidParameterValue")
 }
 
 // loadKMSClient loads the default AWS config and returns a KMS client.

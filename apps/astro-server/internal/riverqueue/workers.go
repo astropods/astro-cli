@@ -133,10 +133,15 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
+	var prefixListID string
+	if cfg.ServerConfig != nil {
+		prefixListID = cfg.ServerConfig.Deployment.PrivateLinkPrefixListID
+	}
 	river.AddWorker(workers, &KnowledgeReconcileWorker{
-		ksStore: ksStoreForWorkers,
-		k8s:     cfg.K8sClient,
-		log:     cfg.Logger,
+		ksStore:      ksStoreForWorkers,
+		k8s:          cfg.K8sClient,
+		prefixListID: prefixListID,
+		log:          cfg.Logger,
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 
@@ -148,8 +153,9 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "PrivateLinkProvisionWorker")
 
 	river.AddWorker(workers, &PrivateLinkDeleteWorker{
-		ksStore: ksStoreForWorkers,
-		log:     cfg.Logger,
+		ksStore:      ksStoreForWorkers,
+		prefixListID: prefixListID,
+		log:          cfg.Logger,
 	})
 	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 

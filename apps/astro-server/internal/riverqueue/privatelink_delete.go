@@ -20,11 +20,13 @@ type PrivateLinkDeleteArgs struct {
 
 func (PrivateLinkDeleteArgs) Kind() string { return "privatelink_delete" }
 
-// PrivateLinkDeleteWorker deletes AWS VPC endpoints for external knowledge stores.
+// PrivateLinkDeleteWorker deletes AWS VPC endpoints for external knowledge stores
+// and removes their ENI IPs from the managed prefix list.
 type PrivateLinkDeleteWorker struct {
 	river.WorkerDefaults[PrivateLinkDeleteArgs]
-	ksStore *knowledgestore.Store
-	log     *logger.Logger
+	ksStore      *knowledgestore.Store
+	prefixListID string // empty = prefix list management disabled
+	log          *logger.Logger
 }
 
 func (w *PrivateLinkDeleteWorker) Work(ctx context.Context, job *river.Job[PrivateLinkDeleteArgs]) error {
@@ -35,6 +37,16 @@ func (w *PrivateLinkDeleteWorker) Work(ctx context.Context, job *river.Job[Priva
 		ec2Client, err := knowledgestore.NewEC2Client(ctx)
 		if err != nil {
 			return fmt.Errorf("create ec2 client: %w", err)
+		}
+
+		// Remove ENI IPs from the prefix list before deleting the endpoint
+		// (ENIs are destroyed with the endpoint, so we can't resolve them after).
+		if w.prefixListID != "" {
+			if err := removeStoreFromPrefix(ctx, ec2Client, w.prefixListID, storeID, w.log); err != nil {
+				w.log.Error("PrivateLinkDelete: failed to remove prefix list entries",
+					"error", err, "store_id", storeID)
+				// Non-fatal — proceed with endpoint deletion.
+			}
 		}
 
 		_, err = ec2Client.DeleteVpcEndpoints(ctx, &ec2.DeleteVpcEndpointsInput{

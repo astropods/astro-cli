@@ -53,12 +53,6 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 		return err
 	}
 
-	// Pre-flight: check SG rule count (AWS default limit is 60 rules per SG).
-	if err := w.checkSGRuleLimit(ctx, ec2Client); err != nil {
-		w.setError(storeID, err.Error())
-		return err
-	}
-
 	out, err := ec2Client.CreateVpcEndpoint(ctx, &ec2.CreateVpcEndpointInput{
 		VpcEndpointType:  ec2types.VpcEndpointTypeInterface,
 		VpcId:            aws.String(w.cfg.Deployment.PrivateLinkVpcID),
@@ -95,11 +89,9 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 }
 
 const (
-	// AWS default limits — request an increase if these are too low.
-	maxVPCEndpointsPerVPC  = 50
-	vpceWarningThreshold   = 45
-	maxSGRulesPerGroup     = 60
-	sgRuleWarningThreshold = 55
+	// AWS default limit — request an increase via Service Quotas if too low.
+	maxVPCEndpointsPerVPC = 50
+	vpceWarningThreshold  = 45
 )
 
 func (w *PrivateLinkProvisionWorker) checkVPCEndpointLimit(ctx context.Context, ec2Client knowledgestore.EC2Client) error {
@@ -122,30 +114,6 @@ func (w *PrivateLinkProvisionWorker) checkVPCEndpointLimit(ctx context.Context, 
 	if count >= vpceWarningThreshold {
 		w.log.Warn("PrivateLinkProvision: approaching VPC endpoint limit",
 			"count", count, "limit", maxVPCEndpointsPerVPC, "vpc_id", w.cfg.Deployment.PrivateLinkVpcID)
-	}
-	return nil
-}
-
-func (w *PrivateLinkProvisionWorker) checkSGRuleLimit(ctx context.Context, ec2Client knowledgestore.EC2Client) error {
-	out, err := ec2Client.DescribeSecurityGroupRules(ctx, &ec2.DescribeSecurityGroupRulesInput{
-		Filters: []ec2types.Filter{{
-			Name:   aws.String("group-id"),
-			Values: []string{w.cfg.Deployment.PrivateLinkSGID},
-		}},
-	})
-	if err != nil {
-		w.log.Warn("PrivateLinkProvision: failed to check SG rule count (proceeding anyway)", "error", err)
-		return nil // non-fatal
-	}
-
-	count := len(out.SecurityGroupRules)
-	if count >= maxSGRulesPerGroup {
-		return fmt.Errorf("security group rule limit reached: %d/%d rules in SG %s — request an AWS limit increase or use fewer PrivateLink stores",
-			count, maxSGRulesPerGroup, w.cfg.Deployment.PrivateLinkSGID)
-	}
-	if count >= sgRuleWarningThreshold {
-		w.log.Warn("PrivateLinkProvision: approaching SG rule limit",
-			"count", count, "limit", maxSGRulesPerGroup, "sg_id", w.cfg.Deployment.PrivateLinkSGID)
 	}
 	return nil
 }
