@@ -1980,24 +1980,11 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					flusher.Flush()
 					sentReady = true
 				}
-				keepalive := time.NewTicker(30 * time.Second)
-			drain:
-				for {
-					select {
-					case ll, ok := <-ch:
-						if !ok {
-							break drain
-						}
-						if !writeEvent(ll) {
-							keepalive.Stop()
-							return
-						}
-					case <-keepalive.C:
-						fmt.Fprintf(c.Writer, ": keepalive\n\n") //nolint:errcheck
-						flusher.Flush()
+				for ll := range ch {
+					if !writeEvent(ll) {
+						return
 					}
 				}
-				keepalive.Stop()
 				if c.Request.Context().Err() != nil {
 					return
 				}
