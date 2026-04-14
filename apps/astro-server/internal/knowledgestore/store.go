@@ -82,6 +82,7 @@ type KnowledgeStore struct {
 	Provider         string
 	Status           string
 	Storage          string
+	StorageClass     *string
 	Public           bool
 	PublicHost       *string
 	EncryptedDataKey []byte
@@ -97,14 +98,14 @@ const (
 	StatusError        = "error"
 )
 
-const storeColumns = `id, account_id, name, arn, provider, status, storage,
+const storeColumns = `id, account_id, name, arn, provider, status, storage, storage_class,
        public, public_host, encrypted_data_key, kms_key_arn, error, created_at, updated_at`
 
 func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error) {
 	var s KnowledgeStore
 	err := row.Scan(
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
-		&s.Status, &s.Storage, &s.Public, &s.PublicHost,
+		&s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
 		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -122,6 +123,7 @@ type CreateParams struct {
 	ARN              string
 	Provider         string
 	Storage          string
+	StorageClass     string // optional — empty means cluster default
 	Public           bool
 	PublicHost       string
 	EncryptedDataKey []byte
@@ -143,11 +145,11 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 
 	row := s.db.QueryRow(`
 		INSERT INTO knowledge_stores
-		  (id, account_id, name, arn, provider, storage, public, public_host, encrypted_data_key, kms_key_arn)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		  (id, account_id, name, arn, provider, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING `+storeColumns,
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
-		p.Storage, p.Public, publicHost, encKey, kmsARN,
+		p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN,
 	)
 	return scanStore(row)
 }
@@ -330,4 +332,11 @@ func (s *Store) GetCredentials(storeID string) ([]Credential, error) {
 		creds = append(creds, c)
 	}
 	return creds, rows.Err()
+}
+
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

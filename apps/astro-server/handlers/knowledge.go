@@ -33,33 +33,35 @@ type knowledgeEvent struct {
 }
 
 type knowledgeResponse struct {
-	ID         string           `json:"id"`
-	ARN        string           `json:"arn"`
-	Name       string           `json:"name"`
-	Provider   string           `json:"provider"`
-	Status     string           `json:"status"`
-	Storage    string           `json:"storage"`
-	Public     bool             `json:"public"`
-	PublicHost *string          `json:"public_host,omitempty"`
-	Error      *string          `json:"error,omitempty"`
-	CreatedAt  time.Time        `json:"created_at"`
-	UpdatedAt  time.Time        `json:"updated_at"`
-	Events     []knowledgeEvent `json:"events,omitempty"`
+	ID           string           `json:"id"`
+	ARN          string           `json:"arn"`
+	Name         string           `json:"name"`
+	Provider     string           `json:"provider"`
+	Status       string           `json:"status"`
+	Storage      string           `json:"storage"`
+	StorageClass *string          `json:"storage_class,omitempty"`
+	Public       bool             `json:"public"`
+	PublicHost   *string          `json:"public_host,omitempty"`
+	Error        *string          `json:"error,omitempty"`
+	CreatedAt    time.Time        `json:"created_at"`
+	UpdatedAt    time.Time        `json:"updated_at"`
+	Events       []knowledgeEvent `json:"events,omitempty"`
 }
 
 func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) knowledgeResponse {
 	return knowledgeResponse{
-		ID:         ks.ID,
-		ARN:        ks.ARN,
-		Name:       ks.Name,
-		Provider:   ks.Provider,
-		Status:     ks.Status,
-		Storage:    ks.Storage,
-		Public:     ks.Public,
-		PublicHost: ks.PublicHost,
-		Error:      ks.Error,
-		CreatedAt:  ks.CreatedAt,
-		UpdatedAt:  ks.UpdatedAt,
+		ID:           ks.ID,
+		ARN:          ks.ARN,
+		Name:         ks.Name,
+		Provider:     ks.Provider,
+		Status:       ks.Status,
+		Storage:      ks.Storage,
+		StorageClass: ks.StorageClass,
+		Public:       ks.Public,
+		PublicHost:   ks.PublicHost,
+		Error:        ks.Error,
+		CreatedAt:    ks.CreatedAt,
+		UpdatedAt:    ks.UpdatedAt,
 	}
 }
 
@@ -72,10 +74,11 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		}
 
 		var req struct {
-			Name     string `json:"name" binding:"required"`
-			Provider string `json:"provider" binding:"required"`
-			Storage  string `json:"storage"`
-			Public   bool   `json:"public"`
+			Name         string `json:"name" binding:"required"`
+			Provider     string `json:"provider" binding:"required"`
+			Storage      string `json:"storage"`
+			StorageClass string `json:"storage_class"`
+			Public       bool   `json:"public"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -152,6 +155,7 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			ARN:              storeARN,
 			Provider:         req.Provider,
 			Storage:          storage,
+			StorageClass:     req.StorageClass,
 			Public:           req.Public,
 			PublicHost:       publicHost,
 			EncryptedDataKey: encryptedDataKey,
@@ -205,15 +209,20 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 		return
 	}
 
+	storageClass := ""
+	if ks.StorageClass != nil {
+		storageClass = *ks.StorageClass
+	}
 	if err := k8s.ProvisionKnowledgeStore(ctx, k8sClient, k8s.KnowledgeProvisionParams{
-		StoreID:    ks.ID,
-		AccountID:  ks.AccountID,
-		ARN:        ks.ARN,
-		Provider:   ks.Provider,
-		Storage:    ks.Storage,
-		SecretName: secretName,
-		Public:     ks.Public,
-		LocalMode:  cfg.Deployment.K8sClientMode == "local",
+		StoreID:      ks.ID,
+		AccountID:    ks.AccountID,
+		ARN:          ks.ARN,
+		Provider:     ks.Provider,
+		Storage:      ks.Storage,
+		StorageClass: storageClass,
+		SecretName:   secretName,
+		Public:       ks.Public,
+		LocalMode:    cfg.Deployment.K8sClientMode == "local",
 	}); err != nil {
 		log.Error("Failed to provision K8s resources", "error", err, "store_id", ks.ID)
 		if setErr := ksStore.SetError(ks.ID, "failed to provision: "+err.Error()); setErr != nil {

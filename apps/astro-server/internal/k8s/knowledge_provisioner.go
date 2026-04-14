@@ -8,6 +8,7 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -76,14 +77,15 @@ func EnsureKnowledgeNamespace(ctx context.Context, client ClusterClient, account
 
 // KnowledgeProvisionParams holds everything needed to create a managed store's K8s resources.
 type KnowledgeProvisionParams struct {
-	StoreID    string
-	AccountID  string
-	ARN        string
-	Provider   string
-	Storage    string // e.g. "20Gi"
-	SecretName string // credentials secret to mount via envFrom
-	Public     bool
-	LocalMode  bool
+	StoreID      string
+	AccountID    string
+	ARN          string
+	Provider     string
+	Storage      string // e.g. "20Gi"
+	StorageClass string // optional — falls back to cluster default if empty
+	SecretName   string // credentials secret to mount via envFrom
+	Public       bool
+	LocalMode    bool
 }
 
 // ProvisionKnowledgeStore creates the StatefulSet, ClusterIP Service, and (if Public)
@@ -121,6 +123,7 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 		Port:            int32(prov.DefaultPort), //nolint:gosec
 		SecretName:      p.SecretName,
 		StorageSize:     p.Storage,
+		StorageClass:    p.StorageClass,
 		Provider:        p.Provider,
 		ProviderSection: "knowledge",
 		LocalMode:       p.LocalMode,
@@ -172,6 +175,13 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	_, err = client.Clientset().AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create statefulset: %w", err)
+	}
+
+	// PodDisruptionBudget — prevents node drain from evicting the pod without awareness.
+	pdb := buildKnowledgePDB(resourceName, ns, labels, selector)
+	_, err = client.Clientset().PolicyV1().PodDisruptionBudgets(ns).Create(ctx, pdb, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create pdb: %w", err)
 	}
 
 	// ClusterIP service — in-cluster access for agents.
@@ -229,6 +239,9 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 	ns := KnowledgeNamespace(accountID)
 	resourceName := KnowledgeResourceName(storeID)
 
+	if err := client.Clientset().PolicyV1().PodDisruptionBudgets(ns).Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete pdb: %w", err)
+	}
 	if err := client.Clientset().AppsV1().StatefulSets(ns).Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete statefulset: %w", err)
 	}
@@ -250,6 +263,21 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 	}
 
 	return nil
+}
+
+func buildKnowledgePDB(resourceName, ns string, labels, selector map[string]string) *policyv1.PodDisruptionBudget {
+	minAvailable := intstr.FromInt(1)
+	return &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: ns,
+			Labels:    labels,
+		},
+		Spec: policyv1.PodDisruptionBudgetSpec{
+			MinAvailable: &minAvailable,
+			Selector:     &metav1.LabelSelector{MatchLabels: selector},
+		},
+	}
 }
 
 func buildInitSQLConfigMap(resourceName, ns string, labels map[string]string, sql string) *corev1.ConfigMap {

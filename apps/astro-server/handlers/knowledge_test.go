@@ -20,7 +20,7 @@ import (
 )
 
 var knowledgeColumns = []string{
-	"id", "account_id", "name", "arn", "provider", "status", "storage",
+	"id", "account_id", "name", "arn", "provider", "status", "storage", "storage_class",
 	"public", "public_host", "encrypted_data_key", "kms_key_arn", "error",
 	"created_at", "updated_at",
 }
@@ -31,7 +31,7 @@ func knowledgeRow(id, accountID, name, provider, status string) *sqlmock.Rows {
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
 		provider, status,
-		"10Gi",
+		"10Gi", nil, // storage, storage_class
 		false, nil, nil, nil, nil,
 		now, now,
 	)
@@ -219,7 +219,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 		rows.AddRow(
 			"id-"+name, testAccount().ID, name,
 			"arn:knowledge:acme:"+name, "qdrant", "ready",
-			"10Gi",
+			"10Gi", nil, // storage, storage_class
 			false, nil, nil, nil, nil, now, now,
 		)
 	}
@@ -419,10 +419,11 @@ func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
 			expectedARN,      // $4: ARN — must use short account ID, not name
 			"postgres",       // $5: provider
 			"10Gi",           // $6: storage
-			false,            // $7: public
-			sqlmock.AnyArg(), // $8: public_host
-			sqlmock.AnyArg(), // $9: encrypted_data_key
-			sqlmock.AnyArg(), // $10: kms_key_arn
+			sqlmock.AnyArg(), // $7: storage_class (nil)
+			false,            // $8: public
+			sqlmock.AnyArg(), // $9: public_host
+			sqlmock.AnyArg(), // $10: encrypted_data_key
+			sqlmock.AnyArg(), // $11: kms_key_arn
 		).
 		WillReturnRows(knowledgeRow(acct.ID, acct.ID, "pg-main", "postgres", "provisioning"))
 
