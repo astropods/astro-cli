@@ -25,10 +25,20 @@ Accepts `workload`, `container`, and `pod` query params and returns `text/event-
 **`LogsTab`** manages container sub-tabs and the `isTailing` toggle. Historical logs use `useDeploymentLogs` (TanStack Query, one-shot fetch) when not tailing. Switching container tabs or turning off Tail reverts to historical mode. An auto-disconnect fires after 30 seconds if the user navigates away from the Logs tab while tailing.
 
 **`LogViewer`** additions:
-- **Tail toggle**: pulsing dot when active; turns off automatically when the time-range selector is opened.
+- **Tail toggle**: pulsing dot when active; time-range selector is disabled while tailing.
 - **Reconnecting indicator**: spinner shown while `EventSource` is auto-retrying.
 - **Auto-scroll**: follows new lines unless the user has scrolled up.
 - **Jump to bottom**: floating button restores auto-scroll.
+
+**SSE status events** — the backend now emits `event: status` frames at key lifecycle points so the frontend can reflect connection state without polling:
+
+| `data.status` | When |
+|---|---|
+| `connecting` | Before each Loki WebSocket dial attempt or K8s stream open |
+| `streaming` | After first successful Loki connection |
+| `reconnecting` | When the Loki channel closes and the loop will retry |
+
+Heartbeats changed from SSE comments (`: heartbeat`) to named events (`event: heartbeat\ndata: {}`), which `EventSource` can handle via a dedicated listener.
 
 ## Migration
 
