@@ -17,10 +17,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function Personal({ loaderData }: Route.ComponentProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const accountName = loaderData?.accountName;
 
-  if (!isAuthenticated || !accountName) {
+  if (!isLoading && (!isAuthenticated || !accountName)) {
     return <Navigate to={blueprintsPaths.discover} replace />;
   }
 
