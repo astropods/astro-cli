@@ -239,7 +239,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
       <DialogContent className="max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle>New variable</DialogTitle>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
