@@ -14,7 +14,9 @@ Improved the deploy page experience when an account has reached its compute unit
 
 **Toast confirmation:** Sonner installed and mounted at the app root. `RequestIncreaseDialog` fires `toast.success("Quota increase requested")` on successful submission.
 
-**Copy:** Error banner title/body rewritten for clarity and punctuation. Detection is a case-insensitive regex on the API error string so it degrades gracefully if the message changes.
+**Copy:** Error banner title/body rewritten for clarity and punctuation. Detection is a case-insensitive regex on the API error string so it degrades gracefully if the message changes. Modal title and submit button updated to sentence case.
+
+**Dialog reset:** `RequestIncreaseDialog` now resets `reason`, `amount`, and mutation error state when closed without submitting, so reopening the dialog always shows a clean form.
 
 ## Migration
 
