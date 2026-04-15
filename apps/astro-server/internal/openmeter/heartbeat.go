@@ -235,6 +235,7 @@ func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
 	rows, err := h.db.QueryContext(ctx, `
 		SELECT account_id, COUNT(*) AS cnt
 		FROM agents
+		WHERE archived_at IS NULL
 		GROUP BY account_id
 	`)
 	if err != nil {
