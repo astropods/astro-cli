@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -88,7 +89,7 @@ var (
 // variable to prevent child processes from inheriting it.
 func GetEnvAccessToken() string {
 	envTokenOnce.Do(func() {
-		envToken = os.Getenv(EnvAccessToken)
+		envToken = strings.TrimSpace(os.Getenv(EnvAccessToken))
 		if envToken != "" {
 			_ = os.Unsetenv(EnvAccessToken)
 		}
