@@ -19,12 +19,28 @@ function placeholderFromKey(key: string): string {
   return "your-" + key.replace(/_/g, "-").toLowerCase();
 }
 
-/** Convert "WEB_REQUIRE_AUTH" → "Web Require Auth" */
-function labelFromKey(key: string): string {
+const LABEL_ACRONYMS: Record<string, string> = {
+  Api: "API",
+  Ids: "IDs",
+  Id: "ID",
+  Url: "URL",
+  Oauth: "OAuth",
+  Openai: "OpenAI",
+  Ai: "AI",
+  Llm: "LLM",
+  Db: "DB",
+  Sdk: "SDK",
+  Jwt: "JWT",
+  Github: "GitHub",
+};
+
+/** Convert "SLACK_API_KEY" → "Slack API Key", "ORG_IDS" → "Org IDs" */
+export function labelFromKey(key: string): string {
   return key
     .replace(/_/g, " ")
     .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(Api|Ids|Id|Url|Oauth|Openai|Ai|Llm|Db|Sdk|Jwt|Github)\b/g, (m) => LABEL_ACRONYMS[m] ?? m);
 }
 
 /** Returns the implicit default value for a variable based on its type. */
