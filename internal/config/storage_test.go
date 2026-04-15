@@ -33,7 +33,7 @@ func TestMergeProjectVars_TrimsWhitespace(t *testing.T) {
 	if got, want := vars["SLACK_TOKEN"], "bot-token"; got != want {
 		t.Errorf("SLACK_TOKEN = %q, want %q", got, want)
 	}
-	if _, ok := vars["EMPTY"]; ok {
-		t.Error("whitespace-only value should not be stored")
+	if got, ok := vars["EMPTY"]; !ok || got != "" {
+		t.Errorf("whitespace-only value should be stored as empty string, got %q (present=%v)", got, ok)
 	}
 }
