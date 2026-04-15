@@ -1899,7 +1899,12 @@ func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, names
 }
 
 // StreamDeploymentLogs streams log lines for a deployment workload as Server-Sent Events.
-func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
+// heartbeatInterval overrides the 5s default keepalive cadence (useful in tests).
+func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client, heartbeatInterval ...time.Duration) gin.HandlerFunc {
+	hbInterval := 5 * time.Second
+	if len(heartbeatInterval) > 0 && heartbeatInterval[0] > 0 {
+		hbInterval = heartbeatInterval[0]
+	}
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -1987,7 +1992,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		if lokiClient != nil {
 			// Loki's tail WebSocket closes periodically. Reconnect server-side so the
 			// SSE connection stays open.
-			heartbeat := time.NewTicker(5 * time.Second)
+			heartbeat := time.NewTicker(hbInterval)
 			defer heartbeat.Stop()
 			firstConnect := true
 			connectCount := 0
@@ -2127,7 +2132,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			}
 		}()
 
-		heartbeat := time.NewTicker(5 * time.Second)
+		heartbeat := time.NewTicker(hbInterval)
 		defer heartbeat.Stop()
 
 		for {

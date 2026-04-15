@@ -213,7 +213,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
                   return (
                     <DropdownMenuItem
                       key={c.name}
-                      onClick={() => dispatch({ type: "open", tab: { workloadName: wl.name, containerName: c.name } })}
+                      onClick={() => { dispatch({ type: "open", tab: { workloadName: wl.name, containerName: c.name } }); setIsTailing(false); }}
                       className="cursor-pointer gap-2"
                     >
                       <span className="flex size-3.5 items-center justify-center shrink-0">

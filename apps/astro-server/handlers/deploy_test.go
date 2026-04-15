@@ -3096,7 +3096,7 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 var streamWSUpgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 
-func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client, heartbeatInterval ...time.Duration) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -3114,7 +3114,7 @@ func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client) (*gin.Engine, sq
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id/logs/stream",
-		StreamDeploymentLogs(log, accountStore, cfg, nil, deployStore, lokiClient))
+		StreamDeploymentLogs(log, accountStore, cfg, nil, deployStore, lokiClient, heartbeatInterval...))
 
 	return router, deployMock, accountMock
 }
@@ -3223,17 +3223,22 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 	}
 
 	// Read until we have the ready event and the log line, then cancel.
+	// inNamedEvent prevents data: lines that belong to a named event (e.g. event: status)
+	// from being mistaken for bare log-data lines.
 	var logLines, eventLines []string
+	var inNamedEvent bool
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
+			inNamedEvent = false
 			continue
 		}
-		if strings.HasPrefix(line, "data:") && line != "data: {}" {
-			logLines = append(logLines, line)
-		} else if strings.HasPrefix(line, "event:") {
+		if strings.HasPrefix(line, "event:") {
+			inNamedEvent = true
 			eventLines = append(eventLines, line)
+		} else if strings.HasPrefix(line, "data:") && !inNamedEvent {
+			logLines = append(logLines, line)
 		}
 		if len(logLines) >= 1 && len(eventLines) >= 1 {
 			cancel()
@@ -3380,6 +3385,87 @@ func TestStreamDeploymentLogs_LokiPath_ReconnectsWhenWSCloses(t *testing.T) {
 	cancel()
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
+	}
+}
+
+func TestStreamDeploymentLogs_HandshakeAndHeartbeat(t *testing.T) {
+	// Mock Loki: accept the WS but never send log lines so only heartbeats arrive.
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/loki/api/v1/tail" {
+			http.NotFound(w, r)
+			return
+		}
+		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+		conn.ReadMessage() //nolint:errcheck
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient, 50*time.Millisecond)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	// Collect event: lines; track first index of ready/heartbeat incrementally
+	// so we can cancel as soon as both have arrived and check ordering after.
+	readyIdx, heartbeatIdx := -1, -1
+	var eventLines []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "event:") {
+			continue
+		}
+		eventLines = append(eventLines, line)
+		idx := len(eventLines) - 1
+		if readyIdx == -1 && strings.Contains(line, "ready") {
+			readyIdx = idx
+		}
+		if heartbeatIdx == -1 && strings.Contains(line, "heartbeat") {
+			heartbeatIdx = idx
+		}
+		if readyIdx != -1 && heartbeatIdx != -1 {
+			cancel()
+		}
+	}
+
+	if readyIdx == -1 {
+		t.Errorf("expected event: ready in stream, got: %v", eventLines)
+	}
+	if heartbeatIdx == -1 {
+		t.Errorf("expected event: heartbeat in stream, got: %v", eventLines)
+	}
+	if readyIdx != -1 && heartbeatIdx != -1 && readyIdx > heartbeatIdx {
+		t.Errorf("event: ready (index %d) arrived after event: heartbeat (index %d)", readyIdx, heartbeatIdx)
 	}
 }
 

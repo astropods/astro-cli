@@ -116,7 +116,23 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           />
         </div>
 
-        {/* Live toggle + Time range */}
+        {/* Time range + Live toggle */}
+        <Select
+          value={timeRange}
+          disabled={isTailing}
+          onValueChange={(v) => onTimeRangeChange(v as LogTimeRange)}
+        >
+          <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)] disabled:pointer-events-auto disabled:cursor-not-allowed">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIME_RANGE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {onTailToggle && (
           <Button
             variant="outline"
@@ -137,22 +153,6 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
             {isTailing && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
           </Button>
         )}
-        <Select
-          value={timeRange}
-          onOpenChange={(open) => { if (open && isTailing) onTailToggle?.(); }}
-          onValueChange={(v) => onTimeRangeChange(v as LogTimeRange)}
-        >
-          <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TIME_RANGE_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         <CopyButton
           copyText={() => filtered.map((e) => `${e.timestamp ?? ""} ${e.level ?? ""} ${e.message}`.trim()).join("\n")}
