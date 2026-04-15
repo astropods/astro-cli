@@ -173,8 +173,8 @@ export function BlueprintCard({
       <Link
         to={cardHref}
         className={cn(
-          "group relative flex flex-col overflow-hidden rounded-md border transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400",
-          isDraft ? "border-dashed border-stone-400 bg-transparent" : "border-stone-400 bg-white dark:bg-teal-900/30"
+          "group relative flex flex-col overflow-hidden rounded-md border transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:hover:border-teal-700",
+          isDraft ? "border-dashed border-stone-400 dark:border-teal-800 bg-transparent" : "border-stone-400 dark:border-teal-800 bg-white dark:bg-teal-900/30"
         )}
       >
         {onArchive && (

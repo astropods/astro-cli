@@ -46,6 +46,12 @@ export default function ExperimentsSettings() {
           checked={experiments.githubAutoBuild}
           onCheckedChange={(v) => setExperiment("githubAutoBuild", v)}
         />
+        <ExperimentRow
+          title="Theming"
+          description="Enable light, dark, and auto theme switching from the user menu."
+          checked={experiments.theming}
+          onCheckedChange={(v) => setExperiment("theming", v)}
+        />
       </div>
     </div>
   );

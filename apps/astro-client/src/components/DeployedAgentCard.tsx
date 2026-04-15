@@ -105,8 +105,8 @@ export function DeployedAgentCard({
   }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
 
   const cardClassName = cn(
-    "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-white px-4 py-3 transition-all duration-150",
-    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400" : "cursor-default opacity-70",
+    "group relative flex flex-col gap-3 rounded-md border border-stone-400 dark:border-teal-800 bg-white dark:bg-teal-900/30 px-4 py-3 transition-all duration-150",
+    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-700" : "cursor-default opacity-70",
     className,
   );
 

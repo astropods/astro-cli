@@ -9,6 +9,9 @@ import {
   WrenchScrewdriverIcon,
   PlusIcon,
   ChatBubbleLeftEllipsisIcon,
+  SunIcon,
+  MoonIcon,
+  ComputerDesktopIcon,
 } from "@heroicons/react/24/outline";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
@@ -18,6 +21,14 @@ import { useIsMobile } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { useExperiments } from "@/lib/experiments";
+import { useTheme, type Theme } from "@/lib/theme";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -68,6 +79,43 @@ function ExternalOrNavLink({ to, external, children, className }: { to: string; 
   return <RRNavLink to={to} className={className}>{children}</RRNavLink>;
 }
 
+const themeOptions: { value: Theme; icon: React.ElementType; label: string }[] = [
+  { value: "light", icon: SunIcon, label: "Light" },
+  { value: "dark", icon: MoonIcon, label: "Dark" },
+  { value: "auto", icon: ComputerDesktopIcon, label: "System" },
+];
+
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <TooltipProvider>
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        {themeOptions.map(({ value, icon: Icon, label }) => (
+          <Tooltip key={value}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setTheme(value);
+                }}
+                className={cn(
+                  "rounded p-1.5 transition-colors",
+                  theme === value
+                    ? "bg-stone-200 text-foreground dark:bg-stone-700"
+                    : "text-muted-foreground hover:text-foreground hover:bg-stone-100 dark:hover:bg-stone-800",
+                )}
+              >
+                <Icon className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+    </TooltipProvider>
+  );
+}
+
 export function AppHeader() {
   const { user, accounts, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
   const location = useLocation();
@@ -75,6 +123,7 @@ export function AppHeader() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  const { experiments } = useExperiments();
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
 
   // Close sheet on navigation
@@ -296,6 +345,12 @@ export function AppHeader() {
                 <ArrowRightStartOnRectangleIcon className="size-4" />
                 Sign out
               </DropdownMenuItem>
+              {experiments.theming && (
+                <>
+                  <DropdownMenuSeparator />
+                  <ThemeSwitcher />
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (

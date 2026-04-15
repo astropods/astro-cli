@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 
 export interface Experiments {
   githubAutoBuild: boolean;
+  theming: boolean;
 }
 
 const STORAGE_KEY = "astro:experiments";
 
 const DEFAULTS: Experiments = {
   githubAutoBuild: false,
+  theming: false,
 };
 
 function load(): Experiments {
