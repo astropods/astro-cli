@@ -41,6 +41,15 @@ export function RequestIncreaseDialog({
   const [amount, setAmount] = useState("");
   const mutation = useRequestQuotaIncrease(account);
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      setReason("");
+      setAmount("");
+      mutation.reset();
+    }
+    onOpenChange(open);
+  };
+
   const handleSubmit = () => {
     mutation.mutate(
       {
@@ -62,7 +71,7 @@ export function RequestIncreaseDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Request Quota Increase</DialogTitle>
