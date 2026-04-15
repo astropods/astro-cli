@@ -18,6 +18,8 @@ Improved the deploy page experience when an account has reached its compute unit
 
 **Dialog reset:** `RequestIncreaseDialog` now resets `reason`, `amount`, and mutation error state when closed without submitting, so reopening the dialog always shows a clean form.
 
+**Polish:** `cursor-pointer` added to the banner link button. Temporary Storybook story for the compute limit banner removed.
+
 ## Migration
 
 No migration required. `sonner` added as a client dependency.
