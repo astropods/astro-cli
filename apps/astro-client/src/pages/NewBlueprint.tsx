@@ -223,6 +223,7 @@ function NewBlueprintContent() {
     setActiveStep("publishing");
 
     try {
+      let linkSucceeded = false;
       await Promise.all([
         (async () => {
           if (!isAlreadyPublished) {
@@ -233,17 +234,20 @@ function NewBlueprintContent() {
             bustAgentAvatar(selectedOrg, slug, avatarFile);
           }
           if (sourcePath === "import" && selectedRepo) {
-            await githubLink.mutateAsync({
-              repo_full_name: selectedRepo.full_name,
-              branch: selectedBranch,
-            }).catch(() => {});
+            try {
+              await githubLink.mutateAsync({
+                repo_full_name: selectedRepo.full_name,
+                branch: selectedBranch,
+              });
+              linkSucceeded = true;
+            } catch { /* link failure falls through to normal flow */ }
           }
         })(),
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
 
-      // Scan fast-path: if the repo already has astropods.yml, trigger a build immediately.
-      if (sourcePath === "import" && selectedRepo) {
+      // Scan fast-path: only if link succeeded — otherwise there's no connection to build from.
+      if (sourcePath === "import" && selectedRepo && linkSucceeded) {
         setScanResult("scanning");
         try {
           const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch });
