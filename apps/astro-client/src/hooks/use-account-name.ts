@@ -1,7 +1,7 @@
 import { useCheckAccountName } from '@/api/queries/accounts';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
-export function validateAccountName(name: string, minLength = 2): string | null {
+export function validateAccountName(name: string, minLength = 4): string | null {
   if (name.length < minLength) return `Must be at least ${minLength} characters`;
   if (name.length > 39) return 'Must be at most 39 characters';
   if (!/^[a-z]/.test(name)) return 'Must start with a letter';
@@ -15,7 +15,7 @@ export function sanitizeAccountName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9-]/g, '');
 }
 
-export function useAccountNameValidation(name: string, minLength = 2) {
+export function useAccountNameValidation(name: string, minLength = 4) {
   const clientError = name.length > 0 ? validateAccountName(name, minLength) : null;
   const shouldCheck = name.length >= minLength && !clientError;
 
