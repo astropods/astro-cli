@@ -141,10 +141,11 @@ describe("LogViewer", () => {
     expect(onTailToggle).toHaveBeenCalledOnce();
   });
 
-  it("shows pulsing indicator when live is active", () => {
+  it("shows pause icon when live tail is active", () => {
     renderViewer({ onTailToggle: vi.fn(), isTailing: true });
-    const dot = screen.getByRole("button", { name: /Tail/i }).querySelector("span");
-    expect(dot?.className).toContain("animate-pulse");
+    const btn = screen.getByRole("button", { name: /Live tail/i });
+    expect(btn.querySelector("svg")).not.toBeNull();
+    expect(btn.className).toContain("bg-muted");
   });
 
   it("does not call onTailToggle when time range is opened while not live", () => {

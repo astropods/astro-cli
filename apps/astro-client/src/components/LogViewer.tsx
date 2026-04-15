@@ -19,6 +19,8 @@ export const TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
   { value: "7d", label: "Last 7 days" },
 ];
 
+const TailDot = () => <span className="size-1.5 rounded-full bg-teal-500 shrink-0 dp-blink" />;
+
 const FILTER_CONFIGS = [
   { key: "errors" as const, label: "Errors", icon: AlertCircle, colorClass: "text-coral-600" },
   { key: "warnings" as const, label: "Warnings", icon: TriangleAlert, colorClass: "text-yellow-600" },
@@ -68,11 +70,15 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
     if (isTailing) {
       isUserScrolled.current = false;
       setShowJumpToBottom(false);
+      scrollToBottom();
     }
+  }, [isTailing, scrollToBottom]);
+
+  useEffect(() => {
     if (!isUserScrolled.current) {
       scrollToBottom();
     }
-  }, [logs.length, isTailing, scrollToBottom]);
+  }, [logs.length, scrollToBottom]);
 
   return (
     <div className="flex flex-col h-full bg-surface border border-border rounded-[10px] overflow-hidden">
@@ -181,7 +187,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-            {isTailing && <span className="size-1.5 rounded-full bg-teal-500 shrink-0 dp-blink" />}
+            {isTailing && <TailDot />}
             {logs.length === 0
               ? isTailing ? "Waiting on live tail results…" : "No log lines in this time window"
               : "No matching lines"}
@@ -190,27 +196,27 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           <>
             {isTailing && (
               <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-                <span className="size-1.5 rounded-full bg-teal-500 shrink-0 dp-blink" />
+                <TailDot />
                 Live tail active — new lines appear as they arrive
               </div>
             )}
-          {filtered.map((entry, li) => {
-            const level = normalizeLevel(entry.level);
-            const lvlClass = levelColorClass(entry.level);
-            return (
-              <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
-                <span className="text-faint-foreground shrink-0 w-[24ch]">
-                  {formatLogTimestamp(entry.timestamp)}
-                </span>
-                <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
-                  {level}
-                </span>
-                <span className="text-foreground whitespace-nowrap">
-                  {entry.message}
-                </span>
-              </div>
-            );
-          })}
+            {filtered.map((entry, li) => {
+              const level = normalizeLevel(entry.level);
+              const lvlClass = levelColorClass(entry.level);
+              return (
+                <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
+                  <span className="text-faint-foreground shrink-0 w-[24ch]">
+                    {formatLogTimestamp(entry.timestamp)}
+                  </span>
+                  <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
+                    {level}
+                  </span>
+                  <span className="text-foreground whitespace-nowrap">
+                    {entry.message}
+                  </span>
+                </div>
+              );
+            })}
           </>
         )}
       </div>
