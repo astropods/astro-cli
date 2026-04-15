@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { blueprintsPaths } from "@/lib/routes";
 
 export interface BlueprintDetailBreadcrumbProps {
   account: string;
@@ -87,13 +88,8 @@ export function BlueprintDetailBreadcrumb({
     <PageBreadcrumb
       items={[
         { label: "Blueprints", to: "/blueprints" },
-        {
-          label: (
-            <>
-              {account} <span className="text-muted-foreground">/</span> {blueprintName}
-            </>
-          ),
-        },
+        { label: account, to: blueprintsPaths.account(account) },
+        { label: blueprintName },
       ]}
       actions={
         <>

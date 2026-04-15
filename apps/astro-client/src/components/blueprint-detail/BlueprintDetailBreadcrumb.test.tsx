@@ -17,11 +17,10 @@ describe("BlueprintDetailBreadcrumb", () => {
     renderWithProviders(<BlueprintDetailBreadcrumb account="acme" blueprintName="signal-watcher" />);
 
     expect(screen.getByText("Blueprints")).toBeInTheDocument();
-    expect(
-      screen.getAllByText((_, element) => {
-        const text = element?.textContent ?? "";
-        return text.includes("acme") && text.includes("signal-watcher");
-      }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getByText("signal-watcher")).toBeInTheDocument();
+
+    const accountLink = screen.getByRole("link", { name: "acme" });
+    expect(accountLink).toBeInTheDocument();
+    expect(accountLink).toHaveAttribute("href", "/blueprints/acme");
   });
 });
