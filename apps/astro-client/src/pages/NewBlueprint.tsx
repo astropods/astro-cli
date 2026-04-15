@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth";
 import { useExperiments } from "@/lib/experiments";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubStatus } from "@/api/queries";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import type { GitHubRepo } from "@/lib/api";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
@@ -92,7 +92,7 @@ function NewBlueprintContent() {
   const [githubConnected, setGithubConnected] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [selectedBranch, setSelectedBranch] = useState("main");
-  const [scanResult, setScanResult] = useState<"scanning" | "found" | "not-found" | "build-failed" | null>(null);
+  const [scanResult, setScanResult] = useState<"scanning" | "found" | "not-found" | null>(null);
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
@@ -104,26 +104,6 @@ function NewBlueprintContent() {
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
-
-  // Poll GitHub status while waiting for a build triggered by the scan fast-path.
-  const { data: buildStatus } = useGitHubStatus(selectedOrg, slug, {
-    enabled: activeStep === "publishing" && scanResult === "found",
-    refetchInterval: 3000,
-  });
-
-  // Once the build completes on the scan fast-path, advance to review.
-  useEffect(() => {
-    if (activeStep !== "publishing" || scanResult !== "found") return;
-    const status = buildStatus?.builds[0]?.status;
-    if (status === "registered") {
-      setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
-      setActiveStep("review");
-    } else if (status === "failed") {
-      setScanResult("build-failed");
-      setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
-      setActiveStep("review");
-    }
-  }, [buildStatus, activeStep, scanResult]);
 
   // Restore wizard state when returning from GitHub OAuth
   useEffect(() => {
@@ -176,14 +156,6 @@ function NewBlueprintContent() {
     }
     navigate(`/${selectedOrg}/${slug}`);
   }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, navigate, setExperiment]);
-
-  // Auto-route on the review step when the scan fast-path succeeded (build registered).
-  useEffect(() => {
-    if (activeStep !== "review" || scanResult !== "found") return;
-    setExperiment("githubAutoBuild", true);
-    const t = setTimeout(() => navigate(`/${selectedOrg}/${slug}`), 1500);
-    return () => clearTimeout(t);
-  }, [activeStep, scanResult, selectedOrg, slug, navigate, setExperiment]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {
@@ -260,9 +232,7 @@ function NewBlueprintContent() {
 
         if (found) {
           setScanResult("found");
-          rebuild.mutate();
-          // Stay on publishing — useEffect above will advance to review once build registers.
-          return;
+          rebuild.mutate(); // fire and forget — build progress lives on the detail page
         }
         setScanResult("not-found");
       }
@@ -500,8 +470,6 @@ function NewBlueprintContent() {
                         <p className="mt-1.5 text-xs text-muted-foreground max-w-[280px]">
                           {scanResult === "scanning"
                             ? "Looking for astropods.yml — we'll kick off a build if we find one."
-                            : scanResult === "found"
-                            ? "Found astropods.yml. Building your agent image and pushing to the registry."
                             : "Registering your blueprint in the registry."}
                         </p>
                         <p className="mt-2 font-mono text-xs text-muted-foreground/60">{selectedOrg}/{slug}</p>
@@ -638,25 +606,15 @@ function NewBlueprintContent() {
                   {step.id === "review" && i <= activeStepIndex && (
                     <div className="flex flex-col flex-1">
                       <div ref={reviewPanelRef} className="relative flex flex-1 flex-col items-center justify-center bg-muted/30 px-6 py-8 gap-4 overflow-hidden">
-                        {scanResult === "found" && <LiveRevealConfetti containerRef={reviewPanelRef} />}
+                        <LiveRevealConfetti containerRef={reviewPanelRef} />
                         <div className="flex items-center gap-2">
-                          {scanResult === "build-failed" ? (
-                            <div className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 shrink-0">
-                              <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M6 2v5M6 9.5v.5" />
-                              </svg>
-                            </div>
-                          ) : (
-                            <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-                              <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M2.5 6l2.5 2.5 4.5-5" />
-                              </svg>
-                            </div>
-                          )}
+                          <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
+                            <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2.5 6l2.5 2.5 4.5-5" />
+                            </svg>
+                          </div>
                           <span className="text-base font-semibold text-foreground">
-                            {scanResult === "found"
-                              ? "Blueprint registered and built!"
-                              : scanResult === "build-failed" || scanResult === "not-found"
+                            {scanResult === "found" || scanResult === "not-found"
                               ? "Blueprint registered, repo connected"
                               : "Blueprint registered!"}
                           </span>
@@ -685,9 +643,7 @@ function NewBlueprintContent() {
                         </div>
                         <p className="text-xs text-muted-foreground text-center max-w-[300px]">
                           {scanResult === "found"
-                            ? "Your agent image is in the registry. Redirecting you now…"
-                            : scanResult === "build-failed"
-                            ? "Something went wrong during the build. Head to your blueprint page to see the error and fix it."
+                            ? "Your build is in progress — head to your blueprint to track it."
                             : scanResult === "not-found"
                             ? `We didn't find an astropods.yml in ${selectedRepo?.full_name ?? "your repo"}. Push one to trigger your first build — we'll pick it up automatically.`
                             : `Install the Astro CLI, run ast init ${slug}, then ast push to get your first image into the registry.`}
@@ -700,9 +656,7 @@ function NewBlueprintContent() {
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Up next</p>
                             <p className="text-sm text-foreground">
                               {scanResult === "found"
-                                ? "View your blueprint"
-                                : scanResult === "build-failed"
-                                ? "Fix the build error"
+                                ? "Track your build"
                                 : scanResult === "not-found"
                                 ? "Add astropods.yml to your repo"
                                 : "Set up your agent in code"}
