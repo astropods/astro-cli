@@ -169,38 +169,38 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
       </div>
 
       {/* Log stream */}
-      <div className="relative flex-1 min-h-0">
-      <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-background py-2.5 pb-3.5">
-        {isLoading ? (
-          <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-            <Loader2 size={14} className="dp-spin" />
-            Loading logs…
+      <div className="flex flex-col flex-1 min-h-0">
+        {isTailing && filtered.length > 0 && (
+          <div className="flex items-center gap-2 px-[18px] pt-5 pb-3 font-mono text-mono-sm text-faint-foreground bg-background flex-shrink-0">
+            <TailDot />
+            Live tail active — new lines appear as they arrive
           </div>
-        ) : isReconnecting ? (
-          <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-            <Loader2 size={14} className="dp-spin" />
-            Reconnecting…
-          </div>
-        ) : error ? (
-          <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
-            {error}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-            {isTailing && <TailDot />}
-            {logs.length === 0
-              ? isTailing ? "Waiting on live tail results…" : "No log lines in this time window"
-              : "No matching lines"}
-          </div>
-        ) : (
-          <>
-            {isTailing && (
-              <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-                <TailDot />
-                Live tail active — new lines appear as they arrive
-              </div>
-            )}
-            {filtered.map((entry, li) => {
+        )}
+        <div className="relative flex-1 min-h-0">
+        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-background py-2.5 pb-3.5">
+          {isLoading ? (
+            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+              <Loader2 size={14} className="dp-spin" />
+              Loading logs…
+            </div>
+          ) : isReconnecting ? (
+            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+              <Loader2 size={14} className="dp-spin" />
+              Reconnecting…
+            </div>
+          ) : error ? (
+            <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
+              {error}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+              {isTailing && <TailDot />}
+              {logs.length === 0
+                ? isTailing ? "Waiting on live tail results…" : "No log lines in this time window"
+                : "No matching lines"}
+            </div>
+          ) : (
+            filtered.map((entry, li) => {
               const level = normalizeLevel(entry.level);
               const lvlClass = levelColorClass(entry.level);
               return (
@@ -216,23 +216,22 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
                   </span>
                 </div>
               );
-            })}
-          </>
+            })
+          )}
+        </div>
+        {showJumpToBottom && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={scrollToBottom}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-surface shadow-sm font-sans text-body-sm text-muted-foreground hover:text-foreground gap-1.5"
+          >
+            <ArrowDown size={12} />
+            Jump to bottom
+          </Button>
         )}
+        </div>
       </div>
-      {showJumpToBottom && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-surface shadow-sm font-sans text-body-sm text-muted-foreground hover:text-foreground gap-1.5"
-        >
-          <ArrowDown size={12} />
-          Jump to bottom
-        </Button>
-      )}
-      </div>
-
     </div>
   );
 }
