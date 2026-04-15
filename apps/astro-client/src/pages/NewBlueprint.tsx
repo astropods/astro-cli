@@ -166,10 +166,10 @@ function NewBlueprintContent() {
       const agentMdKey = `astro:agent-md:${selectedOrg}/${slug}`;
       const agentMD = sessionStorage.getItem(agentMdKey);
       sessionStorage.removeItem(agentMdKey);
-      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, agent_md: agentMD || undefined }));
+      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, agent_md: agentMD || undefined, yml_found: scanResult === "found" }));
     }
     navigate(`/${selectedOrg}/${slug}`);
-  }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, navigate, setExperiment]);
+  }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, scanResult, navigate, setExperiment]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {

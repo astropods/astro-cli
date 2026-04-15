@@ -228,14 +228,14 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const isDraft = blueprint.versions.length === 0;
   const canEdit = isAuthenticated && accounts.some((a) => a.name === blueprint.account);
 
-  const { data: githubStatus } = useGitHubStatus(blueprint.account, blueprint.name, {
+  const { data: githubStatus, isLoading: githubStatusLoading } = useGitHubStatus(blueprint.account, blueprint.name, {
     enabled: isDraft && canEdit,
   });
 
   // Read the repo that was selected in the wizard — written to sessionStorage before navigating here.
   // Falls back to the server-confirmed value once useGitHubStatus resolves, then clears the entry.
   const sessionKey = `astro:github-repo:${blueprint.account}/${blueprint.name}`;
-  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string; agent_md?: string } | undefined>(() => {
+  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string; agent_md?: string; yml_found?: boolean } | undefined>(() => {
     try {
       const raw = sessionStorage.getItem(sessionKey);
       return raw ? JSON.parse(raw) : undefined;
@@ -251,6 +251,12 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
 
   const githubRepoName = githubStatus?.repo_full_name ?? sessionGithub?.repo;
   const githubBranch = githubStatus?.branch ?? sessionGithub?.branch;
+
+  // True when astropods.yml was found and a build exists (or is loading and we know yml was found).
+  // Used to suppress the FINISH SETUP card — if a build is in flight the setup steps are irrelevant.
+  const hasBuild = githubStatusLoading
+    ? (sessionGithub?.yml_found ?? false)
+    : (githubStatus?.builds?.length ?? 0) > 0;
 
   // Inject AGENT.md content as draft_card when the blueprint has no versions yet.
   const effectiveBlueprint: Blueprint = useMemo(() => {
@@ -298,6 +304,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           readme={readme}
           isDraft={isDraft}
           onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}
+          hasBuild={hasBuild}
           githubRepoName={githubRepoName}
           visibility={blueprint.visibility}
           mobileSidebar={

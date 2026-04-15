@@ -349,15 +349,12 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 			return
 		}
 
-		if content == "" {
-			c.JSON(http.StatusOK, gin.H{"found": false})
-			return
-		}
-
-		// Also fetch AGENT.md and return it so the client can populate the blueprint
-		// detail page before the first build completes — no DB write needed.
+		// Always scan for AGENT.md so the detail page can show it regardless of
+		// whether astropods.yml was found.
 		agentMD, _ := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, repo, branch, "AGENT.md")
-		resp := gin.H{"found": true}
+
+		found := content != ""
+		resp := gin.H{"found": found}
 		if agentMD != "" {
 			resp["agent_md"] = agentMD
 		}
