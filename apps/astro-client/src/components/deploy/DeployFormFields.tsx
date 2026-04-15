@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { Camera } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -217,9 +218,16 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
       {/* Error */}
       {form.deployError && (
-        <ErrorPanel title={form.deployError.message}>
-          {form.deployError.details ?? null}
-        </ErrorPanel>
+        /compute limit/i.test(form.deployError.message) ? (
+          <ErrorPanel title="Compute limit reached">
+            All compute hours for this billing period have been used. To continue,{" "}
+            <Link to="/settings/usage" className="underline font-medium">request a quota increase</Link>.
+          </ErrorPanel>
+        ) : (
+          <ErrorPanel title={form.deployError.message}>
+            {form.deployError.details ?? null}
+          </ErrorPanel>
+        )
       )}
     </div>
   );
