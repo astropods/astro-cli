@@ -2,17 +2,24 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Info, Eye, EyeOff, Plus, Trash2, UploadCloud } from 'lucide-react'
+import { Loader2, Info, Eye, EyeOff, Plus, Trash2, Import, UploadCloud, ClipboardPaste } from 'lucide-react'
 import type { CreateAccountVariableInput } from '@/lib/api'
 import { VARIABLE_NAME_PATTERN } from '@/lib/vault'
 import { parseEnvLines } from '@/components/deploy/parse-env'
@@ -34,8 +41,9 @@ type EntryRow = {
   showDescription: boolean
 }
 
-const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env)/i
+const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env$)/i
 const MAX_FILE_SIZE = 256 * 1024
+const MAX_ROWS = 30
 const ROW_GRID = 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
 
 function newRow(partial?: Partial<EntryRow>): EntryRow {
@@ -53,20 +61,34 @@ function newRow(partial?: Partial<EntryRow>): EntryRow {
 export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate }: NewEntryDialogProps) {
   const [rows, setRows] = useState<EntryRow[]>([newRow()])
   const [revealedById, setRevealedById] = useState<Record<string, boolean>>({})
-  const [fileName, setFileName] = useState<string | null>(null)
+  const [importCount, setImportCount] = useState<number | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
-  const [showPasteRaw, setShowPasteRaw] = useState(false)
-  const [rawText, setRawText] = useState('')
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false)
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  const markTouched = (field: string) => {
+    setTouched((prev) => {
+      if (prev.has(field)) return prev
+      const next = new Set(prev)
+      next.add(field)
+      return next
+    })
+  }
+
+  const isTouched = (field: string) => submitAttempted || touched.has(field)
 
   useEffect(() => {
     if (!open) {
       setRows([newRow()])
       setRevealedById({})
-      setFileName(null)
+      setImportCount(null)
       setFileError(null)
-      setShowPasteRaw(false)
-      setRawText('')
+      setPasteDialogOpen(false)
+      setTouched(new Set())
+      setSubmitAttempted(false)
     }
   }, [open])
 
@@ -113,11 +135,11 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
     [activeRows],
   )
 
-  const canSave =
-    saveEntries.length > 0 &&
-    invalidKeyCount === 0 &&
-    duplicateNames.size === 0 &&
-    emptyValueCount === 0
+  const hasErrors =
+    saveEntries.length === 0 ||
+    invalidKeyCount > 0 ||
+    duplicateNames.size > 0 ||
+    emptyValueCount > 0
 
   const updateRow = (id: string, patch: Partial<EntryRow>) => {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)))
@@ -133,6 +155,12 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
       delete next[id]
       return next
     })
+    setTouched((prev) => {
+      const next = new Set(prev)
+      next.delete(`${id}:key`)
+      next.delete(`${id}:value`)
+      return next
+    })
   }
 
   const toggleReveal = (id: string) => {
@@ -140,22 +168,40 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
   }
 
   const applyEnvText = (text: string) => {
-    const parsed = parseEnvLines(text).map((line) => ({
-      ...line,
-      valid: line.valid && VARIABLE_NAME_PATTERN.test(line.name),
-    }))
-    const valid = parsed.filter((line) => line.valid)
-    if (valid.length === 0) {
+    const parsed = parseEnvLines(text).filter((line) => line.valid)
+    if (parsed.length === 0) {
       setFileError('No valid KEY=VALUE pairs found.')
       return
     }
     const byName = new Map<string, EntryRow>()
-    for (const line of valid) {
-      byName.set(line.name, newRow({ name: line.name, value: line.value, secret: true }))
+    for (const line of parsed) {
+      const name = line.name.replace(/\s+/g, '_')
+      byName.set(name, newRow({ name, value: line.value, secret: true }))
     }
-    setRows(Array.from(byName.values()))
-    setRevealedById({})
+    const incoming = Array.from(byName.values())
+    setRows((prev) => {
+      const existing = prev.filter((r) => r.name.trim() !== '' || r.value.trim() !== '')
+      const combined = existing.length > 0 ? [...existing, ...incoming] : incoming
+      if (combined.length > MAX_ROWS) {
+        setFileError(`Only ${MAX_ROWS} variables allowed at a time. ${combined.length - MAX_ROWS} entries were dropped.`)
+        return combined.slice(0, MAX_ROWS)
+      }
+      return combined
+    })
     setFileError(null)
+    setImportCount(incoming.length)
+    // Mark imported rows as touched so validation errors show immediately
+    setTouched((prev) => {
+      const next = new Set(prev)
+      for (const row of incoming) {
+        next.add(`${row.id}:key`)
+        next.add(`${row.id}:value`)
+      }
+      return next
+    })
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+    })
   }
 
   const processFile = (file: File) => {
@@ -167,7 +213,6 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
       setFileError('File is too large. Maximum size is 256 KB.')
       return
     }
-    setFileName(file.name)
     const reader = new FileReader()
     reader.onload = (event) => {
       const text = event.target?.result
@@ -177,59 +222,83 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
   }
 
   const handleCreate = () => {
-    if (!canSave) return
+    if (hasErrors) {
+      setSubmitAttempted(true)
+      requestAnimationFrame(() => {
+        const firstError = scrollRef.current?.querySelector('[aria-invalid="true"]')
+        firstError?.scrollIntoView({ block: 'center' })
+      })
+      return
+    }
     onCreate(saveEntries)
   }
 
-  const handleClose = () => {
-    setRows([newRow()])
-    setRevealedById({})
-    setFileName(null)
-    setFileError(null)
-    setShowPasteRaw(false)
-    setRawText('')
-    onClose()
-  }
+  const handleClose = () => onClose()
 
   return (
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
-      <DialogContent className="max-w-[720px]">
+      <DialogContent className="max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle>New variable</DialogTitle>
+          <div className="flex items-center gap-2">
+            <DialogTitle>New variable</DialogTitle>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  <Import className="size-3.5" />
+                  Import .env
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                  <UploadCloud className="size-3.5" />
+                  Upload file
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setPasteDialogOpen(true)}>
+                  <ClipboardPaste className="size-3.5" />
+                  Paste text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           {accountName && (
             <p className="text-xs text-muted-foreground">Saving to <span className="font-medium text-foreground">{accountName}</span></p>
           )}
         </DialogHeader>
 
-        <div className="space-y-3 py-1 max-h-[65vh] overflow-y-auto pr-1">
-          <div className={`grid ${ROW_GRID} gap-2 items-center`}>
-            <Label size="sm">Key</Label>
-            <Label size="sm">Value</Label>
-            <span />
-          </div>
-
+        <div ref={scrollRef} className="space-y-3 py-1 min-h-0 flex-1 overflow-y-auto pr-1 pl-1 -ml-1">
           {rows.map((row, index) => {
             const trimmedName = row.name.trim()
+            const isActive = trimmedName !== '' || row.value.trim() !== ''
             const invalidKey = trimmedName !== '' && !VARIABLE_NAME_PATTERN.test(trimmedName)
             const duplicateKey = trimmedName !== '' && duplicateNames.has(trimmedName)
+            const emptyKey = isActive && trimmedName === ''
+            const emptyValue = isActive && row.value.trim() === ''
+            const keyTouched = isTouched(`${row.id}:key`)
+            const valueTouched = isTouched(`${row.id}:value`)
+            const showKeyError = keyTouched && (invalidKey || duplicateKey || emptyKey)
+            const showValueError = valueTouched && emptyValue
             return (
               <div key={row.id} className="space-y-1">
                 <div className={`grid ${ROW_GRID} gap-2 items-start`}>
                   <div className="space-y-1 min-w-0">
+                    <Label size="md" htmlFor={`key-${row.id}`}>Key</Label>
                     <Input
+                      id={`key-${row.id}`}
                       value={row.name}
                       onPaste={(e) => {
                         const text = e.clipboardData.getData('text')
-                        if (text.includes('=')) {
+                        const lines = text.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#'))
+                        if (lines.length > 1 && lines.some((l) => l.includes('='))) {
                           e.preventDefault()
                           applyEnvText(text)
                         }
                       }}
-                      onChange={(e) => updateRow(row.id, { name: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
+                      onChange={(e) => updateRow(row.id, { name: e.target.value.replace(/\s+/g, '_') })}
+                      onBlur={() => markTouched(`${row.id}:key`)}
                       placeholder="CLIENT_KEY..."
                       className="h-10 font-mono text-xs"
                       autoFocus={index === 0}
-                      aria-invalid={invalidKey || duplicateKey || undefined}
+                      aria-invalid={showKeyError || undefined}
                     />
                     <Button
                       type="button"
@@ -244,18 +313,23 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                     >
                       {row.showDescription || row.description ? 'Hide description' : 'Add description'}
                     </Button>
-                    {invalidKey && <p className="text-[11px] text-destructive">Invalid key format</p>}
-                    {duplicateKey && <p className="text-[11px] text-destructive">Duplicate key</p>}
+                    {showKeyError && emptyKey && <p className="text-[11px] text-destructive">Key is required</p>}
+                    {showKeyError && invalidKey && <p className="text-[11px] text-destructive">Invalid key format</p>}
+                    {showKeyError && duplicateKey && <p className="text-[11px] text-destructive">Duplicate key</p>}
                   </div>
                   <div className="space-y-1 min-w-0">
+                    <Label size="md" htmlFor={`value-${row.id}`}>Value</Label>
                     <div className="relative">
                       <Input
+                        id={`value-${row.id}`}
                         type={row.secret && !revealedById[row.id] ? 'password' : 'text'}
                         value={row.value}
                         onChange={(e) => updateRow(row.id, { value: e.target.value })}
+                        onBlur={() => markTouched(`${row.id}:value`)}
                         className={row.secret ? 'h-10 font-mono text-xs pr-8' : 'h-10 font-mono text-xs'}
                         autoComplete="off"
                         spellCheck={false}
+                        aria-invalid={showValueError || undefined}
                       />
                       {row.secret && (
                         <button
@@ -268,8 +342,9 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                         </button>
                       )}
                     </div>
+                    {showValueError && <p className="text-[11px] text-destructive">Value is required</p>}
                   </div>
-                  <div className="flex items-center justify-end gap-2 h-10">
+                  <div className="flex items-center justify-end gap-2 h-10 mt-6">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <label htmlFor={`secret-toggle-${row.id}`} className="text-sm font-medium text-foreground cursor-pointer whitespace-nowrap">Secret</label>
                       <TooltipProvider delayDuration={200}>
@@ -315,67 +390,93 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
             )
           })}
 
-          <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => setRows((prev) => [...prev, newRow()])}>
-            <Plus className="size-3.5" />
-            Add another
-          </Button>
-
-        </div>
-
-        <div className="space-y-2 border-t border-border pt-3">
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <UploadCloud className="size-3.5" />
-              Import .env
+          {rows.length < MAX_ROWS && (
+            <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => {
+              setRows((prev) => [...prev, newRow()])
+              requestAnimationFrame(() => {
+                scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+              })
+            }}>
+              <Plus className="size-3.5" />
+              Add another
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setShowPasteRaw((prev) => !prev)}>
-              Or paste
-            </Button>
-          </div>
-
-          {fileName && <p className="text-xs text-muted-foreground">Loaded {fileName}</p>}
-
-          {showPasteRaw && (
-            <div className="space-y-2">
-              <Textarea
-                value={rawText}
-                onChange={(e) => setRawText(e.target.value)}
-                placeholder="PASTE .env CONTENT HERE"
-                className="min-h-[96px] font-mono text-xs"
-              />
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    applyEnvText(rawText)
-                  }}
-                  disabled={rawText.trim().length === 0}
-                >
-                  Apply
-                </Button>
-              </div>
-            </div>
           )}
 
-          {fileError && <p className="text-xs text-destructive">{fileError}</p>}
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) processFile(file)
-              e.target.value = ''
-            }}
-          />
         </div>
 
+        {(importCount != null || fileError) && (
+          <div className="space-y-1">
+            {importCount != null && (
+              <p className="text-xs text-green-600">
+                Loaded {importCount} {importCount === 1 ? 'variable' : 'variables'}
+              </p>
+            )}
+            {fileError && <p className="text-xs text-destructive">{fileError}</p>}
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) processFile(file)
+            e.target.value = ''
+          }}
+        />
+
+        <PasteEnvDialog
+          open={pasteDialogOpen}
+          onClose={() => setPasteDialogOpen(false)}
+          onApply={(text) => {
+            applyEnvText(text)
+            setPasteDialogOpen(false)
+          }}
+        />
+
         <DialogFooter>
+          {submitAttempted && hasErrors && (
+            <p className="text-xs text-destructive mr-auto self-center">Fix the errors above before saving</p>
+          )}
           <Button variant="outline" onClick={handleClose} disabled={isPending}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={!canSave || isPending}>
+          <Button onClick={handleCreate} disabled={isPending}>
             {isPending && <Loader2 className="size-3.5 animate-spin" />}
             Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PasteEnvDialog({ open, onClose, onApply }: { open: boolean; onClose: () => void; onApply: (text: string) => void }) {
+  const [text, setText] = useState('')
+
+  useEffect(() => {
+    if (!open) setText('')
+  }, [open])
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Paste .env content</DialogTitle>
+          <DialogDescription>
+            Paste KEY=VALUE pairs and they'll be added as rows.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={'DATABASE_URL=postgresql://...\nAPI_KEY=sk-...\nAPP_ENV=production'}
+          className="min-h-[160px] font-mono text-xs"
+          autoFocus
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onApply(text)} disabled={text.trim().length === 0}>
+            Apply
           </Button>
         </DialogFooter>
       </DialogContent>

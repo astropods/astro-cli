@@ -6,4 +6,4 @@ export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCrea
 export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
 export { useSubmitFeedback } from './feedback';
-export { useAccountVariables, useCreateAccountVariable, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';
+export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';

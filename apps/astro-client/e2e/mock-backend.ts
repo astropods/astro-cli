@@ -985,26 +985,45 @@ Bun.serve({
 
       if (request.method === "POST") {
         const body = (await request.json()) as {
-          name?: string;
-          value?: string;
-          secret?: boolean;
-          description?: string;
+          variables?: Array<{
+            name?: string;
+            value?: string;
+            secret?: boolean;
+            description?: string;
+          }>;
         };
-        const name = (body.name ?? "").trim();
-        if (!name) return json({ error: "validation_failed", details: "name is required" }, 400);
-        if (accountVariables.some((v) => v.name === name)) {
-          return json({ error: "already_exists", details: "variable already exists" }, 409);
-        }
+        const entries = body.variables ?? [];
+        if (entries.length === 0) return json({ error: "at least one variable is required" }, 400);
+        const results: Array<{ name: string; status: string; error?: string }> = [];
         const ts = new Date().toISOString();
-        accountVariables.unshift({
-          name,
-          value: body.value ?? "",
-          secret: Boolean(body.secret),
-          description: body.description ?? "",
-          created_at: ts,
-          updated_at: ts,
-        });
-        return json({ name, message: "created" }, 201);
+        for (const entry of entries) {
+          const name = (entry.name ?? "").trim();
+          if (!name) {
+            results.push({ name: "", status: "error", error: "name is required" });
+            continue;
+          }
+          const idx = accountVariables.findIndex((v) => v.name === name);
+          if (idx !== -1) {
+            accountVariables[idx] = {
+              ...accountVariables[idx]!,
+              value: entry.value ?? "",
+              secret: Boolean(entry.secret),
+              description: entry.description ?? "",
+              updated_at: ts,
+            };
+          } else {
+            accountVariables.unshift({
+              name,
+              value: entry.value ?? "",
+              secret: Boolean(entry.secret),
+              description: entry.description ?? "",
+              created_at: ts,
+              updated_at: ts,
+            });
+          }
+          results.push({ name, status: "created" });
+        }
+        return json({ results });
       }
     }
 

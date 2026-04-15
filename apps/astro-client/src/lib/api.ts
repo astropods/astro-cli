@@ -602,13 +602,13 @@ class ApiClient {
     );
   }
 
-  async createAccountVariable(
+  async createAccountVariables(
     account: string,
-    data: CreateAccountVariableInput,
-  ): Promise<{ name: string; message: string }> {
+    variables: CreateAccountVariableInput[],
+  ): Promise<CreateAccountVariablesResponse> {
     return this.request(
       `/api/v1/accounts/${encodeURIComponent(account)}/variables`,
-      { method: 'POST', body: JSON.stringify(data) }
+      { method: 'POST', body: JSON.stringify({ variables }) }
     );
   }
 
@@ -887,6 +887,16 @@ export interface CreateAccountVariableInput {
   value: string;
   secret: boolean;
   description?: string;
+}
+
+export interface CreateVariableResult {
+  name: string;
+  status: 'created' | 'error';
+  error?: string;
+}
+
+export interface CreateAccountVariablesResponse {
+  results: CreateVariableResult[];
 }
 
 export interface UpdateAccountVariableInput {

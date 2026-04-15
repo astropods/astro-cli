@@ -7,11 +7,11 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { AccountVariable } from '@/lib/api'
 import { NewEntryDialog } from '@/components/settings/secrets/NewEntryDialog'
-import { useCreateAccountVariable } from '@/api/queries/variables'
+import { useCreateAccountVariables } from '@/api/queries/variables'
 
 // Parse a token like {{secrets.FOO}} or {{vars.BAR}} into its parts
 export function parseVaultToken(token: string): { type: 'secret' | 'variable'; name: string } | null {
-  const match = token.match(/^\{\{(secrets|vars)\.([A-Z][A-Z0-9_]*)\}\}$/)
+  const match = token.match(/^\{\{(secrets|vars)\.([a-zA-Z_][a-zA-Z0-9_]*)\}\}$/)
   if (!match) return null
   return { type: match[1] === 'secrets' ? 'secret' : 'variable', name: match[2] }
 }
@@ -27,7 +27,7 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [newVarOpen, setNewVarOpen] = useState(false)
-  const createMutation = useCreateAccountVariable(accountName ?? '')
+  const createMutation = useCreateAccountVariables(accountName ?? '')
 
   const filtered = entries.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -148,9 +148,8 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
       isPending={createMutation.isPending}
       accountName={accountName}
       onClose={() => setNewVarOpen(false)}
-      onCreate={async (inputs) => {
-        await Promise.allSettled(inputs.map((input) => createMutation.mutateAsync(input)))
-        setNewVarOpen(false)
+      onCreate={(inputs) => {
+        createMutation.mutate(inputs, { onSuccess: () => setNewVarOpen(false) })
       }}
     />
     </>

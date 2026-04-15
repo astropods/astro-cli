@@ -18,18 +18,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// validVarName matches uppercase letters, digits, and underscores (env-var-safe names).
-var validVarName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+// validVarName matches letters, digits, and underscores; must start with a letter or underscore.
+var validVarName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type ListAccountVariablesResponse struct {
 	Variables []accountvars.VariableMetadata `json:"variables"`
 }
 
-type CreateAccountVariableRequest struct {
+type CreateAccountVariableEntry struct {
 	Name        string `json:"name" binding:"required"`
 	Value       string `json:"value" binding:"required"`
 	Secret      bool   `json:"secret"`
 	Description string `json:"description"`
+}
+
+type CreateAccountVariablesRequest struct {
+	Variables []CreateAccountVariableEntry `json:"variables" binding:"required,dive"`
+}
+
+type CreateVariableResult struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type CreateAccountVariablesResponse struct {
+	Results []CreateVariableResult `json:"results"`
 }
 
 type UpdateAccountVariableRequest struct {
@@ -63,7 +77,8 @@ func ListAccountVariables(log *logger.Logger, store *accountvars.Store) gin.Hand
 	}
 }
 
-// CreateAccountVariable stores a new account variable (optionally encrypted).
+// CreateAccountVariable stores one or more account variables (optionally encrypted).
+// The request body is { "variables": [ ... ] }. Each entry is saved via upsert.
 // POST /api/v1/accounts/:account/variables
 func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -73,58 +88,84 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 			return
 		}
 
-		var req CreateAccountVariableRequest
+		var req CreateAccountVariablesRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
 			return
 		}
 
-		req.Name = strings.TrimSpace(req.Name)
-		if !validVarName.MatchString(req.Name) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "variable name must be uppercase letters, digits, and underscores, starting with a letter (e.g. MY_API_KEY)",
-			})
+		if len(req.Variables) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one variable is required"})
 			return
 		}
 
-		existing, err := store.Get(acct.ID, req.Name)
-		if err != nil {
-			log.Error("Failed to check existing variable", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create variable"})
-			return
-		}
-		if existing != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": "variable already exists", "name": req.Name})
-			return
-		}
-
-		v := &accountvars.AccountVariable{
-			AccountID:   acct.ID,
-			Name:        req.Name,
-			Secret:      req.Secret,
-			Description: req.Description,
-		}
-
-		if req.Secret {
-			encValue, nonce, err := encryptVariableValue(c, log, store, acct.ID, cfg, []byte(req.Value))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt variable"})
-				return
+		// Set up encryptor once if any entries are secrets.
+		var enc *envelope.Encryptor
+		for _, e := range req.Variables {
+			if e.Secret {
+				var err error
+				enc, err = getAccountEncryptor(c, log, store, acct.ID, cfg)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set up encryption"})
+					return
+				}
+				break
 			}
-			v.Value = base64.StdEncoding.EncodeToString(encValue)
-			v.Nonce = nonce
-		} else {
-			v.Value = req.Value
 		}
 
-		if err := store.Save(v); err != nil {
-			log.Error("Failed to save account variable", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save variable"})
-			return
+		results := make([]CreateVariableResult, 0, len(req.Variables))
+		for _, entry := range req.Variables {
+			entry.Name = strings.TrimSpace(entry.Name)
+			result := CreateVariableResult{Name: entry.Name}
+
+			if !validVarName.MatchString(entry.Name) {
+				result.Status = "error"
+				result.Error = "invalid variable name"
+				results = append(results, result)
+				continue
+			}
+
+			v := &accountvars.AccountVariable{
+				AccountID:   acct.ID,
+				Name:        entry.Name,
+				Secret:      entry.Secret,
+				Description: entry.Description,
+			}
+
+			if entry.Secret {
+				if enc != nil {
+					encValue, nonce, err := enc.Encrypt([]byte(entry.Value))
+					if err != nil {
+						log.Error("Failed to encrypt variable", "error", err, "account_id", acct.ID, "name", entry.Name)
+						result.Status = "error"
+						result.Error = "failed to encrypt"
+						results = append(results, result)
+						continue
+					}
+					v.Value = base64.StdEncoding.EncodeToString(encValue)
+					v.Nonce = nonce
+				} else {
+					// KMS not configured — store plaintext
+					v.Value = entry.Value
+				}
+			} else {
+				v.Value = entry.Value
+			}
+
+			if err := store.Save(v); err != nil {
+				log.Error("Failed to save account variable", "error", err, "account_id", acct.ID, "name", entry.Name)
+				result.Status = "error"
+				result.Error = "failed to save"
+				results = append(results, result)
+				continue
+			}
+
+			result.Status = "created"
+			results = append(results, result)
+			log.Info("Account variable created", "account_id", acct.ID, "name", entry.Name, "secret", entry.Secret)
 		}
 
-		log.Info("Account variable created", "account_id", acct.ID, "name", req.Name, "secret", req.Secret)
-		c.JSON(http.StatusCreated, gin.H{"name": req.Name, "message": "variable created"})
+		c.JSON(http.StatusOK, CreateAccountVariablesResponse{Results: results})
 	}
 }
 
@@ -227,38 +268,38 @@ func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Han
 	}
 }
 
-// encryptVariableValue encrypts a plaintext value using the account's shared data key.
-// If the account doesn't have a data key yet, one is generated via KMS.
-func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, cfg *config.Config, plaintext []byte) (ciphertext, nonce []byte, err error) {
+// getAccountEncryptor returns an Encryptor for the account, creating the data key via KMS if needed.
+// Returns nil if KMS is not configured.
+func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, cfg *config.Config) (*envelope.Encryptor, error) {
 	if cfg.Deployment.KMSKeyARN == "" {
-		return plaintext, nil, nil
+		return nil, nil
 	}
 
 	ctx := c.Request.Context()
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
 		log.Error("Failed to load AWS config for KMS", "error", err)
-		return nil, nil, err
+		return nil, err
 	}
 	kmsClient := kms.NewFromConfig(awsCfg)
 
 	ek, err := store.GetEncryptionKey(accountID)
 	if err != nil {
 		log.Error("Failed to get account encryption key", "error", err, "account_id", accountID)
-		return nil, nil, err
+		return nil, err
 	}
 
 	if ek == nil {
 		enc, err := envelope.NewEncryptor(ctx, kmsClient, cfg.Deployment.KMSKeyARN)
 		if err != nil {
 			log.Error("Failed to generate KMS data key", "error", err, "account_id", accountID)
-			return nil, nil, err
+			return nil, err
 		}
 		if err := store.SaveEncryptionKey(accountID, enc.EncryptedDataKey, enc.KMSKeyARN); err != nil {
 			log.Error("Failed to save account encryption key", "error", err, "account_id", accountID)
-			return nil, nil, err
+			return nil, err
 		}
-		return enc.Encrypt(plaintext)
+		return enc, nil
 	}
 
 	kmsOut, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
@@ -266,7 +307,7 @@ func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars
 	})
 	if err != nil {
 		log.Error("Failed to KMS decrypt account data key", "error", err, "account_id", accountID)
-		return nil, nil, err
+		return nil, err
 	}
 
 	enc, err := envelope.NewEncryptorFromPlaintext(kmsOut.Plaintext, ek.EncryptedDataKey, ek.KMSKeyARN)
@@ -275,9 +316,22 @@ func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars
 	}
 	if err != nil {
 		log.Error("Failed to create encryptor from plaintext key", "error", err, "account_id", accountID)
-		return nil, nil, err
+		return nil, err
 	}
 
+	return enc, nil
+}
+
+// encryptVariableValue encrypts a plaintext value using the account's shared data key.
+// If the account doesn't have a data key yet, one is generated via KMS.
+func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, cfg *config.Config, plaintext []byte) (ciphertext, nonce []byte, err error) {
+	enc, err := getAccountEncryptor(c, log, store, accountID, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if enc == nil {
+		return plaintext, nil, nil
+	}
 	return enc.Encrypt(plaintext)
 }
 

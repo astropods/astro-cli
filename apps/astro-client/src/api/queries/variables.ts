@@ -11,11 +11,11 @@ export function useAccountVariables(account: string) {
   });
 }
 
-export function useCreateAccountVariable(account: string) {
+export function useCreateAccountVariables(account: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateAccountVariableInput) =>
-      api.createAccountVariable(account, data),
+    mutationFn: (variables: CreateAccountVariableInput[]) =>
+      api.createAccountVariables(account, variables),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: variableKeys.byAccount(account) });
     },

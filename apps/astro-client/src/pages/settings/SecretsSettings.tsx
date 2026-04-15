@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { MetaFunction } from 'react-router'
-import { Pencil, Trash2, Upload, MoreHorizontal, Loader2, Lock } from 'lucide-react'
+import { Pencil, Trash2, MoreHorizontal, Loader2, Lock } from 'lucide-react'
 import { KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,7 @@ import { OverwriteSecretDialog } from '@/components/settings/secrets/OverwriteSe
 import { EditVariableDialog } from '@/components/settings/secrets/EditVariableDialog'
 import {
   useAccountVariables,
-  useCreateAccountVariable,
+  useCreateAccountVariables,
   useUpdateAccountVariable,
   useDeleteAccountVariable,
 } from '@/api/queries'
@@ -52,7 +52,7 @@ function toVaultEntry(v: AccountVariable): VaultEntry {
 export function VaultSettings({ account: accountName }: { account: string }) {
 
   const { data, isLoading, error } = useAccountVariables(accountName)
-  const createMutation = useCreateAccountVariable(accountName)
+  const createMutation = useCreateAccountVariables(accountName)
   const updateMutation = useUpdateAccountVariable(accountName)
   const deleteMutation = useDeleteAccountVariable(accountName)
 
@@ -65,15 +65,10 @@ export function VaultSettings({ account: accountName }: { account: string }) {
     () => (data?.variables ?? []).map(toVaultEntry),
     [data?.variables],
   )
-  const handleCreate = async (newEntries: CreateAccountVariableInput[]) => {
-    const results = await Promise.allSettled(
-      newEntries.map(entry => createMutation.mutateAsync(entry)),
-    )
-    const failed = results.filter(r => r.status === 'rejected').length
-    if (failed > 0) {
-      console.warn(`Save: ${failed} of ${newEntries.length} entries failed`)
-    }
-    setNewDialogOpen(false)
+  const handleCreate = (entries: CreateAccountVariableInput[]) => {
+    createMutation.mutate(entries, {
+      onSuccess: () => setNewDialogOpen(false),
+    })
   }
 
   const handleOverwrite = (data: { value: string; description: string }) => {
