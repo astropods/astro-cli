@@ -3,11 +3,11 @@ package riverqueue
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/riverqueue/river"
 
@@ -199,15 +199,19 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			continue
 		}
 
+		// AWS returns VPC endpoint states in lowercase ("available") but the
+		// SDK enum constants are PascalCase ("Available"). Normalise to
+		// lowercase before comparing.
 		vpce := out.VpcEndpoints[0]
-		switch vpce.State {
-		case ec2types.StatePendingAcceptance:
+		state := strings.ToLower(string(vpce.State))
+		switch state {
+		case "pendingacceptance":
 			if ep.Status != knowledgestore.StatusPendingAcceptance {
 				_ = w.ksStore.SetEndpointStatus(ep.KnowledgeStoreID, knowledgestore.StatusPendingAcceptance)
 				_ = w.ksStore.SetStatus(ep.KnowledgeStoreID, knowledgestore.StatusPendingAcceptance)
 			}
 
-		case ec2types.StateAvailable:
+		case "available":
 			// DNS entries may take a few seconds to propagate after the VPCE
 			// transitions to available. Defer to next reconcile cycle if empty.
 			if len(vpce.DnsEntries) == 0 || aws.ToString(vpce.DnsEntries[0].DnsName) == "" {
@@ -230,9 +234,13 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			w.log.Info("KnowledgeReconcile: PrivateLink endpoint ready",
 				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "dns", dns)
 
-		case ec2types.StateRejected, ec2types.StateFailed, ec2types.StateDeleted:
+		case "rejected", "failed", "deleted":
 			reason := fmt.Sprintf("VPC endpoint %s: %s", *ep.EndpointID, vpce.State)
 			w.setEndpointAndStoreError(ep.KnowledgeStoreID, reason)
+
+		default:
+			w.log.Warn("KnowledgeReconcile: unhandled VPCE state",
+				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "state", string(vpce.State))
 		}
 	}
 }
