@@ -26,6 +26,10 @@ export interface LogStreamContextValue {
   stopStream: () => void;
 }
 
+function isMessageEvent(e: Event): e is MessageEvent {
+  return "data" in e;
+}
+
 const MAX_STREAM_LINES = 5000;
 const initialState: LogStreamState = { lines: [], status: "idle", error: undefined };
 
@@ -63,6 +67,8 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
 
   const stopStream = useCallback(() => {
     if (esRef.current) {
+      esRef.current.onmessage = null;
+      esRef.current.onerror = null;
       esRef.current.close();
       esRef.current = null;
     }
@@ -71,6 +77,8 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
 
   const startStream = useCallback((deploymentId: string, workloadName: string, container: string) => {
     if (esRef.current) {
+      esRef.current.onmessage = null;
+      esRef.current.onerror = null;
       esRef.current.close();
       esRef.current = null;
     }
@@ -100,8 +108,9 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
     });
 
     es.addEventListener("error", (e: Event) => {
+      if (!isMessageEvent(e)) return;
       try {
-        const parsed = JSON.parse((e as MessageEvent).data) as { message?: string };
+        const parsed = JSON.parse(e.data) as { message?: string };
         dispatch({ type: "stream_error", message: parsed.message ?? "Stream error" });
       } catch {
         // ignore parse errors on the error event

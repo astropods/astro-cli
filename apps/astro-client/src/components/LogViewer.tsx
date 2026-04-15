@@ -67,8 +67,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
     if (!isUserScrolled.current) {
       scrollToBottom();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logs.length]);
+  }, [logs.length, scrollToBottom]);
 
   return (
     <div className="flex flex-col h-full bg-surface border border-border rounded-[10px] overflow-hidden">
