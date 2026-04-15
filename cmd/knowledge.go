@@ -83,30 +83,10 @@ var knowledgeConnectCmd = &cobra.Command{
 	RunE:  runKnowledgeConnect,
 }
 
-var knowledgePrivateLinkCmd = &cobra.Command{
-	Use:   "privatelink",
-	Short: "Manage PrivateLink endpoints for knowledge stores",
-}
-
-var knowledgePrivateLinkAttachCmd = &cobra.Command{
-	Use:   "attach --store <name> --provider aws --service <service-name> --region <region>",
-	Short: "Attach a PrivateLink endpoint to an external knowledge store",
-	RunE:  runKnowledgePrivateLinkAttach,
-}
-
-var knowledgePrivateLinkDetachCmd = &cobra.Command{
-	Use:   "detach --store <name>",
-	Short: "Detach a PrivateLink endpoint from a knowledge store",
-	RunE:  runKnowledgePrivateLinkDetach,
-}
-
 func init() {
 	rootCmd.AddCommand(knowledgeCmd)
 	knowledgeCmd.AddCommand(knowledgeCreateCmd)
 	knowledgeCmd.AddCommand(knowledgeConnectCmd)
-	knowledgeCmd.AddCommand(knowledgePrivateLinkCmd)
-	knowledgePrivateLinkCmd.AddCommand(knowledgePrivateLinkAttachCmd)
-	knowledgePrivateLinkCmd.AddCommand(knowledgePrivateLinkDetachCmd)
 	knowledgeCmd.AddCommand(knowledgeListCmd)
 	knowledgeCmd.AddCommand(knowledgeStatusCmd)
 	knowledgeCmd.AddCommand(knowledgeLogsCmd)
@@ -116,7 +96,6 @@ func init() {
 	for _, c := range []*cobra.Command{
 		knowledgeCreateCmd, knowledgeConnectCmd, knowledgeListCmd, knowledgeStatusCmd,
 		knowledgeLogsCmd, knowledgeCredentialsCmd, knowledgeDeleteCmd,
-		knowledgePrivateLinkAttachCmd, knowledgePrivateLinkDetachCmd,
 	} {
 		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astro server URL (overrides profile/default)")
 		c.Flags().StringVar(&knowledgeAccount, "account", "", "Account name (overrides profile default)")
@@ -144,21 +123,13 @@ func init() {
 	knowledgeConnectCmd.Flags().String("username", "", "Database username")
 	knowledgeConnectCmd.Flags().String("password", "", "Database password (prompted if omitted)")
 	knowledgeConnectCmd.Flags().String("api-key", "", "API key (for providers like Pinecone/Qdrant)")
+	knowledgeConnectCmd.Flags().Bool("skip-health-check", false, "Skip connectivity check (use when the store is behind PrivateLink or a firewall)")
+	knowledgeConnectCmd.Flags().Bool("private-link", false, "Connect via AWS PrivateLink (host must be a VPC endpoint service name)")
 	_ = knowledgeConnectCmd.MarkFlagRequired("provider")
 	_ = knowledgeConnectCmd.MarkFlagRequired("name")
 	_ = knowledgeConnectCmd.MarkFlagRequired("host")
 	_ = knowledgeConnectCmd.MarkFlagRequired("port")
 
-	knowledgePrivateLinkAttachCmd.Flags().String("store", "", "Store name")
-	knowledgePrivateLinkAttachCmd.Flags().String("provider", "aws", "Cloud provider (aws, gcp, azure)")
-	knowledgePrivateLinkAttachCmd.Flags().String("service", "", "VPC endpoint service name")
-	knowledgePrivateLinkAttachCmd.Flags().String("region", "", "AWS region of the endpoint service")
-	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("store")
-	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("service")
-	_ = knowledgePrivateLinkAttachCmd.MarkFlagRequired("region")
-
-	knowledgePrivateLinkDetachCmd.Flags().String("store", "", "Store name")
-	_ = knowledgePrivateLinkDetachCmd.MarkFlagRequired("store")
 }
 
 // knowledgeAPIBase returns the effective server URL for knowledge API calls.
@@ -314,6 +285,14 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	if apiKey != "" {
 		body["api_key"] = apiKey
 	}
+	skipHealthCheck, _ := cmd.Flags().GetBool("skip-health-check")
+	if skipHealthCheck {
+		body["skip_health_check"] = true
+	}
+	privateLink, _ := cmd.Flags().GetBool("private-link")
+	if privateLink {
+		body["private_link"] = true
+	}
 
 	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
 		fmt.Sprintf("/api/v1/accounts/%s/knowledge/connect", url.PathEscape(account)),
@@ -344,7 +323,23 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  %sARN:%s      %s\n", colorDim, colorReset, created.ARN)
 	fmt.Printf("  %sProvider:%s %s\n", colorDim, colorReset, created.Provider)
 	fmt.Printf("  %sMode:%s     %s\n", colorDim, colorReset, created.Mode)
-	fmt.Printf("%s✓%s Store %s%s%s connected\n", colorGreen, colorReset, colorBold, name, colorReset)
+
+	// If PrivateLink was requested, poll until the endpoint is ready.
+	if privateLink {
+		fmt.Println()
+		if err := pollKnowledgePrivateLink(cmd.Context(), account, name); err != nil {
+			fmt.Println()
+			return err
+		}
+		return nil
+	}
+
+	if created.Status == "error" && created.Error != nil && *created.Error != "" {
+		fmt.Printf("%s⚠%s Store %s%s%s connected but %s\n", colorYellow, colorReset, colorBold, name, colorReset, *created.Error)
+		fmt.Printf("  The store was created but is not reachable. Fix connectivity and reconnect, or use --skip-health-check.\n")
+	} else {
+		fmt.Printf("%s✓%s Store %s%s%s connected\n", colorGreen, colorReset, colorBold, name, colorReset)
+	}
 	return nil
 }
 
@@ -566,90 +561,6 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("%s✓%s Deleted %s%s%s\n", colorGreen, colorReset, colorBold, name, colorReset)
-	return nil
-}
-
-func runKnowledgePrivateLinkAttach(cmd *cobra.Command, _ []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
-	if err != nil {
-		return err
-	}
-
-	store, _ := cmd.Flags().GetString("store")
-	provider, _ := cmd.Flags().GetString("provider")
-	service, _ := cmd.Flags().GetString("service")
-	region, _ := cmd.Flags().GetString("region")
-
-	fmt.Printf("%s→%s Attaching PrivateLink to %s%s%s\n", colorCyan, colorReset, colorBold, store, colorReset)
-
-	body := map[string]any{
-		"cloud_provider": provider,
-		"service":        service,
-		"region":         region,
-	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
-		knowledgePath(account, store)+"/privatelink", body)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respBody map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&respBody)
-		if msg, ok := respBody["error"].(string); ok {
-			return fmt.Errorf("server error: %s", msg)
-		}
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	fmt.Printf("  %sService:%s %s\n", colorDim, colorReset, service)
-	fmt.Printf("  %sRegion:%s  %s\n", colorDim, colorReset, region)
-	fmt.Println()
-
-	// Poll until the store reaches a terminal state.
-	if err := pollKnowledgePrivateLink(cmd.Context(), account, store); err != nil {
-		fmt.Println()
-		return err
-	}
-
-	return nil
-}
-
-func runKnowledgePrivateLinkDetach(cmd *cobra.Command, _ []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
-	if err != nil {
-		return err
-	}
-
-	store, _ := cmd.Flags().GetString("store")
-
-	fmt.Printf("Detach PrivateLink from %s%s%s? [y/N] ", colorBold, store, colorReset)
-	var confirm string
-	_, _ = fmt.Scanln(&confirm)
-	if strings.ToLower(strings.TrimSpace(confirm)) != "y" {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodDelete,
-		knowledgePath(account, store)+"/privatelink", nil)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusAccepted {
-		var respBody map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&respBody)
-		if msg, ok := respBody["error"].(string); ok {
-			return fmt.Errorf("server error: %s", msg)
-		}
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	fmt.Printf("%s✓%s PrivateLink detach initiated for %s%s%s\n", colorGreen, colorReset, colorBold, store, colorReset)
 	return nil
 }
 
