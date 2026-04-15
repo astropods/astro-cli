@@ -1814,37 +1814,12 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 
 		// For the K8s fallback, resolve pod name from workload if needed.
 		if lokiClient == nil && podName == "" && workloadName != "" {
-			pods, listErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
-				LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-			})
+			resolved, listErr := resolvePodForStream(c.Request.Context(), k8sClient, dep.Namespace, workloadName, containerName)
 			if listErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list pods", "details": listErr.Error()})
 				return
 			}
-			prefix := workloadName + "-"
-			for _, p := range pods.Items {
-				if !strings.HasPrefix(p.Name, prefix) {
-					continue
-				}
-				if containerName != "" {
-					found := false
-					for _, cs := range append(p.Status.ContainerStatuses, p.Status.InitContainerStatuses...) {
-						if cs.Name == containerName {
-							found = true
-							break
-						}
-					}
-					if !found {
-						continue
-					}
-				}
-				if podName == "" || p.Status.Phase == corev1.PodRunning {
-					podName = p.Name
-				}
-				if p.Status.Phase == corev1.PodRunning {
-					break
-				}
-			}
+			podName = resolved
 		}
 
 		if lokiClient == nil && podName == "" {
@@ -1900,7 +1875,7 @@ func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, names
 
 // StreamDeploymentLogs streams log lines for a deployment workload as Server-Sent Events.
 // heartbeatInterval overrides the 5s default keepalive cadence (useful in tests).
-func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client, heartbeatInterval ...time.Duration) gin.HandlerFunc {
+func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client, heartbeatInterval ...time.Duration) gin.HandlerFunc {
 	hbInterval := 5 * time.Second
 	if len(heartbeatInterval) > 0 && heartbeatInterval[0] > 0 {
 		hbInterval = heartbeatInterval[0]
@@ -1968,14 +1943,23 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return true
 		}
 
-		writeStatusEvent := func(status string) {
-			fmt.Fprintf(c.Writer, "event: status\ndata: {\"status\":%q}\n\n", status) //nolint:errcheck
+		writeStatusEvent := func(status string) bool {
+			_, err := fmt.Fprintf(c.Writer, "event: status\ndata: {\"status\":%q}\n\n", status)
+			if err != nil {
+				log.Debug("SSE status write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				return false
+			}
 			flusher.Flush()
+			return true
 		}
 
 		writeErrorEvent := func(message string) {
 			log.Debug("SSE sending error event", "deployment", dep.ID, "message", message)
-			fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message) //nolint:errcheck
+			_, err := fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message)
+			if err != nil {
+				log.Debug("SSE error write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				return
+			}
 			flusher.Flush()
 		}
 
@@ -1989,6 +1973,18 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return true
 		}
 
+		// reconnectPause waits 500ms before the next Loki dial attempt.
+		// Returns false if the client disconnected during the wait.
+		reconnectPause := func() bool {
+			select {
+			case <-time.After(500 * time.Millisecond):
+				return true
+			case <-c.Request.Context().Done():
+				log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
+				return false
+			}
+		}
+
 		if lokiClient != nil {
 			// Loki's tail WebSocket closes periodically. Reconnect server-side so the
 			// SSE connection stays open.
@@ -1999,7 +1995,9 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 			for {
 				connectCount++
-				writeStatusEvent("connecting")
+				if !writeStatusEvent("connecting") {
+					return
+				}
 				log.Debug("Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
 					"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 
@@ -2019,27 +2017,27 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					}
 					log.Warn("Loki tail reconnect failed, retrying", "error", tailErr,
 						"deployment", dep.ID, "attempt", connectCount)
-					select {
-					case <-time.After(500 * time.Millisecond):
-					case <-c.Request.Context().Done():
-						log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
+					if !reconnectPause() {
 						return
 					}
 					continue
 				}
 				firstConnect = false
-				writeStatusEvent("streaming")
+				if !writeStatusEvent("streaming") {
+					return
+				}
 				log.Debug("Loki tail connected", "deployment", dep.ID, "attempt", connectCount)
 
-				alive := true
-				for alive {
+			inner:
+				for {
 					select {
 					case ll, ok := <-ch:
 						if !ok {
 							log.Debug("Loki tail channel closed, will reconnect", "deployment", dep.ID)
-							writeStatusEvent("reconnecting")
-							alive = false
-							continue
+							if !writeStatusEvent("reconnecting") {
+								return
+							}
+							break inner
 						}
 						if !writeEvent(ll) {
 							return
@@ -2054,11 +2052,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					}
 				}
 
-				// Brief pause before reconnecting to avoid tight loops if Loki is unavailable.
-				select {
-				case <-time.After(500 * time.Millisecond):
-				case <-c.Request.Context().Done():
-					log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
+				if !reconnectPause() {
 					return
 				}
 			}
@@ -2091,7 +2085,9 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			logOpts.Container = containerName
 		}
 
-		writeStatusEvent("connecting")
+		if !writeStatusEvent("connecting") {
+			return
+		}
 		log.Debug("K8s pod log stream starting", "deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
 		if streamErr != nil {
@@ -2101,7 +2097,9 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 		defer stream.Close() //nolint:errcheck
-		writeStatusEvent("streaming")
+		if !writeStatusEvent("streaming") {
+			return
+		}
 		log.Debug("K8s pod log stream connected", "deployment", dep.ID, "pod", podName)
 
 		// Pipe scanner into a channel so we can select with the heartbeat ticker.

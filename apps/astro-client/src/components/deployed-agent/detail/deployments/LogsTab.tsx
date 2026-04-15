@@ -74,20 +74,26 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   const [isTailing, setIsTailing] = useState(false);
 
   // Pre-load the first container tab and make it active when the deployment changes.
-  // Also stop any running stream so it doesn't carry over to a different deployment.
   useEffect(() => {
     const first = workloads
       .flatMap((wl) => (wl.containers ?? []).map((c) => ({ workloadName: wl.name, containerName: c.name })))
       .slice(0, 1);
     dispatch({ type: "reset", preload: first, activeKey: first[0] ? tabKey(first[0]) : null });
-    setIsTailing(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deployment.id]);
+
+  // Stop tailing whenever the active tab changes so live mode doesn't carry over.
+  useEffect(() => {
+    setIsTailing(false);
+  }, [activeKey]);
 
   const activeTab = useMemo(
     () => openTabs.find((t) => tabKey(t) === activeKey) ?? null,
     [openTabs, activeKey],
   );
+
+  // Live streaming — managed by LogStreamProvider so the connection survives tab switches.
+  const { lines: streamLines, status: streamStatus, error: streamError, startStream, stopStream } = useLogStream();
 
   // Auto-disconnect after 30 s when the user navigates away from the Logs tab while live.
   useEffect(() => {
@@ -97,8 +103,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
       setIsTailing(false);
     }, 30_000);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVisible, isTailing]);
+  }, [isVisible, isTailing, stopStream]);
 
   const tabEnabled = activeTab !== null;
 
@@ -113,9 +118,6 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
       refetchInterval: false,
     },
   );
-
-  // Live streaming — managed by LogStreamProvider so the connection survives tab switches.
-  const { lines: streamLines, status: streamStatus, error: streamError, startStream, stopStream } = useLogStream();
   const isReconnecting = streamStatus === "reconnecting";
 
   // Start/stop the stream when live mode or the active container changes.
@@ -125,8 +127,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
     } else if (!isTailing) {
       stopStream();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTailing, activeTab?.workloadName, activeTab?.containerName, deployment.id]);
+  }, [isTailing, tabEnabled, activeTab?.workloadName, activeTab?.containerName, deployment.id, startStream, stopStream]);
 
   const logs = isTailing ? streamLines : (logsRaw ?? []);
   const isLoading = !isTailing && histLoading;
@@ -157,8 +158,8 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
               key={key}
               role="tab"
               tabIndex={0}
-              onClick={() => { dispatch({ type: "focus", key }); setIsTailing(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { dispatch({ type: "focus", key }); setIsTailing(false); } }}
+              onClick={() => dispatch({ type: "focus", key })}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") dispatch({ type: "focus", key }); }}
               className={cn(
                 "group flex items-center gap-1.5 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
                 isActive
@@ -171,7 +172,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Close ${label}`}
-                onClick={(e) => { e.stopPropagation(); dispatch({ type: "close", key }); setIsTailing(false); }}
+                onClick={(e) => { e.stopPropagation(); dispatch({ type: "close", key }); }}
                 className={cn(
                   "rounded-full transition-colors",
                   isActive
@@ -213,7 +214,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
                   return (
                     <DropdownMenuItem
                       key={c.name}
-                      onClick={() => { dispatch({ type: "open", tab: { workloadName: wl.name, containerName: c.name } }); setIsTailing(false); }}
+                      onClick={() => dispatch({ type: "open", tab: { workloadName: wl.name, containerName: c.name } })}
                       className="cursor-pointer gap-2"
                     >
                       <span className="flex size-3.5 items-center justify-center shrink-0">

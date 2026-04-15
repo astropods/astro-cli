@@ -3096,6 +3096,29 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 var streamWSUpgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 
+// lokiTailServer starts a test HTTP server that acts as a Loki /loki/api/v1/tail WebSocket
+// endpoint. It sends each frame in order then blocks until the client disconnects.
+func lokiTailServer(t *testing.T, frames []map[string]interface{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/loki/api/v1/tail" {
+			http.NotFound(w, r)
+			return
+		}
+		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("websocket upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+		for _, frame := range frames {
+			data, _ := json.Marshal(frame)
+			conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+		}
+		conn.ReadMessage() //nolint:errcheck
+	}))
+}
+
 func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client, heartbeatInterval ...time.Duration) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -3106,7 +3129,6 @@ func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client, heartbeatInterva
 	accountStore := account.NewAccountStore(accountDB)
 	deployStore := deploymentstore.NewStore(deployDB)
 	log := logger.New("error", "json")
-	cfg := &config.Config{}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -3114,7 +3136,7 @@ func setupStreamLogsTest(t *testing.T, lokiClient *loki.Client, heartbeatInterva
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id/logs/stream",
-		StreamDeploymentLogs(log, accountStore, cfg, nil, deployStore, lokiClient, heartbeatInterval...))
+		StreamDeploymentLogs(log, accountStore, nil, deployStore, lokiClient, heartbeatInterval...))
 
 	return router, deployMock, accountMock
 }
@@ -3129,7 +3151,7 @@ func TestStreamDeploymentLogs_Unauthorized(t *testing.T) {
 	// No auth middleware — user is not set.
 	router.GET("/api/v1/deployments/:id/logs/stream",
 		StreamDeploymentLogs(logger.New("error", "json"), account.NewAccountStore(accountDB),
-			&config.Config{}, nil, deploymentstore.NewStore(deployDB), nil))
+			nil, deploymentstore.NewStore(deployDB), nil))
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/logs/stream?account=my-acct", nil)
@@ -3164,28 +3186,12 @@ func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
-	// Mock Loki: tail WS delivers one live line then stays open until the client disconnects.
-	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/loki/api/v1/tail" {
-			http.NotFound(w, r)
-			return
-		}
-		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Errorf("websocket upgrade: %v", err)
-			return
-		}
-		defer conn.Close() //nolint:errcheck
-		frame := map[string]interface{}{
-			"streams": []map[string]interface{}{{
-				"stream": map[string]string{"pod": "my-pod"},
-				"values": [][]string{{"2000000000", "live line"}},
-			}},
-		}
-		data, _ := json.Marshal(frame)
-		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
-		conn.ReadMessage()                             //nolint:errcheck — blocks until client disconnects
-	}))
+	lokiSrv := lokiTailServer(t, []map[string]interface{}{{
+		"streams": []map[string]interface{}{{
+			"stream": map[string]string{"pod": "my-pod"},
+			"values": [][]string{{"2000000000", "live line"}},
+		}},
+	}})
 	defer lokiSrv.Close()
 
 	lokiClient := loki.New(lokiSrv.URL)
@@ -3257,27 +3263,12 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
-	// Tail WS sends one line with timestamp 2000000000 ns then stays open until client disconnects.
-	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/loki/api/v1/tail" {
-			http.NotFound(w, r)
-			return
-		}
-		conn, err := streamWSUpgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close() //nolint:errcheck
-		frame := map[string]interface{}{
-			"streams": []map[string]interface{}{{
-				"stream": map[string]string{"pod": "p"},
-				"values": [][]string{{"2000000000", "log line"}},
-			}},
-		}
-		data, _ := json.Marshal(frame)
-		conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
-		conn.ReadMessage()                             //nolint:errcheck — blocks until client disconnects
-	}))
+	lokiSrv := lokiTailServer(t, []map[string]interface{}{{
+		"streams": []map[string]interface{}{{
+			"stream": map[string]string{"pod": "p"},
+			"values": [][]string{{"2000000000", "log line"}},
+		}},
+	}})
 	defer lokiSrv.Close()
 
 	lokiClient := loki.New(lokiSrv.URL)

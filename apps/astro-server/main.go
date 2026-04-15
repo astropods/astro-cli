@@ -1169,14 +1169,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore, lokiClient),
+			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, k8sClient, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("workload", "Workload name", false),
 				oapispec.QueryParam("container", "Container name", false),
 				oapispec.QueryParam("pod", "Pod name", false),
-				oapispec.Desc("Streams log lines as Server-Sent Events. Requires Loki backend. WRITE_TIMEOUT must be 0."),
+				oapispec.Desc("Streams log lines as Server-Sent Events. Uses Loki when available, falls back to K8s pod logs. WRITE_TIMEOUT must be 0."),
 				oapispec.Response(200, nil),
 				oapispec.Response(501, &handlers.ErrorResponse{}),
 			)

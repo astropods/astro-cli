@@ -205,12 +205,13 @@ type tailWSMessage struct {
 
 const tailReadDeadline = 90 * time.Second
 
+var wsSchemeReplacer = strings.NewReplacer("https://", "wss://", "http://", "ws://")
+
 // TailLogs connects to Loki's WebSocket tail endpoint and streams new log lines
 // into the returned channel. The channel is closed when ctx is cancelled or the
 // connection drops. An error is returned only if the initial dial fails.
 func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, error) {
-	// Convert base URL scheme to WebSocket.
-	wsBase := strings.NewReplacer("https://", "wss://", "http://", "ws://").Replace(c.baseURL)
+	wsBase := wsSchemeReplacer.Replace(c.baseURL)
 
 	start := p.Start
 	if start.IsZero() {

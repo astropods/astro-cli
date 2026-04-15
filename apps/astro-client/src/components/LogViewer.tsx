@@ -150,7 +150,6 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
               )}
             />
             Tail
-            {isTailing && isLoading && <Loader2 size={10} className="dp-spin shrink-0" />}
           </Button>
         )}
 
@@ -203,13 +202,15 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         )}
       </div>
       {showJumpToBottom && (
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border shadow-sm font-sans text-body-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-surface shadow-sm font-sans text-body-sm text-muted-foreground hover:text-foreground gap-1.5"
         >
           <ArrowDown size={12} />
           Jump to bottom
-        </button>
+        </Button>
       )}
       </div>
     </div>

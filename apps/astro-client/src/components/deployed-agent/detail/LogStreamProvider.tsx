@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useReducer, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 import { useApiClient } from "@/lib/api-context";
 import type { LogEntry } from "@/lib/log-utils";
 
@@ -61,16 +61,15 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const esRef = useRef<EventSource | null>(null);
 
-  function stopStream() {
+  const stopStream = useCallback(() => {
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
     }
     dispatch({ type: "reset" });
-  }
+  }, []);
 
-  function startStream(deploymentId: string, workloadName: string, container: string) {
-    // Close any existing connection.
+  const startStream = useCallback((deploymentId: string, workloadName: string, container: string) => {
     if (esRef.current) {
       esRef.current.close();
       esRef.current = null;
@@ -121,19 +120,25 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "reset" });
       }
     };
-  }
+  }, [api]);
+
+  const contextValue = useMemo(() => ({
+    lines: state.lines,
+    status: state.status,
+    error: state.error,
+    startStream,
+    stopStream,
+  }), [state.lines, state.status, state.error, startStream, stopStream]);
 
   useEffect(() => {
     return () => {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
-      }
+      esRef.current?.close();
+      esRef.current = null;
     };
   }, []);
 
   return (
-    <LogStreamContext.Provider value={{ lines: state.lines, status: state.status, error: state.error, startStream, stopStream }}>
+    <LogStreamContext.Provider value={contextValue}>
       {children}
     </LogStreamContext.Provider>
   );
