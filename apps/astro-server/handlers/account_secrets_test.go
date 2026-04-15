@@ -54,13 +54,18 @@ func TestCreateAccountVariable_SingleEntry(t *testing.T) {
 	}
 
 	var resp CreateAccountVariablesResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %s", err)
+	}
 
 	if len(resp.Results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(resp.Results))
 	}
 	if resp.Results[0].Name != "API_KEY" || resp.Results[0].Status != "created" {
 		t.Errorf("unexpected result: %+v", resp.Results[0])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet mock expectations: %s", err)
 	}
 }
 
@@ -85,7 +90,9 @@ func TestCreateAccountVariable_BulkEntries(t *testing.T) {
 	}
 
 	var resp CreateAccountVariablesResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %s", err)
+	}
 
 	if len(resp.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(resp.Results))
@@ -94,6 +101,9 @@ func TestCreateAccountVariable_BulkEntries(t *testing.T) {
 		if r.Status != "created" {
 			t.Errorf("expected status 'created' for %s, got %s (error: %s)", r.Name, r.Status, r.Error)
 		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet mock expectations: %s", err)
 	}
 }
 
@@ -116,7 +126,9 @@ func TestCreateAccountVariable_InvalidName(t *testing.T) {
 	}
 
 	var resp CreateAccountVariablesResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %s", err)
+	}
 
 	if len(resp.Results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(resp.Results))
@@ -126,6 +138,9 @@ func TestCreateAccountVariable_InvalidName(t *testing.T) {
 	}
 	if resp.Results[1].Status != "created" {
 		t.Errorf("expected created for GOOD_KEY, got: %+v", resp.Results[1])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet mock expectations: %s", err)
 	}
 }
 
@@ -151,12 +166,17 @@ func TestCreateAccountVariable_MixedCaseNames(t *testing.T) {
 	}
 
 	var resp CreateAccountVariablesResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %s", err)
+	}
 
 	for i, r := range resp.Results {
 		if r.Status != "created" {
 			t.Errorf("expected created for %s, got %s (error: %s)", names[i], r.Status, r.Error)
 		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet mock expectations: %s", err)
 	}
 }
 
@@ -194,10 +214,15 @@ func TestCreateAccountVariable_DBError(t *testing.T) {
 	}
 
 	var resp CreateAccountVariablesResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %s", err)
+	}
 
 	if resp.Results[0].Status != "error" || resp.Results[0].Error != "failed to save" {
 		t.Errorf("expected save error, got: %+v", resp.Results[0])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet mock expectations: %s", err)
 	}
 }
 

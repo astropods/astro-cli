@@ -69,6 +69,21 @@ describe('parseEnvLines', () => {
     expect(result).toEqual([{ name: 'FOO', value: 'bar', valid: true }])
   })
 
+  it('handles Windows-style \\r\\n line endings', () => {
+    const result = parseEnvLines('FOO=bar\r\nBAZ=qux\r\n')
+    expect(result).toEqual([
+      { name: 'FOO', value: 'bar', valid: true },
+      { name: 'BAZ', value: 'qux', valid: true },
+    ])
+  })
+
+  it('preserves hash inside double-quoted values', () => {
+    const result = parseEnvLines('COMMENT="has # in value"')
+    expect(result).toEqual([
+      { name: 'COMMENT', value: 'has # in value', valid: true },
+    ])
+  })
+
   it('handles a full .env file with mixed content', () => {
     const input = [
       '# Config',
