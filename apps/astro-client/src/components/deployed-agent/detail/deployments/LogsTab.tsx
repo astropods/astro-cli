@@ -204,7 +204,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
           <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="min-w-[200px]">
             {workloads.map((wl) => (
               <DropdownMenuGroup key={wl.name}>
-                <DropdownMenuLabel className="px-2 py-1 font-mono text-mono-sm text-faint-foreground">
+                <DropdownMenuLabel className="px-2 py-1 font-sans text-body-sm text-faint-foreground">
                   {wl.component || wl.name}
                 </DropdownMenuLabel>
                 {(wl.containers ?? []).map((c) => {
@@ -220,7 +220,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
                       <span className="flex size-3.5 items-center justify-center shrink-0">
                         {alreadyOpen && <CheckIcon className="size-3 text-primary" />}
                       </span>
-                      <span className={cn("font-mono text-mono-sm", alreadyOpen && "text-faint-foreground")}>
+                      <span className={cn("font-sans text-body-sm", alreadyOpen && "text-faint-foreground")}>
                         {c.name}
                       </span>
                     </DropdownMenuItem>
