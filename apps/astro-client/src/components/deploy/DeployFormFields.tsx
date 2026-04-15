@@ -67,7 +67,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             All compute hours for this billing period have been used. To continue,{" "}
             <button
               type="button"
-              className="underline underline-offset-2 font-medium"
+              className="underline underline-offset-2 font-medium cursor-pointer"
               onClick={() => setQuotaDialogOpen(true)}
             >
               request a quota increase

@@ -74,7 +74,7 @@ export function RequestIncreaseDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Request Quota Increase</DialogTitle>
+          <DialogTitle>Request quota increase</DialogTitle>
           <DialogDescription>
             Request additional {label.toLowerCase()} quota for your account.
           </DialogDescription>
@@ -136,7 +136,7 @@ export function RequestIncreaseDialog({
                 Submitting...
               </>
             ) : (
-              "Submit Request"
+              "Submit request"
             )}
           </Button>
         </DialogFooter>
