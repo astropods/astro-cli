@@ -182,7 +182,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
           id={fieldKey}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
           autoComplete="off"
           spellCheck={false}
@@ -210,7 +210,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
           id={fieldKey}
           type={revealed ? "text" : "password"}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
           className="pr-16"
           autoComplete="off"

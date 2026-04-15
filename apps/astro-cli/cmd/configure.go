@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -480,7 +481,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigureSet(cmd *cobra.Command, args []string) error {
-	key, value := args[0], args[1]
+	key, value := args[0], strings.TrimSpace(args[1])
 
 	workingDir, err := os.Getwd()
 	if err != nil {

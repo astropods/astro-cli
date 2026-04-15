@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
@@ -108,7 +109,7 @@ func MergeProjectVars(binaryName, projectPath, agentName string, newVars map[str
 	}
 
 	for k, v := range newVars {
-		if v != "" {
+		if v = strings.TrimSpace(v); v != "" {
 			proj.Vars[k] = v
 		}
 	}
