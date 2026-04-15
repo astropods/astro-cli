@@ -109,9 +109,7 @@ func MergeProjectVars(binaryName, projectPath, agentName string, newVars map[str
 	}
 
 	for k, v := range newVars {
-		if v = strings.TrimSpace(v); v != "" {
-			proj.Vars[k] = v
-		}
+		proj.Vars[k] = strings.TrimSpace(v)
 	}
 
 	return SaveProjectConfigs(binaryName, cfg)
