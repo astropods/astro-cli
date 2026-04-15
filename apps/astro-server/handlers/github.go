@@ -407,29 +407,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 
-		// Generate webhook secret.
-		secretBytes := make([]byte, 32)
-		if _, err := rand.Read(secretBytes); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
-			return
-		}
-		webhookSecret := hex.EncodeToString(secretBytes)
-
-		// Install webhook (best-effort — failure still saves the connection so rebuild can proceed).
-		gh := githubclient.New(token.AccessToken)
-		webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
-		webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
-			RepoFullName: req.RepoFullName,
-			PayloadURL:   webhookPayloadURL,
-			Secret:       webhookSecret,
-		})
-		if err != nil {
-			log.Warn("github: create webhook failed, connection will be saved without webhook", "error", err, "repo", req.RepoFullName)
-			webhookID = 0
-			webhookSecret = ""
-		}
-
-		if err := ghStore.Upsert(c.Request.Context(), &githubconnection.Connection{
+		conn := &githubconnection.Connection{
 			AccountID:            acct.ID,
 			AccountName:          acct.Name,
 			AgentName:            agentName,
@@ -437,12 +415,37 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WorkOSOrganizationID: session.OrganizationID,
 			RepoFullName:         req.RepoFullName,
 			Branch:               req.Branch,
-			WebhookID:            webhookID,
-			WebhookSecret:        webhookSecret,
-		}); err != nil {
+			WebhookID:            0,
+			WebhookSecret:        "",
+		}
+
+		// Save connection first so rebuild can proceed even if webhook creation fails.
+		if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
 			log.Error("githubconnection: upsert", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save connection"})
 			return
+		}
+
+		// Install webhook (best-effort — update connection if it succeeds).
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err == nil {
+			webhookSecret := hex.EncodeToString(secretBytes)
+			gh := githubclient.New(token.AccessToken)
+			webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
+			webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
+				RepoFullName: req.RepoFullName,
+				PayloadURL:   webhookPayloadURL,
+				Secret:       webhookSecret,
+			})
+			if err != nil {
+				log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", req.RepoFullName)
+			} else {
+				conn.WebhookID = webhookID
+				conn.WebhookSecret = webhookSecret
+				if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
+					log.Warn("github: webhook created but failed to persist", "error", updateErr)
+				}
+			}
 		}
 
 		log.Info("GitHub repo linked", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName, "branch", req.Branch)

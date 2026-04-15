@@ -20,6 +20,20 @@ Adds a GitHub import path to the new blueprint wizard, letting users connect an 
 
 **Auto-advance after publish** (import path): The review step no longer auto-navigates to the blueprint detail page when `sourcePath === "import"` — the user needs to land on the draft page to see the GitHub setup instructions, not skip past it.
 
+**Scan-before-link**: The publish flow now scans for `astropods.yml` before installing the webhook. This means the wizard knows whether to trigger an immediate build before any webhook side-effects run. Scan errors are treated as not-found (non-fatal).
+
+**Upsert-before-webhook**: `GitHubLink` saves the connection row to the DB before attempting webhook creation. Webhook creation is best-effort — if it fails (e.g. insufficient token scopes) the connection is still persisted, so subsequent rebuild calls can succeed. If webhook creation succeeds, a second upsert records the webhook ID and secret.
+
+**Build failure handling**: The build-completion effect now handles `status === "failed"` in addition to `registered`. On failure, `scanResult` transitions to `"build-failed"` and the wizard advances to the review step.
+
+**Panel 4 differentiation**: The review panel now renders distinct content for all four terminal states:
+- `found` (built): "Blueprint registered and built!" + confetti + auto-route after 1.5s
+- `build-failed`: amber warning + "Blueprint registered, repo connected" + "Build failed" note + button to detail
+- `not-found`: "Blueprint registered, repo connected" + "Push an astropods.yml to trigger a build" + button
+- `fresh`: "Blueprint registered!" + "Set up your agent in code" + button
+
+**`sourcePath` bug fix**: When the Pipes token was already present (no OAuth redirect needed), `handleGitHubConnect` was not setting `sourcePath = "import"`. The scan condition `if (sourcePath === "import")` was therefore never true, silently skipping scan and build on publish.
+
 ## Migration
 
 No migration required. Existing blueprints and the local CLI path are unaffected.
