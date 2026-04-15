@@ -373,6 +373,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("AUTH_COOKIE_PASSWORD must be at least 32 characters for secure encryption")
 	}
 
+	// PrivateLink: if VPC ID is set, subnet IDs and SG ID are also required.
+	if d := c.Deployment; d.PrivateLinkVpcID != "" {
+		if len(d.PrivateLinkSubnetIDs) == 0 {
+			return fmt.Errorf("PRIVATELINK_SUBNET_IDS is required when PRIVATELINK_VPC_ID is set")
+		}
+		if d.PrivateLinkSGID == "" {
+			return fmt.Errorf("PRIVATELINK_SG_ID is required when PRIVATELINK_VPC_ID is set")
+		}
+	}
+
 	return nil
 }
 
