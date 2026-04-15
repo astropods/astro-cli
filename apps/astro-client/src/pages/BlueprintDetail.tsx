@@ -243,8 +243,9 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   });
   useEffect(() => {
     if (githubStatus?.repo_full_name && sessionGithub) {
+      // Remove from sessionStorage so it doesn't survive a hard refresh, but keep
+      // the in-memory state alive — agent_md is still needed until the build completes.
       sessionStorage.removeItem(sessionKey);
-      setSessionGithub(undefined);
     }
   }, [githubStatus?.repo_full_name, sessionGithub, sessionKey]);
 
