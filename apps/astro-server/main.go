@@ -779,7 +779,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -807,23 +807,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
 					oapispec.Response(200, &handlers.MessageResponse{}),
-					oapispec.Response(404, &handlers.ErrorResponse{}),
-				)
-				api.POST(accountMember, "/knowledge/:name/privatelink", "Attach PrivateLink to a knowledge store", handlers.AttachPrivateLink(log, ksStore, cfg, queue),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(202, &handlers.ErrorResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-					oapispec.Response(409, &handlers.ErrorResponse{}),
-				)
-				api.DELETE(accountMember, "/knowledge/:name/privatelink", "Detach PrivateLink from a knowledge store", handlers.DetachPrivateLink(log, ksStore, queue),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(202, &handlers.ErrorResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 				api.GET(accountMember, "/knowledge/:name/logs", "Stream knowledge store logs", handlers.GetKnowledgeStoreLogs(log, ksStore, k8sClient, lokiClient),
