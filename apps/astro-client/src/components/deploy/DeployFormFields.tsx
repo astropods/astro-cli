@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router";
 import { Camera } from "lucide-react";
+import { useAccountUsage } from "@/api/queries/usage";
+import { RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
@@ -40,6 +41,11 @@ export interface DeployFormFieldsProps {
 
 export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
+  const { data: usageData } = useAccountUsage(form.targetAccount);
+  const computeMeter = usageData?.compute_unit_hours ?? { usage: 0, quota: undefined };
+  const isAtComputeLimit = computeMeter.quota != null && computeMeter.usage >= computeMeter.quota;
+  const showComputeLimit = isAtComputeLimit || (!!form.deployError && /compute limit/i.test(form.deployError.message));
   const importableKeys = new Set<string>([
     ...form.requiredVariables.map(([key]) => key),
     ...form.optionalVariables.map(([key]) => key),
@@ -54,6 +60,34 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
   return (
     <div className="space-y-12">
+      {/* Error */}
+      {showComputeLimit ? (
+        <>
+          <ErrorPanel title="Compute limit reached">
+            All compute hours for this billing period have been used. To continue,{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 font-medium"
+              onClick={() => setQuotaDialogOpen(true)}
+            >
+              request a quota increase
+            </button>.
+          </ErrorPanel>
+          <RequestIncreaseDialog
+            featureKey="compute"
+            label="Compute unit hours"
+            meter={computeMeter}
+            account={form.targetAccount}
+            open={quotaDialogOpen}
+            onOpenChange={setQuotaDialogOpen}
+          />
+        </>
+      ) : form.deployError ? (
+        <ErrorPanel title={form.deployError.message}>
+          {form.deployError.details ?? null}
+        </ErrorPanel>
+      ) : null}
+
       {/* Agent name & account */}
       <FormSection title="General" description="Choose what to call your agent and where to deploy it.">
         <div className="space-y-5">
@@ -214,20 +248,6 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           )}
           {ingestionExtra}
         </FormSection>
-      )}
-
-      {/* Error */}
-      {form.deployError && (
-        /compute limit/i.test(form.deployError.message) ? (
-          <ErrorPanel title="Compute limit reached">
-            All compute hours for this billing period have been used. To continue,{" "}
-            <Link to="/settings/usage" className="underline font-medium">request a quota increase</Link>.
-          </ErrorPanel>
-        ) : (
-          <ErrorPanel title={form.deployError.message}>
-            {form.deployError.details ?? null}
-          </ErrorPanel>
-        )
       )}
     </div>
   );

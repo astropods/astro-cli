@@ -133,6 +133,18 @@ export const Success: Story = {
 
 /* ── Variants ── */
 
+export const ComputeLimit: Story = {
+  name: "Error — Compute Limit",
+  render: () => (
+    <ErrorPanel title="Compute limit reached">
+      All compute hours for this billing period have been used. To continue,{" "}
+      <button type="button" className="underline underline-offset-2 font-medium">
+        request a quota increase
+      </button>.
+    </ErrorPanel>
+  ),
+};
+
 export const WithoutTitle: Story = {
   name: "Without Title",
   render: () => (
