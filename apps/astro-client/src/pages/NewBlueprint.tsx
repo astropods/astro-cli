@@ -208,6 +208,7 @@ function NewBlueprintContent() {
       if (res.connected) {
         // Token already exists via Pipes — skip OAuth, go straight to repo selection
         sessionStorage.removeItem(WIZARD_STATE_KEY);
+        setSourcePath("import");
         setGithubConnected(true);
       } else if (res.redirect_url) {
         window.location.href = res.redirect_url;
