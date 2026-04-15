@@ -96,7 +96,7 @@ export function useGitHubAccountRepos(account: string, opts?: { enabled?: boolea
 
 export function useGitHubAccountScan(account: string) {
   return useMutation({
-    mutationFn: ({ repo, branch }: { repo: string; branch: string }) =>
-      api.gitHubAccountScan(account, repo, branch),
+    mutationFn: ({ repo, branch, agentName }: { repo: string; branch: string; agentName?: string }) =>
+      api.gitHubAccountScan(account, repo, branch, agentName),
   });
 }

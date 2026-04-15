@@ -54,6 +54,7 @@ function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9-\s]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
 }
 
+
 const STEPS: { id: Step; label: string; description: string }[] = [
   { id: "setup", label: "Identity", description: "Provide a name and image for your agent." },
   { id: "source", label: "Starting point", description: "Start from scratch or bring in existing code." },
@@ -149,10 +150,23 @@ function NewBlueprintContent() {
 
   const { setExperiment } = useExperiments();
 
+  // Kick off a build as soon as panel 4 appears after finding astropods.yml.
+  // By the time the user reads the copy and clicks through, the build row exists.
+  const didTriggerRebuild = useRef(false);
+  useEffect(() => {
+    if (activeStep === "review" && scanResult === "found" && !didTriggerRebuild.current) {
+      didTriggerRebuild.current = true;
+      rebuild.mutate();
+    }
+  }, [activeStep, scanResult, rebuild]);
+
   const handleGoToBlueprint = useCallback(() => {
     if (sourcePath === "import" && selectedRepo) {
       setExperiment("githubAutoBuild", true);
-      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch }));
+      const agentMdKey = `astro:agent-md:${selectedOrg}/${slug}`;
+      const agentMD = sessionStorage.getItem(agentMdKey);
+      sessionStorage.removeItem(agentMdKey);
+      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, agent_md: agentMD || undefined }));
     }
     navigate(`/${selectedOrg}/${slug}`);
   }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, navigate, setExperiment]);
@@ -220,8 +234,11 @@ function NewBlueprintContent() {
         setScanResult("scanning");
         let found = false;
         try {
-          const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch });
+          const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch, agentName: slug });
           found = scan.found;
+          if (scan.agent_md) {
+            sessionStorage.setItem(`astro:agent-md:${selectedOrg}/${slug}`, scan.agent_md);
+          }
         } catch { /* treat scan errors as not-found */ }
 
         // 3. Link (always — installs webhook for future pushes).
@@ -232,9 +249,9 @@ function NewBlueprintContent() {
 
         if (found) {
           setScanResult("found");
-          rebuild.mutate(); // fire and forget — build progress lives on the detail page
+        } else {
+          setScanResult("not-found");
         }
-        setScanResult("not-found");
       }
 
       setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
@@ -242,7 +259,7 @@ function NewBlueprintContent() {
     } catch {
       // error state shown in publishing card
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan, rebuild]);
+  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan]);
 
   const avatarPreview = avatarPreviewUrl ? (
     <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
@@ -614,7 +631,9 @@ function NewBlueprintContent() {
                             </svg>
                           </div>
                           <span className="text-base font-semibold text-foreground">
-                            {scanResult === "found" || scanResult === "not-found"
+                            {scanResult === "found"
+                              ? "astropods.yml found — build in progress"
+                              : scanResult === "not-found"
                               ? "Blueprint registered, repo connected"
                               : "Blueprint registered!"}
                           </span>
@@ -643,7 +662,7 @@ function NewBlueprintContent() {
                         </div>
                         <p className="text-xs text-muted-foreground text-center max-w-[300px]">
                           {scanResult === "found"
-                            ? "Your build is in progress — head to your blueprint to track it."
+                            ? "Build kicked off — head to your blueprint to track progress in the GitHub sidebar."
                             : scanResult === "not-found"
                             ? `We didn't find an astropods.yml in ${selectedRepo?.full_name ?? "your repo"}. Push one to trigger your first build — we'll pick it up automatically.`
                             : `Install the Astro CLI, run ast init ${slug}, then ast push to get your first image into the registry.`}

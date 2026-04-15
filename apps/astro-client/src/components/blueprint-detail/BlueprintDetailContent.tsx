@@ -103,8 +103,8 @@ export function BlueprintDetailContent({
         <div className="min-[900px]:hidden mb-8">{mobileSidebar}</div>
       )}
 
-      {/* Draft: FINISH SETTING UP */}
-      {isDraft && (
+      {/* Draft: FINISH SETTING UP — only shown when there's no readme content to display */}
+      {isDraft && !readme && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <div className="flex items-center gap-2">
@@ -236,8 +236,8 @@ export function BlueprintDetailContent({
         </section>
       )}
 
-      {/* README */}
-      {!isDraft && readme && (
+      {/* README — shown even while draft when AGENT.md content is available */}
+      {readme && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />

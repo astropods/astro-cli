@@ -94,6 +94,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
             account={account}
             name={name}
             status={status?.connected ? status : { repo_full_name: effectiveRepo, branch: preConnectedBranch, builds: [] }}
+            statusLoading={statusLoading}
             rebuild={rebuild}
             disconnect={disconnect}
           />
@@ -135,11 +136,12 @@ interface ConnectedRepoViewProps {
   account: string;
   name: string;
   status: { repo_full_name?: string; branch?: string; builds: GitHubBuild[] };
+  statusLoading: boolean;
   rebuild: { mutate: () => void; isPending: boolean };
   disconnect: { mutate: () => void; isPending: boolean };
 }
 
-function ConnectedRepoView({ account, name, status, rebuild, disconnect }: ConnectedRepoViewProps) {
+function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disconnect }: ConnectedRepoViewProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -191,7 +193,13 @@ function ConnectedRepoView({ account, name, status, rebuild, disconnect }: Conne
         </DropdownMenu>
       </div>
 
-      {status.builds.length === 0 && (
+      {status.builds.length === 0 && statusLoading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Spinner size={10} />
+          <span>Checking build status…</span>
+        </div>
+      )}
+      {status.builds.length === 0 && !statusLoading && (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <span className="relative flex h-2 w-2 shrink-0 mt-0.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />

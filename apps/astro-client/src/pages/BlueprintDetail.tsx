@@ -22,7 +22,22 @@ import {
   getBlueprintAuthors,
   getBlueprintCapabilities,
 } from "@/lib/blueprint-utils";
-import type { AccountPublic } from "@/lib/api";
+import type { AccountPublic, Blueprint, BlueprintCardData } from "@/lib/api";
+
+/** Minimal AGENT.md frontmatter parser — extracts description and body without a YAML dep. */
+function parseAgentMD(content: string): BlueprintCardData | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)/);
+  const card: BlueprintCardData = {};
+  if (match) {
+    const descMatch = match[1].match(/^description:\s*["']?(.*?)["']?\s*$/m);
+    if (descMatch) card.description = descMatch[1].trim();
+    const body = match[2].trim();
+    if (body) card.body = body;
+  } else if (content.trim()) {
+    card.body = content.trim();
+  }
+  return card.description || card.body ? card : null;
+}
 
 // ─── Build success overlay ────────────────────────────────────────────────────
 
@@ -220,7 +235,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   // Read the repo that was selected in the wizard — written to sessionStorage before navigating here.
   // Falls back to the server-confirmed value once useGitHubStatus resolves, then clears the entry.
   const sessionKey = `astro:github-repo:${blueprint.account}/${blueprint.name}`;
-  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string } | undefined>(() => {
+  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string; agent_md?: string } | undefined>(() => {
     try {
       const raw = sessionStorage.getItem(sessionKey);
       return raw ? JSON.parse(raw) : undefined;
@@ -236,6 +251,14 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const githubRepoName = githubStatus?.repo_full_name ?? sessionGithub?.repo;
   const githubBranch = githubStatus?.branch ?? sessionGithub?.branch;
 
+  // Inject AGENT.md content as draft_card when the blueprint has no versions yet.
+  const effectiveBlueprint: Blueprint = useMemo(() => {
+    if (blueprint.versions.length > 0 || !sessionGithub?.agent_md) return blueprint;
+    const card = parseAgentMD(sessionGithub.agent_md);
+    if (!card) return blueprint;
+    return { ...blueprint, draft_card: card };
+  }, [blueprint, sessionGithub]);
+
   // Detect draft → published transition and show success overlay for the GitHub path.
   const [showBuildSuccess, setShowBuildSuccess] = useState(false);
   const wasDraftRef = useRef<boolean | null>(null);
@@ -247,11 +270,11 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   }, [isDraft, githubRepoName]);
 
 
-  const integrations = getBlueprintIntegrations(blueprint);
-  const categories = getBlueprintCategories(blueprint);
-  const readme = getBlueprintReadme(blueprint);
-  const authors = getBlueprintAuthors(blueprint);
-  const capabilities = getBlueprintCapabilities(blueprint);
+  const integrations = getBlueprintIntegrations(effectiveBlueprint);
+  const categories = getBlueprintCategories(effectiveBlueprint);
+  const readme = getBlueprintReadme(effectiveBlueprint);
+  const authors = getBlueprintAuthors(effectiveBlueprint);
+  const capabilities = getBlueprintCapabilities(effectiveBlueprint);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">

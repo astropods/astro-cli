@@ -878,9 +878,10 @@ class ApiClient {
     );
   }
 
-  async gitHubAccountScan(account: string, repo: string, branch: string): Promise<{ found: boolean }> {
+  async gitHubAccountScan(account: string, repo: string, branch: string, agentName?: string): Promise<{ found: boolean; agent_md?: string }> {
     const params = new URLSearchParams({ repo, branch });
-    return this.request<{ found: boolean }>(
+    if (agentName) params.set("agent_name", agentName);
+    return this.request<{ found: boolean; agent_md?: string }>(
       `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
     );
   }
@@ -954,6 +955,7 @@ export interface Blueprint {
   visibility?: string;
   avatar_url?: string;
   versions: BlueprintVersion[];
+  draft_card?: BlueprintCardData;
   heart_count?: number;
   hearted?: boolean;
   metrics?: BlueprintMetrics;

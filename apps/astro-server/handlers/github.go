@@ -315,6 +315,8 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 
 // GitHubAccountScan handles GET /api/v1/accounts/:account/github/scan.
 // Returns whether astropods.yml exists in the given repo at the given branch.
+// If astropods.yml is found and AGENT.md is present, returns its raw content as agent_md
+// so the client can display it on the blueprint detail page before the first build completes.
 func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
@@ -347,7 +349,19 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"found": content != ""})
+		if content == "" {
+			c.JSON(http.StatusOK, gin.H{"found": false})
+			return
+		}
+
+		// Also fetch AGENT.md and return it so the client can populate the blueprint
+		// detail page before the first build completes — no DB write needed.
+		agentMD, _ := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, repo, branch, "AGENT.md")
+		resp := gin.H{"found": true}
+		if agentMD != "" {
+			resp["agent_md"] = agentMD
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
