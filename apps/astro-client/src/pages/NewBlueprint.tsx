@@ -223,7 +223,7 @@ function NewBlueprintContent() {
     setActiveStep("publishing");
 
     try {
-      let linkSucceeded = false;
+      // 1. Create blueprint + upload avatar (with 2s minimum for UX).
       await Promise.all([
         (async () => {
           if (!isAlreadyPublished) {
@@ -233,31 +233,31 @@ function NewBlueprintContent() {
             await uploadAvatar.mutateAsync({ account: selectedOrg, name: slug, file: avatarFile }).catch(() => {});
             bustAgentAvatar(selectedOrg, slug, avatarFile);
           }
-          if (sourcePath === "import" && selectedRepo) {
-            try {
-              await githubLink.mutateAsync({
-                repo_full_name: selectedRepo.full_name,
-                branch: selectedBranch,
-              });
-              linkSucceeded = true;
-            } catch { /* link failure falls through to normal flow */ }
-          }
         })(),
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
 
-      // Scan fast-path: only if link succeeded — otherwise there's no connection to build from.
-      if (sourcePath === "import" && selectedRepo && linkSucceeded) {
+      if (sourcePath === "import" && selectedRepo) {
+        // 2. Scan first — lightweight read, no connection needed.
         setScanResult("scanning");
+        let found = false;
         try {
           const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch });
-          if (scan.found) {
-            setScanResult("found");
-            rebuild.mutate();
-            // Stay on publishing — useEffect above will advance to review once build registers.
-            return;
-          }
+          found = scan.found;
         } catch { /* treat scan errors as not-found */ }
+
+        // 3. Link (always — installs webhook for future pushes).
+        await githubLink.mutateAsync({
+          repo_full_name: selectedRepo.full_name,
+          branch: selectedBranch,
+        }).catch(() => {});
+
+        if (found) {
+          setScanResult("found");
+          rebuild.mutate();
+          // Stay on publishing — useEffect above will advance to review once build registers.
+          return;
+        }
         setScanResult("not-found");
       }
 
