@@ -80,6 +80,54 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
     }
   }, [logs.length, scrollToBottom]);
 
+  function emptyMessage() {
+    if (logs.length > 0) return "No matching lines";
+    return isTailing ? "Waiting on live tail results…" : "No log lines in this time window";
+  }
+
+  function renderLogContent() {
+    if (isLoading) return (
+      <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+        <Loader2 size={14} className="dp-spin" />
+        Loading logs…
+      </div>
+    );
+    if (isReconnecting) return (
+      <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+        <Loader2 size={14} className="dp-spin" />
+        Reconnecting…
+      </div>
+    );
+    if (error) return (
+      <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
+        {error}
+      </div>
+    );
+    if (filtered.length === 0) return (
+      <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
+        {isTailing && <TailDot />}
+        {emptyMessage()}
+      </div>
+    );
+    return filtered.map((entry, li) => {
+      const level = normalizeLevel(entry.level);
+      const lvlClass = levelColorClass(entry.level);
+      return (
+        <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
+          <span className="text-faint-foreground shrink-0 w-[24ch]">
+            {formatLogTimestamp(entry.timestamp)}
+          </span>
+          <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
+            {level}
+          </span>
+          <span className="text-foreground whitespace-nowrap">
+            {entry.message}
+          </span>
+        </div>
+      );
+    });
+  }
+
   return (
     <div className="flex flex-col h-full bg-surface border border-border rounded-[10px] overflow-hidden">
 
@@ -178,46 +226,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         )}
         <div className="relative flex-1 min-h-0">
         <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-background py-2.5 pb-3.5">
-          {isLoading ? (
-            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-              <Loader2 size={14} className="dp-spin" />
-              Loading logs…
-            </div>
-          ) : isReconnecting ? (
-            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-              <Loader2 size={14} className="dp-spin" />
-              Reconnecting…
-            </div>
-          ) : error ? (
-            <div className="px-[18px] py-3 font-mono text-mono-sm text-destructive">
-              {error}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">
-              {isTailing && <TailDot />}
-              {logs.length === 0
-                ? isTailing ? "Waiting on live tail results…" : "No log lines in this time window"
-                : "No matching lines"}
-            </div>
-          ) : (
-            filtered.map((entry, li) => {
-              const level = normalizeLevel(entry.level);
-              const lvlClass = levelColorClass(entry.level);
-              return (
-                <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
-                  <span className="text-faint-foreground shrink-0 w-[24ch]">
-                    {formatLogTimestamp(entry.timestamp)}
-                  </span>
-                  <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
-                    {level}
-                  </span>
-                  <span className="text-foreground whitespace-nowrap">
-                    {entry.message}
-                  </span>
-                </div>
-              );
-            })
-          )}
+          {renderLogContent()}
         </div>
         {showJumpToBottom && (
           <Button
