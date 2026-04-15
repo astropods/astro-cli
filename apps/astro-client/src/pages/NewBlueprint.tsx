@@ -150,16 +150,6 @@ function NewBlueprintContent() {
 
   const { setExperiment } = useExperiments();
 
-  // Kick off a build as soon as panel 4 appears after finding astropods.yml.
-  // By the time the user reads the copy and clicks through, the build row exists.
-  const didTriggerRebuild = useRef(false);
-  useEffect(() => {
-    if (activeStep === "review" && scanResult === "found" && !didTriggerRebuild.current) {
-      didTriggerRebuild.current = true;
-      rebuild.mutate();
-    }
-  }, [activeStep, scanResult, rebuild]);
-
   const handleGoToBlueprint = useCallback(() => {
     if (sourcePath === "import" && selectedRepo) {
       setExperiment("githubAutoBuild", true);
@@ -249,6 +239,8 @@ function NewBlueprintContent() {
 
         if (found) {
           setScanResult("found");
+          // Await so the build row exists before navigating to the detail page.
+          await rebuild.mutateAsync().catch(() => {});
         } else {
           setScanResult("not-found");
         }
@@ -259,7 +251,7 @@ function NewBlueprintContent() {
     } catch {
       // error state shown in publishing card
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan]);
+  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan, rebuild]);
 
   const avatarPreview = avatarPreviewUrl ? (
     <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
