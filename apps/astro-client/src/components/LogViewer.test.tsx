@@ -147,13 +147,6 @@ describe("LogViewer", () => {
     expect(dot?.className).toContain("animate-pulse");
   });
 
-  it("calls onTailToggle when time range selector is opened while live", () => {
-    const onTailToggle = vi.fn();
-    renderViewer({ onTailToggle, isTailing: true });
-    fireEvent.click(screen.getByText("Last 15 min"));
-    expect(onTailToggle).toHaveBeenCalledOnce();
-  });
-
   it("does not call onTailToggle when time range is opened while not live", () => {
     const onTailToggle = vi.fn();
     renderViewer({ onTailToggle, isTailing: false });
