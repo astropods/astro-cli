@@ -10,6 +10,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
+import { useAccountUsage } from "@/api/queries/usage";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { dashboardPath } from "@/lib/routes";
 
@@ -55,6 +57,10 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   const form = useDeployForm(account ?? "", agentSlug ?? "", {
     initialTemplate: loaderData?.template ?? undefined,
   });
+
+  const { data: usageData } = useAccountUsage(form.targetAccount);
+  const computeMeter = usageData?.compute_unit_hours;
+  const isAtComputeLimit = computeMeter?.quota != null && computeMeter.usage >= computeMeter.quota;
 
   const { personalAccount } = useAuth();
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(personalAccount?.name ?? "");
@@ -200,24 +206,35 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
                 >
                   <Link to={`/${agent.account}/${agent.name}`}>Cancel</Link>
                 </Button>
-                <Button
-                  type="submit"
-                  size="default"
-                  disabled={form.isDeploying}
-                  className="px-6 has-[>svg]:px-6"
-                >
-                  {form.isDeploying ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Deploying...
-                    </>
-                  ) : (
-                    <>
-                      <Rocket size={16} />
-                      Deploy
-                    </>
-                  )}
-                </Button>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button
+                          type="submit"
+                          size="default"
+                          disabled={form.isDeploying || isAtComputeLimit}
+                          className="px-6 has-[>svg]:px-6"
+                        >
+                          {form.isDeploying ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              Deploying...
+                            </>
+                          ) : (
+                            <>
+                              <Rocket size={16} />
+                              Deploy
+                            </>
+                          )}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {isAtComputeLimit && (
+                      <TooltipContent side="top">Compute limit reached for this billing period</TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </>
           )}
