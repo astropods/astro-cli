@@ -415,7 +415,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		}
 		webhookSecret := hex.EncodeToString(secretBytes)
 
-		// Install webhook.
+		// Install webhook (best-effort — failure still saves the connection so rebuild can proceed).
 		gh := githubclient.New(token.AccessToken)
 		webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
 		webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
@@ -424,9 +424,9 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			Secret:       webhookSecret,
 		})
 		if err != nil {
-			log.Error("github: create webhook", "error", err, "repo", req.RepoFullName)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to install webhook: %v", err)})
-			return
+			log.Warn("github: create webhook failed, connection will be saved without webhook", "error", err, "repo", req.RepoFullName)
+			webhookID = 0
+			webhookSecret = ""
 		}
 
 		if err := ghStore.Upsert(c.Request.Context(), &githubconnection.Connection{
