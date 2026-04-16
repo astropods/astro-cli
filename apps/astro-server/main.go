@@ -806,6 +806,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("name", "Store name"),
 					oapispec.Response(200, nil),
 				)
+				api.GET(accountMember, "/knowledge/:name/logs/stream", "Stream knowledge store logs (SSE)", handlers.StreamKnowledgeStoreLogs(log, ksStore, k8sClient, lokiClient),
+					oapispec.Tags("Knowledge"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Store name"),
+					oapispec.Response(200, nil),
+				)
 				api.GET(accountMember, "/knowledge/:name/events", "Stream knowledge store provisioning events", handlers.GetKnowledgeStoreEvents(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),

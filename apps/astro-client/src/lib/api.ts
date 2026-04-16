@@ -803,6 +803,10 @@ class ApiClient {
     return response.json();
   }
 
+  getKnowledgeLogsStreamUrl(account: string, name: string): string {
+    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs/stream`;
+  }
+
   getKnowledgeEventsStreamUrl(account: string, name: string): string {
     return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
   }

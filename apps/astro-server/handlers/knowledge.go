@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -641,6 +643,210 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 			lokiClient, lokiParams,
 			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines, Timestamps: true},
 		)
+	}
+}
+
+// StreamKnowledgeStoreLogs streams knowledge store logs via SSE, matching the
+// deployment log stream contract (ready/status/heartbeat events + JSON log data).
+func StreamKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, lokiClient *loki.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil || ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+
+		if lokiClient == nil && k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
+			return
+		}
+
+		ns := k8s.KnowledgeNamespace(acct.ID)
+		resourceName := k8s.KnowledgeResourceName(ks.ID)
+		podName := resourceName + "-0"
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+
+		_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+		flusher := c.Writer.(http.Flusher)
+
+		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
+		flusher.Flush()
+
+		writeEvent := func(ll loki.LogLine) bool {
+			payload, _ := json.Marshal(lokiLineToEntry(ll))
+			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
+			if writeErr != nil {
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+
+		writeStatusEvent := func(status string) bool {
+			_, err := fmt.Fprintf(c.Writer, "event: status\ndata: {\"status\":%q}\n\n", status)
+			if err != nil {
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+
+		writeErrorEvent := func(message string) {
+			fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message) //nolint:errcheck
+			flusher.Flush()
+		}
+
+		writeHeartbeat := func() bool {
+			_, err := fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {}\n\n")
+			if err != nil {
+				return false
+			}
+			flusher.Flush()
+			return true
+		}
+
+		reconnectPause := func() bool {
+			select {
+			case <-time.After(500 * time.Millisecond):
+				return true
+			case <-c.Request.Context().Done():
+				return false
+			}
+		}
+
+		if lokiClient != nil {
+			heartbeat := time.NewTicker(5 * time.Second)
+			defer heartbeat.Stop()
+			firstConnect := true
+
+			for {
+				if !writeStatusEvent("connecting") {
+					return
+				}
+				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
+					Namespace: ns,
+					Workload:  resourceName,
+					Container: "app",
+					Start:     time.Now(),
+				})
+				if tailErr != nil {
+					if firstConnect {
+						writeErrorEvent("failed to connect to log stream")
+						return
+					}
+					if !reconnectPause() {
+						return
+					}
+					continue
+				}
+				firstConnect = false
+				if !writeStatusEvent("streaming") {
+					return
+				}
+
+			inner:
+				for {
+					select {
+					case ll, ok := <-ch:
+						if !ok {
+							if !writeStatusEvent("reconnecting") {
+								return
+							}
+							break inner
+						}
+						if !writeEvent(ll) {
+							return
+						}
+					case <-heartbeat.C:
+						if !writeHeartbeat() {
+							return
+						}
+					case <-c.Request.Context().Done():
+						return
+					}
+				}
+				if !reconnectPause() {
+					return
+				}
+			}
+		}
+
+		// K8s fallback: stream from the known pod with Follow=true.
+		sinceTime := metav1.NewTime(time.Now())
+		logOpts := &corev1.PodLogOptions{
+			Container:  "app",
+			Follow:     true,
+			SinceTime:  &sinceTime,
+			Timestamps: true,
+		}
+
+		if !writeStatusEvent("connecting") {
+			return
+		}
+		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(ns).GetLogs(podName, logOpts).Stream(c.Request.Context())
+		if streamErr != nil {
+			writeErrorEvent("failed to stream pod logs")
+			return
+		}
+		defer stream.Close() //nolint:errcheck
+
+		if !writeStatusEvent("streaming") {
+			return
+		}
+
+		lines := make(chan loki.LogLine)
+		go func() {
+			defer close(lines)
+			scanner := bufio.NewScanner(stream)
+			for scanner.Scan() {
+				line := scanner.Text()
+				ts := time.Now()
+				msg := line
+				if idx := strings.IndexByte(line, ' '); idx > 0 {
+					if t, parseErr := time.Parse(time.RFC3339Nano, line[:idx]); parseErr == nil {
+						ts = t
+						msg = line[idx+1:]
+					}
+				}
+				select {
+				case lines <- loki.LogLine{Timestamp: ts, Line: msg}:
+				case <-c.Request.Context().Done():
+					return
+				}
+			}
+		}()
+
+		heartbeat := time.NewTicker(5 * time.Second)
+		defer heartbeat.Stop()
+
+		for {
+			select {
+			case ll, ok := <-lines:
+				if !ok {
+					return
+				}
+				if !writeEvent(ll) {
+					return
+				}
+			case <-heartbeat.C:
+				if !writeHeartbeat() {
+					return
+				}
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
 	}
 }
 
