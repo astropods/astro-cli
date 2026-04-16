@@ -1153,6 +1153,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, nil),
 				oapispec.Response(501, &handlers.ErrorResponse{}),
 			)
+			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, k8sClient, deploymentStore, k8sCache),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.DeploymentEventsResponse{}),
+			)
 			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

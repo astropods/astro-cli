@@ -55,4 +55,6 @@ export const deploymentKeys = {
     ['deployments', account, name, 'spec'] as const,
   history: (account: string, name: string, deploymentId?: string) =>
     ['deployments', account, name, 'history', deploymentId ?? 'all'] as const,
+  events: (deploymentId: string) =>
+    ['deployments', deploymentId, 'events'] as const,
 };

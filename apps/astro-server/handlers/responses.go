@@ -269,3 +269,22 @@ type ObservabilityTracesResponse struct {
 	Limit  int          `json:"limit"`
 	Offset int          `json:"offset"`
 }
+
+// --- Deployment Events ---
+
+// K8sEventItem represents a single Kubernetes event for API responses.
+type K8sEventItem struct {
+	Type           string `json:"type"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	ObjectKind     string `json:"object_kind"`
+	ObjectName     string `json:"object_name"`
+	Count          int32  `json:"count"`
+	FirstTimestamp string `json:"first_timestamp"`
+	LastTimestamp  string `json:"last_timestamp"`
+}
+
+// DeploymentEventsResponse wraps Kubernetes events for a deployment namespace.
+type DeploymentEventsResponse struct {
+	Events []K8sEventItem `json:"events"`
+}

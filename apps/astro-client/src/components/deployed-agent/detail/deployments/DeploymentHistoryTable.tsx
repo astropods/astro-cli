@@ -9,6 +9,7 @@ import { ActiveContainerAccordion } from "./ActiveContainerAccordion";
 import { DeploymentHistoryRow } from "./DeploymentHistoryRow";
 import { BuildHistoryGroup } from "./BuildHistoryGroup";
 import type { DeploymentHistoryTableRow, ServiceRow, DeployHistoryStatus } from "./history/types";
+import type { K8sEvent } from "@/lib/api";
 
 const DEPLOYMENT_GRID_COLUMNS = "minmax(180px, 1fr) 88px 84px 185px 28px";
 
@@ -28,6 +29,7 @@ interface DeploymentHistoryTableProps {
   isRestarting?: boolean;
   isGloballyRestarting?: boolean;
   onPodRestartStateChange?: (isRestarting: boolean) => void;
+  events?: K8sEvent[];
 }
 
 export function DeploymentHistoryTable({
@@ -46,6 +48,7 @@ export function DeploymentHistoryTable({
   isRestarting = false,
   isGloballyRestarting = false,
   onPodRestartStateChange,
+  events = [],
 }: DeploymentHistoryTableProps) {
   // Track how many pods are locally restarting so the status row reflects it
   const restartingPodCountRef = useRef(0);
@@ -88,6 +91,16 @@ export function DeploymentHistoryTable({
   const totalUniqueBuildCount = useMemo(() => {
     return new Set(pastRows.map(r => r.source.build_id || 'unknown')).size;
   }, [pastRows]);
+
+  const eventsByService = useMemo(() => {
+    const map = new Map<string, K8sEvent[]>();
+    for (const svc of serviceRows) {
+      map.set(svc.id, events.filter((e) =>
+        e.object_name === svc.podName || e.object_name.startsWith(svc.workloadName)
+      ));
+    }
+    return map;
+  }, [events, serviceRows]);
 
   return (
     <div className="flex flex-col gap-3 max-w-full">
@@ -186,6 +199,7 @@ export function DeploymentHistoryTable({
                   deploymentStatus={accordionDeploymentStatus}
                   isOpen={openContainers.has(svc.id)}
                   onToggle={() => onToggleContainer(svc.id)}
+                  events={eventsByService.get(svc.id) ?? []}
                   isGloballyRestarting={isGloballyRestarting}
                   onPodRestartStateChange={(restarting) => {
                     restartingPodCountRef.current = Math.max(0, restartingPodCountRef.current + (restarting ? 1 : -1));

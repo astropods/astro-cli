@@ -108,6 +108,17 @@ export function useDeploymentLogs(
   });
 }
 
+export function useDeploymentEvents(deploymentId: string, enabled = true) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.events(deploymentId),
+    queryFn: () => api.getDeploymentEvents(deploymentId),
+    enabled: !!deploymentId && enabled,
+    refetchInterval: 10_000,
+    staleTime: 0,
+  });
+}
+
 export function useUndeployAgent(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();

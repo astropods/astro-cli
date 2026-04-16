@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1762,6 +1763,87 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{"status": "restarting", "pod": podName})
+	}
+}
+
+// GetDeploymentEvents returns Kubernetes events for a deployment's namespace.
+func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
+	const cachePrefix = "astro:k8s:events:"
+	const cacheTTL = 10 * time.Minute
+
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		ctx := c.Request.Context()
+		cacheKey := cachePrefix + dep.Namespace
+		transitional := dep.Status == deploymentstore.StatusPending ||
+			dep.Status == deploymentstore.StatusProvisioning ||
+			dep.Status == deploymentstore.StatusUndeploying
+
+		if !transitional {
+			if data, ok := cache.Get(ctx, cacheKey); ok {
+				var resp DeploymentEventsResponse
+				if err := json.Unmarshal(data, &resp); err == nil {
+					c.JSON(http.StatusOK, resp)
+					return
+				}
+			}
+		}
+
+		eventList, err := k8sClient.Clientset().CoreV1().Events(dep.Namespace).List(ctx, metav1.ListOptions{Limit: 200})
+		if err != nil {
+			log.Error("Failed to list events", "error", err, "namespace", dep.Namespace)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list kubernetes events"})
+			return
+		}
+
+		items := make([]K8sEventItem, 0, len(eventList.Items))
+		for _, evt := range eventList.Items {
+			lastTS := evt.LastTimestamp.Time
+			if lastTS.IsZero() {
+				lastTS = evt.EventTime.Time
+			}
+			if lastTS.IsZero() {
+				lastTS = evt.CreationTimestamp.Time
+			}
+			firstTS := evt.FirstTimestamp.Time
+			if firstTS.IsZero() {
+				firstTS = lastTS
+			}
+			items = append(items, K8sEventItem{
+				Type:           evt.Type,
+				Reason:         evt.Reason,
+				Message:        evt.Message,
+				ObjectKind:     evt.InvolvedObject.Kind,
+				ObjectName:     evt.InvolvedObject.Name,
+				Count:          evt.Count,
+				FirstTimestamp: firstTS.UTC().Format(time.RFC3339),
+				LastTimestamp:  lastTS.UTC().Format(time.RFC3339),
+			})
+		}
+
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].LastTimestamp > items[j].LastTimestamp
+		})
+
+		resp := DeploymentEventsResponse{Events: items}
+		if data, err := json.Marshal(resp); err == nil {
+			_ = cache.Set(ctx, cacheKey, data, cacheTTL)
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

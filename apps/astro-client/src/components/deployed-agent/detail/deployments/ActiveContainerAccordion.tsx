@@ -9,6 +9,7 @@ import { StatusIndicator } from "@/components/StatusIndicator";
 import { statusVariant } from "./history/utils";
 import { DomainsPanel } from "./DomainsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
+import { EventsPanel } from "./EventsPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useRestartPod } from "@/api/queries/deployments";
 import type { DeployHistoryStatus, MappedContainer, DomainUrl } from "./history/types";
+import type { K8sEvent } from "@/lib/api";
 
 export interface ActiveContainerAccordionProps {
   workloadName: string;
@@ -31,6 +33,7 @@ export interface ActiveContainerAccordionProps {
   deploymentStatus: DeployHistoryStatus;
   isOpen: boolean;
   onToggle: () => void;
+  events?: K8sEvent[];
   /** True when a global (all-pods) restart is in progress — forces this accordion into restarting state. */
   isGloballyRestarting?: boolean;
   /** Called when this pod's local restart state changes, so the parent can reflect it in the status row. */
@@ -50,10 +53,11 @@ export function ActiveContainerAccordion({
   deploymentStatus,
   isOpen,
   onToggle,
+  events = [],
   isGloballyRestarting = false,
   onPodRestartStateChange,
 }: ActiveContainerAccordionProps) {
-  const [view, setView] = useState<"vars" | "domains">("vars");
+  const [view, setView] = useState<"vars" | "domains" | "events">("vars");
   const restartMutation = useRestartPod();
   const [isLocallyRestarting, setIsLocallyRestarting] = useState(false);
   // canClear is unlocked 8s after mutation success — prevents instant clearing if pod restarts fast
@@ -66,7 +70,8 @@ export function ActiveContainerAccordion({
   const vars = activeContainer?.vars ?? [];
   const canShowVars = selectedContainer !== "collector";
   const canShowDomains = (urls ?? []).length > 0;
-  const canExpand = canShowVars || canShowDomains;
+  const canShowEvents = events.length > 0;
+  const canExpand = canShowVars || canShowDomains || canShowEvents;
   const totalContainers = containers.length;
   const readyContainers = containers.filter((c) => c.ready).length;
   const allReady = totalContainers > 0 && readyContainers === totalContainers;
@@ -102,10 +107,12 @@ export function ActiveContainerAccordion({
     });
   };
 
-  const effectiveView: "vars" | "domains" =
-    (view === "vars" && !canShowVars) ? "domains" :
-    (view === "domains" && !canShowDomains) ? "vars" :
-    view;
+  const effectiveView: "vars" | "domains" | "events" = (() => {
+    const available = { vars: canShowVars, domains: canShowDomains, events: canShowEvents };
+    if (available[view]) return view;
+    const fallback: Array<"vars" | "domains" | "events"> = ["vars", "domains", "events"];
+    return fallback.find((v) => available[v]) ?? "vars";
+  })();
 
   const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
   const isTransitioning = effectiveStatus === "deploying" || effectiveStatus === "undeploying" || effectiveStatus === "restarting" || effectiveStatus === "pausing" || effectiveStatus === "resuming";
@@ -181,8 +188,8 @@ export function ActiveContainerAccordion({
       {isOpen && canExpand && (
         <div className="border border-border border-t-0 rounded-b-sm overflow-hidden">
           <div className={cn("flex items-center bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
-            {(["vars", "domains"] as const).map((v) =>
-              (v === "domains" && !canShowDomains) ? null : (
+            {(["vars", "domains", "events"] as const).map((v) =>
+              (v === "domains" && !canShowDomains) || (v === "events" && !canShowEvents) ? null : (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -193,7 +200,7 @@ export function ActiveContainerAccordion({
                       : "font-normal text-faint-foreground border-b-transparent",
                   )}
                 >
-                  {v === "vars" ? "Variables" : "Domains"}
+                  {v === "vars" ? "Variables" : v === "domains" ? "Domains" : "Events"}
                 </button>
               ),
             )}
@@ -217,6 +224,7 @@ export function ActiveContainerAccordion({
 
           {effectiveView === "vars" && <EnvVarsPanel vars={vars} />}
           {effectiveView === "domains" && <DomainsPanel urls={urls ?? []} />}
+          {effectiveView === "events" && <EventsPanel events={events} />}
         </div>
       )}
     </div>

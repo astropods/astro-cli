@@ -479,6 +479,12 @@ class ApiClient {
     return `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs/stream?${params}`;
   }
 
+  async getDeploymentEvents(deploymentId: string): Promise<DeploymentEventsResponse> {
+    return this.request<DeploymentEventsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/events`
+    );
+  }
+
   // Fetch ConfigMap data for a deployment
   async getConfigMapData(
     deploymentId: string,
@@ -1091,6 +1097,21 @@ export interface DeploymentHistoryRecord {
 export interface DeploymentHistoryResponse {
   deployments: DeploymentHistoryRecord[];
   count: number;
+}
+
+export interface K8sEvent {
+  type: "Normal" | "Warning";
+  reason: string;
+  message: string;
+  object_kind: string;
+  object_name: string;
+  count: number;
+  first_timestamp: string;
+  last_timestamp: string;
+}
+
+export interface DeploymentEventsResponse {
+  events: K8sEvent[];
 }
 
 // Observability types

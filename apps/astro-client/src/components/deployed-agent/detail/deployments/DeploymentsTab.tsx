@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useDeploymentHistory } from "@/api/queries/deployments";
+import { useDeploymentHistory, useDeploymentEvents } from "@/api/queries/deployments";
 import { formatDate, isDeployingState } from "@/lib/deployment-utils";
 import type { AgentDeployment, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,8 @@ export function DeploymentsTab({
   const hasAutoOpenedOverview = useRef(false);
 
   const isDeploying = isDeployingState(deployment);
+  const { data: eventsData } = useDeploymentEvents(deployment.id);
+  const allEvents = eventsData?.events ?? [];
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(
     account, deployment.name, deployment.id, true,
     { refetchInterval: isDeploying ? 4000 : false },
@@ -216,6 +218,7 @@ export function DeploymentsTab({
           isRestarting={isRestarting}
           isGloballyRestarting={isGloballyRestarting}
           onPodRestartStateChange={onPodRestartStateChange}
+          events={allEvents}
         />
       </div>
     </div>
