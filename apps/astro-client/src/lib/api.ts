@@ -1,5 +1,7 @@
 // API client for communicating with the astro-server backend
 
+import type { LogEntry } from "./log-utils";
+
 export interface User {
   id: string;
   email: string;
@@ -455,7 +457,7 @@ class ApiClient {
     workloadName: string,
     container: string,
     since?: string,
-  ): Promise<import('./log-utils').LogEntry[]> {
+  ): Promise<LogEntry[]> {
     const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
@@ -777,8 +779,28 @@ class ApiClient {
     );
   }
 
-  getKnowledgeLogsStreamUrl(account: string, name: string): string {
-    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs`;
+  async getKnowledgeLogs(
+    account: string,
+    name: string,
+    since?: string,
+  ): Promise<LogEntry[]> {
+    const params = new URLSearchParams();
+    if (since) params.set('since', since);
+    const qs = params.toString();
+    const url = `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: { ...this.defaultHeaders },
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        details: `Request failed with status ${response.status}`,
+      }));
+      error.status = response.status;
+      throw error;
+    }
+    return response.json();
   }
 
   getKnowledgeEventsStreamUrl(account: string, name: string): string {

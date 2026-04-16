@@ -638,7 +638,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 
 		streamLogs(c, log,
 			lokiClient, lokiParams,
-			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines},
+			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines, Timestamps: true},
 		)
 	}
 }

@@ -50,6 +50,7 @@ export const knowledgeKeys = {
   all: (account: string) => ['knowledge', account] as const,
   detail: (account: string, name: string) => ['knowledge', account, name] as const,
   credentials: (account: string, name: string) => ['knowledge', account, name, 'credentials'] as const,
+  logs: (account: string, name: string, timeRange: string) => ['knowledge', account, name, 'logs', timeRange] as const,
 };
 
 export const deploymentKeys = {

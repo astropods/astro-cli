@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
@@ -19,11 +19,11 @@ import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Spinner } from "@/components/ui/spinner";
 import { MetricCard } from "@/components/MetricCard";
+import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 import { SidePanel } from "@/components/deployed-agent/detail/SidePanel";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useKnowledgeStore, useKnowledgeCredentials } from "@/api/queries/knowledge";
-import { useApiClient } from "@/lib/api-context";
+import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeLogs } from "@/api/queries/knowledge";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import {
   statusToColor,
@@ -235,57 +235,19 @@ function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
 // --- Logs tab ---
 
 function LogsTab({ account, storeName }: { account: string; storeName: string }) {
-  const api = useApiClient();
-  const [logs, setLogs] = useState("");
-  const [loading, setLoading] = useState(true);
-  const containerRef = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const url = api.getKnowledgeLogsStreamUrl(account, storeName);
-
-    async function fetchLogs() {
-      try {
-        const res = await fetch(url, { credentials: "include" });
-        if (!res.ok || !res.body) {
-          setLoading(false);
-          return;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        setLoading(false);
-
-        while (!cancelled) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value, { stream: true });
-          setLogs((prev) => prev + text);
-        }
-      } catch {
-        setLoading(false);
-      }
-    }
-    fetchLogs();
-    return () => { cancelled = true; };
-  }, [api, account, storeName]);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  if (loading) {
-    return <div className="flex justify-center py-12"><Spinner size={24} /></div>;
-  }
+  const [timeRange, setTimeRange] = useState<LogTimeRange>("1h");
+  const { data: logs, isLoading, isError } = useKnowledgeLogs(account, storeName, timeRange);
 
   return (
-    <pre
-      ref={containerRef}
-      className="max-h-[600px] overflow-auto rounded-md border border-border bg-stone-950 p-4 font-mono text-mono-sm text-stone-200 whitespace-pre-wrap"
-    >
-      {logs || "No logs available."}
-    </pre>
+    <div className="h-[600px]">
+      <LogViewer
+        logs={logs ?? []}
+        isLoading={isLoading}
+        timeRange={timeRange}
+        onTimeRangeChange={setTimeRange}
+        error={isError ? "Failed to load logs" : undefined}
+      />
+    </div>
   );
 }
 

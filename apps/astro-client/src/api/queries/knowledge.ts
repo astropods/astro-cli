@@ -39,6 +39,36 @@ export function useKnowledgeStore(account: string, name: string, enabled = true)
   });
 }
 
+const TIME_RANGE_MS: Record<string, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+};
+
+export function useKnowledgeLogs(
+  account: string,
+  name: string,
+  timeRange = '1h',
+  options?: { enabled?: boolean },
+) {
+  const api = useApiClient();
+  const baseEnabled = !!account && !!name;
+  const enabled = (options?.enabled ?? true) && baseEnabled;
+  return useQuery({
+    queryKey: knowledgeKeys.logs(account, name, timeRange),
+    queryFn: () => {
+      const ms = TIME_RANGE_MS[timeRange];
+      const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
+      return api.getKnowledgeLogs(account, name, since);
+    },
+    enabled,
+    staleTime: 0,
+    gcTime: 1000 * 30,
+  });
+}
+
 export function useKnowledgeCredentials(account: string, name: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
