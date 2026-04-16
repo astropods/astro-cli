@@ -19,8 +19,8 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const { checkAuth, isAuthenticated, isLoading, login } = useAuth();
 
-  // Onboarding requires authentication (can't use ProtectedRoute here because
-  // its personalAccount check would create a redirect loop back to /onboarding).
+  // Onboarding requires authentication but lives outside the ProtectedLayout
+  // (OnboardingGuard would create a redirect loop back to /onboarding).
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       login();

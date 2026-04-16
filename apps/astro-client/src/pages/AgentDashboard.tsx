@@ -9,7 +9,6 @@ import {
 } from "@heroicons/react/24/outline";
 import { Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
@@ -47,7 +46,7 @@ function DashboardLabel({ icon: Icon, to, children }: { icon: ElementType; to?: 
   return to ? <Link to={to} className={className}>{content}</Link> : <span className={className}>{content}</span>;
 }
 
-function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
+function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -201,9 +200,5 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
 }
 
 export default function AgentDashboard({ loaderData }: Route.ComponentProps) {
-  return (
-    <ProtectedRoute>
-      <AgentDashboardContent skeletonCount={loaderData?.count ?? 0} />
-    </ProtectedRoute>
-  );
+  return <AgentDashboardInner skeletonCount={loaderData?.count ?? 0} />;
 }

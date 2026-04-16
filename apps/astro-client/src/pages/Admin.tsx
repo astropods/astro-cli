@@ -1,10 +1,9 @@
 import type { MetaFunction } from "react-router";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 
 export const meta: MetaFunction = () => [{ title: "Admin | Astro" }];
 
-function AdminContent() {
+export default function Admin() {
   const { hasPermission } = useAuth();
 
   if (!hasPermission("admin:view")) {
@@ -21,13 +20,5 @@ function AdminContent() {
     <div className="flex flex-1 items-center justify-center p-8">
       <p className="text-muted-foreground">Admin dashboard coming soon.</p>
     </div>
-  );
-}
-
-export default function Admin() {
-  return (
-    <ProtectedRoute>
-      <AdminContent />
-    </ProtectedRoute>
   );
 }

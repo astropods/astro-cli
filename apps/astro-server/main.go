@@ -52,7 +52,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
-	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 )
 
 func main() {
@@ -285,7 +284,6 @@ func runAPI(
 	// Initialize stores
 	deploymentStore := deploymentstore.NewStore(db)
 	accountVarsStore := accountvars.NewStore(db)
-	waitlistStore := waitlist.NewStore(db)
 	heartStore := heartstore.New(db)
 	agentMetricsStore := metricsstore.New(db)
 	ksStore := knowledgestore.NewStore(db)
@@ -365,7 +363,7 @@ func runAPI(
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient, ksStore)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient, ksStore)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -505,7 +503,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -565,14 +563,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		api.GET(v1, "/ready", "Readiness check", handlers.ReadinessCheck(log),
 			oapispec.Tags("Health"),
 			oapispec.Response(200, &handlers.HealthResponse{}),
-		)
-
-		// Waitlist signup (public, no auth)
-		api.POST(v1, "/waitlist", "Join the waitlist", handlers.JoinWaitlist(log, waitlistStore),
-			oapispec.Tags("Waitlist"),
-			oapispec.Body(&handlers.WaitlistSignupRequest{}),
-			oapispec.Response(201, &handlers.WaitlistEntryResponse{}),
-			oapispec.Response(409, &handlers.ErrorResponse{}),
 		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)

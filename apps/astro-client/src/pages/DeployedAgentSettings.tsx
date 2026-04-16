@@ -5,7 +5,6 @@ import { Loader2 } from "lucide-react";
 import { Rocket, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployments } from "@/api/queries/deployments";
 import { useBlueprint, usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
@@ -157,9 +156,5 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
 }
 
 export default function DeployedAgentSettings({ loaderData }: Route.ComponentProps) {
-  return (
-    <ProtectedRoute>
-      <DeployedAgentSettingsContent loaderData={loaderData} />
-    </ProtectedRoute>
-  );
+  return <DeployedAgentSettingsContent loaderData={loaderData} />;
 }

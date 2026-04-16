@@ -1,7 +1,6 @@
 import { Outlet } from "react-router";
 import { UserIcon, ChartBarIcon, BuildingOfficeIcon, KeyIcon } from "@heroicons/react/24/outline";
 import { FlaskConical } from "lucide-react";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import {
   SidebarLayout,
   SidebarNav,
@@ -54,9 +53,5 @@ function SettingsContent() {
 }
 
 export default function SettingsLayout() {
-  return (
-    <ProtectedRoute>
-      <SettingsContent />
-    </ProtectedRoute>
-  );
+  return <SettingsContent />;
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
+	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
 
 // AuthHandler handles authentication endpoints
@@ -111,30 +113,58 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 			true, // httpOnly
 		)
 
-		// Store the origin for post-auth redirect (if allowed)
-		origin := c.Request.Header.Get("Origin")
-		if origin == "" {
-			// Fall back to Referer header and extract origin
-			if referer := c.Request.Header.Get("Referer"); referer != "" {
-				if u, err := url.Parse(referer); err == nil {
-					origin = u.Scheme + "://" + u.Host
+		// Store the redirect URL for post-auth deep linking (if allowed).
+		// Priority: explicit redirect query param > Origin header > Referer header.
+		if redirect := c.Query("redirect"); redirect != "" {
+			// Resolve relative paths against the configured frontend URL
+			if strings.HasPrefix(redirect, "/") {
+				redirect = h.cfg.Auth.FrontendURL + redirect
+			}
+			if u, err := url.Parse(redirect); err == nil {
+				redirectOrigin := u.Scheme + "://" + u.Host
+				if h.isAllowedOrigin(redirectOrigin) {
+					c.SetCookie(
+						"auth_redirect",
+						redirect,
+						300, // 5 minutes
+						"/",
+						h.cfg.Auth.CookieDomain,
+						h.cfg.Auth.CookieSecure,
+						true, // httpOnly
+					)
 				}
 			}
+		} else {
+			// Fall back to Origin/Referer headers
+			origin := c.Request.Header.Get("Origin")
+			if origin == "" {
+				if referer := c.Request.Header.Get("Referer"); referer != "" {
+					if u, err := url.Parse(referer); err == nil {
+						origin = u.Scheme + "://" + u.Host
+					}
+				}
+			}
+			if origin != "" && h.isAllowedOrigin(origin) {
+				c.SetCookie(
+					"auth_origin",
+					origin,
+					300, // 5 minutes
+					"/",
+					h.cfg.Auth.CookieDomain,
+					h.cfg.Auth.CookieSecure,
+					true, // httpOnly
+				)
+			}
 		}
-		if origin != "" && h.isAllowedOrigin(origin) {
-			c.SetCookie(
-				"auth_origin",
-				origin,
-				300, // 5 minutes
-				"/",
-				h.cfg.Auth.CookieDomain,
-				h.cfg.Auth.CookieSecure,
-				true, // httpOnly
-			)
+
+		// Determine screen hint for WorkOS AuthKit (sign-up vs sign-in)
+		var screenHint usermanagement.ScreenHint
+		if sh := c.Query("screen_hint"); sh == "sign-up" {
+			screenHint = usermanagement.SignUp
 		}
 
 		// Get the authorization URL
-		authURL, err := h.workos.GetAuthorizationURL(state)
+		authURL, err := h.workos.GetAuthorizationURL(state, screenHint)
 		if err != nil {
 			h.log.Error("Failed to get authorization URL", "error", err)
 			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
@@ -193,10 +223,11 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			return
 		}
 
-		// Clear the state and origin cookies
+		// Clear the temporary auth cookies
 		h.setSameSiteMode(c)
 		c.SetCookie("auth_state", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
 		c.SetCookie("auth_origin", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
+		c.SetCookie("auth_redirect", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
 
 		// Exchange code for tokens
 		result, err := h.workos.AuthenticateWithCode(c.Request.Context(), code)
@@ -726,11 +757,20 @@ func (h *AuthHandler) isAllowedOrigin(origin string) bool {
 	return h.allowedOrigins[origin]
 }
 
-// getRedirectURL determines the appropriate redirect URL based on the stored origin cookie
-// Falls back to the configured frontend URL if the origin is not allowed
+// getRedirectURL determines the appropriate redirect URL after authentication.
+// Priority: auth_redirect cookie (full URL for deep linking) > auth_origin cookie > configured frontend URL.
 func (h *AuthHandler) getRedirectURL(c *gin.Context) string {
-	origin, err := c.Cookie("auth_origin")
-	if err == nil && origin != "" && h.isAllowedOrigin(origin) {
+	// Check for full redirect URL (deep linking from /login?redirect=...)
+	if redirect, err := c.Cookie("auth_redirect"); err == nil && redirect != "" {
+		if u, err := url.Parse(redirect); err == nil {
+			origin := u.Scheme + "://" + u.Host
+			if h.isAllowedOrigin(origin) {
+				return redirect
+			}
+		}
+	}
+	// Fall back to origin-only cookie
+	if origin, err := c.Cookie("auth_origin"); err == nil && origin != "" && h.isAllowedOrigin(origin) {
 		return origin
 	}
 	return h.cfg.Auth.FrontendURL

@@ -7,7 +7,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
-	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 )
 
 // Response types for endpoints that currently return untyped gin.H maps.
@@ -114,11 +113,6 @@ type ListInvitationsResponse struct {
 type BulkInvitationResponse struct {
 	Results []org.InviteResult `json:"results"`
 }
-
-// --- Waitlist ---
-
-// WaitlistEntryResponse re-exports waitlist.Entry for OpenAPI schema generation.
-type WaitlistEntryResponse = waitlist.Entry
 
 // --- Deployments ---
 

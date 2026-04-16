@@ -1,7 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useRef, useState } from 'react'
 import { KeyRound, ArrowLeft, Settings, Loader2, Users } from 'lucide-react'
-import { ProtectedRoute } from '@/components/ProtectedRoute'
 import {
   SidebarLayout,
   SidebarNav,
@@ -140,9 +139,5 @@ function OrgSettingsContent() {
 }
 
 export default function OrgSettingsLayout() {
-  return (
-    <ProtectedRoute>
-      <OrgSettingsContent />
-    </ProtectedRoute>
-  )
+  return <OrgSettingsContent />
 }

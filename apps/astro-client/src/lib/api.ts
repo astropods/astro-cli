@@ -209,8 +209,12 @@ class ApiClient {
     });
   }
 
-  getLoginUrl(): string {
-    return `${this.authUrl}/auth/login`;
+  getLoginUrl(redirect?: string, screenHint?: string): string {
+    const params = new URLSearchParams();
+    if (redirect) params.set("redirect", redirect);
+    if (screenHint) params.set("screen_hint", screenHint);
+    const qs = params.toString();
+    return `${this.authUrl}/auth/login${qs ? `?${qs}` : ""}`;
   }
 
   getLogoutUrl(): string {

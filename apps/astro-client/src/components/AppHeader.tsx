@@ -82,9 +82,9 @@ export function AppHeader() {
     setSheetOpen(false);
   }, [location.pathname]);
 
-  // Include authenticated nav items during loading too — WaitlistGuard ensures
-  // only logged-in users reach the app, so isLoading just means auth hasn't
-  // resolved client-side yet. This prevents "My Agents" from popping in.
+  // Include authenticated nav items during loading too — isLoading just means
+  // auth hasn't resolved client-side yet. This prevents "My Agents" from
+  // popping in.
   const navItems: NavItem[] = isAuthenticated || isLoading
     ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav]
     : publicNav;
@@ -128,15 +128,15 @@ export function AppHeader() {
                   <Button
                     variant="ghost"
                     className="w-full justify-start"
-                    onClick={login}
+                    asChild
                   >
-                    Log in
+                    <Link to="/login">Log in</Link>
                   </Button>
                   <Button
                     className="w-full justify-start"
-                    onClick={login}
+                    asChild
                   >
-                    Sign up
+                    <Link to="/signup">Sign up</Link>
                   </Button>
                 </>
               )}
@@ -300,11 +300,11 @@ export function AppHeader() {
           </DropdownMenu>
         ) : (
           <>
-            <Button variant="ghost" onClick={login}>
-              Log in
+            <Button variant="ghost" asChild>
+              <Link to="/login">Log in</Link>
             </Button>
-            <Button onClick={login}>
-              Sign up
+            <Button asChild>
+              <Link to="/signup">Sign up</Link>
             </Button>
           </>
         )}

@@ -355,16 +355,6 @@ CREATE TABLE public.agent_message_counts (
     CONSTRAINT agent_message_counts_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
-CREATE TABLE public.waitlist (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    name text NOT NULL,
-    email text NOT NULL,
-    invited_at timestamp,
-    created_at timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT waitlist_pkey PRIMARY KEY (id),
-    CONSTRAINT waitlist_email_key UNIQUE (email)
-);
-
 CREATE TABLE public.feedback_submissions (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     user_id text NOT NULL,

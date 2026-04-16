@@ -83,7 +83,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // visibility/focus event will retry.
       if (err instanceof TypeError) return;
 
-      // Server-confirmed errors — mark as unauthenticated so ProtectedRoute
+      // Server-confirmed errors — mark as unauthenticated so ProtectedLayout
       // redirects to login without flashing an error banner.
       setState({
         ...initialAuthState,
@@ -99,7 +99,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = useCallback(() => {
     // Redirect to the server's login endpoint which will redirect to WorkOS
-    window.location.href = api.getLoginUrl();
+    window.location.replace(api.getLoginUrl());
   }, []);
 
   const logout = useCallback(() => {

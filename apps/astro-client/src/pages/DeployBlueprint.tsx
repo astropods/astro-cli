@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { createServerApi } from "@/lib/api.server";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
@@ -153,7 +152,6 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   };
 
   return (
-    <ProtectedRoute>
       <div className="flex flex-col flex-1 bg-surface">
         <header className="sticky top-0 z-10 flex items-center justify-between px-6 min-h-[52px] bg-stone-200 border-b border-stone-300 dark:bg-background dark:border-border">
           <div className="flex items-center gap-3">
@@ -241,6 +239,5 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
         </form>
         </div>
       </div>
-    </ProtectedRoute>
   );
 }

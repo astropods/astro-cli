@@ -125,7 +125,6 @@ var reservedNames = map[string]bool{
 	"preview":    true,
 	"referral":   true,
 	"trial":      true,
-	"waitlist":   true,
 
 	// Common URL verbs / actions
 	"browse":    true,

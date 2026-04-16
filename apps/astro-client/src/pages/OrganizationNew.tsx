@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
 import { useNavigate, type MetaFunction } from "react-router";
-import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useCreateAccount } from "../api/queries/accounts";
 import { useAuth } from "../lib/auth";
 import { Label } from "@/components/ui/label";
@@ -131,9 +130,5 @@ function OrganizationNewContent() {
 }
 
 export default function OrganizationNew() {
-  return (
-    <ProtectedRoute>
-      <OrganizationNewContent />
-    </ProtectedRoute>
-  );
+  return <OrganizationNewContent />;
 }

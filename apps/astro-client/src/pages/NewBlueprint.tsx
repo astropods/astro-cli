@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useAuth } from "../lib/auth";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
@@ -407,9 +406,5 @@ function NewBlueprintContent() {
 }
 
 export default function NewBlueprint() {
-  return (
-    <ProtectedRoute>
-      <NewBlueprintContent />
-    </ProtectedRoute>
-  );
+  return <NewBlueprintContent />;
 }

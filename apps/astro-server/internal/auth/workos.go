@@ -31,14 +31,19 @@ func NewWorkOSClient(apiKey, clientID, redirectURI, frontendURL string) *WorkOSC
 	}
 }
 
-// GetAuthorizationURL generates the WorkOS authorization URL for AuthKit
-func (c *WorkOSClient) GetAuthorizationURL(state string) (string, error) {
-	authURL, err := usermanagement.GetAuthorizationURL(usermanagement.GetAuthorizationURLOpts{
+// GetAuthorizationURL generates the WorkOS authorization URL for AuthKit.
+// An optional screen hint can be passed to direct WorkOS to the sign-up or sign-in screen.
+func (c *WorkOSClient) GetAuthorizationURL(state string, screenHint ...usermanagement.ScreenHint) (string, error) {
+	opts := usermanagement.GetAuthorizationURLOpts{
 		ClientID:    c.clientID,
 		RedirectURI: c.redirectURI,
 		Provider:    "authkit",
 		State:       state,
-	})
+	}
+	if len(screenHint) > 0 && screenHint[0] != "" {
+		opts.ScreenHint = screenHint[0]
+	}
+	authURL, err := usermanagement.GetAuthorizationURL(opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate authorization URL: %w", err)
 	}
