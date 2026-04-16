@@ -69,7 +69,7 @@ function ExternalOrNavLink({ to, external, children, className }: { to: string; 
 }
 
 export function AppHeader() {
-  const { user, accounts, isLoading, isAuthenticated, login, logout, hasPermission, personalAccount } = useAuth();
+  const { user, accounts, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
