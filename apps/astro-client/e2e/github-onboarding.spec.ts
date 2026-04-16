@@ -17,13 +17,22 @@ async function goToSourceStep(page: Parameters<Parameters<typeof test>[1]>[0], n
   await expect(page.getByText(/starting point/i)).toBeVisible({ timeout: 10_000 });
 }
 
-/** Connect GitHub and wait for the repo dropdown to be ready (repos loaded). */
+/**
+ * Click "Connect GitHub" and wait for both the UI confirmation AND the repos
+ * network response. We wait for the actual HTTP response (not just the combobox
+ * placeholder text) because "Select a repository" is shown while isLoading=false
+ * regardless of whether data arrived or errored — waiting for the response
+ * guarantees data is in the TanStack Query cache before we open the dropdown.
+ */
 async function connectGitHubAndWaitForRepos(page: Parameters<Parameters<typeof test>[1]>[0]) {
+  // Must be registered BEFORE the click that triggers the request.
+  const reposLoaded = page.waitForResponse(
+    (r) => r.url().includes("/github/repos") && r.request().method() === "GET",
+    { timeout: 20_000 },
+  );
   await page.getByRole("button", { name: /connect github/i }).click();
-  // Wait for connection confirmation and for repos to finish loading
   await expect(page.getByText(/github connected/i)).toBeVisible({ timeout: 15_000 });
-  // The combobox shows "Select a repository" only after repos have loaded
-  await expect(page.getByRole("combobox").filter({ hasText: /select a repository/i })).toBeVisible({ timeout: 15_000 });
+  await reposLoaded;
 }
 
 // ─── Test 1: Local setup flow ─────────────────────────────────────────────────
@@ -71,30 +80,35 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
   // "Create blueprint" is disabled until repo is selected
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeDisabled({ timeout: 5_000 });
 
-  // Click "Connect GitHub" — mock returns connected: true immediately
+  // Register the response waiter BEFORE clicking — we need to catch the request.
   const connectReq = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/accounts/${ACCOUNT}/github/connect`),
   );
+  const reposLoaded = page.waitForResponse(
+    (r) => r.url().includes("/github/repos") && r.request().method() === "GET",
+    { timeout: 20_000 },
+  );
+
   await page.getByRole("button", { name: /connect github/i }).click();
   await connectReq;
 
-  // Wait for repos to load (combobox transitions from "Loading repositories..." to "Select a repository")
+  // Wait for both the UI confirmation and the actual repos network response.
   await expect(page.getByText(/github connected/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("combobox").filter({ hasText: /select a repository/i })).toBeVisible({ timeout: 15_000 });
+  await reposLoaded;
 
-  // Open dropdown and select a repo
+  // Open dropdown and select a repo — repos are guaranteed to be in cache now.
   await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
   await page.getByText("testuser/my-repo").click();
 
   // "Create blueprint" is now enabled
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
-  const createReq = page.waitForRequest(
+  const createReq2 = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/api/v1/agents/${ACCOUNT}`),
   );
   await page.getByRole("button", { name: /create blueprint/i }).click();
-  await createReq;
+  await createReq2;
 
   // Publishing state visible
   await expect(page.getByText(/initializing mygithub/i)).toBeVisible({ timeout: 10_000 });
@@ -124,11 +138,11 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
   await page.getByText(/set up with github/i).click();
   await connectGitHubAndWaitForRepos(page);
 
-  // Open the repo dropdown
+  // Open the repo dropdown — repos are in cache, items should be present immediately
   await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
 
   // testuser/my-repo should show as disabled with "linked to code-reviewer"
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).toBeVisible({ timeout: 5_000 });
 
   // testuser/another-repo should be visible and not disabled
@@ -175,6 +189,6 @@ test("archiving a blueprint releases its GitHub repo so it can be reused", async
   await connectGitHubAndWaitForRepos(page);
 
   await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).not.toBeVisible();
 });
