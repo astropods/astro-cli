@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useDeployment, useUndeployAgent, useStopDeployment, useRestartDeployment } from './deployments';
+import { useDeployments, useDeployment, useDeploymentEvents, useUndeployAgent, useStopDeployment, useRestartDeployment } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
-import { mockDeployments } from '@/test/msw/handlers';
+import { mockDeployments, mockDeploymentEvents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
 import type { DeploymentsListResponse } from '@/lib/api';
 
@@ -136,6 +136,50 @@ describe('useDeployment', () => {
   it('does not fetch when id is empty', () => {
     const { wrapper } = createHookWrapper();
     const { result } = renderHook(() => useDeployment(''), { wrapper });
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+});
+
+describe('useDeploymentEvents', () => {
+  it('fetches events for a deployment', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeploymentEvents('dep-code-reviewer'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.events).toHaveLength(mockDeploymentEvents.events.length);
+    expect(result.current.data?.events[0].type).toBe('Normal');
+    expect(result.current.data?.events[0].reason).toBe('Scheduled');
+    expect(result.current.data?.events[2].type).toBe('Warning');
+    expect(result.current.data?.events[2].reason).toBe('Unhealthy');
+  });
+
+  it('returns an error when the server fails', async () => {
+    server.use(
+      http.get('/api/v1/deployments/:id/events', () =>
+        HttpResponse.json({ error: 'internal_error' }, { status: 500 }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeploymentEvents('dep-code-reviewer'), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+  });
+
+  it('does not fetch when disabled', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeploymentEvents('dep-code-reviewer', false), { wrapper });
+
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+
+  it('does not fetch when deployment id is empty', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeploymentEvents(''), { wrapper });
+
     expect(result.current.fetchStatus).toBe('idle');
   });
 });

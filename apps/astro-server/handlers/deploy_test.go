@@ -4017,3 +4017,348 @@ func TestGetPrefilledTemplate_NonSecretDirectValue(t *testing.T) {
 		t.Errorf("expected no ref, got %v", ref)
 	}
 }
+
+// --- GetDeploymentEvents tests ---
+
+// mockCache is an in-memory k8scache.Cache for testing cache hit/bypass behaviour.
+type mockCache struct {
+	data map[string][]byte
+}
+
+func (m *mockCache) Get(_ context.Context, key string) ([]byte, bool) {
+	d, ok := m.data[key]
+	return d, ok
+}
+func (m *mockCache) Set(_ context.Context, key string, data []byte, _ time.Duration) error {
+	m.data[key] = data
+	return nil
+}
+func (m *mockCache) Invalidate(_ context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+// k8sEventsHandler returns an http.Handler that serves a K8s EventList with the given items JSON.
+// It also increments *callCount each time the events endpoint is hit so tests can assert whether
+// the real K8s API was contacted.
+func k8sEventsHandler(namespace, itemsJSON string, callCount *int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/namespaces/"+namespace+"/events") {
+			*callCount++
+			fmt.Fprintf(w, `{"kind":"EventList","apiVersion":"v1","metadata":{},"items":[%s]}`, itemsJSON)
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
+func TestGetDeploymentEvents_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	namespace := "astro-abc123"
+
+	// Two events: a Warning (older) and a Normal (newer)
+	eventsJSON := `
+		{
+			"metadata":{"name":"evt-warn","namespace":"astro-abc123","creationTimestamp":"2026-04-16T09:00:00Z"},
+			"involvedObject":{"kind":"Pod","name":"my-agent-abc"},
+			"reason":"BackOff",
+			"message":"Back-off restarting failed container",
+			"type":"Warning",
+			"count":3,
+			"firstTimestamp":"2026-04-16T08:50:00Z",
+			"lastTimestamp":"2026-04-16T09:00:00Z"
+		},
+		{
+			"metadata":{"name":"evt-normal","namespace":"astro-abc123","creationTimestamp":"2026-04-16T10:00:00Z"},
+			"involvedObject":{"kind":"Pod","name":"my-agent-abc"},
+			"reason":"Scheduled",
+			"message":"Successfully assigned pod",
+			"type":"Normal",
+			"count":1,
+			"firstTimestamp":"2026-04-16T10:00:00Z",
+			"lastTimestamp":"2026-04-16T10:00:00Z"
+		}`
+
+	var callCount int
+	k8sClient := newMockK8sClient(k8sEventsHandler(namespace, eventsJSON, &callCount))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, k8scache.NoopCache{}))
+
+	// GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace,
+			"My Agent", `{}`, "active", now, nil))
+
+	// IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if callCount != 1 {
+		t.Fatalf("expected K8s API to be called once, got %d", callCount)
+	}
+
+	var resp DeploymentEventsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if len(resp.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(resp.Events))
+	}
+
+	// Events should be sorted by lastTimestamp descending, so Normal (10:00) comes first.
+	first := resp.Events[0]
+	if first.Reason != "Scheduled" {
+		t.Errorf("expected first event reason 'Scheduled', got %q", first.Reason)
+	}
+	if first.Type != "Normal" {
+		t.Errorf("expected first event type 'Normal', got %q", first.Type)
+	}
+	if first.ObjectKind != "Pod" {
+		t.Errorf("expected object_kind 'Pod', got %q", first.ObjectKind)
+	}
+	if first.ObjectName != "my-agent-abc" {
+		t.Errorf("expected object_name 'my-agent-abc', got %q", first.ObjectName)
+	}
+	if first.Count != 1 {
+		t.Errorf("expected count 1, got %d", first.Count)
+	}
+	if first.LastTimestamp != "2026-04-16T10:00:00Z" {
+		t.Errorf("expected last_timestamp '2026-04-16T10:00:00Z', got %q", first.LastTimestamp)
+	}
+	if first.FirstTimestamp != "2026-04-16T10:00:00Z" {
+		t.Errorf("expected first_timestamp '2026-04-16T10:00:00Z', got %q", first.FirstTimestamp)
+	}
+
+	second := resp.Events[1]
+	if second.Reason != "BackOff" {
+		t.Errorf("expected second event reason 'BackOff', got %q", second.Reason)
+	}
+	if second.Type != "Warning" {
+		t.Errorf("expected second event type 'Warning', got %q", second.Type)
+	}
+	if second.Count != 3 {
+		t.Errorf("expected count 3, got %d", second.Count)
+	}
+	if second.Message != "Back-off restarting failed container" {
+		t.Errorf("expected message 'Back-off restarting failed container', got %q", second.Message)
+	}
+}
+
+func TestGetDeploymentEvents_NoAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	// No auth middleware — user is not set in context.
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, nil, nil, nil, k8scache.NoopCache{}))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeploymentEvents_NoK8sClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	// Pass nil for k8sClient.
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, nil, nil, nil, k8scache.NoopCache{}))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeploymentEvents_CacheHit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	namespace := "astro-ns-cached"
+
+	// Pre-populate cache with a known response.
+	cachedResp := DeploymentEventsResponse{
+		Events: []K8sEventItem{
+			{Type: "Normal", Reason: "CachedEvent", Message: "from cache", ObjectKind: "Pod",
+				ObjectName: "cached-pod", Count: 1, FirstTimestamp: "2026-04-16T08:00:00Z", LastTimestamp: "2026-04-16T08:00:00Z"},
+		},
+	}
+	cachedData, _ := json.Marshal(cachedResp)
+	cache := &mockCache{data: map[string][]byte{
+		"astro:k8s:events:" + namespace: cachedData,
+	}}
+
+	// Set up a K8s handler that should NOT be called. If it is called, the test fails.
+	var callCount int
+	k8sClient := newMockK8sClient(k8sEventsHandler(namespace, "", &callCount))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, cache))
+
+	// GetDeploymentByID — status is "active" so cache should be used.
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace,
+			"My Agent", `{}`, "active", now, nil))
+
+	// IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if callCount != 0 {
+		t.Fatalf("expected K8s API NOT to be called when cache hits, but it was called %d times", callCount)
+	}
+
+	var resp DeploymentEventsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 cached event, got %d", len(resp.Events))
+	}
+	if resp.Events[0].Reason != "CachedEvent" {
+		t.Errorf("expected cached event reason 'CachedEvent', got %q", resp.Events[0].Reason)
+	}
+}
+
+func TestGetDeploymentEvents_CacheBypassDuringDeploy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	namespace := "astro-ns-pending"
+
+	// Pre-populate cache — this should be ignored because status is "pending".
+	cachedResp := DeploymentEventsResponse{
+		Events: []K8sEventItem{
+			{Type: "Normal", Reason: "StaleEvent", Message: "should be ignored"},
+		},
+	}
+	cachedData, _ := json.Marshal(cachedResp)
+	cache := &mockCache{data: map[string][]byte{
+		"astro:k8s:events:" + namespace: cachedData,
+	}}
+
+	liveEventsJSON := `{
+		"metadata":{"name":"evt-live","namespace":"astro-ns-pending","creationTimestamp":"2026-04-16T11:00:00Z"},
+		"involvedObject":{"kind":"Pod","name":"agent-live"},
+		"reason":"Pulling",
+		"message":"Pulling image",
+		"type":"Normal",
+		"count":1,
+		"firstTimestamp":"2026-04-16T11:00:00Z",
+		"lastTimestamp":"2026-04-16T11:00:00Z"
+	}`
+
+	var callCount int
+	k8sClient := newMockK8sClient(k8sEventsHandler(namespace, liveEventsJSON, &callCount))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, cache))
+
+	// GetDeploymentByID — status is "pending" (transitional), so cache should be bypassed.
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace,
+			"My Agent", `{}`, "pending", now, nil))
+
+	// IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if callCount != 1 {
+		t.Fatalf("expected K8s API to be called once (cache bypass), got %d calls", callCount)
+	}
+
+	var resp DeploymentEventsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("expected 1 live event, got %d", len(resp.Events))
+	}
+	if resp.Events[0].Reason != "Pulling" {
+		t.Errorf("expected live event reason 'Pulling', got %q", resp.Events[0].Reason)
+	}
+	if resp.Events[0].Message != "Pulling image" {
+		t.Errorf("expected message 'Pulling image', got %q", resp.Events[0].Message)
+	}
+}

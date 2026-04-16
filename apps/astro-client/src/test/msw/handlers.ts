@@ -11,6 +11,7 @@ import type {
   AccountObservabilitySummaryResponse,
   AccountUsageResponse,
   AccountMembersResponse,
+  DeploymentEventsResponse,
 } from '@/lib/api';
 
 // Fixture data — realistic but minimal
@@ -150,6 +151,41 @@ export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
+export const mockDeploymentEvents: DeploymentEventsResponse = {
+  events: [
+    {
+      type: 'Normal',
+      reason: 'Scheduled',
+      message: 'Successfully assigned astro-abc123def456/code-reviewer-7f8d9c-xk2lp to node-pool-1',
+      object_kind: 'Pod',
+      object_name: 'code-reviewer-7f8d9c-xk2lp',
+      count: 1,
+      first_timestamp: '2025-04-01T00:00:00Z',
+      last_timestamp: '2025-04-01T00:00:00Z',
+    },
+    {
+      type: 'Normal',
+      reason: 'Pulled',
+      message: 'Container image "registry.example.com/testuser/code-reviewer:b2c3d4e5f6a7" already present on machine',
+      object_kind: 'Pod',
+      object_name: 'code-reviewer-7f8d9c-xk2lp',
+      count: 1,
+      first_timestamp: '2025-04-01T00:00:01Z',
+      last_timestamp: '2025-04-01T00:00:01Z',
+    },
+    {
+      type: 'Warning',
+      reason: 'Unhealthy',
+      message: 'Readiness probe failed: HTTP probe failed with statuscode: 503',
+      object_kind: 'Pod',
+      object_name: 'code-reviewer-7f8d9c-xk2lp',
+      count: 3,
+      first_timestamp: '2025-04-01T00:00:10Z',
+      last_timestamp: '2025-04-01T00:00:30Z',
+    },
+  ],
+};
+
 export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', () => {
@@ -220,6 +256,11 @@ export const handlers = [
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     return HttpResponse.json(agent);
+  }),
+
+  // GET /api/v1/deployments/:id/events
+  http.get('/api/v1/deployments/:id/events', () => {
+    return HttpResponse.json<DeploymentEventsResponse>(mockDeploymentEvents);
   }),
 
   // GET /api/v1/deployments/:id
