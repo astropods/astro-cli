@@ -47,6 +47,12 @@ export default function ExperimentsSettings() {
           onCheckedChange={(v) => setExperiment("githubAutoBuild", v)}
         />
         <ExperimentRow
+          title="Knowledge Stores"
+          description="Provision and connect databases (Postgres, Redis, Qdrant, Neo4j, Pinecone) for agent memory, vector search, and caching."
+          checked={experiments.knowledgeStore}
+          onCheckedChange={(v) => setExperiment("knowledgeStore", v)}
+        />
+        <ExperimentRow
           title="Theming"
           description="Enable light, dark, and auto theme switching from the user menu."
           checked={experiments.theming}

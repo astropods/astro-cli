@@ -16,6 +16,7 @@ import {
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
+import { useExperiments } from "@/lib/experiments";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -118,6 +119,7 @@ function ThemeSwitcher() {
 
 export function AppHeader() {
   const { user, accounts, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
+  const { experiments } = useExperiments();
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -131,11 +133,12 @@ export function AppHeader() {
     setSheetOpen(false);
   }, [location.pathname]);
 
-  // Include authenticated nav items during loading too — isLoading just means
-  // auth hasn't resolved client-side yet. This prevents "My Agents" from
-  // popping in.
+  // Include authenticated nav items during loading too — WaitlistGuard ensures
+  // only logged-in users reach the app, so isLoading just means auth hasn't
+  // resolved client-side yet. This prevents "My Agents" from popping in.
+  const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Knowledge", to: "/knowledge" }] : [];
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav]
+    ? [{ label: "Dashboard", to: dashboardPath }, ...knowledgeNav, ...publicNav]
     : publicNav;
 
   if (isMobile) {

@@ -46,6 +46,12 @@ export const githubKeys = {
   repos: (account: string, name: string) => ['github', account, name, 'repos'] as const,
 };
 
+export const knowledgeKeys = {
+  all: (account: string) => ['knowledge', account] as const,
+  detail: (account: string, name: string) => ['knowledge', account, name] as const,
+  credentials: (account: string, name: string) => ['knowledge', account, name, 'credentials'] as const,
+};
+
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,

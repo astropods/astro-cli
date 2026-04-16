@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 export interface Experiments {
   githubAutoBuild: boolean;
   theming: boolean;
+  knowledgeStore: boolean;
 }
 
 const STORAGE_KEY = "astro:experiments";
@@ -10,6 +11,7 @@ const STORAGE_KEY = "astro:experiments";
 const DEFAULTS: Experiments = {
   githubAutoBuild: false,
   theming: false,
+  knowledgeStore: false,
 };
 
 function load(): Experiments {

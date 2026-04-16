@@ -737,6 +737,54 @@ class ApiClient {
     );
   }
 
+  // Knowledge Store endpoints
+  async listKnowledgeStores(account: string): Promise<KnowledgeStoreListResponse> {
+    return this.request<KnowledgeStoreListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`
+    );
+  }
+
+  async getKnowledgeStore(account: string, name: string): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`
+    );
+  }
+
+  async createKnowledgeStore(account: string, data: CreateKnowledgeStoreInput): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async connectKnowledgeStore(account: string, data: ConnectKnowledgeStoreInput): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/connect`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteKnowledgeStore(account: string, name: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async getKnowledgeCredentials(account: string, name: string): Promise<KnowledgeCredentials> {
+    return this.request<KnowledgeCredentials>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`
+    );
+  }
+
+  getKnowledgeLogsStreamUrl(account: string, name: string): string {
+    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs`;
+  }
+
+  getKnowledgeEventsStreamUrl(account: string, name: string): string {
+    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
+  }
+
   // GitHub connection
   async gitHubRebuild(account: string, name: string): Promise<{ build_id: string; commit_sha: string }> {
     return this.request(
@@ -1219,6 +1267,73 @@ export interface AccountUsageResponse {
   agent_builds: UsageMeter;
   active_deployments: UsageMeter;
   active_agents: UsageMeter;
+}
+
+// Knowledge Store types
+export type KnowledgeProvider = 'postgres' | 'qdrant' | 'redis' | 'neo4j' | 'pinecone' | 'mysql';
+export type KnowledgeMode = 'managed' | 'external';
+export type KnowledgeStatus = 'provisioning' | 'connecting' | 'pending-acceptance' | 'ready' | 'error';
+
+export interface KnowledgeEndpoint {
+  cloud_provider: string;
+  endpoint_service: string;
+  region: string;
+  endpoint_id?: string;
+  endpoint_dns?: string;
+  status: string;
+  error?: string | null;
+}
+
+export interface KnowledgeEvent {
+  type: 'Normal' | 'Warning';
+  reason: string;
+  message: string;
+  count: number;
+}
+
+export interface KnowledgeStore {
+  id: string;
+  arn: string;
+  name: string;
+  provider: KnowledgeProvider;
+  mode: KnowledgeMode;
+  status: KnowledgeStatus;
+  storage?: string;
+  public?: boolean;
+  public_host?: string;
+  endpoint?: KnowledgeEndpoint;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+  events?: KnowledgeEvent[];
+}
+
+export interface KnowledgeStoreListResponse {
+  stores: KnowledgeStore[];
+}
+
+export interface CreateKnowledgeStoreInput {
+  name: string;
+  provider: KnowledgeProvider;
+  storage?: string;
+  public?: boolean;
+}
+
+export interface ConnectKnowledgeStoreInput {
+  name: string;
+  provider: KnowledgeProvider;
+  host: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  api_key?: string;
+  private_link?: boolean;
+  skip_health_check?: boolean;
+}
+
+export interface KnowledgeCredentials {
+  [key: string]: string;
 }
 
 export interface GitHubRepo {
