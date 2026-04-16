@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router";
+import { useSearchParams, useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, BookOpenIcon, EllipsisHorizontalIcon, CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -132,14 +132,15 @@ function KnowledgeStoresContent() {
                 </tr>
               ) : (
                 stores.map((store) => (
-                  <tr key={store.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                  <tr
+                    key={store.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    onClick={() => navigate(knowledgeDetailPath(store.name))}
+                  >
                     <td className="px-4 py-5">
-                      <Link
-                        to={knowledgeDetailPath(store.name)}
-                        className="font-medium text-foreground hover:text-teal-700 transition-colors"
-                      >
+                      <span className="font-medium text-foreground">
                         {store.name}
-                      </Link>
+                      </span>
                     </td>
                     <td className="px-4 py-5">
                       <StatusBadge
@@ -176,7 +177,7 @@ function KnowledgeStoresContent() {
                     <td className="px-4 py-5 text-muted-foreground">
                       {formatRelativeTime(store.created_at)}
                     </td>
-                    <td className="px-4 py-5">
+                    <td className="px-4 py-5" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="size-7">

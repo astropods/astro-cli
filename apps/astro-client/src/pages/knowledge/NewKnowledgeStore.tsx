@@ -494,52 +494,37 @@ function ConfigureForm({
               Choose how this {PROVIDER_LABELS[provider]} store is hosted.
             </p>
             <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => setMode("managed")}
-                className={cn(
-                  "flex w-full items-start gap-3 rounded-lg border px-5 py-4 text-left transition-colors",
-                  mode === "managed"
-                    ? "border-teal-600 bg-teal-50/50"
-                    : "border-border bg-surface hover:bg-muted/40",
-                )}
-              >
-                <div className={cn(
-                  "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-                  mode === "managed" ? "border-teal-600" : "border-muted-foreground/40",
-                )}>
-                  {mode === "managed" && <div className="size-2.5 rounded-full bg-teal-600" />}
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">Managed by Astro</p>
-                  <p className="text-body-sm text-muted-foreground">
-                    Astro provisions and operates this database. No credentials needed.
-                  </p>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("external")}
-                className={cn(
-                  "flex w-full items-start gap-3 rounded-lg border px-5 py-4 text-left transition-colors",
-                  mode === "external"
-                    ? "border-teal-600 bg-teal-50/50"
-                    : "border-border bg-surface hover:bg-muted/40",
-                )}
-              >
-                <div className={cn(
-                  "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-                  mode === "external" ? "border-teal-600" : "border-muted-foreground/40",
-                )}>
-                  {mode === "external" && <div className="size-2.5 rounded-full bg-teal-600" />}
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">Connect your own</p>
-                  <p className="text-body-sm text-muted-foreground">
-                    Register an existing instance. Astro stores your credentials securely.
-                  </p>
-                </div>
-              </button>
+              {(["managed", "external"] as const).map((m) => {
+                const selected = mode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded border px-5 py-4 text-left transition-colors",
+                      selected ? "border-teal-600 bg-muted" : "border-border bg-surface hover:border-muted-foreground/30",
+                    )}
+                  >
+                    <div className={cn(
+                      "flex size-5 shrink-0 items-center justify-center rounded-full border-2",
+                      selected ? "border-teal-600" : "border-muted-foreground/30",
+                    )}>
+                      {selected && <div className="size-2.5 rounded-full bg-teal-600" />}
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {m === "managed" ? "Managed by Astro" : "Connect your own"}
+                      </p>
+                      <p className="text-body-sm text-muted-foreground">
+                        {m === "managed"
+                          ? "Astro provisions and operates this database. No credentials needed."
+                          : "Register an existing instance. Astro stores your credentials securely."}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
