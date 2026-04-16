@@ -127,9 +127,12 @@ func TestClient_GetBranchHead_HTTPError(t *testing.T) {
 
 func TestClient_ListRepos(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		perms := struct {
+			Admin bool `json:"admin"`
+		}{Admin: true}
 		repos := []Repo{
-			{FullName: "owner/repo-a", DefaultBranch: "main", Private: false},
-			{FullName: "owner/repo-b", DefaultBranch: "main", Private: true},
+			{FullName: "owner/repo-a", DefaultBranch: "main", Private: false, Permissions: perms},
+			{FullName: "owner/repo-b", DefaultBranch: "main", Private: true, Permissions: perms},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(repos)

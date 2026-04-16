@@ -716,6 +716,9 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 
 		// Best-effort: disconnect any linked GitHub repo so it can be reused.
 		go func() {
+			if ghStore == nil {
+				return
+			}
 			conn, err := ghStore.Get(context.Background(), acct.ID, agentName)
 			if err != nil {
 				return // no connection — nothing to do

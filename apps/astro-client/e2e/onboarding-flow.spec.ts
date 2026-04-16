@@ -10,12 +10,17 @@ test.beforeEach(async () => {
 test("full onboarding: create blueprint, initialize, navigate to detail, then deploy", async ({ page }) => {
   test.setTimeout(60_000);
 
-  // ── Step 1: Create blueprint ──────────────────────────────────────────────
+  // ── Step 1: Identity ─────────────────────────────────────────────────────
   await page.goto("/new/custom", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: /create blueprint/i })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByPlaceholder("my-agent")).toBeVisible({ timeout: 10_000 });
 
   await page.getByPlaceholder("my-agent").fill("mynewagent");
-  await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
+  await expect(page.getByRole("button", { name: /^continue$/i })).toBeEnabled({ timeout: 5_000 });
+  await page.getByRole("button", { name: /^continue$/i }).click();
+
+  // ── Step 2: Source — select local ────────────────────────────────────────
+  await expect(page.getByText(/starting point/i)).toBeVisible({ timeout: 5_000 });
+  await page.getByText(/set up locally/i).click();
 
   const createReq = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/api/v1/agents/${ACCOUNT}`),
@@ -23,20 +28,20 @@ test("full onboarding: create blueprint, initialize, navigate to detail, then de
   await page.getByRole("button", { name: /create blueprint/i }).click();
   await createReq;
 
-  // ── Step 2: Publishing panel ─────────────────────────────────────────────
+  // ── Step 3: Publishing panel ─────────────────────────────────────────────
   await expect(page.getByText(/initializing mynewagent/i)).toBeVisible({ timeout: 10_000 });
 
-  // ── Step 3: Auto-nav to blueprint detail ──────────────────────────────────
+  // ── Step 4: Auto-nav to blueprint detail ──────────────────────────────────
   await page.waitForURL(`**/${ACCOUNT}/mynewagent`, { timeout: 15_000 });
 
-  // ── Step 4: Blueprint detail — Deploy button is visible (not draft) ───────
+  // ── Step 5: Blueprint detail — Deploy button is visible (not draft) ───────
   // Two "Deploy this agent" links exist (mobile + desktop); use last() for the visible desktop one.
   await expect(page.getByRole("link", { name: /deploy this agent/i }).last()).toBeVisible({ timeout: 10_000 });
   await page.getByRole("link", { name: /deploy this agent/i }).last().click();
 
   await page.waitForURL(`**/deploy/${ACCOUNT}/mynewagent`, { timeout: 10_000 });
 
-  // ── Step 5: Deploy form — fill required variable and submit ───────────────
+  // ── Step 6: Deploy form — fill required variable and submit ───────────────
   await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 10_000 });
   await page.getByLabel(/openai api key/i).fill("sk-onboarding-test-key");
 
@@ -64,12 +69,16 @@ test("review panel: 'continue setup' button navigates to blueprint detail withou
   });
 
   await page.goto("/new/custom", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: /create blueprint/i })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByPlaceholder("my-agent")).toBeVisible({ timeout: 10_000 });
 
   await page.getByPlaceholder("my-agent").fill("mynewagent");
+  await page.getByRole("button", { name: /^continue$/i }).click();
+
+  await expect(page.getByText(/starting point/i)).toBeVisible({ timeout: 5_000 });
+  await page.getByText(/set up locally/i).click();
   await page.getByRole("button", { name: /create blueprint/i }).click();
 
-  await expect(page.getByText(/blueprint initialized/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/blueprint registered/i)).toBeVisible({ timeout: 10_000 });
 
   // While the poll is delayed, the "Continue setup →" button must be visible and functional
   await expect(page.getByRole("button", { name: /continue setup/i })).toBeVisible({ timeout: 5_000 });

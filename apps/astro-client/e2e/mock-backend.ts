@@ -449,6 +449,14 @@ const makeInitialDeployments = () => [
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
 let createdBlueprints = new Set<string>();
+
+// GitHub state
+let githubAccountConnected = false;
+let githubConnections: Array<{ agent_name: string; repo_full_name: string }> = [];
+const githubRepos = [
+  { full_name: "testuser/my-repo", default_branch: "main", private: false, permissions: { admin: true } },
+  { full_name: "testuser/another-repo", default_branch: "main", private: true, permissions: { admin: true } },
+];
 let accountVariables: Array<{
   name: string;
   value: string;
@@ -543,6 +551,8 @@ Bun.serve({
       storedPayloads = {};
       currentOrgRole = "admin";
       createdBlueprints = new Set();
+      githubAccountConnected = false;
+      githubConnections = [];
       accountVariables = [
         {
           name: "OPENAI_API_KEY",
@@ -658,6 +668,8 @@ Bun.serve({
 
     const agentArchiveMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/archive$/);
     if (agentArchiveMatch && request.method === "POST") {
+      const archivedAgent = agentArchiveMatch[2]!;
+      githubConnections = githubConnections.filter((c) => c.agent_name !== archivedAgent);
       return json({ ok: true });
     }
 
@@ -1082,6 +1094,53 @@ Bun.serve({
 
     if (pathname === "/api/v1/accounts/search") {
       return json({ results: [], count: 0 });
+    }
+
+    // GitHub account-level endpoints
+    const githubConnectMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/connect$/);
+    if (githubConnectMatch && request.method === "POST") {
+      githubAccountConnected = true;
+      return json({ connected: true });
+    }
+
+    const githubReposMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/repos$/);
+    if (githubReposMatch && request.method === "GET") {
+      return json({ repos: githubRepos });
+    }
+
+    const githubConnectionsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/connections$/);
+    if (githubConnectionsMatch && request.method === "GET") {
+      return json({ connections: githubConnections });
+    }
+
+    const githubScanMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/scan$/);
+    if (githubScanMatch && request.method === "GET") {
+      return json({ found: false });
+    }
+
+    // GitHub agent-level link/unlink
+    const githubAgentLinkMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/([^/]+)\/link$/);
+    if (githubAgentLinkMatch) {
+      const agentName = githubAgentLinkMatch[2]!;
+      if (request.method === "POST") {
+        const body = (await request.json()) as { repo_full_name: string; branch?: string };
+        githubConnections = githubConnections.filter((c) => c.agent_name !== agentName);
+        githubConnections.push({ agent_name: agentName, repo_full_name: body.repo_full_name });
+        return json({ ok: true });
+      }
+      if (request.method === "DELETE") {
+        githubConnections = githubConnections.filter((c) => c.agent_name !== agentName);
+        return json({ ok: true });
+      }
+    }
+
+    // GitHub agent status
+    const githubStatusMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/([^/]+)\/status$/);
+    if (githubStatusMatch && request.method === "GET") {
+      const agentName = githubStatusMatch[2]!;
+      const conn = githubConnections.find((c) => c.agent_name === agentName);
+      if (!conn) return json({ repo_full_name: null, branch: null, builds: [] });
+      return json({ repo_full_name: conn.repo_full_name, branch: "main", builds: [] });
     }
 
     return json({ error: "not_found", path: pathname }, 404);

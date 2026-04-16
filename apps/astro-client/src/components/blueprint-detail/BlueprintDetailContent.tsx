@@ -105,8 +105,8 @@ export function BlueprintDetailContent({
         <div className="min-[900px]:hidden mb-8">{mobileSidebar}</div>
       )}
 
-      {/* Draft: FINISH SETTING UP — hidden only when readme content is available */}
-      {isDraft && !readme && (
+      {/* Draft: FINISH SETTING UP — hidden when a build exists or readme is available */}
+      {isDraft && !readme && !hasBuild && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <div className="flex items-center gap-2">

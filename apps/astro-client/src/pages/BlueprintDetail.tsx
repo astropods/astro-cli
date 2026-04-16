@@ -235,7 +235,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   // Read the repo that was selected in the wizard — written to sessionStorage before navigating here.
   // Falls back to the server-confirmed value once useGitHubStatus resolves, then clears the entry.
   const sessionKey = `astro:github-repo:${blueprint.account}/${blueprint.name}`;
-  const [sessionGithub, setSessionGithub] = useState<{ repo: string; branch: string; agent_md?: string; yml_found?: boolean } | undefined>(() => {
+  const [sessionGithub] = useState<{ repo: string; branch: string; agent_md?: string; yml_found?: boolean } | undefined>(() => {
     try {
       const raw = sessionStorage.getItem(sessionKey);
       return raw ? JSON.parse(raw) : undefined;
