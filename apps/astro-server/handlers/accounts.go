@@ -114,6 +114,24 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			}
 		}
 
+		// Organization accounts require a display name
+		if req.Type == "organization" && strings.TrimSpace(req.DisplayName) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid request",
+				"details": "display name is required for organization accounts",
+			})
+			return
+		}
+
+		// Validate name format (length, charset, casing, hyphens)
+		if err := account.ValidateAccountName(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid account name",
+				"details": err.Error(),
+			})
+			return
+		}
+
 		// Check reserved/denied names for user registration
 		if err := account.CheckAccountNameRestricted(req.Name); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{

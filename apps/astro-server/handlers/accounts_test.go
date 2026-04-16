@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,6 +326,48 @@ func TestSearchAccounts_DBError(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// --- CreateAccount handler tests ---
+
+func TestCreateAccount_InvalidName(t *testing.T) {
+	tests := []struct {
+		name    string
+		orgName string
+	}{
+		{"empty", ""},
+		{"too short", "ab"},
+		{"starts with digit", "1abc"},
+		{"ends with hyphen", "abc-"},
+		{"consecutive hyphens", "ab--cd"},
+		{"uppercase", "MyOrg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			db, _, _ := sqlmock.New()
+			store := account.NewAccountStore(db)
+			log := logger.New("error", "json")
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+				c.Next()
+			})
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, "", nil))
+
+			body := fmt.Sprintf(`{"name":%q,"type":"organization"}`, tt.orgName)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for name=%q, got %d: %s", tt.orgName, rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

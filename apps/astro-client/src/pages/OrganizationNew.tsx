@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
 import { AccountNameInput } from "@/components/AccountNameInput";
-import { useAccountNameValidation } from "@/hooks/use-account-name";
+import { useAccountNameValidation, validateAccountName } from "@/hooks/use-account-name";
 import type { ApiError } from "@/lib/api";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 
@@ -32,6 +32,15 @@ function OrganizationNewContent() {
     async (e: React.FormEvent) => {
       e.preventDefault();
       setError(null);
+      if (!displayName.trim()) {
+        setError("Organization name is required");
+        return;
+      }
+      const nameError = !name ? "Organization username is required" : validateAccountName(name, 4);
+      if (nameError) {
+        setError(nameError);
+        return;
+      }
       if (!isAvailable) return;
 
       try {
@@ -117,7 +126,7 @@ function OrganizationNewContent() {
         <Button
           type="submit"
           size="lg"
-          disabled={createAccount.isPending || !isAvailable || invites.some((e) => !e.valid)}
+          disabled={createAccount.isPending || !displayName.trim() || !isAvailable || invites.some((e) => !e.valid)}
           className="w-full"
         >
           {createAccount.isPending
