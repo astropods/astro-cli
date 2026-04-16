@@ -525,14 +525,15 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 			evts, _ := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", k8s.KnowledgeResourceName(ks.ID)),
 			})
-			if evts != nil && len(evts.Items) > 0 {
-				e := evts.Items[len(evts.Items)-1]
-				resp.Events = []KnowledgeEvent{{
-					Type:    e.Type,
-					Reason:  e.Reason,
-					Message: e.Message,
-					Count:   e.Count,
-				}}
+			if evts != nil {
+				for _, e := range evts.Items {
+					resp.Events = append(resp.Events, KnowledgeEvent{
+						Type:    e.Type,
+						Reason:  e.Reason,
+						Message: e.Message,
+						Count:   e.Count,
+					})
+				}
 			}
 		}
 
