@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
 import { api, type BlueprintsListResponse, type Blueprint, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
-import { blueprintKeys, deploymentKeys } from './keys';
+import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
 
 interface BlueprintQueryOptions {
   initialData?: Blueprint;
@@ -154,9 +154,11 @@ export function useArchiveBlueprint(account: string) {
 
   return useMutation({
     mutationFn: ({ name }: { name: string }) => api.archiveBlueprint(account, name),
-    onSuccess: () => {
+    onSuccess: (_, { name }) => {
       queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+      queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
     },
   });
 }
