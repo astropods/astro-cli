@@ -345,7 +345,7 @@ function ConfigureForm({
   // Managed form state
   const [name, setName] = useState("");
   const [storage, setStorage] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
 
   // External form state
   const [privateLink, setPrivateLink] = useState(false);
