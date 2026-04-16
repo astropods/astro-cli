@@ -88,7 +88,7 @@ export function DashboardToolbar({
         value={sortBy}
         onValueChange={(v) => onSortChange(v as SortOption)}
       >
-        <SelectTrigger className="h-8 w-full sm:w-36 px-3 text-sm bg-background">
+        <SelectTrigger className="h-8 w-full sm:w-36 px-3 text-sm !bg-white dark:!bg-background">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
