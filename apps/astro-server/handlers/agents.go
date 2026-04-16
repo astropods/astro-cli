@@ -16,11 +16,14 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
+	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -691,7 +694,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -710,6 +713,35 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 			})
 			return
 		}
+
+		// Best-effort: disconnect any linked GitHub repo so it can be reused.
+		go func() {
+			conn, err := ghStore.Get(context.Background(), acct.ID, agentName)
+			if err != nil {
+				return // no connection — nothing to do
+			}
+			if conn.WebhookID != 0 {
+				session, ok := middleware.GetSession(c)
+				if ok {
+					token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
+						Provider:       "github",
+						UserID:         session.UserID,
+						OrganizationID: session.OrganizationID,
+					})
+					if tokenErr == nil {
+						gh := githubclient.New(token.AccessToken)
+						if delErr := gh.DeleteWebhook(context.Background(), conn.RepoFullName, conn.WebhookID); delErr != nil {
+							log.Warn("github: delete webhook on archive", "error", delErr, "repo", conn.RepoFullName)
+						}
+					}
+				}
+			}
+			if delErr := ghStore.Delete(context.Background(), acct.ID, agentName); delErr != nil {
+				log.Warn("github: delete connection on archive", "error", delErr, "agent", agentName)
+			} else {
+				log.Info("GitHub connection removed on archive", "account", acct.Name, "agent", agentName)
+			}
+		}()
 
 		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
 
