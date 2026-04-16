@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -578,6 +579,111 @@ func TestTailLogs_DialFailure(t *testing.T) {
 	_, err := c.TailLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
 	if err == nil {
 		t.Fatal("expected dial error, got nil")
+	}
+}
+
+func TestTailLogs_DetectedLevel(t *testing.T) {
+	ts := newWSSrv(t, func(w http.ResponseWriter, r *http.Request) {
+		// Verify the query includes "| keep detected_level".
+		q := r.URL.Query().Get("query")
+		if !strings.Contains(q, "| keep detected_level") {
+			t.Errorf("query %q missing '| keep detected_level'", q)
+		}
+
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+
+		// Simulate what Loki returns when "| keep detected_level" is in the query:
+		// each level gets its own stream with detected_level in the label set.
+		frame := map[string]any{
+			"streams": []map[string]any{
+				{
+					"stream": map[string]string{"pod": "my-pod", "container": "agent", "detected_level": "error"},
+					"values": [][]string{{"1000000000", "something broke"}},
+				},
+				{
+					"stream": map[string]string{"pod": "my-pod", "container": "agent", "detected_level": "info"},
+					"values": [][]string{{"2000000000", "all good"}},
+				},
+				{
+					"stream": map[string]string{"pod": "my-pod", "container": "agent", "detected_level": "unknown"},
+					"values": [][]string{{"3000000000", "plain line"}},
+				},
+			},
+		}
+		data, _ := json.Marshal(frame)
+		conn.WriteMessage(websocket.TextMessage, data)                                                            //nolint:errcheck
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+	})
+
+	c := New(ts.URL)
+	ch, err := c.TailLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+
+	var lines []LogLine
+	for ll := range ch {
+		lines = append(lines, ll)
+	}
+
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\"", lines[0].Level)
+	}
+	if lines[1].Level != "info" {
+		t.Errorf("lines[1].Level = %q, want \"info\"", lines[1].Level)
+	}
+	// "unknown" should be discarded to empty string.
+	if lines[2].Level != "" {
+		t.Errorf("lines[2].Level = %q, want \"\" (unknown discarded)", lines[2].Level)
+	}
+}
+
+func TestTailLogs_ExplicitLevelTakesPrecedenceOverDetectedLevel(t *testing.T) {
+	ts := newWSSrv(t, func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close() //nolint:errcheck
+
+		frame := map[string]any{
+			"streams": []map[string]any{
+				{
+					"stream": map[string]string{"pod": "my-pod", "level": "warn", "detected_level": "info"},
+					"values": [][]string{{"1000000000", "ambiguous"}},
+				},
+			},
+		}
+		data, _ := json.Marshal(frame)
+		conn.WriteMessage(websocket.TextMessage, data)                                                            //nolint:errcheck
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")) //nolint:errcheck
+	})
+
+	c := New(ts.URL)
+	ch, err := c.TailLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+
+	var lines []LogLine
+	for ll := range ch {
+		lines = append(lines, ll)
+	}
+
+	if len(lines) != 1 {
+		t.Fatalf("got %d lines, want 1", len(lines))
+	}
+	if lines[0].Level != "warn" {
+		t.Errorf("lines[0].Level = %q, want \"warn\" (explicit level wins)", lines[0].Level)
 	}
 }
 

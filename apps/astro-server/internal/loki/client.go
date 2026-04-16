@@ -222,8 +222,13 @@ func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, e
 		limit = 200
 	}
 
+	// The tail endpoint does not automatically promote structured metadata
+	// (like detected_level) into stream labels. Use "| keep detected_level"
+	// to surface it so we can extract log levels from tailed entries.
+	query := buildSelector(p.Namespace, p.Pod, p.Workload, p.Container) + " | keep detected_level"
+
 	params := url.Values{}
-	params.Set("query", buildSelector(p.Namespace, p.Pod, p.Workload, p.Container))
+	params.Set("query", query)
 	params.Set("limit", strconv.FormatInt(limit, 10))
 	params.Set("start", strconv.FormatInt(start.UnixNano(), 10))
 
@@ -272,8 +277,15 @@ func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, e
 			for _, stream := range frame.Streams {
 				pod := stream.Stream["pod"]
 				container := stream.Stream["container"]
+				// Same level cascade as QueryLogs: explicit label > detected_level.
+				level := stream.Stream["level"]
+				if level == "" {
+					if dl := stream.Stream["detected_level"]; dl != "unknown" {
+						level = dl
+					}
+				}
 				for _, entry := range stream.Values {
-					if len(entry) != 2 {
+					if len(entry) < 2 {
 						continue
 					}
 					tsNano, parseErr := strconv.ParseInt(entry[0], 10, 64)
@@ -285,6 +297,7 @@ func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, e
 						Timestamp: time.Unix(0, tsNano),
 						Pod:       pod,
 						Container: container,
+						Level:     level,
 						Line:      entry[1],
 					}:
 					case <-ctx.Done():
