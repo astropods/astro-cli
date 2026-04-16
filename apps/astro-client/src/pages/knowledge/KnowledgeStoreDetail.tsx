@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Spinner } from "@/components/ui/spinner";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
 import { useKnowledgeStore, useKnowledgeCredentials } from "@/api/queries/knowledge";
@@ -428,9 +427,5 @@ function KnowledgeStoreDetailContent() {
 }
 
 export default function KnowledgeStoreDetail() {
-  return (
-    <ProtectedRoute>
-      <KnowledgeStoreDetailContent />
-    </ProtectedRoute>
-  );
+  return <KnowledgeStoreDetailContent />;
 }
