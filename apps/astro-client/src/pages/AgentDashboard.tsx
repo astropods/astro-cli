@@ -70,7 +70,7 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
   const setActiveAccount = (account: string) => {
-    setSearchParams(account === personalAccount?.name ? {} : { account });
+    setSearchParams({ account });
   };
   const displayName = personalAccount?.display_name || personalAccount?.name || "";
 

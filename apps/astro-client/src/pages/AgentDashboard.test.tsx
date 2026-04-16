@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -239,6 +239,53 @@ describe('org switcher', () => {
     renderDashboard('/dashboard');
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
     expect(screen.queryByText(/\d+ members?/)).not.toBeInTheDocument();
+  });
+
+  describe('account switching', () => {
+    const store = new Map<string, string>();
+    const localStorageMock = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+    };
+
+    beforeAll(() => vi.stubGlobal('localStorage', localStorageMock));
+    afterAll(() => vi.unstubAllGlobals());
+    beforeEach(() => store.clear());
+    afterEach(() => store.clear());
+
+    it('switches from personal to org account', async () => {
+      const user = userEvent.setup();
+      renderDashboard('/dashboard', orgAuth);
+
+      await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
+      // my-org not visible while trigger shows testuser and dropdown is closed
+      expect(screen.queryByText('my-org')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /view/i }));
+      await user.click(await screen.findByText('my-org'));
+
+      await waitFor(() => expect(screen.getByText('my-org')).toBeInTheDocument());
+    });
+
+    it('switches to personal account when clicked even when another account is starred', async () => {
+      const user = userEvent.setup();
+      localStorage.setItem('astro:default-account', 'my-org');
+
+      renderDashboard('/dashboard', orgAuth);
+
+      await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
+      // Starred org shown in trigger; personal not yet visible there
+      expect(screen.getByText('my-org')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /view/i }));
+      const items = await screen.findAllByRole('menuitem');
+      await user.click(items.find((item) => item.textContent?.includes('testuser'))!);
+
+      // my-org must no longer appear — trigger switched to personal account
+      await waitFor(() => expect(screen.queryByText('my-org')).not.toBeInTheDocument());
+    });
   });
 });
 
