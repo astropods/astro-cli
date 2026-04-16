@@ -24,9 +24,12 @@ import {
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath } from "@/lib/routes";
-import type { KnowledgeStore } from "@/lib/api";
+import { getIntegrationIconUrl } from "@/lib/assets";
+import type { KnowledgeStore, KnowledgeProvider } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
+
+const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone"]);
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -131,7 +134,7 @@ function KnowledgeStoresContent() {
               ) : (
                 stores.map((store) => (
                   <tr key={store.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-5">
                       <Link
                         to={knowledgeDetailPath(store.name)}
                         className="font-medium text-foreground hover:text-teal-700 transition-colors"
@@ -139,7 +142,7 @@ function KnowledgeStoresContent() {
                         {store.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-5">
                       <StatusBadge
                         color={statusToColor(store.status)}
                         indicator
@@ -148,21 +151,33 @@ function KnowledgeStoresContent() {
                         {statusLabel(store.status)}
                       </StatusBadge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {PROVIDER_LABELS[store.provider] ?? store.provider}
+                    <td className="px-4 py-5 text-muted-foreground">
+                      <span className="inline-flex items-center gap-2">
+                        {PROVIDERS_WITH_ICON.has(store.provider) ? (
+                          <img
+                            src={getIntegrationIconUrl(store.provider, "light")}
+                            alt=""
+                            className="size-5 object-contain"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <CircleStackIcon className="size-5 text-muted-foreground/60" />
+                        )}
+                        {PROVIDER_LABELS[store.provider] ?? store.provider}
+                      </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-5">
                       <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono text-mono-sm text-muted-foreground">
                         {store.mode === "managed" ? "Managed" : "External"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    <td className="px-4 py-5 text-muted-foreground">
                       {store.mode === "managed" ? (store.storage ?? "—") : "—"}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    <td className="px-4 py-5 text-muted-foreground">
                       {formatRelativeTime(store.created_at)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-5">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="size-7">
