@@ -29,7 +29,7 @@ export function BlueprintsSidebar() {
                 name={personalAccount.display_name || personalAccount.name}
                 className="!size-4"
               />
-              Personal
+              {personalAccount.name}
             </span>
           </SidebarNavItem>
         </>
