@@ -66,6 +66,7 @@ export function useGitHubLink(account: string, name: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, name) });
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
     },
   });
 }
@@ -76,6 +77,7 @@ export function useGitHubDisconnect(account: string, name: string) {
     mutationFn: () => api.gitHubDisconnect(account, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
     },
   });
 }
