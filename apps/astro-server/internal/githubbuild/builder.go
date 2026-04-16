@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,11 +37,18 @@ type BuildFailedError struct{ Cause error }
 func (e BuildFailedError) Error() string { return e.Cause.Error() }
 func (e BuildFailedError) Unwrap() error { return e.Cause }
 
+// ecrAPI is the subset of the ECR client used by EnsureRepository.
+type ecrAPI interface {
+	DescribeRepositories(ctx context.Context, params *ecr.DescribeRepositoriesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeRepositoriesOutput, error)
+	CreateRepository(ctx context.Context, params *ecr.CreateRepositoryInput, optFns ...func(*ecr.Options)) (*ecr.CreateRepositoryOutput, error)
+}
+
 // Builder runs BuildKit K8s Jobs to build and push container images.
 type Builder struct {
 	k8sClient k8s.ClusterClient
 	cfg       *config.Config
 	log       *logger.Logger
+	ecr       ecrAPI // nil → created lazily from AWS config
 }
 
 // New creates a Builder. k8sClient may be nil (local dev — builds run without pushing).
@@ -55,6 +64,65 @@ func (b *Builder) ECRImagePath(accountID, imageName, buildID string) string {
 		cfg.Environment, accountID,
 		imageName, buildID,
 	)
+}
+
+// ecrRepoName extracts the ECR repository name from a full image destination.
+// E.g. "123456.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-abc/myapp:build123"
+// → "prod-tenant-abc/myapp"
+func ecrRepoName(destination string) (string, error) {
+	slashIdx := strings.Index(destination, "/")
+	colonIdx := strings.LastIndex(destination, ":")
+	if slashIdx < 0 || colonIdx < 0 || colonIdx <= slashIdx {
+		return "", fmt.Errorf("invalid ECR destination: %s", destination)
+	}
+	return destination[slashIdx+1 : colonIdx], nil
+}
+
+// EnsureRepository ensures the ECR repository for the given destination exists,
+// creating it if necessary. Must be called before RunJob on the first build for
+// a given agent, since BuildKit pushes directly to ECR (bypassing the registry proxy
+// where repository auto-creation normally happens).
+func (b *Builder) EnsureRepository(ctx context.Context, destination string) error {
+	repoName, err := ecrRepoName(destination)
+	if err != nil {
+		return err
+	}
+
+	client, err := b.getECRClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
+		RepositoryNames: []string{repoName},
+	})
+	if err == nil {
+		return nil // already exists
+	}
+
+	b.log.Info("Creating ECR repository", "repo", repoName)
+	_, err = client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
+		RepositoryName: &repoName,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "RepositoryAlreadyExistsException") {
+			return nil
+		}
+		return fmt.Errorf("create ECR repository %s: %w", repoName, err)
+	}
+	return nil
+}
+
+// getECRClient returns the ECR client, creating one from AWS config if not injected.
+func (b *Builder) getECRClient(ctx context.Context) (ecrAPI, error) {
+	if b.ecr != nil {
+		return b.ecr, nil
+	}
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(b.cfg.Deployment.AWSRegion))
+	if err != nil {
+		return nil, fmt.Errorf("load AWS config: %w", err)
+	}
+	return ecr.NewFromConfig(cfg), nil
 }
 
 // EnsureInfrastructure creates the build namespace and service account if they
@@ -225,8 +293,8 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	if destination != "" {
 		registryHost := strings.TrimPrefix(b.cfg.Deployment.RegistryURL, "https://")
 		ecrLoginCmd := fmt.Sprintf(
-			`HOME=/tmp TOKEN=$(aws ecr get-login-password --region %s); AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json`,
-			b.cfg.Deployment.AWSRegion, registryHost,
+			`HOME=/tmp TOKEN=$(aws ecr get-login-password --region %s) || { echo "ERROR: ECR login failed" >&2; exit 1; }; AUTH=$(printf "AWS:%%s" "$TOKEN" | base64 | tr -d '\n'); printf '{"auths":{"%s":{"auth":"%%s"}}}' "$AUTH" > /docker-config/config.json && echo "ECR login successful for %s"`,
+			b.cfg.Deployment.AWSRegion, registryHost, registryHost,
 		)
 		volumes = append(volumes, corev1.Volume{
 			Name:         "docker-config",

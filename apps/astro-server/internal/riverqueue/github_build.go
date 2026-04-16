@@ -148,6 +148,12 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 			destination = w.builder.ECRImagePath(conn.AccountID, cb.Name, args.BuildID)
 		}
 		log.Info("Building component", "component", cb.Suffix, "destination", destination)
+		if destination != "" {
+			if err := w.builder.EnsureRepository(ctx, destination); err != nil {
+				log.Error("failed to ensure ECR repository", "error", err)
+				return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("ensure ECR repo: %w", err))
+			}
+		}
 		if err := w.builder.RunJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.Build, destination); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return w.cancel(dbCtx, args.BuildRecordID)
