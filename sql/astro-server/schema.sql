@@ -469,6 +469,22 @@ CREATE TABLE public.github_builds (
 CREATE INDEX idx_github_builds_connection ON public.github_builds (connection_id, enqueued_at DESC);
 CREATE INDEX idx_github_builds_account_agent ON public.github_builds (account_id, agent_name, enqueued_at DESC);
 
+CREATE TABLE public.github_build_components (
+    id bigserial NOT NULL,
+    build_id uuid NOT NULL,
+    component_name varchar NOT NULL,
+    status varchar NOT NULL DEFAULT 'pending',
+    k8s_job_name varchar NOT NULL DEFAULT '',
+    logs text NOT NULL DEFAULT '',
+    started_at timestamp,
+    completed_at timestamp,
+    CONSTRAINT github_build_components_pkey PRIMARY KEY (id),
+    CONSTRAINT github_build_components_build_fkey FOREIGN KEY (build_id)
+        REFERENCES public.github_builds(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_build_components_build_name ON public.github_build_components(build_id, component_name);
+
 CREATE TABLE public.knowledge_stores (
     id                 varchar(11)  NOT NULL,
     account_id         uuid         NOT NULL,

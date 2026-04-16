@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -371,6 +372,15 @@ func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store) gin.Handl
 			builds = []githubconnection.Build{}
 		}
 
+		// Attach per-component status to each build.
+		for i := range builds {
+			components, err := ghStore.ListBuildComponents(c.Request.Context(), builds[i].ID)
+			if err != nil {
+				log.Warn("githubconnection: list build components", "error", err)
+			}
+			builds[i].Components = components
+		}
+
 		c.JSON(http.StatusOK, GitHubStatusResponse{
 			Connected:    true,
 			RepoFullName: conn.RepoFullName,
@@ -641,90 +651,122 @@ func GitHubBuildLogs(log *logger.Logger, ghStore *githubconnection.Store, k8sCli
 		agentName := c.Param("name")
 		buildID := c.Param("build_id")
 
-		// Verify the build belongs to this account/agent.
-		builds, err := ghStore.ListBuilds(c.Request.Context(), acct.ID, agentName, 50)
+		build, err := ghStore.GetBuildByBuildID(c.Request.Context(), acct.ID, agentName, buildID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load builds"})
-			return
-		}
-		var found bool
-		for _, b := range builds {
-			if b.BuildID == buildID {
-				found = true
-				break
-			}
-		}
-		if !found {
 			c.JSON(http.StatusNotFound, gin.H{"error": "build not found"})
 			return
 		}
 
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "k8s not configured"})
-			return
+		components, err := ghStore.ListBuildComponents(c.Request.Context(), build.ID)
+		if err != nil {
+			log.Warn("githubconnection: list build components for logs", "error", err)
 		}
 
-		jobName := "build-" + buildID + "-agent"
 		ns := buildNamespace
 		if ns == "" {
 			ns = "as0-builds"
 		}
+		isActive := build.Status == "pending" || build.Status == "building"
 
-		pods, err := k8sClient.Clientset().CoreV1().Pods(ns).List(c.Request.Context(), metav1.ListOptions{
-			LabelSelector: "job-name=" + jobName,
-		})
-		if err != nil || len(pods.Items) == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "no pod found for this build"})
-			return
-		}
-		pod := pods.Items[0]
-
-		tailLines := int64(500)
-		var sb strings.Builder
-
-		var containers []string
-		for _, ct := range pod.Spec.InitContainers {
-			containers = append(containers, ct.Name)
-		}
-		for _, ct := range pod.Spec.Containers {
-			containers = append(containers, ct.Name)
+		type componentLog struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Logs   string `json:"logs"`
 		}
 
-		for _, name := range containers {
-			req := k8sClient.Clientset().CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{
-				Container: name,
-				TailLines: &tailLines,
+		var result []componentLog
+		for _, comp := range components {
+			logs := comp.Logs
+			// For active builds with no persisted logs yet, fetch live from K8s.
+			if logs == "" && isActive && comp.K8sJobName != "" && k8sClient != nil {
+				logs = fetchK8sJobLogs(c.Request.Context(), k8sClient, ns, comp.K8sJobName)
+			}
+			result = append(result, componentLog{
+				Name:   comp.ComponentName,
+				Status: comp.Status,
+				Logs:   logs,
 			})
-			stream, err := req.Stream(c.Request.Context())
-			if err != nil {
-				fmt.Fprintf(&sb, "=== %s ===\n(logs unavailable: %v)\n", name, err)
-				continue
-			}
-			body, _ := io.ReadAll(stream)
-			_ = stream.Close()
-			if len(body) > 0 {
-				fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
-			} else {
-				fmt.Fprintf(&sb, "=== %s ===\n(no output)\n", name)
+		}
+
+		// Fallback: no components (old build) — fetch from K8s using legacy job name.
+		if len(result) == 0 && k8sClient != nil {
+			legacyJobName := "build-" + buildID + "-agent"
+			logs := fetchK8sJobLogs(c.Request.Context(), k8sClient, ns, legacyJobName)
+			if logs != "" {
+				result = append(result, componentLog{
+					Name:   "agent",
+					Status: build.Status,
+					Logs:   logs,
+				})
 			}
 		}
 
-		// Append pod events (warnings/errors from scheduler, kubelet, etc.).
-		events, evErr := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
-			FieldSelector: "involvedObject.name=" + pod.Name,
-		})
-		if evErr == nil && len(events.Items) > 0 {
-			fmt.Fprintf(&sb, "\n=== events ===\n")
-			for _, ev := range events.Items {
-				fmt.Fprintf(&sb, "[%s] %s: %s\n", ev.Type, ev.Reason, ev.Message)
-			}
+		// Backward compat: populate flat fields from first component.
+		flatLogs := ""
+		if len(result) > 0 {
+			flatLogs = result[0].Logs
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"job":   jobName,
-			"pod":   pod.Name,
-			"phase": string(pod.Status.Phase),
-			"logs":  sb.String(),
+			"components": result,
+			"job":        "build-" + buildID,
+			"pod":        "",
+			"phase":      build.Status,
+			"logs":       flatLogs,
 		})
 	}
+}
+
+// fetchK8sJobLogs fetches logs from all containers of a K8s Job pod.
+func fetchK8sJobLogs(ctx context.Context, k8sClient k8s.ClusterClient, ns, jobName string) string {
+	pods, err := k8sClient.Clientset().CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "job-name=" + jobName,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return ""
+	}
+	pod := pods.Items[0]
+
+	tailLines := int64(500)
+	var sb strings.Builder
+
+	// Events first — scheduling/pull errors are the most common build issues.
+	events, evErr := k8sClient.Clientset().CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + pod.Name,
+	})
+	if evErr == nil && len(events.Items) > 0 {
+		fmt.Fprintf(&sb, "=== events ===\n")
+		for _, ev := range events.Items {
+			fmt.Fprintf(&sb, "[%s] %s: %s\n", ev.Type, ev.Reason, ev.Message)
+		}
+	}
+
+	var containers []string
+	for _, ct := range pod.Spec.InitContainers {
+		containers = append(containers, ct.Name)
+	}
+	for _, ct := range pod.Spec.Containers {
+		containers = append(containers, ct.Name)
+	}
+
+	for _, name := range containers {
+		req := k8sClient.Clientset().CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{
+			Container: name,
+			TailLines: &tailLines,
+		})
+		stream, err := req.Stream(ctx)
+		if err != nil {
+			fmt.Fprintf(&sb, "=== %s ===\n(logs unavailable: %v)\n", name, err)
+			continue
+		}
+		body, _ := io.ReadAll(stream)
+		_ = stream.Close()
+		if len(body) > 0 {
+			fmt.Fprintf(&sb, "=== %s ===\n%s\n", name, string(body))
+		} else {
+			fmt.Fprintf(&sb, "=== %s ===\n(no output)\n", name)
+		}
+	}
+
+	return sb.String()
 }

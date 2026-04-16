@@ -85,15 +85,19 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	// even if the River job context is cancelled mid-flight (e.g. during a long K8s poll).
 	dbCtx := context.Background()
 
-	// Atomically transition pending→building. Returns false if a newer push already
-	// cancelled this build before the worker picked it up.
+	// Atomically transition pending→building. Returns false if the build is no
+	// longer pending — either a newer push cancelled it, or a previous attempt
+	// already moved it to "building" and the server restarted before completion.
+	// In the restart case the K8s Job may have finished but nobody was watching,
+	// so we mark the build as failed to avoid leaving it stuck in "building" forever.
 	started, err := w.ghStore.StartBuildIfPending(dbCtx, args.BuildRecordID)
 	if err != nil {
 		log.Error("failed to start build", "error", err)
 		// Non-fatal: continue with best-effort status tracking.
 	} else if !started {
-		log.Info("build superseded by newer push — skipping")
-		return river.JobCancel(fmt.Errorf("superseded by newer push"))
+		log.Info("build no longer pending — cancelling River job", "record_id", args.BuildRecordID)
+		_ = w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "failed", "build interrupted — likely server restart; please trigger a new build")
+		return river.JobCancel(fmt.Errorf("build no longer pending"))
 	}
 
 	// isLastAttempt gates whether a retriable error should also update the DB to
@@ -138,23 +142,59 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	local := w.cfg.Deployment.K8sClientMode == "local"
 	builds := githubbuild.CollectComponentBuilds(astroSpec, agentName)
 
-	w.updateStep(dbCtx, args.BuildRecordID, "building")
 	log.Info("Starting BuildKit builds", "repo", conn.RepoFullName, "components", len(builds), "local", local)
 
+	// Create component records upfront so the UI can show all components immediately.
+	componentIDs := make(map[string]int64, len(builds))
 	for _, cb := range builds {
+		jobName := fmt.Sprintf("build-%s-%s", args.BuildID, cb.Suffix)
+		id, err := w.ghStore.CreateBuildComponent(dbCtx, args.BuildRecordID, cb.Suffix, jobName)
+		if err != nil {
+			log.Error("failed to create build component record", "component", cb.Suffix, "error", err)
+		} else {
+			componentIDs[cb.Suffix] = id
+		}
+	}
+
+	for i, cb := range builds {
+		compID := componentIDs[cb.Suffix]
+		w.updateStep(dbCtx, args.BuildRecordID, fmt.Sprintf("building (%d/%d: %s)", i+1, len(builds), cb.Suffix))
+
+		if compID > 0 {
+			_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "building")
+		}
+
 		jobName := fmt.Sprintf("build-%s-%s", args.BuildID, cb.Suffix)
 		var destination string
 		if !local {
 			destination = w.builder.ECRImagePath(conn.AccountID, cb.Name, args.BuildID)
 		}
-		log.Info("Building component", "component", cb.Suffix, "destination", destination)
+		log.Info("Building component", "component", cb.Suffix, "destination", destination, "progress", fmt.Sprintf("%d/%d", i+1, len(builds)))
 		if destination != "" {
 			if err := w.builder.EnsureRepository(ctx, destination); err != nil {
 				log.Error("failed to ensure ECR repository", "error", err)
+				if compID > 0 {
+					_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "failed")
+				}
+				_ = w.ghStore.FailPendingBuildComponents(dbCtx, args.BuildRecordID)
 				return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("ensure ECR repo: %w", err))
 			}
 		}
-		if err := w.builder.RunJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.Build, destination); err != nil {
+		buildLogs, err := w.builder.RunJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.Build, destination)
+
+		// Persist logs regardless of outcome (truncate to 512KB).
+		if compID > 0 && buildLogs != "" {
+			if len(buildLogs) > 512*1024 {
+				buildLogs = buildLogs[:512*1024]
+			}
+			_ = w.ghStore.SaveBuildComponentLogs(dbCtx, compID, buildLogs)
+		}
+
+		if err != nil {
+			if compID > 0 {
+				_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "failed")
+			}
+			_ = w.ghStore.FailPendingBuildComponents(dbCtx, args.BuildRecordID)
 			if errors.Is(err, context.Canceled) {
 				return w.cancel(dbCtx, args.BuildRecordID)
 			}
@@ -163,6 +203,10 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 				return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("build %s: %w", cb.Suffix, err)))
 			}
 			return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("build %s: %w", cb.Suffix, err))
+		}
+
+		if compID > 0 {
+			_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "succeeded")
 		}
 	}
 

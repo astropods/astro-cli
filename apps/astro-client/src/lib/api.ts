@@ -739,7 +739,7 @@ class ApiClient {
     );
   }
 
-  async getGitHubBuildLogs(account: string, name: string, buildId: string): Promise<{ job: string; pod: string; logs: string }> {
+  async getGitHubBuildLogs(account: string, name: string, buildId: string): Promise<{ components?: Array<{ name: string; status: string; logs: string }>; job: string; pod: string; logs: string }> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/builds/${encodeURIComponent(buildId)}/logs`
     );
@@ -1206,6 +1206,15 @@ export interface GitHubRepo {
   private: boolean;
 }
 
+export interface GitHubBuildComponent {
+  id: number;
+  component_name: string;
+  status: 'pending' | 'building' | 'succeeded' | 'failed';
+  logs?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
 export interface GitHubBuild {
   id: string;
   build_id: string;
@@ -1218,6 +1227,7 @@ export interface GitHubBuild {
   error?: string;
   enqueued_at: string;
   completed_at?: string;
+  components?: GitHubBuildComponent[];
 }
 
 export interface GitHubStatusResponse {

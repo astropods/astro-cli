@@ -26,19 +26,32 @@ type Connection struct {
 
 // Build represents a single auto-triggered build from a GitHub push.
 type Build struct {
-	ID            string     `json:"id"`
-	ConnectionID  string     `json:"connection_id"`
-	AccountID     string     `json:"account_id"`
-	AgentName     string     `json:"agent_name"`
+	ID            string           `json:"id"`
+	ConnectionID  string           `json:"connection_id"`
+	AccountID     string           `json:"account_id"`
+	AgentName     string           `json:"agent_name"`
+	BuildID       string           `json:"build_id"`
+	CommitSHA     string           `json:"commit_sha"`
+	Branch        string           `json:"branch"`
+	Status        string           `json:"status"`         // pending | building | registering | registered | failed | cancelled
+	Step          string           `json:"step,omitempty"` // fetching-spec | building | registering
+	CommitMessage string           `json:"commit_message,omitempty"`
+	CommitAuthor  string           `json:"commit_author,omitempty"`
+	Error         string           `json:"error,omitempty"`
+	EnqueuedAt    time.Time        `json:"enqueued_at"`
+	CompletedAt   *time.Time       `json:"completed_at,omitempty"`
+	Components    []BuildComponent `json:"components,omitempty"`
+}
+
+// BuildComponent represents a single component within a GitHub build.
+type BuildComponent struct {
+	ID            int64      `json:"id"`
 	BuildID       string     `json:"build_id"`
-	CommitSHA     string     `json:"commit_sha"`
-	Branch        string     `json:"branch"`
-	Status        string     `json:"status"`         // pending | building | registering | registered | failed | cancelled
-	Step          string     `json:"step,omitempty"` // fetching-spec | building | registering
-	CommitMessage string     `json:"commit_message,omitempty"`
-	CommitAuthor  string     `json:"commit_author,omitempty"`
-	Error         string     `json:"error,omitempty"`
-	EnqueuedAt    time.Time  `json:"enqueued_at"`
+	ComponentName string     `json:"component_name"`
+	Status        string     `json:"status"`
+	K8sJobName    string     `json:"k8s_job_name,omitempty"`
+	Logs          string     `json:"logs,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 }
 
@@ -264,4 +277,88 @@ func (s *Store) ListBuilds(ctx context.Context, accountID, agentName string, lim
 		builds = append(builds, b)
 	}
 	return builds, rows.Err()
+}
+
+// GetBuildByBuildID looks up a single build by its short build ID for a given account/agent.
+func (s *Store) GetBuildByBuildID(ctx context.Context, accountID, agentName, buildID string) (*Build, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, connection_id, account_id, agent_name, build_id, commit_sha, branch,
+		       status, step, commit_message, commit_author, COALESCE(error,''), enqueued_at, completed_at
+		FROM github_builds
+		WHERE account_id = $1 AND agent_name = $2 AND build_id = $3
+	`, accountID, agentName, buildID)
+	var b Build
+	if err := row.Scan(
+		&b.ID, &b.ConnectionID, &b.AccountID, &b.AgentName,
+		&b.BuildID, &b.CommitSHA, &b.Branch,
+		&b.Status, &b.Step, &b.CommitMessage, &b.CommitAuthor, &b.Error, &b.EnqueuedAt, &b.CompletedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// CreateBuildComponent inserts a new component record for a build. Returns the row ID.
+func (s *Store) CreateBuildComponent(ctx context.Context, buildID, componentName, k8sJobName string) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO github_build_components (build_id, component_name, k8s_job_name)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, buildID, componentName, k8sJobName).Scan(&id)
+	return id, err
+}
+
+// UpdateBuildComponentStatus sets the status of a component, with automatic timestamp management.
+func (s *Store) UpdateBuildComponentStatus(ctx context.Context, id int64, status string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE github_build_components
+		SET status = $1,
+		    started_at = CASE WHEN $1 = 'building' AND started_at IS NULL THEN now() ELSE started_at END,
+		    completed_at = CASE WHEN $1 IN ('succeeded','failed') THEN now() ELSE completed_at END
+		WHERE id = $2
+	`, status, id)
+	return err
+}
+
+// SaveBuildComponentLogs persists logs for a component build.
+func (s *Store) SaveBuildComponentLogs(ctx context.Context, id int64, logs string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE github_build_components SET logs = $1 WHERE id = $2
+	`, logs, id)
+	return err
+}
+
+// ListBuildComponents returns all components for a build, ordered by creation.
+func (s *Store) ListBuildComponents(ctx context.Context, buildID string) ([]BuildComponent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, build_id, component_name, status, k8s_job_name, logs, started_at, completed_at
+		FROM github_build_components
+		WHERE build_id = $1
+		ORDER BY id
+	`, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var components []BuildComponent
+	for rows.Next() {
+		var c BuildComponent
+		if err := rows.Scan(&c.ID, &c.BuildID, &c.ComponentName, &c.Status, &c.K8sJobName, &c.Logs, &c.StartedAt, &c.CompletedAt); err != nil {
+			return nil, fmt.Errorf("githubconnection: scan build component: %w", err)
+		}
+		components = append(components, c)
+	}
+	return components, rows.Err()
+}
+
+// FailPendingBuildComponents marks all non-terminal components for a build as failed.
+func (s *Store) FailPendingBuildComponents(ctx context.Context, buildID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE github_build_components
+		SET status = 'failed', completed_at = now()
+		WHERE build_id = $1 AND status NOT IN ('succeeded', 'failed')
+	`, buildID)
+	return err
 }

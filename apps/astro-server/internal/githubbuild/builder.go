@@ -161,11 +161,11 @@ func (b *Builder) EnsureInfrastructure(ctx context.Context) error {
 //     when destination is set.
 //
 // When destination is empty (local dev), step 2 is skipped and BuildKit builds
-// without pushing. Returns BuildFailedError for permanent failures (bad Dockerfile),
-// or a plain error for retriable infrastructure failures.
-func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName, commitSHA string, build spec.BuildConfig, destination string) error {
+// without pushing. Returns (logs, nil) on success, (logs, BuildFailedError) for
+// permanent failures, or ("", error) for retriable infrastructure failures.
+func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName, commitSHA string, build spec.BuildConfig, destination string) (string, error) {
 	if b.k8sClient == nil {
-		return fmt.Errorf("k8s client not configured")
+		return "", fmt.Errorf("k8s client not configured")
 	}
 
 	ns := b.cfg.GitHub.BuildNamespace
@@ -188,7 +188,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		StringData: map[string]string{"token": githubToken},
 	}
 	if _, err := clientset.CoreV1().Secrets(ns).Create(ctx, tokenSecret, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create token secret: %w", err)
+		return "", fmt.Errorf("create token secret: %w", err)
 	}
 
 	// git clone command: shallow clone at the exact commit.
@@ -364,7 +364,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 
 	createdJob, err := clientset.BatchV1().Jobs(ns).Create(ctx, k8sJob, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("create build job: %w", err)
+		return "", fmt.Errorf("create build job: %w", err)
 	}
 
 	// Bind the token secret to the job via an owner reference so K8s garbage-collects
@@ -403,22 +403,27 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		select {
 		case <-pollCtx.Done():
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return "", ctx.Err()
 			}
-			return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
+			return "", fmt.Errorf("build job %s timed out after 20 minutes", jobName)
 		case <-time.After(15 * time.Second):
 		}
 		j, err := clientset.BatchV1().Jobs(ns).Get(pollCtx, jobName, metav1.GetOptions{})
 		if err != nil {
+			b.log.Warn("failed to get build job status", "job", jobName, "error", err)
+			if k8serrors.IsNotFound(err) {
+				return "", fmt.Errorf("build job %s was deleted before completion", jobName)
+			}
 			continue
 		}
 		if j.Status.Succeeded > 0 {
 			succeeded = true
-			return nil
+			logs := b.fetchJobLogs(context.Background(), ns, jobName)
+			return logs, nil
 		}
 		if j.Status.Failed > 0 {
 			logs := b.fetchJobLogs(context.Background(), ns, jobName)
-			return BuildFailedError{fmt.Errorf("build job failed: %s", extractBuildError(logs))}
+			return logs, BuildFailedError{fmt.Errorf("build job failed: %s", extractBuildError(logs))}
 		}
 	}
 }
@@ -436,7 +441,18 @@ func (b *Builder) fetchJobLogs(ctx context.Context, ns, jobName string) string {
 	pod := pods.Items[0]
 
 	var sb strings.Builder
-	tailLines := int64(100)
+	tailLines := int64(500)
+
+	// Events first — scheduling/pull errors are the most common build issues.
+	events, evErr := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + pod.Name,
+	})
+	if evErr == nil && len(events.Items) > 0 {
+		fmt.Fprintf(&sb, "=== events ===\n")
+		for _, ev := range events.Items {
+			fmt.Fprintf(&sb, "[%s] %s: %s\n", ev.Type, ev.Reason, ev.Message)
+		}
+	}
 
 	var containers []string
 	for _, c := range pod.Spec.InitContainers {

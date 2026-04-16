@@ -274,6 +274,27 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
           <StepPipeline currentStep={build.step} />
         )}
 
+        {/* Per-component status — shown when components exist */}
+        {build.components && build.components.length > 0 && (
+          <div className="flex items-center gap-1 pl-5 flex-wrap">
+            {build.components.map((comp) => (
+              <span key={comp.component_name} className={cn(
+                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border",
+                comp.status === "succeeded" && "text-green-600 dark:text-green-400 border-green-600/20 bg-green-600/5",
+                comp.status === "failed" && "text-destructive border-destructive/20 bg-destructive/5",
+                comp.status === "building" && "text-blue-600 dark:text-blue-400 border-blue-600/20 bg-blue-600/5",
+                comp.status === "pending" && "text-muted-foreground border-border",
+              )}>
+                {comp.status === "succeeded" && <CheckCircle2 className="h-2.5 w-2.5" />}
+                {comp.status === "failed" && <XCircle className="h-2.5 w-2.5" />}
+                {comp.status === "building" && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                {comp.status === "pending" && <CircleDot className="h-2.5 w-2.5 opacity-40" />}
+                {comp.component_name}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Error — shown for failed builds */}
         {build.status === "failed" && build.error && (
           <p className="text-destructive pl-5 leading-snug break-words">{cleanBuildError(build.error)}</p>
@@ -293,8 +314,16 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
   );
 }
 
+// Extract build progress detail from step strings like "building (1/3: agent)".
+function parseBuildProgress(step?: string): string | null {
+  if (!step) return null;
+  const match = step.match(/\((.+)\)$/);
+  return match ? match[1] : null;
+}
+
 function StepPipeline({ currentStep }: { currentStep?: string }) {
-  const currentIdx = BUILD_STEPS.findIndex((s) => s.key === currentStep);
+  const currentIdx = BUILD_STEPS.findIndex((s) => currentStep?.startsWith(s.key));
+  const buildProgress = parseBuildProgress(currentStep);
 
   return (
     <div className="flex items-center gap-0 pl-5">
@@ -313,6 +342,9 @@ function StepPipeline({ currentStep }: { currentStep?: string }) {
               {isActive && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
               {!isDone && !isActive && <CircleDot className="h-2.5 w-2.5 opacity-30" />}
               {step.label}
+              {isActive && buildProgress && (
+                <span className="text-muted-foreground font-normal">{buildProgress}</span>
+              )}
             </div>
             {i < BUILD_STEPS.length - 1 && (
               <span className="text-muted-foreground/40 mx-0.5">›</span>
@@ -355,23 +387,43 @@ function BuildLogsDialog({
     enabled: open,
     refetchInterval: open && isActive ? 3000 : false,
   });
-  const sections = data?.logs ? parseLogSections(data.logs) : [];
+
+  // Build structured component logs, or fall back to flat logs for old builds.
+  const componentLogs = data?.components && data.components.length > 0
+    ? data.components
+    : data?.logs
+      ? [{ name: "agent", status: "unknown", logs: data.logs }]
+      : [];
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Auto-expand all sections when data arrives.
   useEffect(() => {
-    if (sections.length > 0) {
-      setExpanded(new Set(sections.map((s) => s.name)));
+    if (componentLogs.length > 0) {
+      const keys = new Set<string>();
+      for (const comp of componentLogs) {
+        keys.add(comp.name);
+        for (const s of parseLogSections(comp.logs || "")) {
+          keys.add(`${comp.name}/${s.name}`);
+        }
+      }
+      setExpanded(keys);
     }
-  }, [data?.logs]);
+  }, [data]);
 
-  function toggle(name: string) {
+  function toggle(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
   }
+
+  const statusColor = (s: string) =>
+    s === "succeeded" ? "text-green-500" :
+    s === "failed" ? "text-red-400" :
+    s === "building" ? "text-blue-400" :
+    "text-zinc-500";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -382,7 +434,9 @@ function BuildLogsDialog({
             <span className="text-muted-foreground font-normal">·{commitSha}</span>
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {data?.pod ? `Pod: ${data.pod}` : "Last 500 lines per container"}
+            {componentLogs.length > 1
+              ? `${componentLogs.length} components`
+              : "Last 500 lines per container"}
           </DialogDescription>
         </DialogHeader>
 
@@ -393,29 +447,50 @@ function BuildLogsDialog({
             </div>
           )}
           {isError && (
-            <p className="text-sm text-red-400 p-4">Pod logs unavailable — the pod may have been cleaned up.</p>
+            <p className="text-sm text-red-400 p-4">Logs unavailable — the pod may have been cleaned up.</p>
           )}
-          {data && sections.length === 0 && (
+          {data && componentLogs.length === 0 && (
             <p className="text-zinc-500 text-xs p-4 font-mono">(no output)</p>
           )}
-          {sections.map((section) => {
-            const isOpen = expanded.has(section.name);
+          {componentLogs.map((comp) => {
+            const sections = parseLogSections(comp.logs || "");
+            const compOpen = expanded.has(comp.name);
             return (
-              <div key={section.name} className="border-b border-zinc-800 last:border-0">
+              <div key={comp.name} className="border-b border-zinc-800 last:border-0">
+                {/* Component header */}
                 <button
-                  onClick={() => toggle(section.name)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono text-zinc-300 hover:bg-zinc-900 text-left"
+                  onClick={() => toggle(comp.name)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono hover:bg-zinc-900 text-left"
                 >
-                  {isOpen
+                  {compOpen
                     ? <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
                     : <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />}
-                  <span className="text-zinc-400">{section.name}</span>
+                  <span className="text-zinc-200 font-medium">{comp.name}</span>
+                  <span className={cn("text-[10px]", statusColor(comp.status))}>{comp.status}</span>
                 </button>
-                {isOpen && section.content.trim() && (
-                  <pre className="text-[11px] font-mono whitespace-pre-wrap break-all leading-[1.6] px-4 pb-3 pt-1 text-zinc-300">
-                    {section.content}
-                  </pre>
-                )}
+                {/* Container sections within this component */}
+                {compOpen && sections.map((section) => {
+                  const sectionKey = `${comp.name}/${section.name}`;
+                  const sectionOpen = expanded.has(sectionKey);
+                  return (
+                    <div key={sectionKey} className="border-t border-zinc-800/50">
+                      <button
+                        onClick={() => toggle(sectionKey)}
+                        className="w-full flex items-center gap-2 px-5 py-1.5 text-[11px] font-mono text-zinc-400 hover:bg-zinc-900/50 text-left"
+                      >
+                        {sectionOpen
+                          ? <ChevronDown className="h-2.5 w-2.5 text-zinc-600 shrink-0" />
+                          : <ChevronRight className="h-2.5 w-2.5 text-zinc-600 shrink-0" />}
+                        {section.name}
+                      </button>
+                      {sectionOpen && section.content.trim() && (
+                        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all leading-[1.6] px-6 pb-3 pt-1 text-zinc-300">
+                          {section.content}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
