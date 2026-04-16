@@ -555,7 +555,7 @@ function ConfigureForm({
               : "Connect your own database. Credentials are encrypted at rest."}
           </p>
 
-          <div className="mt-6 space-y-5">
+          <div className="mt-4 border-t border-border pt-5 space-y-5">
             {/* Name */}
             <div className="space-y-1.5">
               <label htmlFor="ks-name" className="text-sm font-medium">Name</label>
@@ -601,21 +601,24 @@ function ConfigureForm({
               </>
             ) : (
               <>
-                {/* PrivateLink */}
-                <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3">
-                  <GlobeAltIcon className="size-8 shrink-0 text-muted-foreground" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">PrivateLink</p>
-                    <p className="text-xs text-muted-foreground">
-                      Connect via AWS PrivateLink — traffic stays on your provider's backbone.
-                    </p>
+                {/* PrivateLink card — host+port always inside */}
+                <div className="overflow-hidden rounded border border-border">
+                  {/* Toggle row */}
+                  <div className="flex items-center gap-3 bg-muted px-5 py-4">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface">
+                      <GlobeAltIcon className="size-5 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">PrivateLink</p>
+                      <p className="text-xs text-muted-foreground">
+                        Connect via AWS PrivateLink — traffic stays on your provider's backbone.
+                      </p>
+                    </div>
+                    <Switch checked={privateLink} onCheckedChange={setPrivateLink} />
                   </div>
-                  <Switch checked={privateLink} onCheckedChange={setPrivateLink} />
-                </div>
 
-                {/* Host / VPC Endpoint + Port */}
-                {privateLink ? (
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                  {/* Host + Port */}
+                  <div className="grid grid-cols-[1fr_auto] gap-3 border-t border-border bg-surface px-5 py-4">
                     <div className="space-y-1.5">
                       <label htmlFor="ks-host" className="text-sm font-medium">{hostLabel}</label>
                       <Input
@@ -625,7 +628,7 @@ function ConfigureForm({
                         onChange={(e) => setHost(e.target.value)}
                         autoComplete="off"
                       />
-                      {host && hostError && <p className="text-xs text-destructive">{hostError}</p>}
+                      {privateLink && host && hostError && <p className="text-xs text-destructive">{hostError}</p>}
                     </div>
                     {fields.includes("port") && (
                       <div className="space-y-1.5 w-24">
@@ -643,35 +646,7 @@ function ConfigureForm({
                       </div>
                     )}
                   </div>
-                ) : (
-                  <>
-                    <div className="space-y-1.5">
-                      <label htmlFor="ks-host" className="text-sm font-medium">{hostLabel}</label>
-                      <Input
-                        id="ks-host"
-                        placeholder={hostPlaceholder}
-                        value={host}
-                        onChange={(e) => setHost(e.target.value)}
-                        autoComplete="off"
-                      />
-                    </div>
-                    {fields.includes("port") && (
-                      <div className="space-y-1.5">
-                        <label htmlFor="ks-port" className="text-sm font-medium">Port</label>
-                        <Input
-                          id="ks-port"
-                          type="number"
-                          min={1}
-                          max={65535}
-                          placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
-                          value={port}
-                          onChange={(e) => setPort(e.target.value)}
-                          autoComplete="off"
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
+                </div>
 
                 {/* Dynamic credential fields */}
                 {fields.includes("database") && (
