@@ -526,6 +526,11 @@ func (a *Applier) ApplyDeploymentSpec(
 			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
 		})
 		msgSvc.Spec.Ports[0].Name = "grpc"
+		// The messaging sidecar runs inside the agent pod. By default, Services
+		// only route to Ready endpoints — but the app container won't become
+		// ready until it can reach the messaging Service, creating a circular
+		// readiness deadlock. Publishing not-ready addresses breaks the cycle.
+		msgSvc.Spec.PublishNotReadyAddresses = true
 		if webEnabled {
 			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
 				Name: "http", Protocol: corev1.ProtocolTCP,
