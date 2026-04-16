@@ -151,7 +151,7 @@ export function ActiveDetailView({
 
   return (
     <LogStreamProvider>
-    <div className="flex flex-1 min-h-0 overflow-hidden relative bg-muted">
+    <div className="flex flex-1 min-h-0 overflow-hidden relative bg-surface">
       <div className="flex flex-1 flex-col min-w-0 min-h-0">
 
       {/* ── TOP BAR ── */}
@@ -236,7 +236,7 @@ export function ActiveDetailView({
 
           {/* tab bar */}
           <div
-            className="flex bg-muted border-b border-border shrink-0 px-[clamp(16px,4vw,108px)] py-0"
+            className="flex bg-surface border-b border-border shrink-0 px-[clamp(16px,4vw,108px)] py-0"
           >
             {([
               { id: 'monitor' as const, label: 'Monitor', icon: (

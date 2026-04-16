@@ -62,7 +62,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 
   const manualIngestions = deployment.manual_ingestions ?? [];
   const shellClass = fullPage
-    ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
+    ? "flex min-h-full w-full flex-col bg-surface"
     : PANEL_SHELL_CLASS;
   const formClass = fullPage
     ? "flex min-h-0 flex-1 flex-col"
@@ -244,7 +244,7 @@ function ManualTriggers({
 export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, newBuildId, rollbackContext }: ConfigurePanelProps) {
   const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride, build: newBuildId });
   const shellClass = fullPage
-    ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
+    ? "flex min-h-full w-full flex-col bg-surface"
     : PANEL_SHELL_CLASS;
 
   const shell = (children: React.ReactNode) => (

@@ -14,7 +14,7 @@ const SOURCE_COLOR: Record<"input" | "injected" | "static", TagColor> = {
 
 export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
   return (
-    <div className="bg-stone-50">
+    <div className="bg-background">
       {vars.length === 0 ? (
         <div className="p-4 font-mono text-mono-sm text-faint-foreground">No variables</div>
       ) : (

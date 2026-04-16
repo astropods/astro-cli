@@ -95,7 +95,7 @@ export function SidePanel({
           className="hover:bg-primary/20"
         />
       )}
-      <div className="flex h-full w-full flex-col border-l border-border bg-surface dark:bg-background">
+      <div className="flex h-full w-full flex-col border-l border-border bg-surface">
         {children}
       </div>
     </div>

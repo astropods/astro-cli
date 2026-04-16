@@ -140,7 +140,7 @@ export function AppHeader() {
 
   if (isMobile) {
     return (
-      <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6 dark:bg-background">
+      <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
         <Link to="/">
           <Logo />
         </Link>
@@ -197,7 +197,7 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-14 items-center border-b border-border bg-surface px-6 dark:bg-background">
+    <header className="flex h-14 items-center border-b border-border bg-surface px-6">
       {/* Left: logo + nav */}
       <div className="flex items-center gap-8">
         <Link to="/" className="flex shrink-0 items-center">
@@ -341,16 +341,18 @@ export function AppHeader() {
                   </Link>
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={logout} className="gap-2">
-                <ArrowRightStartOnRectangleIcon className="size-4" />
-                Sign out
-              </DropdownMenuItem>
-              {experiments.theming && (
-                <>
-                  <DropdownMenuSeparator />
-                  <ThemeSwitcher />
-                </>
-              )}
+              <div className="flex items-center justify-between">
+                <DropdownMenuItem onClick={logout} className="gap-2">
+                  <ArrowRightStartOnRectangleIcon className="size-4" />
+                  Sign out
+                </DropdownMenuItem>
+                {experiments.theming && (
+                  <>
+                    <div className="w-px h-5 bg-border shrink-0" />
+                    <ThemeSwitcher />
+                  </>
+                )}
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (

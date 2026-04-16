@@ -205,6 +205,9 @@ body {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply bg-surface;
+  }
   body {
     @apply bg-surface text-foreground font-sans antialiased;
   }

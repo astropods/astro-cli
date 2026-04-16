@@ -9,7 +9,7 @@ interface DomainsPanelProps {
 
 export function DomainsPanel({ urls }: DomainsPanelProps) {
   return (
-    <div className="bg-stone-50">
+    <div className="bg-background">
       {urls.map((u, i) => (
         <div
           key={u.url}
