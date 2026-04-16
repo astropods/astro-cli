@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -106,6 +109,8 @@ func init() {
 	} {
 		c.Flags().StringVarP(&knowledgeOutput, "output", "o", "", "Output format: json")
 	}
+
+	knowledgeLogsCmd.Flags().Bool("tail", false, "Follow logs in real time")
 
 	knowledgeCreateCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j")
 	knowledgeCreateCmd.Flags().String("name", "", "Store name")
@@ -465,7 +470,12 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Logs endpoint streams plain text — use a long-running client.
+	tail, _ := cmd.Flags().GetBool("tail")
+	if tail {
+		return runKnowledgeLogsTail(cmd.Context(), account, args[0])
+	}
+
+	// Historical logs — one-shot JSON fetch.
 	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet,
 		knowledgeAPIBase()+knowledgePath(account, args[0])+"/logs", nil)
 	if err != nil {
@@ -491,6 +501,75 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	return printLogs(resp.Body)
+}
+
+func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error {
+	ctx, cancel := context.WithCancel(parentCtx)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		cancel()
+	}()
+
+	url := knowledgeAPIBase() + knowledgePath(account, name) + "/logs/stream"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Cli-Version", version)
+	if err := auth.AddAuthHeader(ctx, req, binaryName); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req) //nolint:gosec
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE fields: "data: ...", "event: ...", "id: ...", or blank line.
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		var entry logEntry
+		if err := json.Unmarshal([]byte(data), &entry); err != nil {
+			continue // skip non-log events (ready, status, heartbeat, error)
+		}
+		if entry.Message == "" {
+			continue
+		}
+
+		level := entry.Level
+		if level == "" {
+			level = "INFO"
+		}
+		if entry.Timestamp != "" {
+			fmt.Printf("%s %s %s\n", entry.Timestamp, level, entry.Message)
+		} else {
+			fmt.Printf("%s %s\n", level, entry.Message)
+		}
+	}
+
+	if ctx.Err() != nil {
+		return nil
+	}
+	return scanner.Err()
 }
 
 func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
