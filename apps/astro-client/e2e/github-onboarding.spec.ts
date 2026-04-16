@@ -3,8 +3,24 @@ import { expect, test } from "@playwright/test";
 const MOCK_BACKEND = "http://localhost:48787";
 const ACCOUNT = "testuser";
 
-test.beforeEach(async () => {
+const REPOS = [
+  { full_name: "testuser/my-repo", default_branch: "main", private: false, permissions: { admin: true } },
+  { full_name: "testuser/another-repo", default_branch: "main", private: true, permissions: { admin: true } },
+];
+
+test.beforeEach(async ({ page }) => {
   await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+
+  // Serve repos directly from the browser context so there's no async gap
+  // between "connected: true" landing and repo options being renderable.
+  // The mock backend still handles connect/link/connections/status.
+  await page.route("**/api/v1/accounts/*/github/repos", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ repos: REPOS }),
+    }),
+  );
 });
 
 /** Navigate to /new/custom, fill name, and click Continue to reach the source step. */
@@ -17,22 +33,19 @@ async function goToSourceStep(page: Parameters<Parameters<typeof test>[1]>[0], n
   await expect(page.getByText(/starting point/i)).toBeVisible({ timeout: 10_000 });
 }
 
-/**
- * Click "Connect GitHub" and wait for both the UI confirmation AND the repos
- * network response. We wait for the actual HTTP response (not just the combobox
- * placeholder text) because "Select a repository" is shown while isLoading=false
- * regardless of whether data arrived or errored — waiting for the response
- * guarantees data is in the TanStack Query cache before we open the dropdown.
- */
-async function connectGitHubAndWaitForRepos(page: Parameters<Parameters<typeof test>[1]>[0]) {
-  // Must be registered BEFORE the click that triggers the request.
-  const reposLoaded = page.waitForResponse(
-    (r) => r.url().includes("/github/repos") && r.request().method() === "GET",
-    { timeout: 20_000 },
-  );
+/** Connect GitHub and wait for the repo selector to be ready. */
+async function connectGitHub(page: Parameters<Parameters<typeof test>[1]>[0]) {
   await page.getByRole("button", { name: /connect github/i }).click();
   await expect(page.getByText(/github connected/i)).toBeVisible({ timeout: 15_000 });
-  await reposLoaded;
+  // Wait for the combobox to transition from "Loading repositories..." to "Select a repository"
+  await expect(page.getByRole("combobox").filter({ hasText: /select a repository/i })).toBeVisible({ timeout: 15_000 });
+}
+
+/** Open the repo combobox and wait for Radix option items to mount in the portal. */
+async function openRepoPicker(page: Parameters<Parameters<typeof test>[1]>[0]) {
+  await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
+  // SelectItem renders with role="option"; wait for at least one to mount
+  await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10_000 });
 }
 
 // ─── Test 1: Local setup flow ─────────────────────────────────────────────────
@@ -41,11 +54,7 @@ test("local setup flow: selecting 'set up locally' creates blueprint and shows C
   test.setTimeout(45_000);
 
   await goToSourceStep(page, "mylocal");
-
-  // Select "Set up locally"
   await page.getByText(/set up locally/i).click();
-
-  // "Create blueprint" should now be enabled
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
   const createReq = page.waitForRequest(
@@ -57,13 +66,8 @@ test("local setup flow: selecting 'set up locally' creates blueprint and shows C
   const payload = req.postDataJSON() as { name: string; visibility?: string };
   expect(payload.name).toBe("mylocal");
 
-  // Publishing state visible
   await expect(page.getByText(/initializing mylocal/i)).toBeVisible({ timeout: 10_000 });
-
-  // Auto-nav to blueprint detail
   await page.waitForURL(`**/${ACCOUNT}/mylocal`, { timeout: 20_000 });
-
-  // Blueprint detail page loads (name visible in breadcrumb / header)
   await expect(page.getByRole("heading", { name: "mylocal" })).toBeVisible({ timeout: 10_000 });
 });
 
@@ -73,50 +77,24 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
   test.setTimeout(60_000);
 
   await goToSourceStep(page, "mygithub");
-
-  // Select "Set up with GitHub"
   await page.getByText(/set up with github/i).click();
-
-  // "Create blueprint" is disabled until repo is selected
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeDisabled({ timeout: 5_000 });
 
-  // Register the response waiter BEFORE clicking — we need to catch the request.
-  const connectReq = page.waitForRequest(
-    (req) => req.method() === "POST" && req.url().includes(`/accounts/${ACCOUNT}/github/connect`),
-  );
-  const reposLoaded = page.waitForResponse(
-    (r) => r.url().includes("/github/repos") && r.request().method() === "GET",
-    { timeout: 20_000 },
-  );
+  await connectGitHub(page);
+  await openRepoPicker(page);
 
-  await page.getByRole("button", { name: /connect github/i }).click();
-  await connectReq;
-
-  // Wait for both the UI confirmation and the actual repos network response.
-  await expect(page.getByText(/github connected/i)).toBeVisible({ timeout: 15_000 });
-  await reposLoaded;
-
-  // Open dropdown and select a repo — repos are guaranteed to be in cache now.
-  await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
-  await page.getByText("testuser/my-repo").click();
-
-  // "Create blueprint" is now enabled
+  await page.getByRole("option", { name: /testuser\/my-repo/ }).click();
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
-  const createReq2 = page.waitForRequest(
+  const createReq = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/api/v1/agents/${ACCOUNT}`),
   );
   await page.getByRole("button", { name: /create blueprint/i }).click();
-  await createReq2;
+  await createReq;
 
-  // Publishing state visible
   await expect(page.getByText(/initializing mygithub/i)).toBeVisible({ timeout: 10_000 });
-
-  // Review step — for GitHub import path, user clicks "View blueprint →" to navigate
   await expect(page.getByText(/blueprint registered/i)).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /view blueprint/i }).click();
-
   await page.waitForURL(`**/${ACCOUNT}/mygithub`, { timeout: 15_000 });
 });
 
@@ -125,7 +103,7 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
 test("repo already linked to another blueprint shows as disabled in the repo picker", async ({ page }) => {
   test.setTimeout(45_000);
 
-  // Pre-link testuser/my-repo to the existing "code-reviewer" blueprint
+  // Pre-link testuser/my-repo to code-reviewer via the mock backend
   await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/code-reviewer/link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -133,20 +111,16 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
   });
 
   await goToSourceStep(page, "newagent");
-
-  // Select GitHub path, connect, and wait for repos to load
   await page.getByText(/set up with github/i).click();
-  await connectGitHubAndWaitForRepos(page);
+  await connectGitHub(page);
+  await openRepoPicker(page);
 
-  // Open the repo dropdown — repos are in cache, items should be present immediately
-  await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-
-  // testuser/my-repo should show as disabled with "linked to code-reviewer"
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
+  // testuser/my-repo should be present but disabled, with "linked to" hint
+  await expect(page.getByRole("option", { name: /testuser\/my-repo/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).toBeVisible({ timeout: 5_000 });
 
-  // testuser/another-repo should be visible and not disabled
-  await expect(page.getByText("testuser/another-repo")).toBeVisible({ timeout: 5_000 });
+  // testuser/another-repo should be selectable (not disabled)
+  await expect(page.getByRole("option", { name: /testuser\/another-repo/ })).toBeVisible({ timeout: 5_000 });
 });
 
 // ─── Test 4: Archiving a blueprint releases its repo ─────────────────────────
@@ -161,16 +135,14 @@ test("archiving a blueprint releases its GitHub repo so it can be reused", async
     body: JSON.stringify({ repo_full_name: "testuser/my-repo", branch: "main" }),
   });
 
-  // Verify the link exists
-  const before = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`).then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
+  const before = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`)
+    .then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
   expect(before.connections.some((c) => c.repo_full_name === "testuser/my-repo")).toBe(true);
 
   // Archive code-reviewer via the UI
   await page.goto(`/${ACCOUNT}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByText("code-reviewer").first()).toBeVisible({ timeout: 15_000 });
-
-  const blueprintCard = page.locator("[aria-label='Blueprint options']").first();
-  await blueprintCard.click();
+  await page.locator("[aria-label='Blueprint options']").first().click();
   await page.getByRole("menuitem", { name: /^archive$/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });
   await page.getByRole("checkbox").check();
@@ -179,16 +151,17 @@ test("archiving a blueprint releases its GitHub repo so it can be reused", async
   await page.getByRole("button", { name: /archive blueprint/i }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 10_000 });
 
-  // Verify the mock connection is now gone
-  const after = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`).then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
+  // Mock backend should have cleared the connection on archive
+  const after = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`)
+    .then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
   expect(after.connections.some((c) => c.repo_full_name === "testuser/my-repo")).toBe(false);
 
-  // Navigate to the wizard — testuser/my-repo should no longer be disabled
+  // Navigate to the wizard — testuser/my-repo should now be selectable (no disabled/linked hint)
   await goToSourceStep(page, "newagent");
   await page.getByText(/set up with github/i).click();
-  await connectGitHubAndWaitForRepos(page);
+  await connectGitHub(page);
+  await openRepoPicker(page);
 
-  await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-  await expect(page.getByText("testuser/my-repo")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("option", { name: /testuser\/my-repo/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).not.toBeVisible();
 });
