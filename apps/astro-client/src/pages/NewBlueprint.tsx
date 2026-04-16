@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth";
 import { useExperiments } from "@/lib/experiments";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubAccountConnections } from "@/api/queries";
 import type { GitHubRepo } from "@/lib/api";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
@@ -102,6 +102,7 @@ function NewBlueprintContent() {
 
   const accountConnect = useGitHubAccountConnect(selectedOrg);
   const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected });
+  const accountConnections = useGitHubAccountConnections(selectedOrg, { enabled: githubConnected });
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
@@ -393,15 +394,19 @@ function NewBlueprintContent() {
                                         <SelectValue placeholder={accountRepos.isLoading ? "Loading repositories..." : "Select a repository"} />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        {accountRepos.data?.repos.map((repo) => (
-                                          <SelectItem key={repo.full_name} value={repo.full_name}>
-                                            <span className="flex items-center gap-2">
-                                              <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                                              {repo.full_name}
-                                              {repo.private && <span className="text-[10px] text-muted-foreground">private</span>}
-                                            </span>
-                                          </SelectItem>
-                                        ))}
+                                        {accountRepos.data?.repos.map((repo) => {
+                                          const usedBy = accountConnections.data?.connections.find(c => c.repo_full_name === repo.full_name);
+                                          return (
+                                            <SelectItem key={repo.full_name} value={repo.full_name} disabled={!!usedBy}>
+                                              <span className="flex items-center gap-2">
+                                                <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                                                {repo.full_name}
+                                                {repo.private && <span className="text-[10px] text-muted-foreground">private</span>}
+                                                {usedBy && <span className="text-[10px] text-muted-foreground">linked to {usedBy.agent_name}</span>}
+                                              </span>
+                                            </SelectItem>
+                                          );
+                                        })}
                                       </SelectContent>
                                     </Select>
                                     {selectedRepo && (

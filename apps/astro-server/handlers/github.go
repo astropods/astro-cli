@@ -467,6 +467,36 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 	}
 }
 
+// GitHubAccountListConnections handles GET /api/v1/accounts/:account/github/connections.
+// Returns all repos already linked to agents under this account so the client can
+// disable them in the repo picker and prevent duplicate connections.
+func GitHubAccountListConnections(log *logger.Logger, ghStore *githubconnection.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		conns, err := ghStore.ListByAccount(c.Request.Context(), acct.ID)
+		if err != nil {
+			log.Error("github: list account connections", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list connections"})
+			return
+		}
+
+		type connection struct {
+			AgentName    string `json:"agent_name"`
+			RepoFullName string `json:"repo_full_name"`
+		}
+		out := make([]connection, 0, len(conns))
+		for _, conn := range conns {
+			out = append(out, connection{AgentName: conn.AgentName, RepoFullName: conn.RepoFullName})
+		}
+		c.JSON(http.StatusOK, gin.H{"connections": out})
+	}
+}
+
 // GitHubDisconnect handles DELETE /api/v1/agents/:account/:name/github.
 // Removes the webhook from GitHub and deletes the connection record.
 func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {

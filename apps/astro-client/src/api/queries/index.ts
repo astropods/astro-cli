@@ -1,5 +1,5 @@
 export { accountKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys } from './keys';
-export { useGitHubStatus, useGitHubRepos, useGitHubConnect, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubAccountScan } from './github';
+export { useGitHubStatus, useGitHubRepos, useGitHubConnect, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubAccountScan, useGitHubAccountConnections } from './github';
 export { useBlueprints, useAccountBlueprints, useBlueprint, useDeploymentTemplate, useDeployAgent, useUploadBlueprintAvatar, useCreateBlueprint } from './blueprints';
 export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, useUploadDeploymentAvatar, useDeleteDeploymentAvatar } from './deployments';
 export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile, useUploadAvatar, useSetAvatarPreset, useResetAvatar, useUpdateAccountDisplayName, useUpdateMemberRole, useRemoveAccountMember, useAccountMembers, useCreateInvitations } from './accounts';

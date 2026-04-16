@@ -45,6 +45,7 @@ export const githubKeys = {
   status: (account: string, name: string) => ['github', account, name] as const,
   repos: (account: string, name: string) => ['github', account, name, 'repos'] as const,
   accountRepos: (account: string) => ['github', account, 'repos'] as const,
+  accountConnections: (account: string) => ['github', account, 'connections'] as const,
 };
 
 export const knowledgeKeys = {

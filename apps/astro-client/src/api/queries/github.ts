@@ -100,3 +100,11 @@ export function useGitHubAccountScan(account: string) {
       api.gitHubAccountScan(account, repo, branch, agentName),
   });
 }
+
+export function useGitHubAccountConnections(account: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: githubKeys.accountConnections(account),
+    queryFn: () => api.gitHubListAccountConnections(account),
+    enabled: (opts?.enabled ?? true) && !!account,
+  });
+}

@@ -885,6 +885,12 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
     );
   }
+
+  async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string }> }> {
+    return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string }> }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`
+    );
+  }
 }
 
 export interface ConfigMapResponse {

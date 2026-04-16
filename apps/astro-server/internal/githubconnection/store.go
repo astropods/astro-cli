@@ -168,6 +168,29 @@ func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection
 	return &c, nil
 }
 
+// ListByAccount returns all connections for an account (agent_name + repo_full_name only).
+func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connection, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT agent_name, repo_full_name
+		FROM github_connections
+		WHERE account_id = $1
+		ORDER BY agent_name
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var conns []*Connection
+	for rows.Next() {
+		var c Connection
+		if err := rows.Scan(&c.AgentName, &c.RepoFullName); err != nil {
+			return nil, err
+		}
+		conns = append(conns, &c)
+	}
+	return conns, rows.Err()
+}
+
 // Delete removes a connection. Caller is responsible for removing the GitHub webhook first.
 func (s *Store) Delete(ctx context.Context, accountID, agentName string) error {
 	_, err := s.db.ExecContext(ctx, `
