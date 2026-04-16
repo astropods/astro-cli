@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router";
 import type { Route } from "./+types/NewKnowledgeStore";
 import {
@@ -7,6 +7,8 @@ import {
   GlobeAltIcon,
   CheckIcon,
   ClipboardIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
 } from "@heroicons/react/24/outline";
 import { CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -22,7 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useCreateKnowledgeStore, useConnectKnowledgeStore } from "@/api/queries/knowledge";
+import { useCreateKnowledgeStore, useConnectKnowledgeStore, useKnowledgeStore } from "@/api/queries/knowledge";
 import {
   validateStoreName,
   MANAGED_PROVIDERS,
@@ -32,7 +34,7 @@ import {
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
-import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
+import type { KnowledgeProvider, KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
@@ -131,20 +133,90 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
   );
 }
 
-// --- Step 3: Creating stage ---
+// --- Step 3: Provisioning stage ---
 
-function CreatingStage({ mode }: { mode: "managed" | "external" }) {
+function ProvisioningStage({
+  account,
+  storeName,
+  provider,
+  mode,
+  onReady,
+  onError,
+}: {
+  account: string;
+  storeName: string;
+  provider: KnowledgeProvider;
+  mode: "managed" | "external";
+  onReady: (store: KnowledgeStore) => void;
+  onError: (error: string) => void;
+}) {
+  const { data: store } = useKnowledgeStore(account, storeName);
+
+  // Transition on terminal status
+  useEffect(() => {
+    if (!store) return;
+    if (store.status === "ready") {
+      onReady(store);
+    } else if (store.status === "error") {
+      onError(store.error ?? "Provisioning failed");
+    }
+  }, [store, onReady, onError]);
+
+  const events: KnowledgeEvent[] = store?.events ?? [];
+  const heading = mode === "managed" ? "Provisioning your store" : "Connecting your store";
+  const subtitle = mode === "managed"
+    ? "Setting up infrastructure. This usually takes a moment."
+    : "Verifying connectivity and saving credentials.";
+
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
-      <Spinner size={40} className="text-teal-600" />
-      <h2 className="mt-6 text-heading-4 text-foreground">
-        {mode === "managed" ? "Provisioning your store..." : "Connecting your store..."}
-      </h2>
-      <p className="mt-2 text-body-sm text-muted-foreground">
-        {mode === "managed"
-          ? "This usually takes a few seconds."
-          : "Verifying connectivity and saving credentials."}
-      </p>
+    <div className="mx-auto max-w-lg">
+      <div className="flex flex-col items-center text-center">
+        <Spinner size={40} className="text-teal-600" />
+        <h2 className="mt-6 text-heading-4 text-foreground">{heading}</h2>
+        <p className="mt-1 text-body-sm text-muted-foreground">{subtitle}</p>
+      </div>
+
+      {/* Store card */}
+      <div className="mt-8 rounded-lg border border-border bg-surface p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+            <ProviderIcon provider={provider} className="size-6" />
+          </div>
+          <div className="min-w-0">
+            <span className="font-medium text-foreground">{storeName}</span>
+            <p className="text-body-sm text-muted-foreground">
+              {PROVIDER_LABELS[provider]} &middot; {mode === "managed" ? "Managed" : "External"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Live events log */}
+      {events.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {events.map((event, i) => {
+            const isWarning = event.type === "Warning";
+            return (
+              <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
+                {isWarning ? (
+                  <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+                ) : (
+                  <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-600" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
+                  <span className="text-body-sm text-muted-foreground">: {event.message}</span>
+                </div>
+                {event.count > 1 && (
+                  <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">
+                    x{event.count}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -254,7 +326,7 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
 
 // --- Step 2: Configure form ---
 
-type FormStep = "form" | "creating" | "success";
+type FormStep = "form" | "creating" | "provisioning" | "success" | "error";
 
 function ConfigureForm({
   provider,
@@ -267,6 +339,8 @@ function ConfigureForm({
   const [mode, setMode] = useState<"managed" | "external">(canManage ? "managed" : "external");
   const [step, setStep] = useState<FormStep>("form");
   const [createdStore, setCreatedStore] = useState<KnowledgeStore | null>(null);
+  const [submittedName, setSubmittedName] = useState("");
+  const [provisionError, setProvisionError] = useState("");
 
   // Managed form state
   const [name, setName] = useState("");
@@ -308,10 +382,26 @@ function ConfigureForm({
     !mutation.isPending &&
     (mode === "managed" || (host && !hostError && (!needsPort || port)));
 
-  function onSuccess(store: KnowledgeStore) {
+  function onMutationSuccess(store: KnowledgeStore) {
+    setSubmittedName(store.name);
+    // If already ready (e.g. external connect), skip provisioning
+    if (store.status === "ready") {
+      setCreatedStore(store);
+      setStep("success");
+    } else {
+      setStep("provisioning");
+    }
+  }
+
+  const handleProvisionReady = useCallback((store: KnowledgeStore) => {
     setCreatedStore(store);
     setStep("success");
-  }
+  }, []);
+
+  const handleProvisionError = useCallback((error: string) => {
+    setProvisionError(error);
+    setStep("error");
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -322,7 +412,7 @@ function ConfigureForm({
     if (mode === "managed") {
       create.mutate(
         { name, provider, storage: storage || undefined, public: isPublic || undefined },
-        { onSuccess, onError: () => setStep("form") },
+        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
       );
     } else {
       connect.mutate(
@@ -338,13 +428,55 @@ function ConfigureForm({
           private_link: privateLink || undefined,
           skip_health_check: (!privateLink && skipHealthCheck) || undefined,
         },
-        { onSuccess, onError: () => setStep("form") },
+        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
       );
     }
   }
 
   if (step === "creating") {
-    return <CreatingStage mode={mode} />;
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
+        <Spinner size={40} className="text-teal-600" />
+        <h2 className="mt-6 text-heading-4 text-foreground">
+          {mode === "managed" ? "Creating your store..." : "Connecting your store..."}
+        </h2>
+      </div>
+    );
+  }
+
+  if (step === "provisioning") {
+    return (
+      <ProvisioningStage
+        account={account}
+        storeName={submittedName}
+        provider={provider}
+        mode={mode}
+        onReady={handleProvisionReady}
+        onError={handleProvisionError}
+      />
+    );
+  }
+
+  if (step === "error") {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full border-2 border-red-200 bg-red-50">
+          <ExclamationTriangleIcon className="size-6 text-red-600" />
+        </div>
+        <h2 className="mt-4 text-heading-4 text-foreground">Provisioning failed</h2>
+        <p className="mt-2 text-body-sm text-muted-foreground">{provisionError}</p>
+        <div className="mt-6 flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to={knowledgePath}>Back to Knowledge Stores</Link>
+          </Button>
+          {submittedName && (
+            <Button asChild>
+              <Link to={knowledgeDetailPath(submittedName)}>View store details</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   if (step === "success" && createdStore) {
