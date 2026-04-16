@@ -124,12 +124,33 @@ export function useDeleteFeature() {
 }
 
 // Customers
+interface PaginatedCustomers {
+  items: Customer[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
 export function useCustomers() {
   return useQuery({
     queryKey: openmeterKeys.customers(),
     queryFn: async () => {
-      const res = await api.get<Customer[] | { items: Customer[] }>("/api/openmeter/api/v1/customers");
-      return Array.isArray(res) ? res : res.items;
+      const all: Customer[] = [];
+      let page = 1;
+      const pageSize = 100;
+      for (;;) {
+        const res = await api.get<Customer[] | PaginatedCustomers>(
+          `/api/openmeter/api/v1/customers?page=${page}&pageSize=${pageSize}`
+        );
+        if (Array.isArray(res)) {
+          all.push(...res);
+          break;
+        }
+        all.push(...res.items);
+        if (all.length >= res.totalCount || res.items.length < pageSize) break;
+        page++;
+      }
+      return all;
     },
   });
 }

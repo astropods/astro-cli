@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useCustomers, useDeleteCustomer, useUpdateCustomer, useCreateSubscription, useCancelSubscription, usePlans } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
@@ -13,15 +13,35 @@ import {
 import { formatDateTime } from "@/lib/utils";
 import type { Customer } from "@/types/openmeter";
 
+const PAGE_SIZE = 25;
+
 export function CustomersPage() {
   const { data, isLoading, error } = useCustomers();
   const deleteMut = useDeleteCustomer();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastClicked, setLastClicked] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    if (!search) return data;
+    const q = search.toLowerCase();
+    return data.filter(
+      (c) =>
+        c.id.toLowerCase().includes(q) ||
+        c.name?.toLowerCase().includes(q) ||
+        c.primaryEmail?.toLowerCase().includes(q),
+    );
+  }, [data, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageCustomers = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   const handleRowClick = (index: number, e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
-    if (!data) return;
-    const id = data[index].id;
+    if (!pageCustomers.length) return;
+    const id = pageCustomers[index].id;
 
     setSelected((prev) => {
       const next = new Set(prev);
@@ -29,7 +49,7 @@ export function CustomersPage() {
       if (e.shiftKey && lastClicked !== null) {
         const start = Math.min(lastClicked, index);
         const end = Math.max(lastClicked, index);
-        for (let i = start; i <= end; i++) next.add(data[i].id);
+        for (let i = start; i <= end; i++) next.add(pageCustomers[i].id);
       } else if (e.metaKey || e.ctrlKey) {
         if (next.has(id)) next.delete(id); else next.add(id);
       } else {
@@ -42,15 +62,31 @@ export function CustomersPage() {
   };
 
   const toggleAll = () => {
-    if (!data) return;
-    setSelected((s) => s.size === data.length ? new Set() : new Set(data.map((c) => c.id)));
+    const pageIds = pageCustomers.map((c) => c.id);
+    setSelected((prev) => {
+      const allSelected = pageIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      return new Set([...prev, ...pageIds]);
+    });
   };
 
-  const selectedCustomers = data?.filter((c) => selected.has(c.id)) ?? [];
+  const selectedCustomers = (data ?? []).filter((c) => selected.has(c.id));
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Customers</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Customers</h2>
+        <Input
+          className="w-64 h-7 text-xs"
+          placeholder="Search by name, id, or email..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+        />
+      </div>
 
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-destructive text-sm">{error.message}</p>}
@@ -61,7 +97,7 @@ export function CustomersPage() {
         disabled={selected.size === 0}
       />
 
-      {data && (
+      {data && (<>
         <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-[11px] whitespace-nowrap">
             <thead>
@@ -69,7 +105,7 @@ export function CustomersPage() {
                 <th className="px-2 py-0.5 w-6">
                   <input
                     type="checkbox"
-                    checked={data.length > 0 && selected.size === data.length}
+                    checked={pageCustomers.length > 0 && pageCustomers.every((c) => selected.has(c.id))}
                     onChange={toggleAll}
                     className="size-3 accent-amber"
                   />
@@ -84,7 +120,7 @@ export function CustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {data.map((c, i) => (
+              {pageCustomers.map((c, i) => (
                 <tr
                   key={c.id}
                   className={`border-b border-comb-light hover:bg-glass-light select-none cursor-pointer ${selected.has(c.id) ? "bg-pollen/10" : ""}`}
@@ -129,7 +165,33 @@ export function CustomersPage() {
             </tbody>
           </table>
         </div>
-      )}
+
+        {totalPages > 1 && (
+          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              Page {safePage + 1} of {totalPages} ({filtered.length} customer{filtered.length !== 1 ? "s" : ""})
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={safePage === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                <ChevronLeft className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={safePage >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </>)}
     </div>
   );
 }

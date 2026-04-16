@@ -29,6 +29,7 @@ export default [
       route("new/custom", "pages/NewBlueprint.tsx", { id: "new-custom" }),
       route("dashboard", "pages/AgentDashboard.tsx"),
       route("knowledge", "pages/knowledge/KnowledgeStores.tsx"),
+      route("knowledge/new", "pages/knowledge/NewKnowledgeStore.tsx"),
       route("knowledge/:storeName", "pages/knowledge/KnowledgeStoreDetail.tsx"),
       route("admin", "pages/Admin.tsx"),
       ...prefix("settings", [

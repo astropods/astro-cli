@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useSearchParams, useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, BookOpenIcon, EllipsisHorizontalIcon, CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
-import { CreateKnowledgeStoreDialog } from "@/components/knowledge/CreateKnowledgeStoreDialog";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import {
   statusToColor,
@@ -23,7 +22,7 @@ import {
   statusLabel,
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
-import { knowledgeDetailPath } from "@/lib/routes";
+import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeStore, KnowledgeProvider } from "@/lib/api";
 
@@ -54,10 +53,10 @@ function KnowledgeStoresContent() {
     setSearchParams(account === personalAccount?.name ? {} : { account });
   };
 
+  const navigate = useNavigate();
   const { data, isLoading } = useKnowledgeStores(userAccount, isAuthenticated);
-  const stores = data?.stores ?? [];
+  const stores = data ?? [];
 
-  const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
 
   const tableHeaders = ["NAME", "STATUS", "PROVIDER", "MODE", "STORAGE", "CREATED"];
@@ -83,7 +82,7 @@ function KnowledgeStoresContent() {
               <BookOpenIcon className="size-4" />
               Learn more
             </Button>
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
               <PlusIcon className="size-4" />
               Add store
             </Button>
@@ -124,7 +123,7 @@ function KnowledgeStoresContent() {
                       <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
                         Create a store to give your agents a database for memory, vector search, or caching.
                       </p>
-                      <Button size="lg" onClick={() => setCreateOpen(true)}>
+                      <Button size="lg" onClick={() => navigate(newKnowledgePath)}>
                         <PlusIcon className="size-4" />
                         Add your first store
                       </Button>
@@ -202,7 +201,6 @@ function KnowledgeStoresContent() {
         </div>
       </div>
 
-      <CreateKnowledgeStoreDialog account={userAccount} open={createOpen} onOpenChange={setCreateOpen} />
       {deleteTarget && (
         <DeleteKnowledgeStoreDialog
           open={!!deleteTarget}

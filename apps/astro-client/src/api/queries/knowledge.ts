@@ -5,7 +5,6 @@ import type {
   CreateKnowledgeStoreInput,
   ConnectKnowledgeStoreInput,
   KnowledgeStore,
-  KnowledgeStoreListResponse,
 } from "@/lib/api";
 
 export function useKnowledgeStores(account: string, enabled = true) {
@@ -15,7 +14,7 @@ export function useKnowledgeStores(account: string, enabled = true) {
     queryFn: () => api.listKnowledgeStores(account),
     enabled: !!account && enabled,
     refetchInterval: (query) => {
-      const stores = query.state.data?.stores ?? [];
+      const stores = query.state.data ?? [];
       const hasTransitional = stores.some((s) =>
         ["provisioning", "connecting", "pending-acceptance"].includes(s.status)
       );
@@ -77,17 +76,7 @@ export function useDeleteKnowledgeStore(account: string) {
   const queryClient = useQueryClient();
   return useMutation<{ message: string }, Error, { name: string }>({
     mutationFn: ({ name }) => api.deleteKnowledgeStore(account, name),
-    onSuccess: (_data, variables) => {
-      queryClient.setQueriesData(
-        { queryKey: knowledgeKeys.all(account) },
-        (old: KnowledgeStoreListResponse | undefined) => {
-          if (!old) return old;
-          return {
-            ...old,
-            stores: old.stores.filter((s) => s.name !== variables.name),
-          };
-        },
-      );
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
     },
   });

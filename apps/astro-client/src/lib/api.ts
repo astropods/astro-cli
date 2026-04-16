@@ -1308,9 +1308,7 @@ export interface KnowledgeStore {
   events?: KnowledgeEvent[];
 }
 
-export interface KnowledgeStoreListResponse {
-  stores: KnowledgeStore[];
-}
+export type KnowledgeStoreListResponse = KnowledgeStore[];
 
 export interface CreateKnowledgeStoreInput {
   name: string;

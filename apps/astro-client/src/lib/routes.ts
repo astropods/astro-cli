@@ -19,6 +19,7 @@ export function deploymentConfigurePath(account: string, deploymentId: string) {
 }
 
 export const knowledgePath = "/knowledge";
+export const newKnowledgePath = "/knowledge/new";
 
 export function knowledgeDetailPath(name: string) {
   return `/knowledge/${name}`;
