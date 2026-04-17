@@ -245,7 +245,7 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 
 	// Tool defaults
 	if resolved.Integrations["search"].Replicas != 1 {
-		t.Errorf("tool replicas: expected 1, got %d", resolved.Integrations["search"].Replicas)
+		t.Errorf("integration replicas: expected 1, got %d", resolved.Integrations["search"].Replicas)
 	}
 }
 

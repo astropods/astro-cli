@@ -45,7 +45,7 @@ func TestComputeExpectedResourceNames_WithIntegrationsAndKnowledge(t *testing.T)
 
 	expected := computeExpectedResourceNames(ds, "", "")
 
-	toolName := deployment.GenerateResourceName("my-agent", "tool", "search")
+	toolName := deployment.GenerateResourceName("my-agent", "integration", "search")
 	if !expected["Service"][toolName] {
 		t.Errorf("expected tool service %s", toolName)
 	}
@@ -142,7 +142,7 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 	a := newTestApplier()
 	ctx := context.Background()
 
-	// First deploy with a tool
+	// First deploy with an integration
 	ds := minimalDeploymentSpec()
 	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {
@@ -160,7 +160,7 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 	}
 
 	// Verify tool resources exist
-	toolName := deployment.GenerateResourceName("my-agent", "tool", "search")
+	toolName := deployment.GenerateResourceName("my-agent", "integration", "search")
 	_, err = a.clientset.CoreV1().Services(a.namespace).Get(ctx, toolName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("tool service should exist: %v", err)
@@ -170,7 +170,7 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 		t.Fatalf("tool deployment should exist: %v", err)
 	}
 
-	// Redeploy without the tool
+	// Redeploy without the integration
 	ds2 := minimalDeploymentSpec()
 	ds2.Integrations = nil
 
@@ -218,7 +218,7 @@ func TestCleanupOrphanedResources_KeepsCurrentResources(t *testing.T) {
 		t.Fatalf("second apply: %v", err)
 	}
 
-	toolName := deployment.GenerateResourceName("my-agent", "tool", "search")
+	toolName := deployment.GenerateResourceName("my-agent", "integration", "search")
 	_, err = a.clientset.CoreV1().Services(a.namespace).Get(ctx, toolName, metav1.GetOptions{})
 	if err != nil {
 		t.Error("tool service should still exist after reapply")

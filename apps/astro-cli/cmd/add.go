@@ -39,7 +39,7 @@ var addKnowledgeCmd = &cobra.Command{
 
 var addToolCmd = &cobra.Command{
 	Use:   "tool <provider>",
-	Short: "Add a tool integration to astropods.yml",
+	Short: "Add an integration integration to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAddIntegration,
 }
@@ -96,8 +96,8 @@ func domainToSection(domain string) string {
 		return "models"
 	case "knowledge":
 		return "knowledge"
-	case "tool":
-		return "tools"
+	case "integration":
+		return "integrations"
 	case "ingestion":
 		return "ingestion"
 	}
@@ -152,7 +152,7 @@ func runAddIntegration(cmd *cobra.Command, args []string) error {
 	if !slices.Contains(add.ValidIntegrationProviders, provider) && !customProviders[provider] {
 		return fmt.Errorf("invalid provider %q\n\nAvailable providers:\n  %s\n  (or a custom provider defined in providers:)", provider, strings.Join(add.ValidIntegrationProviders, "\n  "))
 	}
-	return runAddDomain(cmd, "tool", provider)
+	return runAddDomain(cmd, "integration", provider)
 }
 
 func runAddIngestion(cmd *cobra.Command, _ []string) error {
@@ -180,7 +180,7 @@ func runAddProvider(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Added provider '%s' to %s\n", name, specPath)
-	fmt.Printf("Use '%s add model/knowledge/tool %s' to activate it in a domain.\n", binaryName, name)
+	fmt.Printf("Use '%s add model/knowledge/integration %s' to activate it in a domain.\n", binaryName, name)
 	return nil
 }
 

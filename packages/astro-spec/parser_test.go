@@ -732,7 +732,7 @@ models:
 			wantErr: "",
 		},
 		{
-			name: "valid cloud tool provider",
+			name: "valid cloud integration provider",
 			yaml: `
 spec: package/v1
 name: test-agent
@@ -764,7 +764,7 @@ agent:
 		},
 		// Fix 2: integrations container.build must have context and dockerfile
 		{
-			name: "tool container build missing context",
+			name: "integration container build missing context",
 			yaml: `
 spec: package/v1
 name: test-agent
@@ -781,7 +781,7 @@ integrations:
 			wantErr: "integrations.mytool.container.build.context is required",
 		},
 		{
-			name: "tool container build missing dockerfile",
+			name: "integration container build missing dockerfile",
 			yaml: `
 spec: package/v1
 name: test-agent
@@ -798,7 +798,7 @@ integrations:
 			wantErr: "integrations.mytool.container.build.dockerfile is required",
 		},
 		{
-			name: "tool container build valid",
+			name: "integration container build valid",
 			yaml: `
 spec: package/v1
 name: test-agent
@@ -817,7 +817,7 @@ integrations:
 		},
 		// Fix 3: gpu.runtime must be cuda or rocm — integrations and knowledge
 		{
-			name: "tool container invalid gpu runtime",
+			name: "integration container invalid gpu runtime",
 			yaml: `
 spec: package/v1
 name: test-agent
@@ -835,7 +835,7 @@ integrations:
 			wantErr: "integrations.mytool.container.gpu.runtime: must be one of cuda or rocm",
 		},
 		{
-			name: "tool container valid gpu runtime rocm",
+			name: "integration container valid gpu runtime rocm",
 			yaml: `
 spec: package/v1
 name: test-agent

@@ -206,13 +206,13 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 	}
 	for name, tool := range astroSpec.Integrations {
 		if tool.IsProviderMode() {
-			if spec.IsManagedProvider("tools", tool.Provider) {
+			if spec.IsManagedProvider("integrations", tool.Provider) {
 				continue
 			}
 			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {
 				provider := strings.ToLower(tool.Provider)
 				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
-					name: name, provider: provider, category: "tool", suffixes: suffixes,
+					name: name, provider: provider, category: "integration", suffixes: suffixes,
 				})
 			}
 		}

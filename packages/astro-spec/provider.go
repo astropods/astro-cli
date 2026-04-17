@@ -28,7 +28,7 @@ type Toleration struct {
 // in the builtinProviders slice below. Everything else is derived from it.
 type BuiltinProvider struct {
 	Name    string // lowercase provider name (e.g. "ollama", "anthropic")
-	Section string // "models", "knowledge", or "tools"
+	Section string // "models", "knowledge", or "integrations"
 	Cloud   bool   // true → credentials only, no container deployed
 	Managed bool   // true → server injects credentials from its own environment (user never provides them)
 
@@ -135,13 +135,13 @@ var builtinProviders = []BuiltinProvider{
 		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
 	},
 
-	// ── Tools: cloud ─────────────────────────────────────────────────────────
+	// ── Integrations: cloud ─────────────────────────────────────────────────────────
 	{
-		Name: "github", Section: "tools", Cloud: true,
+		Name: "github", Section: "integrations", Cloud: true,
 		Credentials: []CredentialSuffix{{Suffix: "TOKEN", Description: "GitHub token for API access"}},
 	},
 	{
-		Name: "gitlab", Section: "tools", Cloud: true,
+		Name: "gitlab", Section: "integrations", Cloud: true,
 		Credentials: []CredentialSuffix{{Suffix: "TOKEN", Description: "GitLab token for API access"}},
 	},
 }
@@ -186,7 +186,7 @@ func IsCloudKnowledgeProvider(name string) bool {
 }
 
 func IsCloudIntegrationProvider(name string) bool {
-	p, ok := LookupBuiltin("tools", name)
+	p, ok := LookupBuiltin("integrations", name)
 	return ok && p.Cloud
 }
 
@@ -207,7 +207,7 @@ func GetCloudKnowledgeCredentials(name string) ([]CredentialSuffix, bool) {
 }
 
 func GetCloudIntegrationCredentials(name string) ([]CredentialSuffix, bool) {
-	p, ok := LookupBuiltin("tools", name)
+	p, ok := LookupBuiltin("integrations", name)
 	if !ok || !p.Cloud {
 		return nil, false
 	}

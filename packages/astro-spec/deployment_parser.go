@@ -141,15 +141,15 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 	// Rule 6, 6a, 14, 17
 	for name, t := range ds.Integrations {
 		if t.Image == "" {
-			return fmt.Errorf("tools.%s.image is required", name)
+			return fmt.Errorf("integrations.%s.image is required", name)
 		}
 		if len(t.Endpoints) == 0 {
-			return fmt.Errorf("tools.%s.endpoints is required (at least one endpoint)", name)
+			return fmt.Errorf("integrations.%s.endpoints is required (at least one endpoint)", name)
 		}
 		if err := validateEndpoints("tools", name, t.Endpoints); err != nil {
 			return err
 		}
-		if err := validateUpdateStrategy(fmt.Sprintf("tools.%s", name), t.Update); err != nil {
+		if err := validateUpdateStrategy(fmt.Sprintf("integrations.%s", name), t.Update); err != nil {
 			return err
 		}
 	}

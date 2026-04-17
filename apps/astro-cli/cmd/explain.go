@@ -268,7 +268,7 @@ func printKnowledgeEntry(name string, k spec.Knowledge, s *spec.AstroSpec, specD
 func printIntegrationEntry(name string, tool spec.Integration, s *spec.AstroSpec, specDir, workingDir string) {
 	fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
 	if tool.Provider != "" {
-		provType := providerKind(tool.Provider, "tools", s)
+		provType := providerKind(tool.Provider, "integrations", s)
 		fmt.Printf("  %s%s  ·  %s%s", colorDim, tool.Provider, provType, colorReset)
 	} else {
 		fmt.Printf("  %s(container)%s", colorDim, colorReset)
@@ -287,7 +287,7 @@ func printIntegrationEntry(name string, tool spec.Integration, s *spec.AstroSpec
 		}
 	}
 
-	printComponentOutput(s, "tools", name, tool.Provider, "", s)
+	printComponentOutput(s, "integrations", name, tool.Provider, "", s)
 	printInputList(tool.Inputs, "    ")
 }
 
@@ -568,7 +568,7 @@ func collectWarnings(s *spec.AstroSpec) []string {
 	for name, t := range s.Integrations {
 		if t.Container != nil && t.Container.Port > 0 {
 			portUsers[t.Container.Port] = append(portUsers[t.Container.Port],
-				fmt.Sprintf("tool %s%s%s", colorCyan, name, colorReset))
+				fmt.Sprintf("integration %s%s%s", colorCyan, name, colorReset))
 		}
 	}
 	for port, users := range portUsers {

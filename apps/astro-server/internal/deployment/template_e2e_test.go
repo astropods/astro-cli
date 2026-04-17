@@ -561,7 +561,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 		t.Error("PINECONE_API_KEY should be secret")
 	}
 
-	// Cloud tool credentials
+	// Cloud integration credentials
 	if _, ok := ds.Variables["GITHUB_TOKEN"]; !ok {
 		t.Error("missing GITHUB_TOKEN variable")
 	}

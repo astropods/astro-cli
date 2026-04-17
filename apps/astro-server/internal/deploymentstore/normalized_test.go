@@ -213,7 +213,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Fatalf("GetWorkloads failed: %v", err)
 	}
 
-	// Expected: agent + gpt4 model + redis knowledge + search tool + collector = 5
+	// Expected: agent + gpt4 model + redis knowledge + search integration + collector = 5
 	if len(workloads) != 5 {
 		t.Fatalf("expected 5 workloads, got %d", len(workloads))
 	}
@@ -847,7 +847,7 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 		}
 	}
 
-	// agent + search tool = 2
+	// agent + search integration = 2
 	if len(ours) != 2 {
 		t.Fatalf("expected 2 workloads for our deployment, got %d", len(ours))
 	}
@@ -886,15 +886,15 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 		t.Errorf("agent replicas: got %d, want 1", agent.Replicas)
 	}
 
-	tool := byKind["tool/search"]
+	tool := byKind["integration/search"]
 	if tool == nil {
-		t.Fatal("tool/search workload not found")
+		t.Fatal("integration/search workload not found")
 	}
 	if tool.CPURequest != "200m" {
-		t.Errorf("tool cpu: got %q, want '200m'", tool.CPURequest)
+		t.Errorf("integration cpu: got %q, want '200m'", tool.CPURequest)
 	}
 	if tool.Replicas != 2 {
-		t.Errorf("tool replicas: got %d, want 2", tool.Replicas)
+		t.Errorf("integration replicas: got %d, want 2", tool.Replicas)
 	}
 }
 
@@ -1026,7 +1026,7 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 		t.Errorf("expected 'info', got %q", vars2[0].Value)
 	}
 
-	// Verify: services from the old tool workload are also gone (cascaded from workload deletion)
+	// Verify: services from the old integration workload are also gone (cascaded from workload deletion)
 	services2, err := store.GetServices(d2.ID)
 	if err != nil {
 		t.Fatalf("get services after update: %v", err)

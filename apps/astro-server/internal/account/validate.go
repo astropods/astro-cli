@@ -82,7 +82,6 @@ var reservedNames = map[string]bool{
 	"runs":          true,
 	"tasks":         true,
 	"templates":     true,
-	"tools":         true,
 	"traces":        true,
 	"usage":         true,
 	"workflows":     true,

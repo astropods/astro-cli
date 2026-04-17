@@ -10,10 +10,10 @@ var (
 	// Name must be lowercase alphanumeric with hyphens, start with letter, end with alphanumeric
 	nameRegex     = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
 	reservedNames = map[string]bool{
-		"astro": true,
-		"agent": true,
-		"model": true,
-		"tool":  true,
+		"astro":       true,
+		"agent":       true,
+		"model":       true,
+		"integration": true,
 	}
 )
 

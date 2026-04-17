@@ -231,9 +231,9 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 			primaryEp := primaryEndpointName(dt.Endpoints)
 			envPrefix := fmt.Sprintf("INTEGRATION_%s", spec.SanitizeEnvName(name))
-			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${tools.%s.host}", name)
-			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${tools.%s.%s.port}", name, primaryEp)
-			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${tools.%s.%s.url}", name, primaryEp)
+			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${integrations.%s.host}", name)
+			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${integrations.%s.%s.port}", name, primaryEp)
+			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${integrations.%s.%s.url}", name, primaryEp)
 		}
 	}
 
@@ -727,11 +727,11 @@ func defaultEditableFields() []string {
 		"knowledge.*.environment",
 		"knowledge.*.healthcheck",
 		"knowledge.*.update",
-		"tools.*.replicas",
-		"tools.*.resources",
-		"tools.*.environment",
-		"tools.*.healthcheck",
-		"tools.*.update",
+		"integrations.*.replicas",
+		"integrations.*.resources",
+		"integrations.*.environment",
+		"integrations.*.healthcheck",
+		"integrations.*.update",
 		"ingestion.*.resources",
 		"ingestion.*.trigger.schedule",
 		"ingestion.*.environment",

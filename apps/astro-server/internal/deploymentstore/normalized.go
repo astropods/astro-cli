@@ -476,24 +476,24 @@ func SaveNormalizedSpec(
 		}
 	}
 
-	// --- Tools ---
+	// --- Integrations ---
 	for name, tool := range ds.Integrations {
 		replicas := tool.Replicas
 		if replicas == 0 {
 			replicas = 1
 		}
 		w := buildWorkload(componentInput{
-			kind: "tool", key: name, image: tool.Image,
+			kind: "integration", key: name, image: tool.Image,
 			replicas: replicas, resources: tool.Resources,
 			update: tool.Update, hc: tool.Healthcheck,
 			endpoints: tool.Endpoints,
 		})
 		wid, err := insertWorkload(w)
 		if err != nil {
-			return fmt.Errorf("insert tool %s workload: %w", name, err)
+			return fmt.Errorf("insert integration %s workload: %w", name, err)
 		}
 		if err := saveEndpoints(wid, tool.Endpoints); err != nil {
-			return fmt.Errorf("tool %s endpoints: %w", name, err)
+			return fmt.Errorf("integration %s endpoints: %w", name, err)
 		}
 	}
 

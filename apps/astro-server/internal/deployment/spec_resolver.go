@@ -146,10 +146,10 @@ func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map
 	}
 
 	for name, tool := range ds.Integrations {
-		resourceName := GenerateResourceName(ds.Source.Name, "tool", name)
+		resourceName := GenerateResourceName(ds.Source.Name, "integration", name)
 		host := GenerateServiceDNS(resourceName, rctx.Namespace)
 		eps := endpointInfoMap(tool.Endpoints)
-		lookup["tools."+name] = componentInfo{Host: host, Endpoints: eps}
+		lookup["integrations."+name] = componentInfo{Host: host, Endpoints: eps}
 	}
 
 	return lookup
@@ -234,7 +234,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 
 		switch ref.Kind {
 		case spec.RefModel, spec.RefKnowledge, spec.RefIntegration:
-			prefix := string(ref.Kind) // "models", "knowledge", "tools"
+			prefix := string(ref.Kind) // "models", "knowledge", "integrations"
 			key := prefix + "." + ref.Name
 			info, ok := lookup[key]
 			if !ok {

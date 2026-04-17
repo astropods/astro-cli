@@ -100,21 +100,21 @@ func EnforceEditable(template, submitted *AstroDeploymentSpec) []string {
 		}
 	}
 
-	// tools
+	// integrations
 	for name, tmpl := range template.Integrations {
 		subm, ok := submitted.Integrations[name]
 		if !ok {
-			errs = append(errs, fmt.Sprintf("tools.%s: server-owned component cannot be removed", name))
+			errs = append(errs, fmt.Sprintf("integrations.%s: server-owned component cannot be removed", name))
 			continue
 		}
 		if tmpl.Image != subm.Image {
-			errs = append(errs, fmt.Sprintf("tools.%s.image: server-owned field cannot be changed", name))
+			errs = append(errs, fmt.Sprintf("integrations.%s.image: server-owned field cannot be changed", name))
 		}
-		errs = append(errs, enforceEndpoints(fmt.Sprintf("tools.%s", name), tmpl.Endpoints, subm.Endpoints)...)
+		errs = append(errs, enforceEndpoints(fmt.Sprintf("integrations.%s", name), tmpl.Endpoints, subm.Endpoints)...)
 	}
 	for name := range submitted.Integrations {
 		if _, ok := template.Integrations[name]; !ok {
-			errs = append(errs, fmt.Sprintf("tools.%s: cannot add components not present in template", name))
+			errs = append(errs, fmt.Sprintf("integrations.%s: cannot add components not present in template", name))
 		}
 	}
 

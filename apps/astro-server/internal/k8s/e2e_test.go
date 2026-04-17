@@ -381,8 +381,8 @@ integrations:
 
 	requireNoErrors(t, r)
 
-	// Cloud tool → no tool Deployment
-	if r.hasResource("Deployment", "my-agent-tool-github") {
+	// Cloud integration → no tool Deployment
+	if r.hasResource("Deployment", "my-agent-integration-github") {
 		t.Error("did not expect tool Deployment for cloud provider")
 	}
 
@@ -589,9 +589,9 @@ ingestion:
 		t.Error("expected redis knowledge Service")
 	}
 
-	// Cloud tool (github) → no container, but credential in Secret
-	if r.hasResource("Deployment", "my-agent-tool-github") {
-		t.Error("did not expect Deployment for cloud tool")
+	// Cloud integration (github) → no container, but credential in Secret
+	if r.hasResource("Deployment", "my-agent-integration-github") {
+		t.Error("did not expect Deployment for cloud integration")
 	}
 
 	// Secret should exist with credentials
@@ -1086,7 +1086,7 @@ knowledge:
 }
 
 func TestE2E_ProviderEnv_ContainerIntegration(t *testing.T) {
-	// Container-mode tool → INTEGRATION_{NAME}_ prefix (§8.3)
+	// Container-mode integration → INTEGRATION_{NAME}_ prefix (§8.3)
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1101,7 +1101,7 @@ integrations:
 
 	requireNoErrors(t, r)
 
-	host := serviceDNS("my-agent-tool-search", "test-ns")
+	host := serviceDNS("my-agent-integration-search", "test-ns")
 	assertConfigMapValues(t, r, map[string]string{
 		"INTEGRATION_SEARCH_HOST": host,
 		"INTEGRATION_SEARCH_PORT": "3000",
@@ -1126,9 +1126,9 @@ integrations:
 
 	requireNoErrors(t, r)
 
-	// Cloud tool → no container
-	if r.hasResource("Deployment", "my-agent-tool-gitlab") {
-		t.Error("did not expect Deployment for cloud tool provider")
+	// Cloud integration → no container
+	if r.hasResource("Deployment", "my-agent-integration-gitlab") {
+		t.Error("did not expect Deployment for cloud integration provider")
 	}
 
 	ns := r.Namespace
@@ -1437,8 +1437,8 @@ integrations:
 	requireNoErrors(t, r)
 
 	// No containers
-	if r.hasResource("Deployment", "my-agent-tool-gh-main") || r.hasResource("Deployment", "my-agent-tool-gh-secondary") {
-		t.Error("did not expect Deployments for cloud tools")
+	if r.hasResource("Deployment", "my-agent-integration-gh-main") || r.hasResource("Deployment", "my-agent-integration-gh-secondary") {
+		t.Error("did not expect Deployments for cloud integrations")
 	}
 
 	ns := r.Namespace
@@ -1718,8 +1718,8 @@ integrations:
 	requireNoErrors(t, r)
 
 	// No containers
-	if r.hasResource("Deployment", "my-agent-tool-gl-main") || r.hasResource("Deployment", "my-agent-tool-gl-deploy") {
-		t.Error("did not expect Deployments for cloud tools")
+	if r.hasResource("Deployment", "my-agent-integration-gl-main") || r.hasResource("Deployment", "my-agent-integration-gl-deploy") {
+		t.Error("did not expect Deployments for cloud integrations")
 	}
 
 	ns := r.Namespace
@@ -1977,16 +1977,16 @@ integrations:
 
 	requireNoErrors(t, r)
 
-	if !r.hasResource("Deployment", "my-agent-tool-search") {
-		t.Error("expected Deployment for search tool")
+	if !r.hasResource("Deployment", "my-agent-integration-search") {
+		t.Error("expected Deployment for search integration")
 	}
-	if !r.hasResource("Deployment", "my-agent-tool-rerank") {
+	if !r.hasResource("Deployment", "my-agent-integration-rerank") {
 		t.Error("expected Deployment for rerank tool")
 	}
 
 	ns := r.Namespace
-	searchDNS := serviceDNS("my-agent-tool-search", ns)
-	rerankDNS := serviceDNS("my-agent-tool-rerank", ns)
+	searchDNS := serviceDNS("my-agent-integration-search", ns)
+	rerankDNS := serviceDNS("my-agent-integration-rerank", ns)
 
 	assertConfigMapValues(t, r, map[string]string{
 		"INTEGRATION_SEARCH_HOST": searchDNS,

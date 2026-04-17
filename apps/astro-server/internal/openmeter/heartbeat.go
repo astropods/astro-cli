@@ -73,7 +73,7 @@ func (h *Heartbeat) getActiveDeployments(ctx context.Context) ([]activeDeploymen
 
 // containerUsage holds the compute unit calculation for a single container.
 type containerUsage struct {
-	Component string  // e.g. "agent", "model/llm", "knowledge/docs", "tool/search", "interfaces", "observability"
+	Component string  // e.g. "agent", "model/llm", "knowledge/docs", "integration/search", "interfaces", "observability"
 	CU        float64 // compute units for this container
 	CPU       string  // original CPU request string
 	Memory    string  // original memory request string
@@ -314,7 +314,7 @@ func containerBreakdown(s *spec.AstroDeploymentSpec) []containerUsage {
 		result = append(result, makeContainerUsage("knowledge/"+name, k.Resources, k.Replicas))
 	}
 	for name, t := range s.Integrations {
-		result = append(result, makeContainerUsage("tool/"+name, t.Resources, t.Replicas))
+		result = append(result, makeContainerUsage("integration/"+name, t.Resources, t.Replicas))
 	}
 	if s.Interfaces != nil {
 		result = append(result, makeContainerUsage("interfaces", s.Interfaces.Resources, 1))

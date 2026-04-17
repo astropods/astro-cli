@@ -187,19 +187,19 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		}
 	}
 
-	// Validate tool entries
+	// Validate integration entries
 	for name, t := range spec.Integrations {
 		if t.Provider != "" && t.Container != nil {
-			return nil, fmt.Errorf("tool %q: provider and container are mutually exclusive", name)
+			return nil, fmt.Errorf("integration %q: provider and container are mutually exclusive", name)
 		}
 		if t.Provider == "" && t.Container == nil {
-			return nil, fmt.Errorf("tool %q: either provider or container is required", name)
+			return nil, fmt.Errorf("integration %q: either provider or container is required", name)
 		}
 		// Validate custom provider scope
 		if t.Provider != "" {
 			if cp, ok := spec.Providers[t.Provider]; ok {
 				if !scopeContains(cp.Scope, "integrations") {
-					return nil, fmt.Errorf("tool %q: provider %q does not allow scope %q", name, t.Provider, "integrations")
+					return nil, fmt.Errorf("integration %q: provider %q does not allow scope %q", name, t.Provider, "integrations")
 				}
 			}
 		}

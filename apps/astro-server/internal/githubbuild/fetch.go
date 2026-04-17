@@ -57,8 +57,8 @@ func CollectComponentBuilds(astroSpec *spec.AstroSpec, agentName string) []Compo
 	for toolName, tool := range astroSpec.Integrations {
 		if tool.Container != nil && tool.Container.Build != nil {
 			builds = append(builds, ComponentBuild{
-				"tool-" + toolName,
-				fmt.Sprintf("%s-tool-%s", agentName, toolName),
+				"integration-" + toolName,
+				fmt.Sprintf("%s-integration-%s", agentName, toolName),
 				*tool.Container.Build,
 			})
 		}

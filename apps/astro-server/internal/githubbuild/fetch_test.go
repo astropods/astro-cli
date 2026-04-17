@@ -160,15 +160,15 @@ func TestCollectComponentBuilds_WithSidecar(t *testing.T) {
 	}
 	var foundTool bool
 	for _, b := range builds {
-		if b.Suffix == "tool-search" {
+		if b.Suffix == "integration-search" {
 			foundTool = true
-			if b.Name != "my-agent-tool-search" {
-				t.Errorf("tool Name = %q, want %q", b.Name, "my-agent-tool-search")
+			if b.Name != "my-agent-integration-search" {
+				t.Errorf("tool Name = %q, want %q", b.Name, "my-agent-integration-search")
 			}
 		}
 	}
 	if !foundTool {
-		t.Error("expected tool-search build, not found")
+		t.Error("expected integration-search build, not found")
 	}
 }
 

@@ -482,9 +482,9 @@ func TestTemplate_Tool(t *testing.T) {
 		t.Errorf("resources: expected StandardResources, got %+v", tool.Resources)
 	}
 
-	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_HOST", "${tools.websearch.host}")
-	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_PORT", "${tools.websearch.http.port}")
-	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_URL", "${tools.websearch.http.url}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_HOST", "${integrations.websearch.host}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_PORT", "${integrations.websearch.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_URL", "${integrations.websearch.http.url}")
 }
 
 func TestTemplate_IntegrationDefaultPort(t *testing.T) {
@@ -655,9 +655,9 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	if len(ds.Models) != 0 {
 		t.Errorf("cloud models should not be in deployment spec, got %d", len(ds.Models))
 	}
-	// Cloud tools should NOT appear in ds.Integrations
+	// Cloud integrations should NOT appear in ds.Integrations
 	if len(ds.Integrations) != 0 {
-		t.Errorf("cloud tools should not be in deployment spec, got %d", len(ds.Integrations))
+		t.Errorf("cloud integrations should not be in deployment spec, got %d", len(ds.Integrations))
 	}
 
 	// Check agent env references wired for variables
@@ -1589,11 +1589,11 @@ func TestTemplate_AllComponentImagesResolved(t *testing.T) {
 
 	prefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/"
 	checks := map[string]string{
-		"agent":     ds.Agent.Image,
-		"model":     ds.Models["m"].Image,
-		"knowledge": ds.Knowledge["k"].Image,
-		"tool":      ds.Integrations["t"].Image,
-		"ingestion": ds.Ingestion["i"].Image,
+		"agent":       ds.Agent.Image,
+		"model":       ds.Models["m"].Image,
+		"knowledge":   ds.Knowledge["k"].Image,
+		"integration": ds.Integrations["t"].Image,
+		"ingestion":   ds.Ingestion["i"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, prefix) {
@@ -1869,11 +1869,11 @@ func TestTemplate_ECRNamespace_AllComponentsUseIt(t *testing.T) {
 	// All tenant images should resolve using "original-owner", not "acme"
 	prefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-original-owner/"
 	checks := map[string]string{
-		"agent":     ds.Agent.Image,
-		"model":     ds.Models["m"].Image,
-		"knowledge": ds.Knowledge["k"].Image,
-		"tool":      ds.Integrations["t"].Image,
-		"ingestion": ds.Ingestion["i"].Image,
+		"agent":       ds.Agent.Image,
+		"model":       ds.Models["m"].Image,
+		"knowledge":   ds.Knowledge["k"].Image,
+		"integration": ds.Integrations["t"].Image,
+		"ingestion":   ds.Ingestion["i"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, prefix) {
@@ -2083,9 +2083,9 @@ func TestTemplate_OldBuild_AllComponentsResolveWithAccountName(t *testing.T) {
 
 	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/"
 	checks := map[string]string{
-		"agent": ds.Agent.Image,
-		"model": ds.Models["m"].Image,
-		"tool":  ds.Integrations["t"].Image,
+		"agent":       ds.Agent.Image,
+		"model":       ds.Models["m"].Image,
+		"integration": ds.Integrations["t"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, wantPrefix) {
@@ -2111,9 +2111,9 @@ func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
 
 	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/"
 	checks := map[string]string{
-		"agent": ds.Agent.Image,
-		"model": ds.Models["m"].Image,
-		"tool":  ds.Integrations["t"].Image,
+		"agent":       ds.Agent.Image,
+		"model":       ds.Models["m"].Image,
+		"integration": ds.Integrations["t"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, wantPrefix) {

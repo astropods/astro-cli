@@ -232,10 +232,10 @@ func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 	hasToolService := false
 	hasToolDeployment := false
 	for _, r := range result.Resources {
-		if r.Kind == "Service" && r.Name == "my-agent-tool-search" {
+		if r.Kind == "Service" && r.Name == "my-agent-integration-search" {
 			hasToolService = true
 		}
-		if r.Kind == "Deployment" && r.Name == "my-agent-tool-search" {
+		if r.Kind == "Deployment" && r.Name == "my-agent-integration-search" {
 			hasToolDeployment = true
 		}
 	}
@@ -492,7 +492,7 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	ds.Agent.Environment = map[string]string{
 		"LLM_URL":  "${models.llm.http.url}",
 		"DB_HOST":  "${knowledge.docs.host}",
-		"TOOL_URL": "${tools.search.http.url}",
+		"TOOL_URL": "${integrations.search.http.url}",
 	}
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {
@@ -625,11 +625,11 @@ func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
 	// SaveNormalizedSpec uses. If these two sets diverge, the normalized
 	// tables will be missing workloads (or have extra ones).
 	expectedWorkloads := map[string]bool{
-		deployment.GenerateAgentResourceName(agentName, "agent"):           true,
-		deployment.GenerateResourceName(agentName, "model", "llm"):         true,
-		deployment.GenerateResourceName(agentName, "knowledge", "vectors"): true,
-		deployment.GenerateResourceName(agentName, "tool", "search"):       true,
-		deployment.GenerateAgentResourceName(agentName, "collector"):       true,
+		deployment.GenerateAgentResourceName(agentName, "agent"):            true,
+		deployment.GenerateResourceName(agentName, "model", "llm"):          true,
+		deployment.GenerateResourceName(agentName, "knowledge", "vectors"):  true,
+		deployment.GenerateResourceName(agentName, "integration", "search"): true,
+		deployment.GenerateAgentResourceName(agentName, "collector"):        true,
 	}
 
 	// Every expected workload must exist in the applier output

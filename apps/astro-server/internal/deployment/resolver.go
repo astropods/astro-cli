@@ -92,10 +92,10 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 	}
 	for name, t := range submitted.Integrations {
 		if t.Image == "" {
-			errs = append(errs, fmt.Sprintf("tools.%s.image: required", name))
+			errs = append(errs, fmt.Sprintf("integrations.%s.image: required", name))
 		}
 		if len(t.Endpoints) == 0 {
-			errs = append(errs, fmt.Sprintf("tools.%s.endpoints: required (at least one endpoint)", name))
+			errs = append(errs, fmt.Sprintf("integrations.%s.endpoints: required (at least one endpoint)", name))
 		}
 	}
 

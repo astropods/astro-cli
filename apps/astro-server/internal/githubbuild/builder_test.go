@@ -60,8 +60,8 @@ func TestEcrRepoName(t *testing.T) {
 		},
 		{
 			name:        "nested repo path",
-			destination: "123456.dkr.ecr.us-east-1.amazonaws.com/dev-tenant-abc123/my-agent-tool-search:build42",
-			want:        "dev-tenant-abc123/my-agent-tool-search",
+			destination: "123456.dkr.ecr.us-east-1.amazonaws.com/dev-tenant-abc123/my-agent-integration-search:build42",
+			want:        "dev-tenant-abc123/my-agent-integration-search",
 		},
 		{
 			name:        "no slash",

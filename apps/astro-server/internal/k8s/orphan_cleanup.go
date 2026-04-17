@@ -74,7 +74,7 @@ func computeExpectedResourceNames(
 
 	// Tools
 	for name := range ds.Integrations {
-		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
+		resourceName := deployment.GenerateResourceName(agentName, "integration", name)
 		expected["Service"][resourceName] = true
 		expected["Deployment"][resourceName] = true
 	}

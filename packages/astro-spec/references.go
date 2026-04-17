@@ -12,7 +12,7 @@ type ReferenceKind string
 const (
 	RefModel       ReferenceKind = "models"
 	RefKnowledge   ReferenceKind = "knowledge"
-	RefIntegration ReferenceKind = "tools"
+	RefIntegration ReferenceKind = "integrations"
 	RefVariable    ReferenceKind = "variables"
 	RefSource      ReferenceKind = "source"
 )
@@ -107,7 +107,7 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 		case RefIntegration:
 			t, ok := ds.Integrations[ref.Name]
 			if !ok {
-				errs = append(errs, fmt.Sprintf("%s: tool %q not declared", ref.Raw, ref.Name))
+				errs = append(errs, fmt.Sprintf("%s: integration %q not declared", ref.Raw, ref.Name))
 				continue
 			}
 			if ref.Endpoint == "" {
@@ -116,7 +116,7 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 				}
 			} else {
 				if _, epOK := t.Endpoints[ref.Endpoint]; !epOK {
-					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on tool %q", ref.Raw, ref.Endpoint, ref.Name))
+					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on integration %q", ref.Raw, ref.Endpoint, ref.Name))
 				} else if !isValidEndpointAttr(ref.Attribute) {
 					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected port or url)", ref.Raw, ref.Attribute))
 				}

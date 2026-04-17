@@ -91,7 +91,7 @@ type EnvResult struct {
 // CredentialMeta describes one required credential.
 type CredentialMeta struct {
 	Provider    string
-	Category    string // "model", "knowledge", "tool", "provider"
+	Category    string // "model", "knowledge", "integration", "provider"
 	Description string
 	Optional    bool
 }
@@ -244,7 +244,7 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	}
 	for name, t := range s.Integrations {
 		if t.IsProviderMode() {
-			if IsManagedProvider("tools", t.Provider) {
+			if IsManagedProvider("integrations", t.Provider) {
 				continue
 			}
 			if _, isCustom := s.Providers[t.Provider]; isCustom {
@@ -254,7 +254,7 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 			}
 			if suffixes, ok := GetCloudIntegrationCredentials(t.Provider); ok {
 				p := strings.ToLower(t.Provider)
-				groups[p] = append(groups[p], cloudEntry{name, p, "tool", suffixes})
+				groups[p] = append(groups[p], cloudEntry{name, p, "integration", suffixes})
 			}
 		}
 	}
@@ -411,7 +411,7 @@ func AgentConnectionKeys(s *AstroSpec, addrs map[string]ConnectionAddress) map[s
 // contributes to the agent's environment, correctly handling duplicate-provider
 // naming by evaluating within the full spec context.
 //
-// section must be "models", "knowledge", or "tools". entryName is the map key.
+// section must be "models", "knowledge", or "integrations". entryName is the map key.
 // Only connection keys are returned (not model-name keys like OLLAMA_MODEL).
 func AgentKeysForComponent(s *AstroSpec, section, entryName string) []string {
 	const sentinel = "\x00SENTINEL\x00"
@@ -505,7 +505,7 @@ func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
 			if prov == "" {
 				prov = name
 			}
-			return prov, "tool"
+			return prov, "integration"
 		}
 	}
 	return "", ""
@@ -640,7 +640,7 @@ func resolveIntegrationConnections(s *AstroSpec, addrs map[string]ConnectionAddr
 		if !t.DeploysContainer(s.Providers) {
 			continue // cloud or custom provider — no connection wiring
 		}
-		addr := addrs["tools."+name]
+		addr := addrs["integrations."+name]
 		prefix := "INTEGRATION_" + SanitizeEnvName(name)
 		dst[prefix+"_HOST"] = addr.Host
 		dst[prefix+"_PORT"] = addr.Port

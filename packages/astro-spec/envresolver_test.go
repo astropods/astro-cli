@@ -83,7 +83,7 @@ func TestCloudCredentialKeys_SingleToolProvider(t *testing.T) {
 		},
 	}
 	keys := CloudCredentialKeys(s)
-	assertCredKey(t, keys, "GITHUB_TOKEN", "tool", false)
+	assertCredKey(t, keys, "GITHUB_TOKEN", "integration", false)
 }
 
 func TestCloudCredentialKeys_AllCloudProviders(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCloudCredentialKeys_AllCloudProviders(t *testing.T) {
 			name: "gitlab",
 			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
 				Integrations: map[string]Integration{"t": {Provider: "gitlab"}}},
-			wantKey: "GITLAB_TOKEN", cat: "tool",
+			wantKey: "GITLAB_TOKEN", cat: "integration",
 		},
 	}
 	for _, tt := range tests {
@@ -201,7 +201,7 @@ func TestCloudCredentialKeys_MultipleProviders(t *testing.T) {
 	}
 	keys := CloudCredentialKeys(s)
 	assertCredKey(t, keys, "ANTHROPIC_API_KEY", "model", false)
-	assertCredKey(t, keys, "GITHUB_TOKEN", "tool", false)
+	assertCredKey(t, keys, "GITHUB_TOKEN", "integration", false)
 	if len(keys) != 2 {
 		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
 	}
@@ -1054,12 +1054,12 @@ func TestAgentConnectionKeys_ContainerModeTool(t *testing.T) {
 		},
 	}
 	addrs := map[string]ConnectionAddress{
-		"tools.search": {Host: "tool-search", Port: "3000", URL: "http://tool-search:3000"},
+		"integrations.search": {Host: "integration-search", Port: "3000", URL: "http://integration-search:3000"},
 	}
 	env := AgentConnectionKeys(s, addrs)
-	assertEnv(t, env, "INTEGRATION_SEARCH_HOST", "tool-search")
+	assertEnv(t, env, "INTEGRATION_SEARCH_HOST", "integration-search")
 	assertEnv(t, env, "INTEGRATION_SEARCH_PORT", "3000")
-	assertEnv(t, env, "INTEGRATION_SEARCH_URL", "http://tool-search:3000")
+	assertEnv(t, env, "INTEGRATION_SEARCH_URL", "http://integration-search:3000")
 }
 
 func TestAgentConnectionKeys_CloudProviderSkipped(t *testing.T) {
@@ -1084,7 +1084,7 @@ func TestAgentConnectionKeys_CloudProviderSkipped(t *testing.T) {
 }
 
 func TestAgentConnectionKeys_CustomProviderIntegrationSkipped(t *testing.T) {
-	// Custom provider referenced by a tool → no connection wiring.
+	// Custom provider referenced by an integration → no connection wiring.
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
@@ -1235,7 +1235,7 @@ func TestResolveEnvVars_IntegrationInputs(t *testing.T) {
 	res := ResolveEnvVars(s, nil, nil, nil)
 	assertEnv(t, res.Integrations["search"], "RESULT_LIMIT", "10")
 	if _, ok := res.Agent["RESULT_LIMIT"]; ok {
-		t.Error("tool-specific input must not appear in agent container")
+		t.Error("integration-specific input must not appear in agent container")
 	}
 }
 
@@ -1284,7 +1284,7 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 		t.Error("model input leaked into knowledge container")
 	}
 	if _, ok := res.Integrations["srch"]["MODEL_FLAG"]; ok {
-		t.Error("model input leaked into tool container")
+		t.Error("model input leaked into integration container")
 	}
 
 	// knowledge input only in knowledge container
@@ -1293,10 +1293,10 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 		t.Error("knowledge input leaked into model container")
 	}
 
-	// tool input only in tool container
+	// integration input only in integration container
 	assertEnv(t, res.Integrations["srch"], "TOOL_FLAG", "z")
 	if _, ok := res.Models["llm"]["TOOL_FLAG"]; ok {
-		t.Error("tool input leaked into model container")
+		t.Error("integration input leaked into model container")
 	}
 }
 
@@ -1335,11 +1335,11 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	}
 
 	addrs := map[string]ConnectionAddress{
-		"models.llm":      {Host: "model-llm", Port: "11434", URL: "http://model-llm:11434", BaseURL: "http://model-llm:11434/api"},
-		"models.embedder": {Host: "model-embedder", Port: "8000", URL: "http://model-embedder:8000"},
-		"knowledge.docs":  {Host: "knowledge-docs", Port: "6333", URL: "http://knowledge-docs:6333"},
-		"knowledge.cache": {Host: "knowledge-cache", Port: "6379"},
-		"tools.search":    {Host: "tool-search", Port: "3000", URL: "http://tool-search:3000"},
+		"models.llm":          {Host: "model-llm", Port: "11434", URL: "http://model-llm:11434", BaseURL: "http://model-llm:11434/api"},
+		"models.embedder":     {Host: "model-embedder", Port: "8000", URL: "http://model-embedder:8000"},
+		"knowledge.docs":      {Host: "knowledge-docs", Port: "6333", URL: "http://knowledge-docs:6333"},
+		"knowledge.cache":     {Host: "knowledge-cache", Port: "6379"},
+		"integrations.search": {Host: "integration-search", Port: "3000", URL: "http://integration-search:3000"},
 	}
 	creds := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-test",
@@ -1362,9 +1362,9 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	assertEnv(t, res.Agent, "QDRANT_URL", "http://knowledge-docs:6333")
 	assertEnv(t, res.Agent, "REDIS_HOST", "knowledge-cache")
 
-	// Container-mode tool connections
-	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_HOST", "tool-search")
-	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_URL", "http://tool-search:3000")
+	// Container-mode integration connections
+	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_HOST", "integration-search")
+	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_URL", "http://integration-search:3000")
 
 	// Cloud credentials
 	assertEnv(t, res.Agent, "ANTHROPIC_API_KEY", "sk-ant-test")
@@ -1533,7 +1533,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_NoProvider(t *testing.T) {
 	meta := AllAgentAutoEnvKeys(s)
 
 	for _, key := range []string{"INTEGRATION_SEARCH_HOST", "INTEGRATION_SEARCH_PORT", "INTEGRATION_SEARCH_URL"} {
-		assertAutoEnvMeta(t, meta, key, "connection", "search", "tool")
+		assertAutoEnvMeta(t, meta, key, "connection", "search", "integration")
 	}
 }
 
@@ -1549,7 +1549,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_WithProvider(t *testing.T) {
 	meta := AllAgentAutoEnvKeys(s)
 
 	for _, key := range []string{"INTEGRATION_SCRAPER_HOST", "INTEGRATION_SCRAPER_PORT", "INTEGRATION_SCRAPER_URL"} {
-		assertAutoEnvMeta(t, meta, key, "connection", "browserbase", "tool")
+		assertAutoEnvMeta(t, meta, key, "connection", "browserbase", "integration")
 	}
 }
 

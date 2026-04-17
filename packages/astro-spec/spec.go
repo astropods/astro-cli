@@ -211,7 +211,7 @@ type Integration struct {
 	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the integration container"`
 }
 
-// IsProviderMode returns true when the tool entry uses a cloud provider.
+// IsProviderMode returns true when the integration entry uses a cloud provider.
 func (t Integration) IsProviderMode() bool {
 	return t.Provider != ""
 }

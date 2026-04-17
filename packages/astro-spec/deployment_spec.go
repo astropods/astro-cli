@@ -108,7 +108,7 @@ type DeploymentKnowledge struct {
 	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"` // implementation-internal
 }
 
-// DeploymentIntegration describes a tool sidecar container.
+// DeploymentIntegration describes an integration sidecar container.
 type DeploymentIntegration struct {
 	Image       string              `json:"image" yaml:"image"`
 	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`

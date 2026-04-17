@@ -113,7 +113,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Tool services
 	for name, tool := range ds.Integrations {
-		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
+		resourceName := deployment.GenerateResourceName(agentName, "integration", name)
 		port := primaryPort(tool.Endpoints)
 		if port == 0 {
 			port = 8080
@@ -407,7 +407,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Tools
 	for name, tool := range ds.Integrations {
-		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
+		resourceName := deployment.GenerateResourceName(agentName, "integration", name)
 		port := primaryPort(tool.Endpoints)
 		if port == 0 {
 			port = 8080

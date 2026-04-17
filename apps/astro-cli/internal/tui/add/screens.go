@@ -37,7 +37,7 @@ func (m model) nextScreenAfterName() screen {
 		return screenConfirm
 	case "knowledge":
 		return screenPersistent
-	case "tool":
+	case "integration":
 		return screenConfirm
 	case "ingestion":
 		return screenImage
@@ -208,7 +208,7 @@ func (m model) buildEntry() map[string]any {
 			return map[string]any{"provider": m.provider, "persistent": true}
 		}
 		return map[string]any{"provider": m.provider}
-	case "tool":
+	case "integration":
 		return map[string]any{"provider": m.provider}
 	case "ingestion":
 		trigger := m.triggerType

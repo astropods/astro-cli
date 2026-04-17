@@ -95,7 +95,7 @@ func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
-				"SEARCH_URL": "${tools.search.http.url}",
+				"SEARCH_URL": "${integrations.search.http.url}",
 			},
 		},
 		Integrations: map[string]spec.DeploymentIntegration{
@@ -107,8 +107,8 @@ func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 	result := ResolveDeploymentSpecEnv(ds, rctx)
 
 	url := result.ConfigMapData["SEARCH_URL"]
-	if !strings.Contains(url, "agent-tool-search") {
-		t.Errorf("SEARCH_URL: expected agent-tool-search, got %s", url)
+	if !strings.Contains(url, "agent-integration-search") {
+		t.Errorf("SEARCH_URL: expected agent-integration-search, got %s", url)
 	}
 	if !strings.Contains(url, ":3000") {
 		t.Errorf("SEARCH_URL: expected :3000, got %s", url)
