@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import {
   Bars3Icon,
   ArrowRightStartOnRectangleIcon,
-  BuildingOffice2Icon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
   ChatBubbleLeftEllipsisIcon,
@@ -121,7 +120,7 @@ function ThemeSwitcher() {
 }
 
 export function AppHeader() {
-  const { user, accounts, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
+  const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
   const { experiments } = useExperiments();
   const location = useLocation();
   const isMobile = useIsMobile();
@@ -336,27 +335,6 @@ export function AppHeader() {
                   <DropdownMenuSeparator />
                 </>
               )}
-              {(() => {
-                const orgs = accounts.filter((a) => a.type === "organization");
-                return (
-                  <>
-                    {orgs.length > 0 && (
-                      <div className="px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                        Organizations
-                      </div>
-                    )}
-                    {orgs.map((org) => (
-                      <DropdownMenuItem key={org.id} asChild className="gap-2">
-                        <Link to={`/${org.name}`}>
-                          <BuildingOffice2Icon className="size-4" />
-                          {org.name}
-                        </Link>
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-</>
-                );
-              })()}
               {hasPermission('admin:view') && (
                 <DropdownMenuItem asChild className="gap-2">
                   <Link to="/admin">
