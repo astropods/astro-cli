@@ -3,7 +3,7 @@ import { ArrowRightIcon, CommandLineIcon, PlusIcon } from "@heroicons/react/24/o
 import { Button } from "@/components/ui/button";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
-import { blueprintsPaths } from "@/lib/routes";
+import { explorePath } from "@/lib/routes";
 import { useBlueprints } from "@/api/queries";
 import { AgentMascots } from "@/components/AgentMascots";
 
@@ -34,7 +34,7 @@ export function DashboardAgentsEmptyState() {
           <Button asChild>
             <Link to="/getting-started">
               <PlusIcon className="size-4 text-current" />
-              Create agent
+              Create blueprint
             </Link>
           </Button>
           <Button variant="outline" asChild>
@@ -48,9 +48,9 @@ export function DashboardAgentsEmptyState() {
 
       <div>
         <div className="mb-3 flex items-center justify-between gap-4">
-          <h2 className="text-heading-3 text-foreground">Start from a community agent</h2>
+          <h2 className="text-heading-3 text-foreground">Start from a community blueprint</h2>
           <Button variant="ghost" size="sm" asChild>
-            <Link to={blueprintsPaths.discover} className="gap-1">
+            <Link to={explorePath} className="gap-1">
               Browse all
               <ArrowRightIcon className="size-3.5" />
             </Link>
