@@ -65,8 +65,9 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 
 // shouldRefresh checks if the token should be refreshed
 func (m *TokenManager) shouldRefresh(profile *Profile) bool {
+	// Zero expiry means unknown — refresh to be safe (e.g. corrupted storage, old credentials)
 	if profile.ExpiresAt.IsZero() {
-		return false
+		return true
 	}
 	return time.Now().Add(RefreshThreshold).After(profile.ExpiresAt)
 }
@@ -159,7 +160,10 @@ func (m *TokenManager) RequireAuth() error {
 }
 
 // GetOrgScopedAccessToken returns an access token scoped to the given WorkOS organization.
-// The token is not saved to the profile — the stored profile keeps the unscoped personal token.
+// The org-scoped access token is returned for immediate use but NOT saved to the profile
+// (the stored profile keeps the unscoped personal token). However, if WorkOS rotates the
+// refresh token during this call, we must persist the new refresh token — otherwise the
+// stored one becomes stale and subsequent refreshes will fail.
 func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organizationID string) (string, error) {
 	profile, err := m.storage.GetCurrentProfile()
 	if err != nil {
@@ -175,6 +179,15 @@ func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organization
 		return "", fmt.Errorf("failed to get org-scoped token: %w", err)
 	}
 
+	// Persist rotated refresh token (if changed) so future refreshes don't use a stale token
+	if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != profile.RefreshToken {
+		profile.RefreshToken = tokenResp.RefreshToken
+		creds, err := m.storage.LoadCredentials()
+		if err == nil {
+			_ = m.storage.SaveProfile(creds.CurrentProfile, profile)
+		}
+	}
+
 	return tokenResp.AccessToken, nil
 }
 
@@ -188,6 +201,37 @@ func AddAuthHeader(ctx context.Context, req *http.Request, binaryName string) er
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	return nil
+}
+
+// RefreshAndUpdateHeader forces a token refresh and updates the request's Authorization header.
+// Use this after receiving a 401 to retry with a fresh token.
+func RefreshAndUpdateHeader(ctx context.Context, req *http.Request, binaryName string) error {
+	manager := NewTokenManager(binaryName)
+	token, err := manager.forceRefresh(ctx)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	return nil
+}
+
+// forceRefresh unconditionally refreshes the access token
+func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
+	profile, err := m.storage.GetCurrentProfile()
+	if err != nil {
+		return "", fmt.Errorf("not authenticated: %w", err)
+	}
+
+	if profile.RefreshToken == "" {
+		return "", errors.New("no refresh token available. Run 'ast login' to re-authenticate")
+	}
+
+	newProfile, err := m.refreshToken(ctx, profile)
+	if err != nil {
+		return "", fmt.Errorf("token refresh failed: %w", err)
+	}
+	return newProfile.AccessToken, nil
 }
 
 // parseJWTExpiry extracts the expiry time from a JWT token

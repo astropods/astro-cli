@@ -84,13 +84,13 @@ func TestShouldRefresh_ZeroExpiry(t *testing.T) {
 		client:  NewClient(),
 	}
 
-	// Zero expiry time (not set)
+	// Zero expiry time (not set) — should refresh to be safe
 	profile := &Profile{
 		ExpiresAt: time.Time{},
 	}
 
-	if manager.shouldRefresh(profile) {
-		t.Error("expected shouldRefresh to return false when ExpiresAt is zero")
+	if !manager.shouldRefresh(profile) {
+		t.Error("expected shouldRefresh to return true when ExpiresAt is zero (unknown expiry should trigger refresh)")
 	}
 }
 
