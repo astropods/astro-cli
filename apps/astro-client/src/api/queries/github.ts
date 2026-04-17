@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api, type GitHubLinkInput } from '../../lib/api';
 import { githubKeys, blueprintKeys } from './keys';
 
@@ -8,6 +8,9 @@ export function useGitHubStatus(account: string, name: string, opts?: { enabled?
     queryFn: () => api.getGitHubStatus(account, name),
     enabled: (opts?.enabled ?? true) && !!account && !!name,
     refetchInterval: opts?.refetchInterval,
+    // Keep previous data during refetches so callers never see a brief undefined
+    // window (e.g. after a rebuild trigger invalidates the query).
+    placeholderData: keepPreviousData,
   });
 
   // Poll every 5 seconds only while the most recent build is still in-flight.
