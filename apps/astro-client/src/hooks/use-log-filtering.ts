@@ -3,7 +3,7 @@ import { normalizeLevel, type LogEntry } from "@/lib/log-utils";
 
 export type LogFilter = "errors" | "warnings";
 
-export function useLogFiltering(logs: LogEntry[], search: string) {
+export function useLogFiltering(logs: LogEntry[]) {
   const [activeFilters, setActiveFilters] = useState<Set<LogFilter>>(new Set());
 
   const toggleFilter = (f: LogFilter) =>
@@ -17,7 +17,6 @@ export function useLogFiltering(logs: LogEntry[], search: string) {
   const { errCount, warnCount, filtered } = useMemo(() => {
     let errs = 0;
     let warns = 0;
-    const lowerSearch = search.toLowerCase();
     const result: LogEntry[] = [];
 
     for (const entry of logs) {
@@ -26,8 +25,6 @@ export function useLogFiltering(logs: LogEntry[], search: string) {
       const isWarn = level === "WARN";
       if (isErr) errs++;
       if (isWarn) warns++;
-
-      if (lowerSearch && !entry.message.toLowerCase().includes(lowerSearch)) continue;
 
       if (activeFilters.size > 0) {
         const wantErr = activeFilters.has("errors");
@@ -40,7 +37,7 @@ export function useLogFiltering(logs: LogEntry[], search: string) {
     }
 
     return { errCount: errs, warnCount: warns, filtered: result };
-  }, [logs, activeFilters, search]);
+  }, [logs, activeFilters]);
 
   return { activeFilters, toggleFilter, errCount, warnCount, filtered };
 }

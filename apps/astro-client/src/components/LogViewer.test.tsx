@@ -25,7 +25,7 @@ beforeEach(() => {
     getTotalSize: () => opts.count * 28,
     measureElement: vi.fn(),
     scrollToIndex: mockScrollToIndex,
-  }) as ReturnType<typeof useVirtualizer>);
+  }) as unknown as ReturnType<typeof useVirtualizer>);
   mockScrollToIndex.mockReset();
 });
 
@@ -121,25 +121,6 @@ describe("LogViewer", () => {
     expect(screen.queryByText(/Agent initialized/)).not.toBeInTheDocument();
   });
 
-  it("filters lines by search term", () => {
-    renderViewer();
-    const input = screen.getByPlaceholderText("Search logs");
-    fireEvent.change(input, { target: { value: "req-001" } });
-    expect(screen.getByText(/req-001/)).toBeInTheDocument();
-    expect(screen.queryByText(/Agent initialized/)).not.toBeInTheDocument();
-  });
-
-  it("search is case-insensitive", () => {
-    renderViewer();
-    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "AGENT" } });
-    expect(screen.getByText(/Agent initialized/)).toBeInTheDocument();
-  });
-
-  it("shows no matching lines message when search has no results", () => {
-    renderViewer();
-    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "xyzzy-nomatch" } });
-    expect(screen.getByText("No matching lines")).toBeInTheDocument();
-  });
 
   it("calls onTimeRangeChange when time range is changed", () => {
     const onTimeRangeChange = vi.fn();
@@ -200,7 +181,7 @@ describe("LogViewer virtualization", () => {
       getTotalSize: () => opts.count * 28,
       measureElement: vi.fn(),
       scrollToIndex: mockScrollToIndex,
-    }) as ReturnType<typeof useVirtualizer>);
+    }) as unknown as ReturnType<typeof useVirtualizer>);
 
     const manyLogs: LogEntry[] = Array.from({ length: 500 }, (_, i) => ({
       timestamp: "2024-01-01T00:00:01.000Z",
@@ -234,5 +215,44 @@ describe("LogViewer virtualization", () => {
   it("calls scrollToIndex on initial render", () => {
     renderViewer();
     expect(mockScrollToIndex).toHaveBeenCalledWith(LOGS.length - 1, { align: "end" });
+  });
+});
+
+describe("LogViewer search highlighting", () => {
+  it("shows all rows when a search term is active", () => {
+    renderViewer();
+    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "req-001" } });
+    // All rows still in DOM — search no longer filters
+    expect(screen.getByText(/Agent initialized/)).toBeInTheDocument();
+    expect(screen.getByText(/Response generated/)).toBeInTheDocument();
+  });
+
+  it("wraps matching text in a mark element", () => {
+    const { container } = renderViewer();
+    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "req-001" } });
+    const mark = container.querySelector("mark");
+    expect(mark).not.toBeNull();
+    expect(mark?.textContent).toBe("req-001");
+  });
+
+  it("dims non-matching rows", () => {
+    renderViewer();
+    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "req-001" } });
+    const rows = document.querySelectorAll<HTMLElement>(".dp-log");
+    const dimmed = Array.from(rows).filter((r) => r.classList.contains("opacity-40"));
+    // 4 of the 5 rows don't contain "req-001"
+    expect(dimmed.length).toBe(4);
+  });
+
+  it("does not dim rows when search is empty", () => {
+    renderViewer();
+    const rows = document.querySelectorAll<HTMLElement>(".dp-log");
+    const dimmed = Array.from(rows).filter((r) => r.classList.contains("opacity-40"));
+    expect(dimmed.length).toBe(0);
+  });
+
+  it("renders no mark elements when search is empty", () => {
+    const { container } = renderViewer();
+    expect(container.querySelector("mark")).toBeNull();
   });
 });

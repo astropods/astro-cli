@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
@@ -9,6 +9,27 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatLogTimestamp, levelColorClass, normalizeLevel, type LogEntry } from "@/lib/log-utils";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
+
+function highlightText(text: string, search: string): React.ReactNode {
+  if (!search) return text;
+  const lower = text.toLowerCase();
+  const lowerSearch = search.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let idx = lower.indexOf(lowerSearch, cursor);
+  while (idx !== -1) {
+    if (idx > cursor) parts.push(text.slice(cursor, idx));
+    parts.push(
+      <mark key={idx} className="bg-yellow-300/60 text-inherit rounded-[2px] not-italic">
+        {text.slice(idx, idx + search.length)}
+      </mark>
+    );
+    cursor = idx + search.length;
+    idx = lower.indexOf(lowerSearch, cursor);
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
 
 export type LogTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
 
@@ -43,7 +64,8 @@ interface LogViewerProps {
 
 export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
-  const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
+  const deferredSearch = useDeferredValue(logSearch);
+  const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs);
   const filterCounts = { errors: errCount, warnings: warnCount };
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -89,7 +111,6 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
   }, [logs.length, scrollToBottom]);
 
   function emptyMessage() {
-    if (logs.length > 0) return "No matching lines";
     return isTailing ? "Waiting on live tail results…" : "No log lines in this time window";
   }
 
@@ -123,13 +144,14 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           const entry = filtered[vItem.index];
           const level = normalizeLevel(entry.level);
           const lvlClass = levelColorClass(entry.level);
+          const isMatch = !deferredSearch || entry.message.toLowerCase().includes(deferredSearch.toLowerCase());
           return (
             <div
               key={vItem.key}
               data-index={vItem.index}
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vItem.start}px)` }}
-              className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5"
+              className={cn("dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5", deferredSearch && !isMatch && "opacity-40")}
             >
               <span className="text-faint-foreground shrink-0 w-[24ch]">
                 {formatLogTimestamp(entry.timestamp)}
@@ -138,7 +160,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
                 {level}
               </span>
               <span className="text-foreground whitespace-nowrap">
-                {entry.message}
+                {deferredSearch ? highlightText(entry.message, deferredSearch) : entry.message}
               </span>
             </div>
           );

@@ -11,7 +11,7 @@ vi.mocked(useVirtualizer).mockImplementation((opts) => ({
   getTotalSize: () => opts.count * 28,
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
-}) as ReturnType<typeof useVirtualizer>);
+}) as unknown as ReturnType<typeof useVirtualizer>);
 import { server } from "@/test/msw/server";
 import { renderWithProviders } from "@/test/test-utils";
 import { LogsTab } from "./LogsTab";
