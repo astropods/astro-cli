@@ -4,6 +4,14 @@ import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, BookOpenIcon, EllipsisHorizontalIcon, CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   DropdownMenu,
@@ -76,117 +84,113 @@ function KnowledgeStoresContent() {
           </div>
         </div>
 
-        <div className="rounded-md border border-border bg-surface overflow-hidden">
-          <table className="w-full text-body-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                {tableHeaders.map((header) => (
-                  <th key={header} className="px-4 py-2.5 text-left font-mono text-mono-sm text-muted-foreground uppercase tracking-wide">
-                    {header}
-                  </th>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {tableHeaders.map((header) => (
+                <TableHead key={header}>{header}</TableHead>
+              ))}
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <>
+                {[1, 2, 3].map((i) => (
+                  <TableRow key={i}>
+                    <TableCell colSpan={tableHeaders.length + 1}>
+                      <Skeleton className="h-5 w-full rounded" />
+                    </TableCell>
+                  </TableRow>
                 ))}
-                <th className="px-4 py-2.5 w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <>
-                  {[1, 2, 3].map((i) => (
-                    <tr key={i} className="border-b border-border last:border-0">
-                      <td colSpan={tableHeaders.length + 1} className="px-4 py-3">
-                        <Skeleton className="h-5 w-full rounded" />
-                      </td>
-                    </tr>
-                  ))}
-                </>
-              ) : stores.length === 0 ? (
-                <tr>
-                  <td colSpan={tableHeaders.length + 1}>
-                    <div className="flex flex-col items-center justify-center py-20 text-center">
-                      <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted">
-                        <CircleStackIcon className="size-8 text-muted-foreground/60" />
-                      </div>
-                      <h2 className="text-heading-4 text-foreground mb-1">No knowledge stores yet</h2>
-                      <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
-                        Create a store to give your agents a database for memory, vector search, or caching.
-                      </p>
-                      <Button onClick={() => navigate(newKnowledgePath)}>
-                        <PlusIcon className="size-4" />
-                        Add your first store
-                      </Button>
+              </>
+            ) : stores.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={tableHeaders.length + 1} className="p-0">
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted">
+                      <CircleStackIcon className="size-8 text-muted-foreground/60" />
                     </div>
-                  </td>
-                </tr>
-              ) : (
-                stores.map((store) => (
-                  <tr
-                    key={store.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    onClick={() => navigate(knowledgeDetailPath(store.name))}
-                  >
-                    <td className="px-4 py-5">
-                      <span className="font-medium text-foreground">
-                        {store.name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-5">
-                      <StatusBadge
-                        color={statusToColor(store.status)}
-                        indicator
-                        spinning={isTransitionalStatus(store.status)}
-                      >
-                        {statusLabel(store.status)}
-                      </StatusBadge>
-                    </td>
-                    <td className="px-4 py-5 text-muted-foreground">
-                      <span className="inline-flex items-center gap-2">
-                        {PROVIDERS_WITH_ICON.has(store.provider) ? (
-                          <img
-                            src={getIntegrationIconUrl(store.provider, "light")}
-                            alt=""
-                            className="size-5 object-contain"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <CircleStackIcon className="size-5 text-muted-foreground/60" />
-                        )}
-                        {PROVIDER_LABELS[store.provider] ?? store.provider}
-                      </span>
-                    </td>
-                    <td className="px-4 py-5">
-                      <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono text-mono-sm text-muted-foreground">
-                        {store.mode === "managed" ? "Managed" : "External"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-5 text-muted-foreground">
-                      {store.mode === "managed" ? (store.storage ?? "—") : "—"}
-                    </td>
-                    <td className="px-4 py-5 text-muted-foreground">
-                      {formatRelativeTime(store.created_at)}
-                    </td>
-                    <td className="px-4 py-5" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-7">
-                            <EllipsisHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => setDeleteTarget(store)}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    <h2 className="text-heading-4 text-foreground mb-1">No knowledge stores yet</h2>
+                    <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
+                      Create a store to give your agents a database for memory, vector search, or caching.
+                    </p>
+                    <Button onClick={() => navigate(newKnowledgePath)}>
+                      <PlusIcon className="size-4" />
+                      Add your first store
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              stores.map((store) => (
+                <TableRow
+                  key={store.id}
+                  interactive
+                  onClick={() => navigate(knowledgeDetailPath(store.name))}
+                >
+                  <TableCell className="py-5">
+                    <span className="font-medium text-foreground">
+                      {store.name}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-5">
+                    <StatusBadge
+                      color={statusToColor(store.status)}
+                      indicator
+                      spinning={isTransitionalStatus(store.status)}
+                    >
+                      {statusLabel(store.status)}
+                    </StatusBadge>
+                  </TableCell>
+                  <TableCell className="py-5 text-muted-foreground">
+                    <span className="inline-flex items-center gap-2">
+                      {PROVIDERS_WITH_ICON.has(store.provider) ? (
+                        <img
+                          src={getIntegrationIconUrl(store.provider, "light")}
+                          alt=""
+                          className="size-5 object-contain"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <CircleStackIcon className="size-5 text-muted-foreground/60" />
+                      )}
+                      {PROVIDER_LABELS[store.provider] ?? store.provider}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-5">
+                    <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono text-mono-sm text-muted-foreground">
+                      {store.mode === "managed" ? "Managed" : "External"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-5 text-muted-foreground">
+                    {store.mode === "managed" ? (store.storage ?? "—") : "—"}
+                  </TableCell>
+                  <TableCell className="py-5 text-muted-foreground">
+                    {formatRelativeTime(store.created_at)}
+                  </TableCell>
+                  <TableCell className="py-5" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-7">
+                          <EllipsisHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeleteTarget(store)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </div>
 
       {deleteTarget && (
