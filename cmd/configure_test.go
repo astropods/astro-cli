@@ -67,7 +67,7 @@ func TestConfigureCollectsNonSecretProviderVars(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -95,7 +95,7 @@ func TestConfigureNonSecretProviderVarNotSecret(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"myapi": {Provider: "myapi"},
 		},
 	}
@@ -126,7 +126,7 @@ func TestConfigureNonSecretVars_NoDoubleCounting(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"myapi": {Provider: "myapi"},
 		},
 	}
@@ -153,7 +153,7 @@ func TestConfigureNonSecretVars_AllSecretsProducesNoPlainVars(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"vault": {Provider: "vault"},
 		},
 	}
@@ -175,7 +175,7 @@ func TestConfigureNonSecretVars_HyphenatedProviderName(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"t": {Provider: "my-api"},
 		},
 	}
@@ -205,7 +205,7 @@ func TestConfigureNonSecretVars_MultipleProviders(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 			"github":     {Provider: "github"},
 		},
@@ -278,7 +278,7 @@ func TestConfigureNonSecretVars_UnreferencedProviderExcluded(t *testing.T) {
 			"used":   {Variables: []spec.Input{{Name: "X", Secret: false}}},
 			"unused": {Variables: []spec.Input{{Name: "Y", Secret: false}}},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"t": {Provider: "used"},
 		},
 	}

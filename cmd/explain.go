@@ -107,11 +107,11 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	}
 
 	// ── Tools ───────────────────────────────────────────────────────────────
-	if len(astroSpec.Tools) > 0 {
+	if len(astroSpec.Integrations) > 0 {
 		sectionHeader("Tools", "callable capabilities")
-		for _, name := range sortedKeys(astroSpec.Tools) {
-			tool := astroSpec.Tools[name]
-			printToolEntry(name, tool, astroSpec, specDir, workingDir)
+		for _, name := range sortedKeys(astroSpec.Integrations) {
+			tool := astroSpec.Integrations[name]
+			printIntegrationEntry(name, tool, astroSpec, specDir, workingDir)
 		}
 		fmt.Println()
 	}
@@ -265,7 +265,7 @@ func printKnowledgeEntry(name string, k spec.Knowledge, s *spec.AstroSpec, specD
 	printInputList(k.Inputs, "    ")
 }
 
-func printToolEntry(name string, tool spec.Tool, s *spec.AstroSpec, specDir, workingDir string) {
+func printIntegrationEntry(name string, tool spec.Integration, s *spec.AstroSpec, specDir, workingDir string) {
 	fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
 	if tool.Provider != "" {
 		provType := providerKind(tool.Provider, "tools", s)
@@ -534,7 +534,7 @@ func collectWarnings(s *spec.AstroSpec) []string {
 				fmt.Sprintf("Knowledge %s%s%s", colorCyan, name, colorReset))
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if t.Container != nil {
 			checkEnv(t.Container.Environment,
 				fmt.Sprintf("Tool %s%s%s", colorCyan, name, colorReset))
@@ -565,7 +565,7 @@ func collectWarnings(s *spec.AstroSpec) []string {
 				fmt.Sprintf("knowledge %s%s%s", colorCyan, name, colorReset))
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if t.Container != nil && t.Container.Port > 0 {
 			portUsers[t.Container.Port] = append(portUsers[t.Container.Port],
 				fmt.Sprintf("tool %s%s%s", colorCyan, name, colorReset))
@@ -689,7 +689,7 @@ func referencedCustomProviders(s *spec.AstroSpec) map[string]spec.CustomProvider
 			}
 		}
 	}
-	for _, t := range s.Tools {
+	for _, t := range s.Integrations {
 		if t.IsProviderMode() {
 			if cp, ok := s.Providers[t.Provider]; ok {
 				out[t.Provider] = cp

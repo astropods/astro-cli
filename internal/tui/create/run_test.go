@@ -65,7 +65,7 @@ func TestBuildConfig_AnthropicAndOpenAI(t *testing.T) {
 	}
 }
 
-func TestBuildConfig_ToolsAddedToIntegrations(t *testing.T) {
+func TestBuildConfig_IntegrationsAddedToIntegrations(t *testing.T) {
 	cfg := buildConfig(formInputs{
 		name:        "my-agent",
 		interfaces:  []string{"web"},
@@ -136,7 +136,7 @@ func TestBuildConfig_OllamaAndAnthropicCombined(t *testing.T) {
 	}
 }
 
-func TestBuildConfig_OllamaAndToolsCombined(t *testing.T) {
+func TestBuildConfig_OllamaAndIntegrationsCombined(t *testing.T) {
 	cfg := buildConfig(formInputs{
 		name:        "my-agent",
 		interfaces:  []string{"web"},

@@ -195,7 +195,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build custom tool containers (those with build config)
-	for name, tool := range astroSpec.Tools {
+	for name, tool := range astroSpec.Integrations {
 		if tool.Container != nil && tool.Container.Build != nil {
 			baseName := fmt.Sprintf("%s-tool-%s", agentName, name)
 			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)

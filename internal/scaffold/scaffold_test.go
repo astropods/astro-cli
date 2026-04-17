@@ -70,8 +70,8 @@ func TestAstroYml_GitHubUnderTools(t *testing.T) {
 		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
 	}
 
-	if _, ok := s.Tools["github"]; !ok {
-		t.Errorf("expected github under tools, got tools=%v", s.Tools)
+	if _, ok := s.Integrations["github"]; !ok {
+		t.Errorf("expected github under tools, got tools=%v", s.Integrations)
 	}
 	if len(s.Providers) != 0 {
 		t.Errorf("expected no integrations, got %v", s.Providers)
@@ -138,8 +138,8 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 	}
 
 	// Tools: github
-	if _, ok := s.Tools["github"]; !ok {
-		t.Errorf("expected github under tools, got %v", s.Tools)
+	if _, ok := s.Integrations["github"]; !ok {
+		t.Errorf("expected github under tools, got %v", s.Integrations)
 	}
 
 	// Knowledge: qdrant + redis
@@ -186,8 +186,8 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 	if len(s.Knowledge) != 0 {
 		t.Errorf("expected no knowledge, got %v", s.Knowledge)
 	}
-	if len(s.Tools) != 0 {
-		t.Errorf("expected no tools, got %v", s.Tools)
+	if len(s.Integrations) != 0 {
+		t.Errorf("expected no tools, got %v", s.Integrations)
 	}
 	if len(s.Providers) != 0 {
 		t.Errorf("expected no integrations, got %v", s.Providers)
