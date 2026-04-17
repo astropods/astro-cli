@@ -891,6 +891,10 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	logLevel := "info"
 	env["LOG_LEVEL"] = &logLevel
 
+	// Dev mode — lets the messaging service tag outgoing messages
+	devMode := "true"
+	env["DEV"] = &devMode
+
 	// Configure adapters based on interfaces
 	for _, name := range s.Dev.MessagingAdapters() {
 		switch name {

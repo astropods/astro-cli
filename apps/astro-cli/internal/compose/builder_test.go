@@ -98,6 +98,11 @@ func TestBuildProject_SlackInterface(t *testing.T) {
 		t.Error("SLACK_ENABLED should be true")
 	}
 
+	// Dev mode should always be enabled in ast dev
+	if envVal(messaging.Environment, "DEV") != "true" {
+		t.Error("DEV should be true for messaging in dev mode")
+	}
+
 	// Should NOT have playground (only slack, no web)
 	if _, ok := project.Services["playground"]; ok {
 		t.Error("playground should not exist for slack-only interface")
@@ -169,13 +174,16 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Error("playground should not be a separate service — it is bundled into messaging")
 	}
 
-	// Messaging should have WEB_ENABLED and WEB_SERVE_PLAYGROUND
+	// Messaging should have WEB_ENABLED, WEB_SERVE_PLAYGROUND, and DEV
 	messaging := project.Services["astro-messaging"]
 	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
 		t.Error("WEB_ENABLED should be true")
 	}
 	if envVal(messaging.Environment, "WEB_SERVE_PLAYGROUND") != "true" {
 		t.Error("WEB_SERVE_PLAYGROUND should be true")
+	}
+	if envVal(messaging.Environment, "DEV") != "true" {
+		t.Error("DEV should be true for messaging in dev mode")
 	}
 
 	// Messaging should expose both gRPC (19090->9090) and HTTP (3100->8080) ports
