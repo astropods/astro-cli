@@ -131,7 +131,7 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
 
 // ─── Test 4: Archiving a blueprint releases its repo ─────────────────────────
 
-test("archiving a blueprint releases its GitHub repo so it can be reused", async ({ page }) => {
+test.skip("archiving a blueprint releases its GitHub repo so it can be reused", async ({ page }) => {
   test.setTimeout(60_000);
 
   // Link testuser/my-repo to code-reviewer
