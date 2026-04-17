@@ -447,9 +447,9 @@ func (idx *Index) SetVisibility(accountID, name, visibility string) error {
 	// Going public permanently reserves the name regardless of future visibility changes.
 	result, err := idx.db.Exec(`
 		UPDATE agents SET visibility = $1, updated_at = $2,
-		    name_reserved = (name_reserved OR $1 = 'public')
-		WHERE account_id = $3 AND name = $4
-	`, visibility, time.Now(), accountID, name)
+		    name_reserved = (name_reserved OR $3)
+		WHERE account_id = $4 AND name = $5
+	`, visibility, time.Now(), visibility == "public", accountID, name)
 	if err != nil {
 		return fmt.Errorf("failed to update visibility: %w", err)
 	}

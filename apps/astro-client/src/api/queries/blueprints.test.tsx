@@ -268,11 +268,12 @@ describe('useCreateBlueprint', () => {
   });
 
   it('sends visibility in the request body', async () => {
-    let capturedBody: { name: string; visibility?: string } | null = null;
+    // Use an object so TS doesn't narrow the property to `never` via closure analysis.
+    const captured: { body: { name: string; visibility?: string } | null } = { body: null };
     server.use(
       http.post('/api/v1/agents/:account', async ({ request }) => {
-        capturedBody = (await request.json()) as { name: string; visibility?: string };
-        return HttpResponse.json({ account: testAccount, name: capturedBody.name }, { status: 201 });
+        captured.body = (await request.json()) as { name: string; visibility?: string };
+        return HttpResponse.json({ account: testAccount, name: captured.body.name }, { status: 201 });
       }),
     );
 
@@ -281,15 +282,15 @@ describe('useCreateBlueprint', () => {
     result.current.mutate({ name: 'my-new-agent', visibility: 'public' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody?.visibility).toBe('public');
+    expect(captured.body?.visibility).toBe('public');
   });
 
   it('omits visibility when not provided', async () => {
-    let capturedBody: { name: string; visibility?: string } | null = null;
+    const captured: { body: { name: string; visibility?: string } | null } = { body: null };
     server.use(
       http.post('/api/v1/agents/:account', async ({ request }) => {
-        capturedBody = (await request.json()) as { name: string; visibility?: string };
-        return HttpResponse.json({ account: testAccount, name: capturedBody.name }, { status: 201 });
+        captured.body = (await request.json()) as { name: string; visibility?: string };
+        return HttpResponse.json({ account: testAccount, name: captured.body.name }, { status: 201 });
       }),
     );
 
@@ -298,7 +299,7 @@ describe('useCreateBlueprint', () => {
     result.current.mutate({ name: 'my-new-agent' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody?.visibility).toBeUndefined();
+    expect(captured.body?.visibility).toBeUndefined();
   });
 
   it('invalidates account and global blueprint caches on success', async () => {
@@ -326,7 +327,7 @@ describe('useCreateBlueprint', () => {
     result.current.mutate({ name: 'my-new-agent' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect((result.current.error as { status: number })?.status).toBe(409);
+    expect((result.current.error as unknown as { status: number })?.status).toBe(409);
   });
 
   it('surfaces server error on 500', async () => {

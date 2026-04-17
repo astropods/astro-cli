@@ -26,7 +26,7 @@ func TestSetAgentVisibility_Success(t *testing.T) {
 	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("public", sqlmock.AnyArg(), "test-account-id", "my-agent").
+		WithArgs("public", sqlmock.AnyArg(), true, "test-account-id", "my-agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := `{"visibility": "public"}`
@@ -56,7 +56,7 @@ func TestSetAgentVisibility_SetPrivate(t *testing.T) {
 	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("private", sqlmock.AnyArg(), "test-account-id", "my-agent").
+		WithArgs("private", sqlmock.AnyArg(), false, "test-account-id", "my-agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := `{"visibility": "private"}`
@@ -115,7 +115,7 @@ func TestSetAgentVisibility_AgentNotFound(t *testing.T) {
 	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("public", sqlmock.AnyArg(), "test-account-id", "nonexistent").
+		WithArgs("public", sqlmock.AnyArg(), true, "test-account-id", "nonexistent").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	body := `{"visibility": "public"}`

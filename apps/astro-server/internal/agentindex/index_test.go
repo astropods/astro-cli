@@ -102,7 +102,7 @@ func TestSetVisibility_PublicSetsNameReserved(t *testing.T) {
 	idx := NewIndexWithDB(db)
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("public", sqlmock.AnyArg(), "acct-1", "my-agent").
+		WithArgs("public", sqlmock.AnyArg(), true, "acct-1", "my-agent").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	if err := idx.SetVisibility("acct-1", "my-agent", "public"); err != nil {
@@ -124,7 +124,7 @@ func TestSetVisibility_PrivatePreservesNameReserved(t *testing.T) {
 	idx := NewIndexWithDB(db)
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("private", sqlmock.AnyArg(), "acct-1", "my-agent").
+		WithArgs("private", sqlmock.AnyArg(), false, "acct-1", "my-agent").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	if err := idx.SetVisibility("acct-1", "my-agent", "private"); err != nil {
@@ -165,7 +165,7 @@ func TestSetVisibility_AgentNotFoundReturnsError(t *testing.T) {
 	idx := NewIndexWithDB(db)
 
 	mock.ExpectExec("UPDATE agents SET visibility").
-		WithArgs("public", sqlmock.AnyArg(), "acct-1", "no-such-agent").
+		WithArgs("public", sqlmock.AnyArg(), true, "acct-1", "no-such-agent").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	if err := idx.SetVisibility("acct-1", "no-such-agent", "public"); err == nil {
