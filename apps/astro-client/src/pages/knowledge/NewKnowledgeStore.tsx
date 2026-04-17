@@ -12,6 +12,7 @@ import {
 import { CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,6 +23,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { Tag } from "@/components/Tag";
+import { FormSection } from "@/components/deploy/FormSection";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
 import { useCreateKnowledgeStore, useConnectKnowledgeStore, useKnowledgeStore } from "@/api/queries/knowledge";
@@ -489,14 +491,14 @@ function ConfigureForm({
   return (
     <div className="mx-auto max-w-xl">
       <form onSubmit={handleSubmit}>
+        <div className="space-y-12">
         {/* Mode selector — only if provider supports managed */}
         {canManage && (
-          <section className="mb-8">
-            <h2 className="text-heading-4 text-foreground">Mode</h2>
-            <p className="mt-1 text-body-sm text-muted-foreground">
-              Choose how this {PROVIDER_LABELS[provider]} store is hosted.
-            </p>
-            <div className="mt-4 space-y-3">
+          <FormSection
+            title="Mode"
+            description={`Choose how this ${PROVIDER_LABELS[provider]} store is hosted.`}
+          >
+            <div className="space-y-3">
               {(["managed", "external"] as const).map((m) => {
                 const selected = mode === m;
                 return (
@@ -529,24 +531,22 @@ function ConfigureForm({
                 );
               })}
             </div>
-          </section>
+          </FormSection>
         )}
 
         {/* Form section */}
-        <section>
-          <h2 className="text-heading-4 text-foreground">
-            {mode === "managed" ? "Configuration" : "Connection"}
-          </h2>
-          <p className="mt-1 text-body-sm text-muted-foreground">
-            {mode === "managed"
+        <FormSection
+          title={mode === "managed" ? "Configuration" : "Connection"}
+          description={
+            mode === "managed"
               ? "Provision a managed database for your agents."
-              : "Connect your own database. Credentials are encrypted at rest."}
-          </p>
-
-          <div className="mt-4 border-t border-border pt-5 space-y-5">
+              : "Connect your own database. Credentials are encrypted at rest."
+          }
+        >
+          <div className="space-y-5">
             {/* Name */}
-            <div className="space-y-1.5">
-              <label htmlFor="ks-name" className="text-sm font-medium">Name</label>
+            <div>
+              <Label htmlFor="ks-name" size="md">Name</Label>
               <Input
                 id="ks-name"
                 placeholder="my-store"
@@ -555,14 +555,14 @@ function ConfigureForm({
                 autoComplete="off"
                 autoFocus
               />
-              {name && nameError && <p className="text-xs text-destructive">{nameError}</p>}
+              {name && nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
             </div>
 
             {mode === "managed" ? (
               <>
                 {/* Storage */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Storage</label>
+                <div>
+                  <Label size="md">Storage</Label>
                   <Select value={storage} onValueChange={setStorage}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a storage size" />
@@ -607,8 +607,8 @@ function ConfigureForm({
 
                   {/* Host + Port */}
                   <div className="grid grid-cols-[1fr_auto] gap-3 border-t border-border bg-surface px-5 py-4">
-                    <div className="space-y-1.5">
-                      <label htmlFor="ks-host" className="text-sm font-medium">{hostLabel}</label>
+                    <div>
+                      <Label htmlFor="ks-host" size="md">{hostLabel}</Label>
                       <Input
                         id="ks-host"
                         placeholder={hostPlaceholder}
@@ -616,11 +616,11 @@ function ConfigureForm({
                         onChange={(e) => setHost(e.target.value)}
                         autoComplete="off"
                       />
-                      {privateLink && host && hostError && <p className="text-xs text-destructive">{hostError}</p>}
+                      {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
                     </div>
                     {fields.includes("port") && (
-                      <div className="space-y-1.5 w-24">
-                        <label htmlFor="ks-port" className="text-sm font-medium">Port</label>
+                      <div className="w-24">
+                        <Label htmlFor="ks-port" size="md">Port</Label>
                         <Input
                           id="ks-port"
                           type="number"
@@ -638,8 +638,8 @@ function ConfigureForm({
 
                 {/* Dynamic credential fields */}
                 {fields.includes("database") && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="ks-db" className="text-sm font-medium">Database</label>
+                  <div>
+                    <Label htmlFor="ks-db" size="md">Database</Label>
                     <Input
                       id="ks-db"
                       placeholder="mydb"
@@ -650,8 +650,8 @@ function ConfigureForm({
                   </div>
                 )}
                 {fields.includes("username") && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="ks-user" className="text-sm font-medium">Username</label>
+                  <div>
+                    <Label htmlFor="ks-user" size="md">Username</Label>
                     <Input
                       id="ks-user"
                       placeholder="admin"
@@ -662,8 +662,8 @@ function ConfigureForm({
                   </div>
                 )}
                 {fields.includes("password") && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="ks-pass" className="text-sm font-medium">Password</label>
+                  <div>
+                    <Label htmlFor="ks-pass" size="md">Password</Label>
                     <Input
                       id="ks-pass"
                       type="password"
@@ -674,8 +674,8 @@ function ConfigureForm({
                   </div>
                 )}
                 {fields.includes("api_key") && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="ks-apikey" className="text-sm font-medium">API Key</label>
+                  <div>
+                    <Label htmlFor="ks-apikey" size="md">API Key</Label>
                     <Input
                       id="ks-apikey"
                       type="password"
@@ -699,7 +699,8 @@ function ConfigureForm({
               </>
             )}
           </div>
-        </section>
+        </FormSection>
+        </div>
 
         {/* Error */}
         {mutation.isError && (
