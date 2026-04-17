@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import type { Route } from "./+types/NewKnowledgeStore";
 import {
   ArrowLeftIcon,
-  ChevronRightIcon,
   GlobeAltIcon,
   CheckIcon,
   ClipboardIcon,
@@ -110,7 +109,7 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
             key={p}
             type="button"
             onClick={() => onSelect(p)}
-            className="flex w-full items-center gap-4 rounded-lg border border-border bg-background px-5 py-4 text-left transition-colors hover:bg-muted/40"
+            className="flex w-full cursor-pointer items-center gap-4 rounded-lg border border-border bg-background px-5 py-4 text-left transition-colors hover:bg-muted/40"
           >
             <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
               <ProviderIcon provider={p} className="size-6" />
@@ -122,7 +121,6 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
               </div>
               <p className="text-body-sm text-muted-foreground">{PROVIDER_CATEGORIES[p]}</p>
             </div>
-            <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" />
           </button>
         ))}
       </div>
