@@ -83,7 +83,7 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
   await connectGitHub(page);
   await openRepoPicker(page);
 
-  await page.getByRole("option", { name: /testuser\/my-repo/ }).click();
+  await page.getByRole("option", { name: /my-repo/ }).click();
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
   const createReq = page.waitForRequest(
@@ -122,11 +122,11 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
   await openRepoPicker(page);
 
   // testuser/my-repo should be present but disabled, with "linked to" hint
-  await expect(page.getByRole("option", { name: /testuser\/my-repo/ })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("option", { name: /my-repo/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).toBeVisible({ timeout: 5_000 });
 
   // testuser/another-repo should be selectable (not disabled)
-  await expect(page.getByRole("option", { name: /testuser\/another-repo/ })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("option", { name: /another-repo/ })).toBeVisible({ timeout: 5_000 });
 });
 
 // ─── Test 4: Archiving a blueprint releases its repo ─────────────────────────
