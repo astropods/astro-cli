@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Store | Astro" }];
 
-const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone"]);
+const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
 type Tab = "overview" | "logs";
 
 // --- Helpers ---

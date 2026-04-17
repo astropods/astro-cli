@@ -41,7 +41,7 @@ export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge S
 
 // --- Provider catalog ---
 
-const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone"]);
+const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
 
 const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
   postgres: "Relational",
