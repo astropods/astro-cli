@@ -138,7 +138,7 @@ export function AppHeader() {
   // resolved client-side yet. This prevents "My Agents" from popping in.
   const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Knowledge", to: "/knowledge" }] : [];
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [{ label: "Dashboard", to: dashboardPath }, ...knowledgeNav, ...publicNav]
+    ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav, ...knowledgeNav]
     : publicNav;
 
   if (isMobile) {
