@@ -103,12 +103,18 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
 test("repo already linked to another blueprint shows as disabled in the repo picker", async ({ page }) => {
   test.setTimeout(45_000);
 
-  // Pre-link testuser/my-repo to code-reviewer via the mock backend
-  await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/code-reviewer/link`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ repo_full_name: "testuser/my-repo", branch: "main" }),
-  });
+  // Intercept the connections endpoint synchronously so it's available before the dropdown renders.
+  // We pre-define the linked state here instead of hitting the mock backend to avoid a race between
+  // the connections HTTP response arriving and the dropdown opening.
+  await page.route("**/api/v1/accounts/*/github/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        connections: [{ agent_name: "code-reviewer", repo_full_name: "testuser/my-repo", branch: "main" }],
+      }),
+    }),
+  );
 
   await goToSourceStep(page, "newagent");
   await page.getByText(/set up with github/i).click();
