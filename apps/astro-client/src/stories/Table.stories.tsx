@@ -57,8 +57,8 @@ export const Default: Story = {
           <TableRow key={r.name}>
             <TableCell className="font-medium text-foreground">{r.name}</TableCell>
             <TableCell>
-              <StatusBadge color={statusColor[r.status]} indicator>
-                {r.status}
+              <StatusBadge color={statusColor[r.status]}>
+                {r.status[0].toUpperCase() + r.status.slice(1)}
               </StatusBadge>
             </TableCell>
             <TableCell className="text-muted-foreground">{r.provider}</TableCell>
