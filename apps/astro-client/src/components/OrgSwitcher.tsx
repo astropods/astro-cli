@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
-import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
+import { Link } from "react-router";
+import { BuildingOffice2Icon, PlusIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown } from "lucide-react";
 import { StarIcon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -8,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
@@ -26,6 +28,7 @@ interface OrgSwitcherProps {
   defaultAccount?: string;
   onChange: (account: string) => void;
   onSetDefault: (account: string) => void;
+  compact?: boolean;
 }
 
 
@@ -51,6 +54,7 @@ export function OrgSwitcher({
   defaultAccount,
   onChange,
   onSetDefault,
+  compact = false,
 }: OrgSwitcherProps) {
   const { accounts } = useAuth();
   const selectId = useId();
@@ -72,33 +76,53 @@ export function OrgSwitcher({
 
   return (
     <div className="flex items-center gap-2">
-      <Label
-        htmlFor={selectId}
-        className="mb-0 hidden shrink-0 cursor-default select-none font-sans text-xs font-medium normal-case text-foreground sm:inline"
-      >
-        View
-      </Label>
+      {!compact && (
+        <Label
+          htmlFor={selectId}
+          className="mb-0 hidden shrink-0 cursor-default select-none font-sans text-xs font-medium normal-case text-foreground sm:inline"
+        >
+          View
+        </Label>
+      )}
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
-          <button
-            id={selectId}
-            type="button"
-            className={cn(
-              "flex h-8 w-56 items-center justify-between px-2.5 py-0 text-sm leading-none text-foreground",
-              inputBase,
-              inputFocusVisible,
-            )}
-          >
-            {activeAccountObj && (
-              <span className="inline-flex items-center gap-2">
-                <AccountIcon account={activeAccountObj} />
-                <span className="truncate">
-                  {activeAccountObj.display_name || activeAccountObj.name}
+          {compact ? (
+            <button
+              id={selectId}
+              type="button"
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-sm bg-accent px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700"
+            >
+              {activeAccountObj && (
+                <span className="inline-flex items-center gap-1.5">
+                  <AccountIcon account={activeAccountObj} />
+                  <span className="max-w-28 truncate">
+                    {activeAccountObj.name}
+                  </span>
                 </span>
-              </span>
-            )}
-            <ChevronDown className="size-4 shrink-0 opacity-50" />
-          </button>
+              )}
+              <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+            </button>
+          ) : (
+            <button
+              id={selectId}
+              type="button"
+              className={cn(
+                "flex h-8 w-56 items-center justify-between px-2.5 py-0 text-sm leading-none text-foreground",
+                inputBase,
+                inputFocusVisible,
+              )}
+            >
+              {activeAccountObj && (
+                <span className="inline-flex items-center gap-2">
+                  <AccountIcon account={activeAccountObj} />
+                  <span className="truncate">
+                    {activeAccountObj.display_name || activeAccountObj.name}
+                  </span>
+                </span>
+              )}
+              <ChevronDown className="size-4 shrink-0 opacity-50" />
+            </button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {sorted.map((a) => {
@@ -115,7 +139,7 @@ export function OrgSwitcher({
                   {isActive && <Check className="size-4" />}
                 </span>
                 <AccountIcon account={a} />
-                <span className="truncate">{a.display_name || a.name}</span>
+                <span className="truncate">{a.name}</span>
                 {isDefault ? (
                   <button
                     type="button"
@@ -153,6 +177,13 @@ export function OrgSwitcher({
               </DropdownMenuItem>
             );
           })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild className="gap-2">
+            <Link to="/organization/new">
+              <PlusIcon className="size-4" />
+              Create organization
+            </Link>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

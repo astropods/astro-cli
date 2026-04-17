@@ -7,7 +7,6 @@ import {
   BuildingOffice2Icon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
-  PlusIcon,
   ChatBubbleLeftEllipsisIcon,
   SunIcon,
   MoonIcon,
@@ -22,6 +21,11 @@ import { useIsMobile } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { useActiveAccount } from "@/hooks/use-active-account";
+import { useDeployments } from "@/api/queries/deployments";
+import { useAccountBlueprints } from "@/api/queries/blueprints";
+import { Tag } from "@/components/Tag";
 import { useTheme, type Theme } from "@/lib/theme";
 import {
   Tooltip,
@@ -46,7 +50,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dashboardPath } from "@/lib/routes";
+import { dashboardPath, explorePath } from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -123,6 +127,11 @@ export function AppHeader() {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const { activeAccount, defaultAccount, setActiveAccount, toggleDefault } = useActiveAccount();
+  const { data: deploymentsData } = useDeployments(activeAccount, isAuthenticated);
+  const { data: blueprintsData } = useAccountBlueprints(activeAccount, { enabled: isAuthenticated });
+  const agentCount = deploymentsData?.count;
+  const blueprintCount = blueprintsData?.count;
 
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
 
@@ -134,10 +143,11 @@ export function AppHeader() {
   // Include authenticated nav items during loading too — WaitlistGuard ensures
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
-  const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Knowledge Stores", to: "/knowledge" }] : [];
+  const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Stores", to: "/knowledge" }] : [];
+  const exploreNav: NavItem[] = [{ label: "Explore", to: explorePath }];
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav, ...knowledgeNav]
-    : publicNav;
+    ? [...publicNav, { label: "Agents", to: dashboardPath }, ...knowledgeNav, ...exploreNav]
+    : [...publicNav, ...exploreNav];
 
   if (isMobile) {
     return (
@@ -198,33 +208,52 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-14 items-center border-b border-border bg-surface px-6">
-      {/* Left: logo + nav */}
-      <div className="flex items-center gap-8">
+    <header className="relative flex h-14 items-center border-b border-border bg-surface px-6">
+      {/* Left: logo + scope switcher */}
+      <div className="flex items-center gap-2.5">
         <Link to="/" className="flex shrink-0 items-center">
           <Logo />
         </Link>
-
-        <nav className="flex items-center gap-6">
-          {navItems.map((item) => (
-            <ExternalOrNavLink
-              key={item.to}
-              to={item.to}
-              external={item.external}
-              className={({ isActive }) =>
-                cn(
-                  "whitespace-nowrap text-[13px] font-normal transition-colors",
-                  !item.external && isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )
-              }
-            >
-              {item.label}
-            </ExternalOrNavLink>
-          ))}
-        </nav>
+        {isAuthenticated && (
+          <>
+            <div className="h-4 w-px bg-border" />
+            <OrgSwitcher
+              compact
+              activeAccount={activeAccount}
+              defaultAccount={defaultAccount}
+              onChange={setActiveAccount}
+              onSetDefault={toggleDefault}
+            />
+          </>
+        )}
       </div>
+
+      {/* Center: nav links */}
+      <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-6">
+        {navItems.map((item) => (
+          <ExternalOrNavLink
+            key={item.to}
+            to={item.to}
+            external={item.external}
+            className={({ isActive }) =>
+              cn(
+                "whitespace-nowrap text-[13px] transition-colors",
+                !item.external && isActive
+                  ? "font-medium text-foreground"
+                  : "font-normal text-muted-foreground hover:text-foreground",
+              )
+            }
+          >
+            {item.label}
+            {item.to === dashboardPath && !!agentCount && (
+              <Tag className="ml-1.5 size-5 px-0">{agentCount}</Tag>
+            )}
+            {item.to === "/blueprints" && !!blueprintCount && (
+              <Tag className="ml-1.5 size-5 px-0">{blueprintCount}</Tag>
+            )}
+          </ExternalOrNavLink>
+        ))}
+      </nav>
 
       {/* Right: external nav + auth */}
       <div className="ml-auto flex items-center gap-4">
@@ -324,14 +353,8 @@ export function AppHeader() {
                         </Link>
                       </DropdownMenuItem>
                     ))}
-                    <DropdownMenuItem asChild className="gap-2">
-                      <Link to="/organization/new">
-                        <PlusIcon className="size-4" />
-                        Create organization
-                      </Link>
-                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                  </>
+</>
                 );
               })()}
               {hasPermission('admin:view') && (
