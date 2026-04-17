@@ -24,15 +24,14 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID     string          `json:"account_id"`
-	Name          string          `json:"name"`
-	Registry      string          `json:"registry"`
-	Visibility    string          `json:"visibility"`
-	Versions      []*AgentVersion `json:"versions"`
-	ArchivedAt    *time.Time      `json:"archived_at,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	DraftCardJSON string          `json:"draft_card_json,omitempty"`
+	AccountID  string          `json:"account_id"`
+	Name       string          `json:"name"`
+	Registry   string          `json:"registry"`
+	Visibility string          `json:"visibility"`
+	Versions   []*AgentVersion `json:"versions"`
+	ArchivedAt *time.Time      `json:"archived_at,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -175,10 +174,10 @@ func (idx *Index) Create(accountID, name string) error {
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, visibility, archived_at, created_at, updated_at, draft_card_json
+		SELECT account_id, name, registry, visibility, archived_at, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.CreatedAt, &agent.UpdatedAt, &agent.DraftCardJSON)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -298,7 +297,7 @@ func (idx *Index) List() ([]*Agent, error) {
 // ListForAccount returns all agents belonging to a specific account, excluding archived
 func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, created_at, updated_at, draft_card_json
+		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND archived_at IS NULL
 		ORDER BY name
@@ -311,7 +310,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt, &agent.DraftCardJSON); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -569,14 +568,4 @@ func (idx *Index) Transfer(sourceAccountID, targetAccountID, agentName string) e
 	}
 
 	return tx.Commit()
-}
-
-// UpdateDraftCard stores a pre-parsed agent card for a blueprint that has no built versions yet.
-// Called at GitHub link time so the detail page can show AGENT.md content before the first build.
-func (idx *Index) UpdateDraftCard(accountID, name, cardJSON string) error {
-	_, err := idx.db.Exec(`
-		UPDATE agents SET draft_card_json = $1, updated_at = $2
-		WHERE account_id = $3 AND name = $4
-	`, cardJSON, time.Now(), accountID, name)
-	return err
 }

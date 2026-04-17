@@ -14,17 +14,18 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
@@ -43,7 +44,11 @@ type GitHubStatusResponse struct {
 	RepoFullName string                   `json:"repo_full_name,omitempty"`
 	Branch       string                   `json:"branch,omitempty"`
 	Builds       []githubconnection.Build `json:"builds"`
+	DraftCard    *spec.ParsedAgentCard    `json:"draft_card,omitempty"`
 }
+
+const agentMDCachePrefix = "astro:github:agent-md:"
+const agentMDCacheTTL = 60 * time.Second
 
 // GitHubLinkRequest is the body for linking a repo after OAuth.
 type GitHubLinkRequest struct {
@@ -319,7 +324,6 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 
 // GitHubAccountScan handles GET /api/v1/accounts/:account/github/scan.
 // Returns whether astropods.yml exists in the given repo at the given branch.
-// AGENT.md parsing happens server-side at link time (GitHubLink) and is stored as draft_card_json.
 func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
@@ -357,10 +361,9 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 }
 
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
+// GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
-// If AGENT.md exists in the repo, it is parsed and stored as draft_card_json on the agent
-// so the blueprint detail page can display its content before the first build completes.
-func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, index *agentindex.Index, cfg GitHubHandlerConfig) gin.HandlerFunc {
+func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -452,17 +455,6 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 				conn.WebhookSecret = webhookSecret
 				if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
 					log.Warn("github: webhook created but failed to persist", "error", updateErr)
-				}
-			}
-		}
-
-		// Fetch and store AGENT.md as draft_card so the detail page can show it before the first build.
-		if agentMD, err := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, req.RepoFullName, req.Branch, "AGENT.md"); err == nil && agentMD != "" {
-			if card, err := spec.ParseAgentCard(agentMD); err == nil && card != nil {
-				if cardJSON, err := json.Marshal(card); err == nil {
-					if err := index.UpdateDraftCard(acct.ID, agentName, string(cardJSON)); err != nil {
-						log.Warn("github: failed to store draft card", "error", err, "agent", agentName)
-					}
 				}
 			}
 		}
@@ -560,10 +552,11 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 }
 
 // GitHubStatus handles GET /api/v1/agents/:account/:name/github.
-// Returns the current connection info and recent builds.
-func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store) gin.HandlerFunc {
+// Returns the current connection info, recent builds, and AGENT.md draft card (Redis-cached).
+func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store, pipesClient *pipes.Client, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if _, ok := middleware.GetSession(c); !ok {
+		session, ok := middleware.GetSession(c)
+		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
 			return
 		}
@@ -604,11 +597,41 @@ func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store) gin.Handl
 			builds[i].Components = components
 		}
 
+		// Fetch AGENT.md and return as draft_card. Only relevant before the first build;
+		// we still always return it so the client can display it during the draft window.
+		// Redis cache keyed by repo+branch with a 60s TTL avoids repeated GitHub API calls
+		// during the 5s polling interval while a build is in-flight.
+		var draftCard *spec.ParsedAgentCard
+		cacheKey := agentMDCachePrefix + conn.RepoFullName + ":" + conn.Branch
+		if cached, ok := cache.Get(c.Request.Context(), cacheKey); ok {
+			var card spec.ParsedAgentCard
+			if json.Unmarshal(cached, &card) == nil {
+				draftCard = &card
+			}
+		} else {
+			token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+				Provider:       "github",
+				UserID:         session.UserID,
+				OrganizationID: session.OrganizationID,
+			})
+			if tokenErr == nil {
+				if content, fetchErr := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, conn.RepoFullName, conn.Branch, "AGENT.md"); fetchErr == nil && content != "" {
+					if card, parseErr := spec.ParseAgentCard(content); parseErr == nil && card != nil {
+						draftCard = card
+						if b, marshalErr := json.Marshal(card); marshalErr == nil {
+							_ = cache.Set(c.Request.Context(), cacheKey, b, agentMDCacheTTL)
+						}
+					}
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, GitHubStatusResponse{
 			Connected:    true,
 			RepoFullName: conn.RepoFullName,
 			Branch:       conn.Branch,
 			Builds:       builds,
+			DraftCard:    draftCard,
 		})
 	}
 }

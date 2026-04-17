@@ -106,7 +106,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? `${assetsBase}/avatars/${encodeURIComponent(avatarHandle)}.jpg`
     : `${origin}/assets/placeholders/accounts/avatar_01.svg`;
 
-  return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage };
+  // Pre-fetch GitHub status for draft blueprints owned by the authenticated user so
+  // AGENT.md is available immediately on page load (no flash, no sessionStorage).
+  const githubStatus = blueprint?.versions.length === 0
+    ? await api.getGitHubStatus(account, agentSlug).catch(() => null)
+    : null;
+
+  return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage, githubStatus };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
@@ -237,11 +243,30 @@ function BlueprintDetailInner({
 
   const { data: githubStatus } = useGitHubStatus(blueprint.account, blueprint.name, {
     enabled: isDraft && canEdit,
+    initialData: loaderData?.githubStatus ?? undefined,
   });
 
   const githubRepoName = githubStatus?.repo_full_name;
   const githubBranch = githubStatus?.branch;
-  const hasBuild = (githubStatus?.builds?.length ?? 0) > 0;
+
+  // True once status is loaded; optimistically true before first response to suppress flash.
+  const hasBuild = githubStatus === undefined
+    ? true
+    : (githubStatus.builds?.length ?? 0) > 0;
+
+  // Latch draft_card once seen — survives status refetches and rebuilds.
+  const [latchedDraftCard, setLatchedDraftCard] = useState(loaderData?.githubStatus?.draft_card);
+  useEffect(() => {
+    if (githubStatus?.draft_card && !latchedDraftCard) {
+      setLatchedDraftCard(githubStatus.draft_card);
+    }
+  }, [githubStatus?.draft_card, latchedDraftCard]);
+
+  // Inject draft_card into the blueprint when no versions exist yet.
+  const effectiveBlueprint: Blueprint = useMemo(() => {
+    if (blueprint.versions.length > 0 || !latchedDraftCard) return blueprint;
+    return { ...blueprint, draft_card: latchedDraftCard };
+  }, [blueprint, latchedDraftCard]);
 
   // Detect draft → published transition and show success overlay for the GitHub path.
   const [showBuildSuccess, setShowBuildSuccess] = useState(false);
@@ -253,11 +278,11 @@ function BlueprintDetailInner({
     wasDraftRef.current = isDraft;
   }, [isDraft, githubRepoName]);
 
-  const integrations = getBlueprintIntegrations(blueprint);
-  const categories = getBlueprintCategories(blueprint);
-  const readme = getBlueprintReadme(blueprint);
-  const authors = getBlueprintAuthors(blueprint);
-  const capabilities = getBlueprintCapabilities(blueprint);
+  const integrations = getBlueprintIntegrations(effectiveBlueprint);
+  const categories = getBlueprintCategories(effectiveBlueprint);
+  const readme = getBlueprintReadme(effectiveBlueprint);
+  const authors = getBlueprintAuthors(effectiveBlueprint);
+  const capabilities = getBlueprintCapabilities(effectiveBlueprint);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
@@ -285,7 +310,7 @@ function BlueprintDetailInner({
           visibility={blueprint.visibility}
           mobileSidebar={
             <SidebarCard
-              agent={blueprint}
+              agent={effectiveBlueprint}
               integrations={integrations}
               capabilities={capabilities}
               authors={authors}
@@ -300,7 +325,7 @@ function BlueprintDetailInner({
         />
 
         <BlueprintDetailSidebar
-          agent={blueprint}
+          agent={effectiveBlueprint}
           integrations={integrations}
           capabilities={capabilities}
           authors={authors}

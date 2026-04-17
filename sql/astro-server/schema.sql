@@ -52,7 +52,6 @@ CREATE TABLE public.agents (
     archived_at timestamp,
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
-    draft_card_json jsonb NOT NULL DEFAULT 'null',
     CONSTRAINT agents_pkey PRIMARY KEY (account_id, name),
     CONSTRAINT agents_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

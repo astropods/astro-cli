@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api, type GitHubLinkInput } from '../../lib/api';
+import { api, type GitHubLinkInput, type GitHubStatusResponse } from '../../lib/api';
 import { githubKeys, blueprintKeys } from './keys';
 
-export function useGitHubStatus(account: string, name: string, opts?: { enabled?: boolean; refetchInterval?: number | false }) {
+export function useGitHubStatus(account: string, name: string, opts?: { enabled?: boolean; refetchInterval?: number | false; initialData?: GitHubStatusResponse }) {
   const result = useQuery({
     queryKey: githubKeys.status(account, name),
     queryFn: () => api.getGitHubStatus(account, name),
     enabled: (opts?.enabled ?? true) && !!account && !!name,
     refetchInterval: opts?.refetchInterval,
+    initialData: opts?.initialData,
     // Keep previous data during refetches so callers never see a brief undefined
     // window (e.g. after a rebuild trigger invalidates the query).
     placeholderData: keepPreviousData,

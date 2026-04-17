@@ -1438,6 +1438,7 @@ export interface GitHubStatusResponse {
   repo_full_name?: string;
   branch?: string;
   builds: GitHubBuild[];
+  draft_card?: BlueprintCardData;
 }
 
 export interface GitHubConnectResponse {

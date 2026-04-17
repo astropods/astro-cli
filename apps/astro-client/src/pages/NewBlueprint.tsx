@@ -179,10 +179,9 @@ function NewBlueprintContent() {
   const handleGoToBlueprint = useCallback(() => {
     if (sourcePath === "import" && selectedRepo) {
       setExperiment("githubAutoBuild", true);
-      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, yml_found: scanResult === "found" }));
     }
     navigate(`/${selectedOrg}/${slug}`);
-  }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, scanResult, navigate, setExperiment]);
+  }, [sourcePath, selectedRepo, selectedOrg, slug, navigate, setExperiment]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {

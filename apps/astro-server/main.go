@@ -1259,7 +1259,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 			)
 			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
-				handlers.GitHubLink(log, pipesClient, ghStore, agentIndex, githubCfg),
+				handlers.GitHubLink(log, pipesClient, ghStore, githubCfg),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.GitHubLinkRequest{}),
@@ -1270,7 +1270,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 			)
 			api.GET(githubRoutes, "/github", "Get GitHub connection status and builds",
-				handlers.GitHubStatus(log, ghStore),
+				handlers.GitHubStatus(log, ghStore, pipesClient, k8sCache),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 			)
