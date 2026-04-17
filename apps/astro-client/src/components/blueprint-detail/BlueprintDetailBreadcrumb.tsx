@@ -7,6 +7,69 @@ import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { blueprintsPaths } from "@/lib/routes";
 
+function HeartButton({
+  iconOnly,
+  hearted,
+  heartCount,
+  onToggle,
+}: {
+  iconOnly?: boolean;
+  hearted: boolean;
+  heartCount: number;
+  onToggle: () => void;
+}) {
+  return (
+    <Button
+      variant="outline"
+      size={iconOnly ? "icon" : "sm"}
+      aria-label="Heart"
+      onClick={onToggle}
+    >
+      {hearted ? (
+        <HeartSolid className="h-3.5 w-3.5 text-red-500" />
+      ) : (
+        <HeartOutline className="h-3.5 w-3.5" />
+      )}
+      {!iconOnly && (
+        <>
+          Hearts
+          <span className="border-l pl-2 ml-1 text-xs tabular-nums">{heartCount}</span>
+        </>
+      )}
+    </Button>
+  );
+}
+
+function ShareButton({
+  iconOnly,
+  copied,
+  onShare,
+}: {
+  iconOnly?: boolean;
+  copied: boolean;
+  onShare: () => void;
+}) {
+  return (
+    <Button
+      variant="outline"
+      size={iconOnly ? "icon" : "sm"}
+      onClick={onShare}
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5 text-green-500" />
+          {!iconOnly && "Link copied"}
+        </>
+      ) : (
+        <>
+          <ShareIcon className="h-3.5 w-3.5" />
+          {!iconOnly && "Share"}
+        </>
+      )}
+    </Button>
+  );
+}
+
 export interface BlueprintDetailBreadcrumbProps {
   account: string;
   blueprintName: string;
@@ -17,8 +80,8 @@ export interface BlueprintDetailBreadcrumbProps {
 export function BlueprintDetailBreadcrumb({
   account,
   blueprintName,
-  hearted: initialHearted = false,
-  heartCount: initialHeartCount = 0,
+  hearted = false,
+  heartCount = 0,
 }: BlueprintDetailBreadcrumbProps) {
   const { copy, copied } = useCopyToClipboard(2000);
   const toggleHeart = useToggleHeart(account, blueprintName);
@@ -39,51 +102,6 @@ export function BlueprintDetailBreadcrumb({
     await copy(url);
   };
 
-  function HeartButton({ iconOnly }: { iconOnly?: boolean }) {
-    return (
-      <Button
-        variant="outline"
-        size={iconOnly ? "icon" : "sm"}
-        aria-label="Heart"
-        onClick={() => toggleHeart.mutate()}
-      >
-        {initialHearted ? (
-          <HeartSolid className="h-3.5 w-3.5 text-red-500" />
-        ) : (
-          <HeartOutline className="h-3.5 w-3.5" />
-        )}
-        {!iconOnly && (
-          <>
-            Hearts
-            <span className="border-l pl-2 ml-1 text-xs tabular-nums">{initialHeartCount}</span>
-          </>
-        )}
-      </Button>
-    );
-  }
-
-  function ShareButton({ iconOnly }: { iconOnly?: boolean }) {
-    return (
-      <Button
-        variant="outline"
-        size={iconOnly ? "icon" : "sm"}
-        onClick={handleShare}
-      >
-        {copied ? (
-          <>
-            <Check className="h-3.5 w-3.5 text-green-500" />
-            {!iconOnly && "Link copied"}
-          </>
-        ) : (
-          <>
-            <ShareIcon className="h-3.5 w-3.5" />
-            {!iconOnly && "Share"}
-          </>
-        )}
-      </Button>
-    );
-  }
-
   return (
     <PageBreadcrumb
       items={[
@@ -93,14 +111,14 @@ export function BlueprintDetailBreadcrumb({
       ]}
       actions={
         <>
-          <HeartButton />
-          <ShareButton />
+          <HeartButton hearted={hearted} heartCount={heartCount} onToggle={() => toggleHeart.mutate()} />
+          <ShareButton copied={copied} onShare={handleShare} />
         </>
       }
       mobileActions={
         <>
-          <HeartButton iconOnly />
-          <ShareButton iconOnly />
+          <HeartButton iconOnly hearted={hearted} heartCount={heartCount} onToggle={() => toggleHeart.mutate()} />
+          <ShareButton iconOnly copied={copied} onShare={handleShare} />
         </>
       }
     />
