@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { BuildingOffice2Icon, PlusIcon } from "@heroicons/react/24/outline";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown } from "lucide-react";
 import { StarIcon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -33,19 +33,12 @@ interface OrgSwitcherProps {
 
 
 function AccountIcon({ account }: { account: Account }) {
-  if (account.type === "personal") {
-    return (
-      <UserAvatar
-        handle={account.name}
-        name={account.display_name || account.name}
-        className="size-[18px] shrink-0"
-      />
-    );
-  }
   return (
-    <span className="flex size-[18px] items-center justify-center rounded-md bg-accent shrink-0">
-      <BuildingOffice2Icon className="size-2.5 text-muted-foreground" />
-    </span>
+    <UserAvatar
+      handle={account.name}
+      name={account.display_name || account.name}
+      className="size-[18px] shrink-0"
+    />
   );
 }
 
