@@ -134,7 +134,7 @@ export function AppHeader() {
   // Include authenticated nav items during loading too — WaitlistGuard ensures
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
-  const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Knowledge", to: "/knowledge" }] : [];
+  const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Knowledge Stores", to: "/knowledge" }] : [];
   const navItems: NavItem[] = isAuthenticated || isLoading
     ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav, ...knowledgeNav]
     : publicNav;
