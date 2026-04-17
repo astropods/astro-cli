@@ -100,7 +100,7 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
     <div className="mx-auto max-w-2xl">
       <h2 className="text-heading-1 text-foreground">Choose a provider</h2>
       <p className="mt-1 text-body-sm text-muted-foreground">
-        Start with a managed store, or connect an existing database.
+        Pick the database or vector store to back this knowledge store.
       </p>
 
       <div className="mt-6 space-y-3">
