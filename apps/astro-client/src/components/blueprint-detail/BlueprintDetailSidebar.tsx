@@ -76,13 +76,9 @@ export function SidebarCard({
         )}
       </div>
 
-      <SidebarAuthor
-        authors={authors}
-        ownerName={ownerName}
-        ownerHandle={agent.account}
-      />
-
-      {repository && <SidebarRepository repository={repository} />}
+      {canEdit && (
+        <GitHubConnectionPanel account={agent.account} name={agent.name} preConnectedRepo={githubRepoName} preConnectedBranch={githubBranch} />
+      )}
 
       <SidebarStats
         rating={rating}
@@ -94,16 +90,20 @@ export function SidebarCard({
         isDraft={isDraft}
       />
 
+      <SidebarAuthor
+        authors={authors}
+        ownerName={ownerName}
+        ownerHandle={agent.account}
+      />
+
+      {repository && <SidebarRepository repository={repository} />}
+
       {integrations.length > 0 && (
         <RequiredAppsList integrations={integrations} title="Integrations" />
       )}
 
       {capabilities.length > 0 && (
         <CapabilitiesList capabilities={capabilities} />
-      )}
-
-      {canEdit && (
-        <GitHubConnectionPanel account={agent.account} name={agent.name} preConnectedRepo={githubRepoName} preConnectedBranch={githubBranch} />
       )}
 
       {recommendedAgents.length > 0 && (
