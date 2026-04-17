@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, FlaskConical, ChevronDown, ChevronRight, CircleDot } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, ChevronDown, ChevronRight, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -29,7 +29,6 @@ import {
 } from "@/api/queries/github";
 import type { GitHubBuild } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useExperiments } from "@/lib/experiments";
 
 interface GitHubConnectionPanelProps {
   account: string;
@@ -76,7 +75,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
 
   if (statusLoading && !preConnectedRepo) {
     return (
-      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
+      <SidebarSection title="GitHub">
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
           <Spinner size={14} />
           <span>Loading…</span>
@@ -87,7 +86,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
 
   return (
     <>
-      <SidebarSection title="GitHub" badge={<FlaskConical className="h-3 w-3" />} badgeTooltip="Experimental feature">
+      <SidebarSection title="GitHub">
         {status?.connected || effectiveRepo ? (
           <ConnectedRepoView
             account={account}
@@ -548,8 +547,6 @@ interface RepoSelectorDialogProps {
 function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorDialogProps) {
   const { data: reposData, isLoading: reposLoading } = useGitHubRepos(account, name, { enabled: open });
   const link = useGitHubLink(account, name);
-  const { setExperiment } = useExperiments();
-
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("main");
 
@@ -566,7 +563,6 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
       { repo_full_name: selectedRepo, branch: selectedBranch },
       {
         onSuccess: () => {
-          setExperiment("githubAutoBuild", true);
           onOpenChange(false);
         },
       }

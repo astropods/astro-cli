@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
 import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
-import { useExperiments } from "@/lib/experiments";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarRepository } from "./SidebarRepository";
 import { SidebarSection } from "./SidebarSection";
@@ -57,8 +56,6 @@ export function SidebarCard({
     : agent.account;
 
   const repository = getBlueprintRepository(agent);
-  const { experiments } = useExperiments();
-
   const isDraft = agent.versions.length === 0;
 
   return (
@@ -105,7 +102,7 @@ export function SidebarCard({
         <CapabilitiesList capabilities={capabilities} />
       )}
 
-      {canEdit && experiments.githubAutoBuild && (
+      {canEdit && (
         <GitHubConnectionPanel account={agent.account} name={agent.name} preConnectedRepo={githubRepoName} preConnectedBranch={githubBranch} />
       )}
 

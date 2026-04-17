@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
 export interface Experiments {
-  githubAutoBuild: boolean;
   theming: boolean;
   knowledgeStore: boolean;
 }
@@ -9,7 +8,6 @@ export interface Experiments {
 const STORAGE_KEY = "astro:experiments";
 
 const DEFAULTS: Experiments = {
-  githubAutoBuild: false,
   theming: false,
   knowledgeStore: false,
 };

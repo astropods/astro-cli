@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
 import { useAuth } from "../lib/auth";
-import { useExperiments } from "@/lib/experiments";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubAccountConnections } from "@/api/queries";
 import type { GitHubRepo } from "@/lib/api";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
@@ -174,14 +173,9 @@ function NewBlueprintContent() {
     }
   }, [activeStep, publishedBlueprint, isFetchedAfterMount, selectedOrg, slug, navigate, sourcePath]);
 
-  const { setExperiment } = useExperiments();
-
   const handleGoToBlueprint = useCallback(() => {
-    if (sourcePath === "import" && selectedRepo) {
-      setExperiment("githubAutoBuild", true);
-    }
     navigate(`/${selectedOrg}/${slug}`);
-  }, [sourcePath, selectedRepo, selectedOrg, slug, navigate, setExperiment]);
+  }, [selectedOrg, slug, navigate]);
 
   // Revoke staged preview URL when it changes
   useEffect(() => {

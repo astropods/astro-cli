@@ -41,12 +41,6 @@ export default function ExperimentsSettings() {
 
       <div className="rounded-md border border-border-strong bg-surface px-4">
         <ExperimentRow
-          title="GitHub Connection"
-          description="Connect a GitHub repository to a blueprint and automatically trigger builds on every push to the tracked branch."
-          checked={experiments.githubAutoBuild}
-          onCheckedChange={(v) => setExperiment("githubAutoBuild", v)}
-        />
-        <ExperimentRow
           title="Knowledge Stores"
           description="Provision and connect databases (Postgres, Redis, Qdrant, Neo4j, Pinecone) for agent memory, vector search, and caching."
           checked={experiments.knowledgeStore}
