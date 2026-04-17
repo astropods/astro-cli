@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useAccountBlueprints } from "@/api/queries";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
-import { DashboardAgentsEmptyState } from "@/components/dashboard/DashboardAgentsEmptyState";
+import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export default function Blueprints() {
         isError={isError}
         error={error}
         refetch={refetch}
-        emptyContent={<DashboardAgentsEmptyState />}
+        emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
       />
     </div>
