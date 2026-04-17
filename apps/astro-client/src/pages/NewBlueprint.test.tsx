@@ -89,7 +89,7 @@ describe('NewBlueprint – name availability UI', () => {
 // ── Create button disabled state ──────────────────────────────────────────────
 
 describe('NewBlueprint – Create button disabled state', () => {
-  it('disables "Create blueprint" when the name is taken', async () => {
+  it('disables "Continue" when the name is taken', async () => {
     overrideBlueprintGet(base);
     renderNewBlueprint();
     await typeNameAndWait(NAME);
@@ -98,10 +98,10 @@ describe('NewBlueprint – Create button disabled state', () => {
       expect(screen.getByText(/already exists/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: /create blueprint/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled();
   });
 
-  it('enables "Create blueprint" when the name is available', async () => {
+  it('enables "Continue" when the name is available', async () => {
     // Default handler: 404 → available
     renderNewBlueprint();
     await typeNameAndWait(NAME);
@@ -110,6 +110,6 @@ describe('NewBlueprint – Create button disabled state', () => {
       expect(screen.getByText(/will be created as/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: /create blueprint/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
   });
 });
