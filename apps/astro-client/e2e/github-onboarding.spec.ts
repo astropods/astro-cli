@@ -154,13 +154,30 @@ test("archiving a blueprint releases its GitHub repo so it can be reused", async
   await page.getByRole("checkbox").check();
   await page.getByPlaceholder("code-reviewer").fill("code-reviewer");
   await expect(page.getByRole("button", { name: /archive blueprint/i })).toBeEnabled();
+
+  // Wait for the archive request to complete before checking the mock backend
+  const archiveResponse = page.waitForResponse(
+    (res) => res.url().includes(`/agents/${ACCOUNT}/code-reviewer/archive`),
+    { timeout: 10_000 },
+  );
   await page.getByRole("button", { name: /archive blueprint/i }).click();
+  await archiveResponse;
   await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 10_000 });
 
   // Mock backend should have cleared the connection on archive
   const after = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`)
     .then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
   expect(after.connections.some((c) => c.repo_full_name === "testuser/my-repo")).toBe(false);
+
+  // Intercept connections synchronously in the browser context (same pattern as test 3) so
+  // the repo picker always sees empty connections regardless of mock backend response timing.
+  await page.route("**/api/v1/accounts/*/github/connections", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ connections: [] }),
+    }),
+  );
 
   // Navigate to the wizard — testuser/my-repo should now be selectable (no disabled/linked hint)
   await goToSourceStep(page, "newagent");
