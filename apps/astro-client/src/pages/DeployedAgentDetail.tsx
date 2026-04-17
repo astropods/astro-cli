@@ -45,7 +45,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
           The deployed agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
-          <Link to={dashboardPath}>Dashboard</Link>
+          <Link to={dashboardPath}>Agents</Link>
         </Button>
       </div>
     );

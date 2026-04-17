@@ -37,11 +37,11 @@ const orgAuth = {
   ],
 };
 
-function renderDashboard(path = '/dashboard', auth = mockAuthContext) {
+function renderDashboard(path = '/agents', auth = mockAuthContext) {
   return renderRoute(
     [
       {
-        path: '/dashboard',
+        path: '/agents',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AgentDashboard as any,
         loader: () => ({ count: 0 }),
@@ -196,7 +196,7 @@ describe('AgentDashboard page', () => {
 
 describe('dashboard actions', () => {
   it('does not show browse blueprints or settings actions', async () => {
-    renderDashboard('/dashboard');
+    renderDashboard('/agents');
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
     expect(screen.queryByRole('link', { name: /browse blueprints/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
@@ -205,7 +205,7 @@ describe('dashboard actions', () => {
 
 describe('org switcher', () => {
   it('renders the active account name', async () => {
-    renderDashboard('/dashboard');
+    renderDashboard('/agents');
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
     expect(screen.getByText('testuser')).toBeInTheDocument();
   });
@@ -236,7 +236,7 @@ describe('org switcher', () => {
   });
 
   it('hides member count label for personal accounts', async () => {
-    renderDashboard('/dashboard');
+    renderDashboard('/agents');
     await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
     expect(screen.queryByText(/\d+ members?/)).not.toBeInTheDocument();
   });
@@ -257,7 +257,7 @@ describe('org switcher', () => {
 
     it('switches from personal to org account', async () => {
       const user = userEvent.setup();
-      renderDashboard('/dashboard', orgAuth);
+      renderDashboard('/agents', orgAuth);
 
       await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
       // my-org not visible while trigger shows testuser and dropdown is closed
@@ -273,7 +273,7 @@ describe('org switcher', () => {
       const user = userEvent.setup();
       localStorage.setItem('astro:default-account', 'my-org');
 
-      renderDashboard('/dashboard', orgAuth);
+      renderDashboard('/agents', orgAuth);
 
       await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
       // Starred org shown in trigger; personal not yet visible there
@@ -354,7 +354,7 @@ describe('reveal overlay after deploy', () => {
     return renderRoute(
       [
         {
-          path: '/dashboard',
+          path: '/agents',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Component: AgentDashboard as any,
           loader: () => null,
@@ -364,7 +364,7 @@ describe('reveal overlay after deploy', () => {
           Component: () => <div data-testid="deployment-detail">Deployment Detail</div>,
         },
       ],
-      { initialEntries: [{ pathname: '/dashboard', state: revealState }] as unknown as string[] },
+      { initialEntries: [{ pathname: '/agents', state: revealState }] as unknown as string[] },
     );
   }
 

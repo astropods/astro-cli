@@ -5,18 +5,17 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { renderRoute } from '@/test/test-utils';
-import Discover from './blueprints/Discover';
+import Explore from './Explore';
 
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-function renderDiscover({ initialEntries = ['/blueprints/discover'] } = {}) {
+function renderDiscover({ initialEntries = ['/explore'] } = {}) {
   return renderRoute(
     [
       {
-        path: '/blueprints/discover',
-        // @ts-expect-error: `matches` won't align between test code and app code
-        Component: Discover,
+        path: '/explore',
+        Component: Explore,
       },
     ],
     { initialEntries },
@@ -108,7 +107,7 @@ describe('Blueprints – Discover page', () => {
       renderDiscover();
       await waitForAgents();
 
-      expect(screen.getByRole('heading', { level: 1, name: 'Discover blueprints' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Explore community blueprints' })).toBeInTheDocument();
     });
   });
 

@@ -35,7 +35,7 @@ function renderInstallWithAgentsRoute() {
         Component: DeployBlueprint,
       },
       {
-        path: '/dashboard',
+        path: '/agents',
         Component: () => <div>Dashboard Page</div>,
       },
     ],
