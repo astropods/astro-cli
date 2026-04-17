@@ -1,68 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseAgentMD, getEffectiveCard, getBlueprintReadme, getBlueprintDescription } from './blueprint-utils';
+import { getEffectiveCard, getBlueprintReadme, getBlueprintDescription } from './blueprint-utils';
 import type { Blueprint, BlueprintCardData } from '@/lib/api';
-
-// ─── parseAgentMD ─────────────────────────────────────────────────────────────
-
-describe('parseAgentMD', () => {
-  it('returns null for empty string', () => {
-    expect(parseAgentMD('')).toBeNull();
-  });
-
-  it('returns null for whitespace-only string', () => {
-    expect(parseAgentMD('   \n  ')).toBeNull();
-  });
-
-  it('extracts body when there is no frontmatter', () => {
-    const result = parseAgentMD('This is the readme body.');
-    expect(result?.body).toBe('This is the readme body.');
-    expect(result?.description).toBeUndefined();
-  });
-
-  it('extracts description and body from frontmatter', () => {
-    const content = `---\ndescription: My agent does things\n---\n\nBody text here.`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBe('My agent does things');
-    expect(result?.body).toBe('Body text here.');
-  });
-
-  it('extracts description when body is empty', () => {
-    const content = `---\ndescription: Short description\n---\n`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBe('Short description');
-    expect(result?.body).toBeUndefined();
-  });
-
-  it('extracts body when frontmatter has no description', () => {
-    const content = `---\nauthor: Someone\n---\n\nJust the body.`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBeUndefined();
-    expect(result?.body).toBe('Just the body.');
-  });
-
-  it('returns null when frontmatter has no description and body is empty', () => {
-    const content = `---\nauthor: Someone\n---\n`;
-    expect(parseAgentMD(content)).toBeNull();
-  });
-
-  it('handles quoted description values', () => {
-    const content = `---\ndescription: "Quoted description"\n---\n`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBe('Quoted description');
-  });
-
-  it('handles single-quoted description values', () => {
-    const content = `---\ndescription: 'Single quoted'\n---\n`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBe('Single quoted');
-  });
-
-  it('trims trailing whitespace from description', () => {
-    const content = `---\ndescription:   spaced out   \n---\n`;
-    const result = parseAgentMD(content);
-    expect(result?.description).toBe('spaced out');
-  });
-});
 
 // ─── getEffectiveCard ─────────────────────────────────────────────────────────
 

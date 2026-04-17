@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
@@ -28,6 +29,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // GitHubConnectResponse is returned when an OAuth redirect is needed.
@@ -317,8 +319,7 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 
 // GitHubAccountScan handles GET /api/v1/accounts/:account/github/scan.
 // Returns whether astropods.yml exists in the given repo at the given branch.
-// If astropods.yml is found and AGENT.md is present, returns its raw content as agent_md
-// so the client can display it on the blueprint detail page before the first build completes.
+// AGENT.md parsing happens server-side at link time (GitHubLink) and is stored as draft_card_json.
 func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
@@ -351,22 +352,15 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 			return
 		}
 
-		// Always scan for AGENT.md so the detail page can show it regardless of
-		// whether astropods.yml was found.
-		agentMD, _ := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, repo, branch, "AGENT.md")
-
-		found := content != ""
-		resp := gin.H{"found": found}
-		if agentMD != "" {
-			resp["agent_md"] = agentMD
-		}
-		c.JSON(http.StatusOK, resp)
+		c.JSON(http.StatusOK, gin.H{"found": content != ""})
 	}
 }
 
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
-func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
+// If AGENT.md exists in the repo, it is parsed and stored as draft_card_json on the agent
+// so the blueprint detail page can display its content before the first build completes.
+func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, index *agentindex.Index, cfg GitHubHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -457,6 +451,17 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 				conn.WebhookSecret = webhookSecret
 				if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
 					log.Warn("github: webhook created but failed to persist", "error", updateErr)
+				}
+			}
+		}
+
+		// Fetch and store AGENT.md as draft_card so the detail page can show it before the first build.
+		if agentMD, err := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, req.RepoFullName, req.Branch, "AGENT.md"); err == nil && agentMD != "" {
+			if card, err := spec.ParseAgentCard(agentMD); err == nil && card != nil {
+				if cardJSON, err := json.Marshal(card); err == nil {
+					if err := index.UpdateDraftCard(acct.ID, agentName, string(cardJSON)); err != nil {
+						log.Warn("github: failed to store draft card", "error", err, "agent", agentName)
+					}
 				}
 			}
 		}

@@ -144,10 +144,7 @@ function NewBlueprintContent() {
   const handleGoToBlueprint = useCallback(() => {
     if (sourcePath === "import" && selectedRepo) {
       setExperiment("githubAutoBuild", true);
-      const agentMdKey = `astro:agent-md:${selectedOrg}/${slug}`;
-      const agentMD = sessionStorage.getItem(agentMdKey);
-      sessionStorage.removeItem(agentMdKey);
-      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, agent_md: agentMD || undefined, yml_found: scanResult === "found" }));
+      sessionStorage.setItem(`astro:github-repo:${selectedOrg}/${slug}`, JSON.stringify({ repo: selectedRepo.full_name, branch: selectedBranch, yml_found: scanResult === "found" }));
     }
     navigate(`/${selectedOrg}/${slug}`);
   }, [sourcePath, selectedRepo, selectedOrg, slug, selectedBranch, scanResult, navigate, setExperiment]);
@@ -217,9 +214,6 @@ function NewBlueprintContent() {
         try {
           const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch, agentName: slug });
           found = scan.found;
-          if (scan.agent_md) {
-            sessionStorage.setItem(`astro:agent-md:${selectedOrg}/${slug}`, scan.agent_md);
-          }
         } catch { /* treat scan errors as not-found */ }
 
         // 3. Link (always — installs webhook for future pushes).

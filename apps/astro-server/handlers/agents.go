@@ -47,6 +47,7 @@ type AgentResponse struct {
 	HeartCount int                    `json:"heart_count"`
 	Hearted    bool                   `json:"hearted"`
 	Metrics    *AgentMetrics          `json:"metrics"`
+	DraftCard  *spec.ParsedAgentCard  `json:"draft_card,omitempty"`
 }
 
 // AgentVersionResponse represents a specific version of an agent
@@ -123,6 +124,19 @@ func buildLegacyAgentCard(specMap map[string]any, readme string) *spec.ParsedAge
 		return nil
 	}
 	return card
+}
+
+// parseDraftCard deserializes a stored draft_card_json into a ParsedAgentCard.
+// Returns nil for empty, "null", or invalid JSON.
+func parseDraftCard(cardJSON string) *spec.ParsedAgentCard {
+	if cardJSON == "" || cardJSON == "null" {
+		return nil
+	}
+	var card spec.ParsedAgentCard
+	if err := json.Unmarshal([]byte(cardJSON), &card); err != nil {
+		return nil
+	}
+	return &card
 }
 
 // buildAgentCardJSON parses the raw AGENT.md content and merges spec-derived integrations,
@@ -346,6 +360,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				Versions:   versions,
 				HeartCount: counts[agent.Name],
 				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
+				DraftCard:  parseDraftCard(agent.DraftCardJSON),
 			}
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
@@ -433,6 +448,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			Visibility: agent.Visibility,
 			Versions:   versions,
 			Metrics:    agentMetrics(mc[name], dc[name]),
+			DraftCard:  parseDraftCard(agent.DraftCardJSON),
 		}
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)

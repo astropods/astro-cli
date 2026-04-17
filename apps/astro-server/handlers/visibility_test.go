@@ -280,8 +280,8 @@ func TestGetAgent_PublicAgent_NoAuth(t *testing.T) {
 	// Agent lookup
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "public", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}).
+			AddRow("acct-1", "my-agent", "registry.io", "public", nil, now, now, "null"))
 
 	// Versions
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
@@ -316,8 +316,8 @@ func TestGetAgent_PrivateAgent_NoAuth(t *testing.T) {
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}).
+			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now, "null"))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
@@ -345,8 +345,8 @@ func TestGetAgent_PrivateAgent_NonMember(t *testing.T) {
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}).
+			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now, "null"))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
@@ -379,8 +379,8 @@ func TestGetAgent_PrivateAgent_Member(t *testing.T) {
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}).
+			AddRow("acct-1", "my-agent", "registry.io", "private", nil, now, now, "null"))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
@@ -426,8 +426,8 @@ func TestGetAgent_PublicAgent_NonMember_NoWarnings(t *testing.T) {
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "public", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}).
+			AddRow("acct-1", "my-agent", "registry.io", "public", nil, now, now, "null"))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
@@ -470,7 +470,7 @@ func TestGetAgent_NotFound(t *testing.T) {
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at", "draft_card_json"}))
 
 	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/nonexistent", nil)
 	rec := httptest.NewRecorder()

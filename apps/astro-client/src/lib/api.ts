@@ -878,10 +878,10 @@ class ApiClient {
     );
   }
 
-  async gitHubAccountScan(account: string, repo: string, branch: string, agentName?: string): Promise<{ found: boolean; agent_md?: string }> {
+  async gitHubAccountScan(account: string, repo: string, branch: string, agentName?: string): Promise<{ found: boolean }> {
     const params = new URLSearchParams({ repo, branch });
     if (agentName) params.set("agent_name", agentName);
-    return this.request<{ found: boolean; agent_md?: string }>(
+    return this.request<{ found: boolean }>(
       `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
     );
   }

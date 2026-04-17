@@ -22,7 +22,6 @@ import {
   getBlueprintReadme,
   getBlueprintAuthors,
   getBlueprintCapabilities,
-  parseAgentMD,
 } from "@/lib/blueprint-utils";
 import type { AccountPublic, Blueprint, BlueprintCardData } from "@/lib/api";
 
@@ -241,48 +240,9 @@ function BlueprintDetailInner({
     enabled: isDraft && canEdit,
   });
 
-  // Read the repo that was selected in the wizard — written to sessionStorage before navigating here.
-  // Falls back to the server-confirmed value once useGitHubStatus resolves, then clears the entry.
-  const sessionKey = `astro:github-repo:${blueprint.account}/${blueprint.name}`;
-  const [sessionGithub] = useState<{ repo: string; branch: string; agent_md?: string; yml_found?: boolean } | undefined>(() => {
-    try {
-      const raw = sessionStorage.getItem(sessionKey);
-      return raw ? JSON.parse(raw) : undefined;
-    } catch { return undefined; }
-  });
-  useEffect(() => {
-    if (!isDraft) {
-      // Blueprint is published — wizard session data is no longer needed.
-      sessionStorage.removeItem(sessionKey);
-    }
-  }, [isDraft, sessionKey]);
-
-  const githubRepoName = githubStatus?.repo_full_name ?? sessionGithub?.repo;
-  const githubBranch = githubStatus?.branch ?? sessionGithub?.branch;
-
-  // True when astropods.yml was found and a build exists.
-  // While githubStatus is undefined (loading OR query still disabled because canEdit
-  // hasn't resolved) we optimistically return true to suppress the FINISH SETUP card.
-  // Flashing it in then hiding it once data arrives is worse than a brief delay.
-  const hasBuild = githubStatus === undefined
-    ? (sessionGithub?.yml_found ?? true)
-    : (githubStatus.builds?.length ?? 0) > 0;
-
-  // Latch agent_md in state once available — survives status refetches and rebuilds.
-  const [latchedAgentMD, setLatchedAgentMD] = useState<string | undefined>(sessionGithub?.agent_md);
-  useEffect(() => {
-    if (sessionGithub?.agent_md && !latchedAgentMD) {
-      setLatchedAgentMD(sessionGithub.agent_md);
-    }
-  }, [sessionGithub?.agent_md, latchedAgentMD]);
-
-  // Inject AGENT.md content as draft_card when the blueprint has no versions yet.
-  const effectiveBlueprint: Blueprint = useMemo(() => {
-    if (blueprint.versions.length > 0 || !latchedAgentMD) return blueprint;
-    const card = parseAgentMD(latchedAgentMD);
-    if (!card) return blueprint;
-    return { ...blueprint, draft_card: card };
-  }, [blueprint, latchedAgentMD]);
+  const githubRepoName = githubStatus?.repo_full_name;
+  const githubBranch = githubStatus?.branch;
+  const hasBuild = (githubStatus?.builds?.length ?? 0) > 0;
 
   // Detect draft → published transition and show success overlay for the GitHub path.
   const [showBuildSuccess, setShowBuildSuccess] = useState(false);
@@ -294,11 +254,11 @@ function BlueprintDetailInner({
     wasDraftRef.current = isDraft;
   }, [isDraft, githubRepoName]);
 
-  const integrations = getBlueprintIntegrations(effectiveBlueprint);
-  const categories = getBlueprintCategories(effectiveBlueprint);
-  const readme = getBlueprintReadme(effectiveBlueprint);
-  const authors = getBlueprintAuthors(effectiveBlueprint);
-  const capabilities = getBlueprintCapabilities(effectiveBlueprint);
+  const integrations = getBlueprintIntegrations(blueprint);
+  const categories = getBlueprintCategories(blueprint);
+  const readme = getBlueprintReadme(blueprint);
+  const authors = getBlueprintAuthors(blueprint);
+  const capabilities = getBlueprintCapabilities(blueprint);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">

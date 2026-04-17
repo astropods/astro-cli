@@ -1259,7 +1259,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 			)
 			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
-				handlers.GitHubLink(log, pipesClient, ghStore, githubCfg),
+				handlers.GitHubLink(log, pipesClient, ghStore, agentIndex, githubCfg),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.GitHubLinkRequest{}),
