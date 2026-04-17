@@ -117,7 +117,7 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-foreground">{PROVIDER_LABELS[p]}</span>
-                {MANAGED_SET.has(p) && <Tag color="teal">Managed</Tag>}
+                {MANAGED_SET.has(p) && <Tag color="blue">Managed</Tag>}
               </div>
               <p className="text-body-sm text-muted-foreground">{PROVIDER_CATEGORIES[p]}</p>
             </div>
