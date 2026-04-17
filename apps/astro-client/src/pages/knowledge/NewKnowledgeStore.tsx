@@ -58,7 +58,13 @@ const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
 const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "qdrant", "redis", "neo4j", "mysql", "pinecone"];
 const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
 
-const STORAGE_OPTIONS = ["1Gi", "5Gi", "10Gi", "20Gi", "50Gi", "100Gi"];
+const STORAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "10Gi", label: "10 GB" },
+  { value: "20Gi", label: "20 GB" },
+  { value: "50Gi", label: "50 GB" },
+  { value: "100Gi", label: "100 GB" },
+  { value: "1Ti", label: "1 TB" },
+];
 
 // --- Helpers ---
 
@@ -507,25 +513,27 @@ function ConfigureForm({
                     type="button"
                     onClick={() => setMode(m)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded border px-5 py-4 text-left transition-colors",
-                      selected ? "border-teal-600 bg-muted" : "border-border bg-surface hover:border-muted-foreground/30",
+                      "flex w-full items-center gap-3 rounded-[6px] border px-5 py-4 text-left transition-[border-color,background-color]",
+                      selected
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border bg-transparent hover:bg-stone-200/50",
                     )}
                   >
                     <div className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-                      selected ? "border-teal-600" : "border-muted-foreground/30",
+                      "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                      selected ? "border-primary" : "border-muted-foreground/30",
                     )}>
-                      {selected && <div className="size-2.5 rounded-full bg-teal-600" />}
+                      {selected && <div className="size-2.5 rounded-full bg-primary" />}
                     </div>
-                    <div>
-                      <p className="font-medium text-foreground">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground">
                         {m === "managed" ? "Managed by Astro" : "Connect your own"}
-                      </p>
-                      <p className="text-body-sm text-muted-foreground">
+                      </span>
+                      <span className="text-[12px] text-muted-foreground">
                         {m === "managed"
                           ? "Astro provisions and operates this database. No credentials needed."
                           : "Register an existing instance. Astro stores your credentials securely."}
-                      </p>
+                      </span>
                     </div>
                   </button>
                 );
@@ -569,20 +577,20 @@ function ConfigureForm({
                     </SelectTrigger>
                     <SelectContent>
                       {STORAGE_OPTIONS.map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
                 {/* Make private */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Make private</p>
-                    <p className="text-xs text-muted-foreground max-w-sm">
-                      Removes the public DNS hostname. You'll need to run migrations and access the
-                      store from inside your network — recommended only for advanced setups.
-                    </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] font-medium text-foreground">Make private</span>
+                    <span className="text-[12px] text-muted-foreground max-w-sm">
+                      Disables the public hostname. The store and its migrations will only be reachable
+                      from inside your network. Recommended for advanced setups.
+                    </span>
                   </div>
                   <Switch checked={!isPublic} onCheckedChange={(v) => setIsPublic(!v)} />
                 </div>
@@ -590,48 +598,84 @@ function ConfigureForm({
             ) : (
               <>
                 {/* PrivateLink card — host+port always inside */}
-                <div className="overflow-hidden rounded border border-border">
+                <div
+                  className={cn(
+                    "overflow-hidden rounded-[6px] border transition-[border-color,background-color]",
+                    privateLink ? "border-primary/40 bg-primary/5" : "border-border bg-transparent",
+                  )}
+                >
                   {/* Toggle row */}
-                  <div className="flex items-center gap-3 bg-muted px-5 py-4">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface">
-                      <GlobeAltIcon className="size-5 text-muted-foreground" />
+                  <div className="flex items-center gap-4 px-5 py-4">
+                    <div
+                      className={cn(
+                        "flex size-9 shrink-0 items-center justify-center rounded-sm transition-colors",
+                        privateLink ? "bg-primary/10 text-primary" : "bg-stone-200 text-muted-foreground",
+                      )}
+                    >
+                      <GlobeAltIcon className="size-5" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">PrivateLink</p>
-                      <p className="text-xs text-muted-foreground">
-                        Connect via AWS PrivateLink — traffic stays on your provider's backbone.
-                      </p>
+                    <div className="flex flex-1 min-w-0 flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground">PrivateLink</span>
+                      <span className="text-[12px] text-muted-foreground">
+                        Connect via AWS PrivateLink. Traffic stays off the public internet.
+                      </span>
                     </div>
                     <Switch checked={privateLink} onCheckedChange={setPrivateLink} />
                   </div>
 
-                  {/* Host + Port */}
-                  <div className="grid grid-cols-[1fr_auto] gap-3 border-t border-border bg-surface px-5 py-4">
-                    <div>
-                      <Label htmlFor="ks-host" size="md">{hostLabel}</Label>
-                      <Input
-                        id="ks-host"
-                        placeholder={hostPlaceholder}
-                        value={host}
-                        onChange={(e) => setHost(e.target.value)}
-                        autoComplete="off"
-                      />
-                      {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
-                    </div>
-                    {fields.includes("port") && (
-                      <div className="w-24">
-                        <Label htmlFor="ks-port" size="md">Port</Label>
+                  {/* Host + Port + optional skip-test checkbox */}
+                  <div
+                    className={cn(
+                      "border-t bg-surface px-5 py-4 transition-colors",
+                      privateLink ? "border-primary/20" : "border-border",
+                    )}
+                  >
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
+                      <div>
+                        <Label htmlFor="ks-host" size="md">{hostLabel}</Label>
                         <Input
-                          id="ks-port"
-                          type="number"
-                          min={1}
-                          max={65535}
-                          placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
-                          value={port}
-                          onChange={(e) => setPort(e.target.value)}
+                          id="ks-host"
+                          placeholder={hostPlaceholder}
+                          value={host}
+                          onChange={(e) => setHost(e.target.value)}
                           autoComplete="off"
                         />
+                        {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
                       </div>
+                      {fields.includes("port") && (
+                        <div className="w-24">
+                          <Label htmlFor="ks-port" size="md">Port</Label>
+                          <Input
+                            id="ks-port"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
+                            value={port}
+                            onChange={(e) => setPort(e.target.value)}
+                            autoComplete="off"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {!privateLink && (
+                      <label className="mt-4 flex cursor-pointer items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={skipHealthCheck}
+                          onChange={(e) => setSkipHealthCheck(e.target.checked)}
+                          className="mt-0.5 size-4 shrink-0 accent-primary"
+                        />
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[13px] font-medium text-foreground select-none">
+                            Skip connection test
+                          </span>
+                          <span className="text-[12px] text-muted-foreground">
+                            Save credentials without verifying Astro can reach the database.
+                          </span>
+                        </div>
+                      </label>
                     )}
                   </div>
                 </div>
@@ -685,17 +729,6 @@ function ConfigureForm({
                     />
                   </div>
                 )}
-
-                {/* Skip health check — only when not using PrivateLink */}
-                {!privateLink && (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Skip health check</p>
-                      <p className="text-xs text-muted-foreground">Connect without verifying reachability</p>
-                    </div>
-                    <Switch checked={skipHealthCheck} onCheckedChange={setSkipHealthCheck} />
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -710,8 +743,9 @@ function ConfigureForm({
         )}
 
         {/* Submit */}
-        <div className="mt-8 flex justify-end gap-2">
-          <Button type="button" variant="outline" asChild>
+        <hr className="border-border mt-12" />
+        <div className="mt-12 flex justify-end gap-3">
+          <Button type="button" variant="ghost" size="default" asChild>
             <Link to={knowledgePath}>Cancel</Link>
           </Button>
           <Button type="submit" disabled={!canSubmit}>
@@ -733,7 +767,7 @@ function NewKnowledgeStoreContent() {
   const account = validStoredDefault || personalAccount?.name || "";
 
   return (
-    <div className="flex-1 bg-muted">
+    <div className="flex-1 bg-surface">
       {/* Breadcrumb bar */}
       <div className="border-b border-border bg-surface px-6 py-3">
         <div className="flex items-center gap-2 text-body-sm">
