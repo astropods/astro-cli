@@ -106,7 +106,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 		c.SetCookie(
 			"auth_state",
 			state,
-			300, // 5 minutes
+			900, // 15 minutes
 			"/",
 			h.cfg.Auth.CookieDomain,
 			h.cfg.Auth.CookieSecure,
@@ -126,7 +126,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 					c.SetCookie(
 						"auth_redirect",
 						redirect,
-						300, // 5 minutes
+						900, // 15 minutes
 						"/",
 						h.cfg.Auth.CookieDomain,
 						h.cfg.Auth.CookieSecure,
@@ -148,7 +148,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 				c.SetCookie(
 					"auth_origin",
 					origin,
-					300, // 5 minutes
+					900, // 15 minutes
 					"/",
 					h.cfg.Auth.CookieDomain,
 					h.cfg.Auth.CookieSecure,
@@ -281,7 +281,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			result.OrganizationID,
 			result.AccessToken,
 			result.RefreshToken,
-			3600, // 1 hour default, will be capped by session max age
+			int(h.cfg.Auth.SessionMaxAge.Seconds()),
 		)
 
 		claims := auth.ExtractTokenClaims(result.AccessToken)
@@ -569,7 +569,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 			req.OrganizationID,
 			result.AccessToken,
 			result.RefreshToken,
-			3600,
+			int(h.cfg.Auth.SessionMaxAge.Seconds()),
 		)
 
 		claims := auth.ExtractTokenClaims(result.AccessToken)
@@ -680,7 +680,7 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 		sessionData.Session.OrganizationID,
 		result.AccessToken,
 		result.RefreshToken,
-		3600,
+		int(h.cfg.Auth.SessionMaxAge.Seconds()),
 	)
 
 	claims := auth.ExtractTokenClaims(result.AccessToken)

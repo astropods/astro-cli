@@ -37,41 +37,59 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [],
   );
 
+  // Deduplicate concurrent checkAuth calls — when a tab regains focus,
+  // both the visibility handler and QueryAuthSync (reacting to 401s from
+  // stale TanStack Query refetches) can call checkAuth simultaneously.
+  // With WorkOS refresh token rotation, concurrent /me requests would race
+  // on the same refresh token, causing one to fail and log the user out.
+  const checkAuthPromiseRef = useRef<Promise<void> | null>(null);
+
   const checkAuth = useCallback(async () => {
-    try {
-      // Only show loading state on initial check (not yet authenticated).
-      // When re-checking for an already-authenticated user (e.g. after a 401
-      // from a stale token), skip the loading flag so the page stays visible.
-      setState((prev) => ({
-        ...prev,
-        isLoading: prev.isAuthenticated ? prev.isLoading : true,
-        error: null,
-      }));
-      const response = await api.getCurrentUser();
-      updateFromResponse(response);
-    } catch (err) {
-      const error = err as ApiError;
-      // Not authenticated is not an error state, just means user needs to log in
-      if (
-        error.error === 'unauthorized' ||
-        error.error === 'session_invalid' ||
-        error.error === 'session_expired'
-      ) {
-        setState({
-          ...initialAuthState,
-          isLoading: false,
-        });
-      } else {
-        setState({
-          ...initialAuthState,
-          isLoading: false,
-          error:
-            error.error_description ||
-            error.error ||
-            'Failed to check authentication',
-        });
-      }
+    if (checkAuthPromiseRef.current) {
+      return checkAuthPromiseRef.current;
     }
+
+    const promise = (async () => {
+      try {
+        // Only show loading state on initial check (not yet authenticated).
+        // When re-checking for an already-authenticated user (e.g. after a 401
+        // from a stale token), skip the loading flag so the page stays visible.
+        setState((prev) => ({
+          ...prev,
+          isLoading: prev.isAuthenticated ? prev.isLoading : true,
+          error: null,
+        }));
+        const response = await api.getCurrentUser();
+        updateFromResponse(response);
+      } catch (err) {
+        const error = err as ApiError;
+        // Not authenticated is not an error state, just means user needs to log in
+        if (
+          error.error === 'unauthorized' ||
+          error.error === 'session_invalid' ||
+          error.error === 'session_expired'
+        ) {
+          setState({
+            ...initialAuthState,
+            isLoading: false,
+          });
+        } else {
+          setState({
+            ...initialAuthState,
+            isLoading: false,
+            error:
+              error.error_description ||
+              error.error ||
+              'Failed to check authentication',
+          });
+        }
+      } finally {
+        checkAuthPromiseRef.current = null;
+      }
+    })();
+
+    checkAuthPromiseRef.current = promise;
+    return promise;
   }, [updateFromResponse]);
 
   const refresh = useCallback(async () => {
@@ -112,40 +130,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     checkAuth();
   }, [checkAuth]);
 
-  // Check if token needs refresh (expiring within 5 minutes)
-  const isTokenExpiringSoon = useCallback(() => {
-    if (!state.expiresAt) return false;
-    const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000;
-    return state.expiresAt.getTime() < fiveMinutesFromNow;
-  }, [state.expiresAt]);
-
-  // Track if a refresh is in progress to avoid concurrent refreshes
-  const isRefreshing = useRef(false);
-
-  // Refresh token if expiring soon
-  const refreshIfNeeded = useCallback(async () => {
-    if (!state.isAuthenticated || isRefreshing.current) return;
-    if (isTokenExpiringSoon()) {
-      isRefreshing.current = true;
-      try {
-        await refresh();
-      } finally {
-        isRefreshing.current = false;
-      }
-    }
-  }, [state.isAuthenticated, isTokenExpiringSoon, refresh]);
-
-  // Check token freshness when tab becomes visible or window gains focus
-  // This handles the common case of users returning after being away
+  // Re-validate session when tab becomes visible or window gains focus.
+  // The server refreshes tokens transparently via /me when needed.
   useEffect(() => {
+    if (!state.isAuthenticated) return;
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        refreshIfNeeded();
+        checkAuth();
       }
     };
 
     const handleFocus = () => {
-      refreshIfNeeded();
+      checkAuth();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -155,7 +152,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [refreshIfNeeded]);
+  }, [state.isAuthenticated, checkAuth]);
 
   const value = {
     ...state,

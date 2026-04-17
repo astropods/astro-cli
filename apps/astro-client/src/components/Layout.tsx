@@ -2,11 +2,21 @@ import { useEffect, useState } from "react";
 import { Outlet, useSearchParams } from "react-router";
 import { AppHeader } from "./AppHeader";
 import { useAuth } from "../lib/auth";
+import { api } from "../lib/api";
+
+const AUTH_RETRY_KEY = "auth_invalid_state_retry";
 
 export default function Layout() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { error: authError } = useAuth();
+  const { error: authError, isAuthenticated } = useAuth();
   const [callbackError, setCallbackError] = useState<string | null>(null);
+
+  // Clear retry counter on successful authentication
+  useEffect(() => {
+    if (isAuthenticated) {
+      sessionStorage.removeItem(AUTH_RETRY_KEY);
+    }
+  }, [isAuthenticated]);
 
   // Handle error from OAuth callback
   useEffect(() => {
@@ -19,6 +29,20 @@ export default function Layout() {
       newParams.delete("error");
       newParams.delete("error_description");
       setSearchParams(newParams, { replace: true });
+
+      // Auto-retry login on stale CSRF state (e.g. user sat on login page too long)
+      if (errorParam === "invalid_state") {
+        const retryCount = parseInt(
+          sessionStorage.getItem(AUTH_RETRY_KEY) || "0",
+          10,
+        );
+        if (retryCount < 1) {
+          sessionStorage.setItem(AUTH_RETRY_KEY, String(retryCount + 1));
+          window.location.replace(api.getLoginUrl());
+          return;
+        }
+        sessionStorage.removeItem(AUTH_RETRY_KEY);
+      }
 
       setCallbackError(errorDesc || errorParam);
     }
