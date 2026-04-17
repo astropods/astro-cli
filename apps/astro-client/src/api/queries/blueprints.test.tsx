@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useBlueprints, useBlueprint, useDeployAgent, usePrefilledDeploymentTemplate, useArchiveBlueprint } from './blueprints';
+import { useBlueprints, useBlueprint, useDeployAgent, usePrefilledDeploymentTemplate, useArchiveBlueprint, useCreateBlueprint } from './blueprints';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { blueprintKeys, deploymentKeys } from './keys';
+import type { Blueprint } from '@/lib/api';
 
 const testAccount = 'testuser';
 
@@ -238,5 +239,148 @@ describe('useArchiveBlueprint', () => {
     result.current.mutate({ name: 'code-reviewer' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('useCreateBlueprint', () => {
+  // Default success handler — returns the created blueprint shell.
+  function useCreateBlueprintHandler(overrides?: { status?: number; body?: unknown }) {
+    return http.post('/api/v1/agents/:account', async ({ request }) => {
+      const body = (await request.json()) as { name: string; visibility?: string };
+      if (overrides?.status && overrides.status >= 400) {
+        return HttpResponse.json(overrides.body ?? { error: 'error' }, { status: overrides.status });
+      }
+      return HttpResponse.json({ account: testAccount, name: body.name }, { status: 201 });
+    });
+  }
+
+  it('returns account and name on success', async () => {
+    server.use(useCreateBlueprintHandler());
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.name).toBe('my-new-agent');
+    expect(result.current.data?.account).toBe(testAccount);
+  });
+
+  it('sends visibility in the request body', async () => {
+    let capturedBody: { name: string; visibility?: string } | null = null;
+    server.use(
+      http.post('/api/v1/agents/:account', async ({ request }) => {
+        capturedBody = (await request.json()) as { name: string; visibility?: string };
+        return HttpResponse.json({ account: testAccount, name: capturedBody.name }, { status: 201 });
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent', visibility: 'public' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedBody?.visibility).toBe('public');
+  });
+
+  it('omits visibility when not provided', async () => {
+    let capturedBody: { name: string; visibility?: string } | null = null;
+    server.use(
+      http.post('/api/v1/agents/:account', async ({ request }) => {
+        capturedBody = (await request.json()) as { name: string; visibility?: string };
+        return HttpResponse.json({ account: testAccount, name: capturedBody.name }, { status: 201 });
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedBody?.visibility).toBeUndefined();
+  });
+
+  it('invalidates account and global blueprint caches on success', async () => {
+    server.use(useCreateBlueprintHandler());
+
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(blueprintKeys.byAccount(testAccount), { agents: [], count: 0 });
+    queryClient.setQueryData(blueprintKeys.all, { agents: [], count: 0 });
+
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(queryClient.getQueryState(blueprintKeys.byAccount(testAccount))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(blueprintKeys.all)?.isInvalidated).toBe(true);
+  });
+
+  it('surfaces conflict error when name is already taken (409)', async () => {
+    server.use(useCreateBlueprintHandler({ status: 409, body: { error: 'agent "my-new-agent" already exists' } }));
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect((result.current.error as { status: number })?.status).toBe(409);
+  });
+
+  it('surfaces server error on 500', async () => {
+    server.use(useCreateBlueprintHandler({ status: 500, body: { error: 'internal_error' } }));
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
+    result.current.mutate({ name: 'my-new-agent' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+  });
+});
+
+// ── nameIsTaken derivation ────────────────────────────────────────────────────
+//
+// Mirrors the exact logic in NewBlueprint.tsx:
+//   const nameIsTaken = !!existingBlueprint && (!existingBlueprint.archived_at || !!existingBlueprint.name_reserved);
+//
+// A blueprint name can be reclaimed only when the blueprint is archived AND name_reserved is false.
+// name_reserved is set to true when: (a) the blueprint is ever made public, or (b) it is first deployed.
+describe('blueprint name availability (nameIsTaken)', () => {
+  function isNameTaken(blueprint: Blueprint | undefined): boolean {
+    return !!blueprint && (!blueprint.archived_at || !!blueprint.name_reserved);
+  }
+
+  const base: Blueprint = { name: 'my-agent', account: 'testuser', registry: '', versions: [] };
+
+  it('is available when no blueprint exists with that name', () => {
+    expect(isNameTaken(undefined)).toBe(false);
+  });
+
+  it('is taken when an active (non-archived) blueprint exists, name_reserved = false', () => {
+    // Active blueprints always block regardless of name_reserved.
+    expect(isNameTaken({ ...base, name_reserved: false })).toBe(true);
+  });
+
+  it('is taken when an active blueprint exists, name_reserved = true', () => {
+    expect(isNameTaken({ ...base, name_reserved: true })).toBe(true);
+  });
+
+  it('is available when the blueprint is archived and name_reserved = false (name can be reclaimed)', () => {
+    // Never deployed, never public → safe to reuse. Create() will unarchive and reset it.
+    expect(isNameTaken({ ...base, archived_at: '2025-01-01T00:00:00Z', name_reserved: false })).toBe(false);
+  });
+
+  it('is taken when the blueprint is archived but name_reserved = true (was ever public or deployed)', () => {
+    // The name is permanently held to prevent impersonating the old blueprint's history.
+    expect(isNameTaken({ ...base, archived_at: '2025-01-01T00:00:00Z', name_reserved: true })).toBe(true);
+  });
+
+  it('is available when blueprint is archived and name_reserved is undefined (legacy agent, treated as unreserved)', () => {
+    // Agents created before the name_reserved column was added default to false via DB DEFAULT.
+    // The Blueprint type has name_reserved?: boolean, so undefined behaves the same as false.
+    expect(isNameTaken({ ...base, archived_at: '2025-01-01T00:00:00Z' })).toBe(false);
   });
 });

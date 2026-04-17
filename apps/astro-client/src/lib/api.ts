@@ -954,6 +954,7 @@ export interface Blueprint {
   visibility?: string;
   avatar_url?: string;
   archived_at?: string;
+  name_reserved?: boolean;
   versions: BlueprintVersion[];
   draft_card?: BlueprintCardData;
   heart_count?: number;

@@ -98,6 +98,7 @@ func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
 type deployContext struct {
 	acct              *account.Account
 	sourceAccountName string // account that owns the blueprint (may differ from acct on cross-account deploys)
+	sourceAccountID   string
 	agentName         string
 	displayName       string
 	deploymentID      string
@@ -370,6 +371,7 @@ func prepareDeployment(
 	return &deployContext{
 		acct:              targetAcct,
 		sourceAccountName: sourceAcct.Name,
+		sourceAccountID:   sourceAcct.ID,
 		agentName:         agentName,
 		displayName:       displayName,
 		deploymentID:      deploymentID,
@@ -508,6 +510,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("Failed to save deployment record", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
+		}
+
+		// Reserve the blueprint name on first deploy — best-effort, never blocks the response.
+		if !dctx.isUpdate {
+			go func() {
+				if err := agentIndex.MarkNameReserved(dctx.sourceAccountID, dctx.agentName); err != nil {
+					log.Warn("Failed to mark blueprint name as reserved", "agent", dctx.agentName, "error", err)
+				}
+			}()
 		}
 
 		// Copy the blueprint's avatar to the new deployment (best-effort).

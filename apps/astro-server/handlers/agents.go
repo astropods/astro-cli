@@ -39,16 +39,17 @@ type AgentMetrics struct {
 
 // AgentResponse represents an agent with all its versions
 type AgentResponse struct {
-	Account    string                 `json:"account"`
-	Name       string                 `json:"name"`
-	Registry   string                 `json:"registry"`
-	Visibility string                 `json:"visibility"`
-	AvatarURL  string                 `json:"avatar_url,omitempty"`
-	ArchivedAt *time.Time             `json:"archived_at,omitempty"`
-	Versions   []AgentVersionResponse `json:"versions"`
-	HeartCount int                    `json:"heart_count"`
-	Hearted    bool                   `json:"hearted"`
-	Metrics    *AgentMetrics          `json:"metrics"`
+	Account      string                 `json:"account"`
+	Name         string                 `json:"name"`
+	Registry     string                 `json:"registry"`
+	Visibility   string                 `json:"visibility"`
+	AvatarURL    string                 `json:"avatar_url,omitempty"`
+	ArchivedAt   *time.Time             `json:"archived_at,omitempty"`
+	NameReserved bool                   `json:"name_reserved"`
+	Versions     []AgentVersionResponse `json:"versions"`
+	HeartCount   int                    `json:"heart_count"`
+	Hearted      bool                   `json:"hearted"`
+	Metrics      *AgentMetrics          `json:"metrics"`
 }
 
 // AgentVersionResponse represents a specific version of an agent
@@ -429,13 +430,14 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		}
 
 		resp := AgentResponse{
-			Account:    accountName,
-			Name:       agent.Name,
-			Registry:   agent.Registry,
-			Visibility: agent.Visibility,
-			ArchivedAt: agent.ArchivedAt,
-			Versions:   versions,
-			Metrics:    agentMetrics(mc[name], dc[name]),
+			Account:      accountName,
+			Name:         agent.Name,
+			Registry:     agent.Registry,
+			Visibility:   agent.Visibility,
+			ArchivedAt:   agent.ArchivedAt,
+			NameReserved: agent.NameReserved,
+			Versions:     versions,
+			Metrics:      agentMetrics(mc[name], dc[name]),
 		}
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)

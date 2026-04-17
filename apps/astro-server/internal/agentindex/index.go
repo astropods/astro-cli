@@ -24,14 +24,15 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID  string          `json:"account_id"`
-	Name       string          `json:"name"`
-	Registry   string          `json:"registry"`
-	Visibility string          `json:"visibility"`
-	Versions   []*AgentVersion `json:"versions"`
-	ArchivedAt *time.Time      `json:"archived_at,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	AccountID    string          `json:"account_id"`
+	Name         string          `json:"name"`
+	Registry     string          `json:"registry"`
+	Visibility   string          `json:"visibility"`
+	Versions     []*AgentVersion `json:"versions"`
+	ArchivedAt   *time.Time      `json:"archived_at,omitempty"`
+	NameReserved bool            `json:"name_reserved"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -174,10 +175,10 @@ func (idx *Index) Create(accountID, name string) error {
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, visibility, archived_at, created_at, updated_at
+		SELECT account_id, name, registry, visibility, archived_at, name_reserved, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.CreatedAt, &agent.UpdatedAt)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.NameReserved, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -443,8 +444,10 @@ func (idx *Index) SetVisibility(accountID, name, visibility string) error {
 		return fmt.Errorf("invalid visibility: %s (must be 'public' or 'private')", visibility)
 	}
 
+	// Going public permanently reserves the name regardless of future visibility changes.
 	result, err := idx.db.Exec(`
-		UPDATE agents SET visibility = $1, updated_at = $2
+		UPDATE agents SET visibility = $1, updated_at = $2,
+		    name_reserved = (name_reserved OR $1 = 'public')
 		WHERE account_id = $3 AND name = $4
 	`, visibility, time.Now(), accountID, name)
 	if err != nil {
@@ -460,6 +463,16 @@ func (idx *Index) SetVisibility(accountID, name, visibility string) error {
 	}
 
 	return nil
+}
+
+// MarkNameReserved permanently reserves the agent's name so it cannot be reused after
+// archival. Called best-effort after a deployment is created for the agent.
+func (idx *Index) MarkNameReserved(accountID, name string) error {
+	_, err := idx.db.Exec(`
+		UPDATE agents SET name_reserved = true
+		WHERE account_id = $1 AND name = $2
+	`, accountID, name)
+	return err
 }
 
 // ListPublicAgents returns agents with visibility='public' and their latest version
