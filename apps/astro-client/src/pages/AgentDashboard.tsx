@@ -99,7 +99,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           <p className="mt-1 text-[13px] text-muted-foreground">Deployed agents running in your account.</p>
         </div>
 
-        <DashboardStats account={userAccount} isLoading={isLoading} />
+        {!isAgentsEmpty && <DashboardStats account={userAccount} isLoading={isLoading} />}
 
         <DeployedAgentsSection
           deployments={deployments}
