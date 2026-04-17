@@ -451,7 +451,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				}
 			}
 
-			// Inject tool inputs (from ast configure / .env, with default fallback)
+			// Inject integration inputs (from ast configure / .env, with default fallback)
 			for _, inp := range tool.Inputs {
 				val := inp.Default
 				if v, ok := envVars[inp.Name]; ok {
@@ -761,7 +761,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		}
 	}
 
-	// Inject cloud tool provider credentials from .env
+	// Inject cloud integration provider credentials from .env
 	for name, tool := range s.Integrations {
 		if !tool.DeploysContainer(s.Providers) {
 			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {

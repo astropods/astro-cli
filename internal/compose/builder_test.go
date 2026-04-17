@@ -249,7 +249,7 @@ func TestBuildProject_CloudProviderCredentials(t *testing.T) {
 		t.Error("cloud model provider should not create a service")
 	}
 	if _, ok := project.Services["tool-github"]; ok {
-		t.Error("cloud tool provider should not create a service")
+		t.Error("cloud integration provider should not create a service")
 	}
 }
 
@@ -260,7 +260,7 @@ func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 		Agent: spec.Container{Image: "agent:latest"},
 		Providers: map[string]spec.CustomProvider{
 			"my-service": {
-				Scope: []string{"tools"},
+				Scope: []string{"integrations"},
 				Variables: []spec.Input{
 					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
 					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},
@@ -298,7 +298,7 @@ func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 		Agent: spec.Container{Image: "agent:latest"},
 		Providers: map[string]spec.CustomProvider{
 			"my-service": {
-				Scope: []string{"tools"},
+				Scope: []string{"integrations"},
 				Variables: []spec.Input{
 					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
 					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},

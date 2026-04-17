@@ -296,12 +296,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 				baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
-				printPushStart("tool", toolName)
+				printPushStart("integration", toolName)
 				if multiPlatform {
 					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
+						return fmt.Errorf("failed to push integration %s: %w", toolName, err)
 					}
 					printPushComplete(true, size)
 				} else {
@@ -309,7 +309,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
+						return fmt.Errorf("failed to push integration %s: %w", toolName, err)
 					}
 					printPushComplete(true, size)
 				}
@@ -958,7 +958,7 @@ func transformSpecForRegistry(specObj map[string]interface{}, registry, agentNam
 	}
 
 	// Replace tools.*.container.build with tools.*.container.image
-	if tools, ok := specObj["tools"].(map[string]interface{}); ok {
+	if tools, ok := specObj["integrations"].(map[string]interface{}); ok {
 		for toolName, toolData := range tools {
 			if tool, ok := toolData.(map[string]interface{}); ok {
 				if container, ok := tool["container"].(map[string]interface{}); ok {
@@ -1019,7 +1019,7 @@ func stripSecretDefaults(specObj map[string]interface{}) {
 	}
 
 	// Models/knowledge/tools/ingestion — each entry may have an inputs list
-	for _, section := range []string{"models", "knowledge", "tools", "ingestion"} {
+	for _, section := range []string{"models", "knowledge", "integrations", "ingestion"} {
 		if entries, ok := specObj[section].(map[string]interface{}); ok {
 			for _, entryData := range entries {
 				if entry, ok := entryData.(map[string]interface{}); ok {

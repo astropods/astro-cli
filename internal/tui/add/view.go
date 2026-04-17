@@ -156,7 +156,7 @@ func (m model) steps() []string {
 		return []string{"Name", "Confirm"}
 	case "knowledge":
 		return []string{"Name", "Persistent", "Confirm"}
-	case "tool":
+	case "integration":
 		return []string{"Name", "Confirm"}
 	case "ingestion":
 		return []string{"Name", "Image", "Trigger", "Confirm"}

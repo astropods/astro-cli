@@ -45,7 +45,7 @@ func scopeOptions() []option {
 	return []option{
 		{"Models", "models"},
 		{"Knowledge stores", "knowledge"},
-		{"Tools", "tools"},
+		{"Integrations", "integrations"},
 	}
 }
 
