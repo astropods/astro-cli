@@ -1,8 +1,33 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { screen, cleanup, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/test-utils";
 import { LogViewer } from "./LogViewer";
 import type { LogEntry } from "@/lib/log-utils";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
+// jsdom has no layout engine so useVirtualizer would return no items.
+// Mock it to render all items by default so existing tests work unchanged.
+const mockScrollToIndex = vi.fn();
+
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.mocked(useVirtualizer).mockImplementation((opts) => ({
+    getVirtualItems: () =>
+      Array.from({ length: opts.count }, (_, i) => ({
+        key: i,
+        index: i,
+        start: i * 28,
+        size: 28,
+      })),
+    getTotalSize: () => opts.count * 28,
+    measureElement: vi.fn(),
+    scrollToIndex: mockScrollToIndex,
+  }) as ReturnType<typeof useVirtualizer>);
+  mockScrollToIndex.mockReset();
+});
 
 afterEach(cleanup);
 
@@ -158,5 +183,56 @@ describe("LogViewer", () => {
   it("renders error message when error prop is set", () => {
     renderViewer({ logs: [], error: "Failed to load logs." });
     expect(screen.getByText("Failed to load logs.")).toBeInTheDocument();
+  });
+});
+
+describe("LogViewer virtualization", () => {
+  it("only mounts the virtual window of rows, not all logs", () => {
+    const WINDOW = 10;
+    vi.mocked(useVirtualizer).mockImplementationOnce((opts) => ({
+      getVirtualItems: () =>
+        Array.from({ length: Math.min(opts.count, WINDOW) }, (_, i) => ({
+          key: i,
+          index: i,
+          start: i * 28,
+          size: 28,
+        })),
+      getTotalSize: () => opts.count * 28,
+      measureElement: vi.fn(),
+      scrollToIndex: mockScrollToIndex,
+    }) as ReturnType<typeof useVirtualizer>);
+
+    const manyLogs: LogEntry[] = Array.from({ length: 500 }, (_, i) => ({
+      timestamp: "2024-01-01T00:00:01.000Z",
+      level: "INFO",
+      message: `Log line ${i}`,
+    }));
+
+    renderViewer({ logs: manyLogs });
+
+    expect(screen.getByText("Log line 0")).toBeInTheDocument();
+    expect(screen.getByText(`Log line ${WINDOW - 1}`)).toBeInTheDocument();
+    expect(screen.queryByText(`Log line ${WINDOW}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("Log line 499")).not.toBeInTheDocument();
+  });
+
+  it("sizes the virtual container to the total log height", () => {
+    const { container } = renderViewer();
+    const totalHeight = LOGS.length * 28;
+    expect(container.querySelector(`[style*="height: ${totalHeight}px"]`)).not.toBeNull();
+  });
+
+  it("positions each rendered row absolutely", () => {
+    renderViewer();
+    const rows = document.querySelectorAll<HTMLElement>(".dp-log");
+    expect(rows.length).toBe(LOGS.length);
+    rows.forEach((row) => {
+      expect(row.style.position).toBe("absolute");
+    });
+  });
+
+  it("calls scrollToIndex on initial render", () => {
+    renderViewer();
+    expect(mockScrollToIndex).toHaveBeenCalledWith(LOGS.length - 1, { align: "end" });
   });
 });

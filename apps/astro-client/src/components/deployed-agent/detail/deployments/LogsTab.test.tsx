@@ -1,6 +1,17 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
+vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: vi.fn() }));
+
+vi.mocked(useVirtualizer).mockImplementation((opts) => ({
+  getVirtualItems: () =>
+    Array.from({ length: opts.count }, (_, i) => ({ key: i, index: i, start: i * 28, size: 28 })),
+  getTotalSize: () => opts.count * 28,
+  measureElement: vi.fn(),
+  scrollToIndex: vi.fn(),
+}) as ReturnType<typeof useVirtualizer>);
 import { server } from "@/test/msw/server";
 import { renderWithProviders } from "@/test/test-utils";
 import { LogsTab } from "./LogsTab";

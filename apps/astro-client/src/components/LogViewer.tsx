@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -49,13 +50,20 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
   const isUserScrolled = useRef(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 28,
+    overscan: 15,
+  });
+
   const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (filtered.length > 0) {
+      virtualizer.scrollToIndex(filtered.length - 1, { align: "end" });
+    }
     isUserScrolled.current = false;
     setShowJumpToBottom(false);
-  }, []);
+  }, [filtered.length, virtualizer]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -109,23 +117,34 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         {emptyMessage()}
       </div>
     );
-    return filtered.map((entry, li) => {
-      const level = normalizeLevel(entry.level);
-      const lvlClass = levelColorClass(entry.level);
-      return (
-        <div key={li} className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5">
-          <span className="text-faint-foreground shrink-0 w-[24ch]">
-            {formatLogTimestamp(entry.timestamp)}
-          </span>
-          <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
-            {level}
-          </span>
-          <span className="text-foreground whitespace-nowrap">
-            {entry.message}
-          </span>
-        </div>
-      );
-    });
+    return (
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const entry = filtered[vItem.index];
+          const level = normalizeLevel(entry.level);
+          const lvlClass = levelColorClass(entry.level);
+          return (
+            <div
+              key={vItem.key}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
+              style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vItem.start}px)` }}
+              className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5"
+            >
+              <span className="text-faint-foreground shrink-0 w-[24ch]">
+                {formatLogTimestamp(entry.timestamp)}
+              </span>
+              <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
+                {level}
+              </span>
+              <span className="text-foreground whitespace-nowrap">
+                {entry.message}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
