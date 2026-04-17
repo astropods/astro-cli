@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -228,7 +229,7 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 
 		// Encode redirect_to into the callback URL so the callback knows where to send the browser.
 		callbackURL := fmt.Sprintf("%s/api/v1/accounts/%s/github/callback?redirect_to=%s",
-			cfg.WebhookBaseURL, acct.Name, req.RedirectTo)
+			cfg.WebhookBaseURL, acct.Name, url.QueryEscape(req.RedirectTo))
 
 		authURL, err := pipesClient.GetAuthorizationURL(c.Request.Context(), pipes.GetAuthorizationURLInput{
 			Provider:       "github",
@@ -258,7 +259,8 @@ func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg Gi
 		}
 
 		redirectTo := c.Query("redirect_to")
-		if redirectTo == "" {
+		// Validate to prevent open redirect: must be a relative path.
+		if redirectTo == "" || !strings.HasPrefix(redirectTo, "/") || strings.HasPrefix(redirectTo, "//") {
 			redirectTo = "/new/custom"
 		}
 

@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router";
+import type { BlueprintCardProps } from "@/components/BlueprintCard";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
@@ -21,23 +22,9 @@ import {
   getBlueprintReadme,
   getBlueprintAuthors,
   getBlueprintCapabilities,
+  parseAgentMD,
 } from "@/lib/blueprint-utils";
 import type { AccountPublic, Blueprint, BlueprintCardData } from "@/lib/api";
-
-/** Minimal AGENT.md frontmatter parser — extracts description and body without a YAML dep. */
-function parseAgentMD(content: string): BlueprintCardData | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)/);
-  const card: BlueprintCardData = {};
-  if (match) {
-    const descMatch = match[1].match(/^description:\s*["']?(.*?)["']?\s*$/m);
-    if (descMatch) card.description = descMatch[1].trim();
-    const body = match[2].trim();
-    if (body) card.body = body;
-  } else if (content.trim()) {
-    card.body = content.trim();
-  }
-  return card.description || card.body ? card : null;
-}
 
 // ─── Build success overlay ────────────────────────────────────────────────────
 
@@ -159,7 +146,6 @@ export const meta: Route.MetaFunction = ({ data }) => {
 export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
   const { isAuthenticated, accounts } = useAuth();
-  const navigate = useNavigate();
 
   // Poll every 10s while draft so the page auto-updates once `ast push` completes.
   const { data: blueprint, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
@@ -225,10 +211,33 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
     );
   }
 
-  const isDraft = blueprint.versions.length === 0;
   const canEdit = isAuthenticated && accounts.some((a) => a.name === blueprint.account);
 
-  const { data: githubStatus, isLoading: githubStatusLoading } = useGitHubStatus(blueprint.account, blueprint.name, {
+  return (
+    <BlueprintDetailInner
+      blueprint={blueprint}
+      canEdit={canEdit}
+      loaderData={loaderData}
+      recommendedAgents={recommendedAgents}
+    />
+  );
+}
+
+function BlueprintDetailInner({
+  blueprint,
+  canEdit,
+  loaderData,
+  recommendedAgents,
+}: {
+  blueprint: Blueprint;
+  canEdit: boolean;
+  loaderData: Route.ComponentProps['loaderData'];
+  recommendedAgents: BlueprintCardProps[];
+}) {
+  const navigate = useNavigate();
+  const isDraft = blueprint.versions.length === 0;
+
+  const { data: githubStatus } = useGitHubStatus(blueprint.account, blueprint.name, {
     enabled: isDraft && canEdit,
   });
 
@@ -284,7 +293,6 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
     }
     wasDraftRef.current = isDraft;
   }, [isDraft, githubRepoName]);
-
 
   const integrations = getBlueprintIntegrations(effectiveBlueprint);
   const categories = getBlueprintCategories(effectiveBlueprint);

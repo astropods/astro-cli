@@ -48,3 +48,37 @@ The review step no longer auto-navigates when `sourcePath === "import"` — the 
 ## Migration
 
 No migration required. Existing blueprints and the local CLI path are unaffected.
+
+---
+
+# Code Review Pass (2026-04-16)
+
+## Summary
+
+Bug fixes and cleanup on top of the onboarding feature: security fixes, a React hooks correctness fix, dead code removal, and new unit test coverage.
+
+## Design
+
+**Security fixes (`handlers/github.go`)**: `redirect_to` is now validated to reject absolute URLs and protocol-relative paths (open redirect prevention). The value is also properly percent-encoded when embedded in the callback URL.
+
+**gin.Context data race (`handlers/agents.go`)**: The archive goroutine was reading from `gin.Context` after the handler returned. `GetSession` is now called before the goroutine launches and the result is captured by closure.
+
+**Nil-slice JSON (`internal/github/client.go`)**: `ListRepos` now initialises the result slice with `make([]Repo, 0, ...)` so a zero-match result serialises as `[]` not `null`.
+
+**Variable shadowing (`internal/githubbuild/builder.go`)**: Local variable `ecrRepoName` shadowed the package-level function of the same name. Replaced with a direct call to the function.
+
+**React Rules of Hooks (`pages/BlueprintDetail.tsx`)**: Hooks were called after conditional early returns (`isError`, `!blueprint`). Fixed by splitting into `BlueprintDetail` (outer shell that handles loading/error) and `BlueprintDetailInner` (private component that owns all hooks and interactive state).
+
+**Shared `GitHubIcon` component**: The GitHub SVG was duplicated verbatim in `BlueprintDetailContent.tsx` and `NewBlueprint.tsx`. Extracted to `components/ui/svgs/githubIcon.tsx` and both files import the shared component.
+
+**`statusColor` hoisted to module scope** (`GitHubConnectionPanel.tsx`): The function was re-created inside `BuildLogsDialog` on every render. Moved to a pure module-level function.
+
+**`parseAgentMD` moved to `blueprint-utils.ts`**: The AGENT.md parser was an unexported local in `BlueprintDetail.tsx`. Moved and exported so it can be tested in isolation.
+
+**`knowledgeKeys` placement (`keys.ts`)**: Moved from between `githubKeys` and `deploymentKeys` to the end of the file for logical grouping.
+
+## Tests added
+
+- `src/api/queries/github.test.ts` — `useGitHubStatus`, `useGitHubRebuild`, `useGitHubAccountConnections` hook coverage
+- `src/lib/blueprint-utils.test.ts` — `parseAgentMD` (9 cases), `getEffectiveCard` (4 cases), `getBlueprintReadme` (3 cases), `getBlueprintDescription` (2 cases)
+- `internal/githubbuild/builder_test.go` — `ecrRepoName` (6 cases) and `EnsureRepository` (5 cases) added

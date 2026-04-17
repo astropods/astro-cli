@@ -715,6 +715,8 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 		}
 
 		// Best-effort: disconnect any linked GitHub repo so it can be reused.
+		// Extract session before the goroutine — gin.Context must not be accessed after the handler returns.
+		session, sessionOK := middleware.GetSession(c)
 		go func() {
 			if ghStore == nil {
 				return
@@ -723,19 +725,16 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 			if err != nil {
 				return // no connection — nothing to do
 			}
-			if conn.WebhookID != 0 {
-				session, ok := middleware.GetSession(c)
-				if ok {
-					token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
-						Provider:       "github",
-						UserID:         session.UserID,
-						OrganizationID: session.OrganizationID,
-					})
-					if tokenErr == nil {
-						gh := githubclient.New(token.AccessToken)
-						if delErr := gh.DeleteWebhook(context.Background(), conn.RepoFullName, conn.WebhookID); delErr != nil {
-							log.Warn("github: delete webhook on archive", "error", delErr, "repo", conn.RepoFullName)
-						}
+			if conn.WebhookID != 0 && sessionOK {
+				token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
+					Provider:       "github",
+					UserID:         session.UserID,
+					OrganizationID: session.OrganizationID,
+				})
+				if tokenErr == nil {
+					gh := githubclient.New(token.AccessToken)
+					if delErr := gh.DeleteWebhook(context.Background(), conn.RepoFullName, conn.WebhookID); delErr != nil {
+						log.Warn("github: delete webhook on archive", "error", delErr, "repo", conn.RepoFullName)
 					}
 				}
 			}

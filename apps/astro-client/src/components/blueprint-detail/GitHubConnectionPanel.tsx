@@ -402,6 +402,13 @@ function parseLogSections(raw: string): { name: string; content: string }[] {
   return sections;
 }
 
+function statusColor(s: string) {
+  if (s === "succeeded") return "text-green-500";
+  if (s === "failed") return "text-red-400";
+  if (s === "building") return "text-blue-400";
+  return "text-zinc-500";
+}
+
 function BuildLogsDialog({
   account, name, buildId, commitSha, isActive, open, onOpenChange,
 }: {
@@ -443,12 +450,6 @@ function BuildLogsDialog({
       return next;
     });
   }
-
-  const statusColor = (s: string) =>
-    s === "succeeded" ? "text-green-500" :
-    s === "failed" ? "text-red-400" :
-    s === "building" ? "text-blue-400" :
-    "text-zinc-500";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

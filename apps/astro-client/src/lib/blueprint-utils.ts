@@ -1,5 +1,20 @@
 import type { Blueprint, BlueprintAuthor, BlueprintCardData, BlueprintCardRepo, ResolvedIntegration } from "@/lib/api";
 
+/** Minimal AGENT.md frontmatter parser — extracts description and body without a YAML dep. */
+export function parseAgentMD(content: string): BlueprintCardData | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)/);
+  const card: BlueprintCardData = {};
+  if (match) {
+    const descMatch = match[1].match(/^description:\s*["']?(.*?)["']?\s*$/m);
+    if (descMatch) card.description = descMatch[1].trim();
+    const body = match[2].trim();
+    if (body) card.body = body;
+  } else if (content.trim()) {
+    card.body = content.trim();
+  }
+  return card.description || card.body ? card : null;
+}
+
 export function getLatestVersion(blueprint: Blueprint) {
   return blueprint.versions[0];
 }

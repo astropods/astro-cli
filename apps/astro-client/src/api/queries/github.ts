@@ -45,7 +45,6 @@ export function useGitHubRebuild(account: string, name: string) {
   });
 }
 
-
 export function useGitHubBuildLogs(account: string, name: string, buildId: string, opts?: { enabled?: boolean; refetchInterval?: number | false }) {
   return useQuery({
     queryKey: ['github', account, name, 'builds', buildId, 'logs'],

@@ -48,14 +48,6 @@ export const githubKeys = {
   accountConnections: (account: string) => ['github', account, 'connections'] as const,
 };
 
-export const knowledgeKeys = {
-  all: (account: string) => ['knowledge', account] as const,
-  detail: (account: string, name: string) => ['knowledge', account, name] as const,
-  credentials: (account: string, name: string) => ['knowledge', account, name, 'credentials'] as const,
-  logs: (account: string, name: string, timeRange: string) => ['knowledge', account, name, 'logs', timeRange] as const,
-  metrics: (account: string, name: string) => ['knowledge', account, name, 'metrics'] as const,
-};
-
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,
@@ -67,4 +59,12 @@ export const deploymentKeys = {
     ['deployments', account, name, 'history', deploymentId ?? 'all'] as const,
   events: (deploymentId: string) =>
     ['deployments', deploymentId, 'events'] as const,
+};
+
+export const knowledgeKeys = {
+  all: (account: string) => ['knowledge', account] as const,
+  detail: (account: string, name: string) => ['knowledge', account, name] as const,
+  credentials: (account: string, name: string) => ['knowledge', account, name, 'credentials'] as const,
+  logs: (account: string, name: string, timeRange: string) => ['knowledge', account, name, 'logs', timeRange] as const,
+  metrics: (account: string, name: string) => ['knowledge', account, name, 'metrics'] as const,
 };

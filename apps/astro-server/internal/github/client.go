@@ -90,7 +90,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]Repo, error) {
 	if err := c.get(ctx, "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator", &all); err != nil {
 		return nil, fmt.Errorf("github: list repos: %w", err)
 	}
-	var repos []Repo
+	repos := make([]Repo, 0, len(all))
 	for _, r := range all {
 		if r.Permissions.Admin {
 			repos = append(repos, r)
