@@ -6,20 +6,20 @@ import { explorePath } from "@/lib/routes";
 export function DashboardAgentsEmptyState() {
   return (
     <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-      <p className="text-sm font-medium text-foreground mb-1">No agents deployed yet</p>
-      <p className="text-xs text-muted-foreground mb-4">
+      <p className="text-heading-2 text-foreground mb-2">No agents deployed yet</p>
+      <p className="text-body-sm text-muted-foreground mb-6 max-w-sm mx-auto">
         Blueprints define your agent. Browse the community or build your own.
       </p>
-      <div className="flex items-center justify-center gap-2">
-        <Button size="sm" asChild>
+      <div className="flex items-center justify-center gap-3">
+        <Button asChild>
           <Link to="/getting-started">
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
             Create blueprint
           </Link>
         </Button>
-        <Button size="sm" variant="outline" asChild>
+        <Button variant="outline" asChild>
           <Link to={explorePath}>
-            <GlobeAltIcon className="size-3.5" />
+            <GlobeAltIcon className="size-4" />
             Explore community blueprints
           </Link>
         </Button>
