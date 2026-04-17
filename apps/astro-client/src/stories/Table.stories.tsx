@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { EllipsisHorizontalIcon } from "@heroicons/react/24/outline"
+import { CircleStackIcon, EllipsisHorizontalIcon, PlusIcon } from "@heroicons/react/24/outline"
 
 import {
   Table,
@@ -157,13 +157,19 @@ export const Empty: Story = {
       </TableHeader>
       <TableBody>
         <TableRow>
-          <TableCell colSpan={3}>
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <h3 className="text-heading-4 text-foreground mb-1">No results yet</h3>
-              <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
+          <TableCell colSpan={3} className="p-0">
+            <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
+              <div className="mb-3.5 flex size-10 items-center justify-center rounded-md bg-muted">
+                <CircleStackIcon className="size-5 text-faint-foreground" />
+              </div>
+              <p className="text-heading-4 text-foreground mb-1.5">No results yet</p>
+              <p className="text-body text-faint-foreground mb-6">
                 Create your first entry to get started.
               </p>
-              <Button>Create entry</Button>
+              <Button>
+                <PlusIcon className="size-4" />
+                Create entry
+              </Button>
             </div>
           </TableCell>
         </TableRow>

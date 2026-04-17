@@ -107,12 +107,12 @@ function KnowledgeStoresContent() {
             ) : stores.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={tableHeaders.length + 1} className="p-0">
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted">
-                      <CircleStackIcon className="size-8 text-muted-foreground/60" />
+                  <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
+                    <div className="mb-3.5 flex size-10 items-center justify-center rounded-md bg-muted">
+                      <CircleStackIcon className="size-5 text-faint-foreground" />
                     </div>
-                    <h2 className="text-heading-4 text-foreground mb-1">No knowledge stores yet</h2>
-                    <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
+                    <p className="text-heading-4 text-foreground mb-1.5">No knowledge stores yet</p>
+                    <p className="text-body text-faint-foreground mb-6">
                       Create a store to give your agents a database for memory, vector search, or caching.
                     </p>
                     <Button onClick={() => navigate(newKnowledgePath)}>
