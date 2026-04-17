@@ -3,6 +3,7 @@ import { Outlet, useSearchParams } from "react-router";
 import { AppHeader } from "./AppHeader";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
+import { ActiveAccountProvider } from "@/hooks/use-active-account";
 
 const AUTH_RETRY_KEY = "auth_invalid_state_retry";
 
@@ -58,17 +59,19 @@ export default function Layout() {
   const displayError = authError || callbackError;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <AppHeader />
-      {displayError && (
-        <div
-          className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded cursor-pointer"
-          onClick={() => setCallbackError(null)}
-        >
-          {displayError}
-        </div>
-      )}
-      <Outlet />
-    </div>
+    <ActiveAccountProvider>
+      <div className="flex min-h-screen flex-col">
+        <AppHeader />
+        {displayError && (
+          <div
+            className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded cursor-pointer"
+            onClick={() => setCallbackError(null)}
+          >
+            {displayError}
+          </div>
+        )}
+        <Outlet />
+      </div>
+    </ActiveAccountProvider>
   );
 }
