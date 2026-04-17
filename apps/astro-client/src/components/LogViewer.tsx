@@ -144,14 +144,13 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           const entry = filtered[vItem.index];
           const level = normalizeLevel(entry.level);
           const lvlClass = levelColorClass(entry.level);
-          const isMatch = !deferredSearch || entry.message.toLowerCase().includes(deferredSearch.toLowerCase());
           return (
             <div
               key={vItem.key}
               data-index={vItem.index}
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vItem.start}px)` }}
-              className={cn("dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5", deferredSearch && !isMatch && "opacity-40")}
+              className="dp-log flex items-baseline gap-x-3 px-[18px] py-1 font-mono text-mono-sm tracking-normal leading-5"
             >
               <span className="text-faint-foreground shrink-0 w-[24ch]">
                 {formatLogTimestamp(entry.timestamp)}

@@ -235,15 +235,6 @@ describe("LogViewer search highlighting", () => {
     expect(mark?.textContent).toBe("req-001");
   });
 
-  it("dims non-matching rows", () => {
-    renderViewer();
-    fireEvent.change(screen.getByPlaceholderText("Search logs"), { target: { value: "req-001" } });
-    const rows = document.querySelectorAll<HTMLElement>(".dp-log");
-    const dimmed = Array.from(rows).filter((r) => r.classList.contains("opacity-40"));
-    // 4 of the 5 rows don't contain "req-001"
-    expect(dimmed.length).toBe(4);
-  });
-
   it("does not dim rows when search is empty", () => {
     renderViewer();
     const rows = document.querySelectorAll<HTMLElement>(".dp-log");
