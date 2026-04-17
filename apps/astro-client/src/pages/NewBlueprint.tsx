@@ -28,6 +28,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Check, Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { Tag } from "@/components/Tag";
 
 export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
 
@@ -411,7 +412,7 @@ function NewBlueprintContent() {
                                               <span className="flex items-center gap-2">
                                                 <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
                                                 {repo.full_name}
-                                                {repo.private && <span className="text-[10px] text-muted-foreground">private</span>}
+                                                {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
                                                 {usedBy && <span className="text-[10px] text-muted-foreground">linked to {usedBy.agent_name}</span>}
                                               </span>
                                             </SelectItem>
