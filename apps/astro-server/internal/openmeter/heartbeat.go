@@ -313,7 +313,7 @@ func containerBreakdown(s *spec.AstroDeploymentSpec) []containerUsage {
 	for name, k := range s.Knowledge {
 		result = append(result, makeContainerUsage("knowledge/"+name, k.Resources, k.Replicas))
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		result = append(result, makeContainerUsage("tool/"+name, t.Resources, t.Replicas))
 	}
 	if s.Interfaces != nil {

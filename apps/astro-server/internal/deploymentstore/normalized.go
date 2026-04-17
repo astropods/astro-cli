@@ -477,7 +477,7 @@ func SaveNormalizedSpec(
 	}
 
 	// --- Tools ---
-	for name, tool := range ds.Tools {
+	for name, tool := range ds.Integrations {
 		replicas := tool.Replicas
 		if replicas == 0 {
 			replicas = 1

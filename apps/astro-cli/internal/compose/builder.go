@@ -428,7 +428,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Add tools that deploy a container (skip cloud and custom providers)
-	for name, tool := range s.Tools {
+	for name, tool := range s.Integrations {
 		if !tool.DeploysContainer(s.Providers) {
 			continue
 		}
@@ -762,9 +762,9 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 	}
 
 	// Inject cloud tool provider credentials from .env
-	for name, tool := range s.Tools {
+	for name, tool := range s.Integrations {
 		if !tool.DeploysContainer(s.Providers) {
-			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
+			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {
 				for _, cs := range suffixes {
 					key := strings.ToUpper(name) + "_" + cs.Suffix
 					if val, ok := envVars[key]; ok {
@@ -789,7 +789,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 			injectedProviders[knowledge.Provider] = true
 		}
 	}
-	for _, tool := range s.Tools {
+	for _, tool := range s.Integrations {
 		if tool.IsProviderMode() {
 			injectedProviders[tool.Provider] = true
 		}

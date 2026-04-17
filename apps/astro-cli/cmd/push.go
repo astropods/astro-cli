@@ -291,7 +291,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		}
 
 		// 4. Push custom-built tool images
-		for toolName, tool := range astroSpec.Tools {
+		for toolName, tool := range astroSpec.Integrations {
 			if tool.Container != nil && tool.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
@@ -396,7 +396,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			}
 
 			// Custom-built tool images
-			for toolName, tool := range astroSpec.Tools {
+			for toolName, tool := range astroSpec.Integrations {
 				if tool.Container != nil && tool.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 					if err := retag(

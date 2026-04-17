@@ -18,7 +18,7 @@ func TestParseReferences(t *testing.T) {
 		{"model port 4-part", "${models.local_llm.http.port}", 1, RefModel, "local_llm", "http", "port"},
 		{"model url 4-part", "${models.local_llm.http.url}", 1, RefModel, "local_llm", "http", "url"},
 		{"knowledge host", "${knowledge.docs.host}", 1, RefKnowledge, "docs", "", "host"},
-		{"tool url", "${tools.search.http.url}", 1, RefTool, "search", "http", "url"},
+		{"tool url", "${tools.search.http.url}", 1, RefIntegration, "search", "http", "url"},
 		{"variable", "${variables.API_KEY}", 1, RefVariable, "API_KEY", "", ""},
 		{"source name", "${source.name}", 1, RefSource, "name", "", ""},
 		{"source build", "${source.build}", 1, RefSource, "build", "", ""},
@@ -87,7 +87,7 @@ func TestValidateReferences_Valid(t *testing.T) {
 		Knowledge: map[string]DeploymentKnowledge{
 			"docs": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 6333}}},
 		},
-		Tools: map[string]DeploymentTool{
+		Integrations: map[string]DeploymentIntegration{
 			"search": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 3000}}},
 		},
 		Variables: map[string]Variable{
@@ -100,7 +100,7 @@ func TestValidateReferences_Valid(t *testing.T) {
 		{Raw: "${models.llm.http.port}", Kind: RefModel, Name: "llm", Endpoint: "http", Attribute: "port"},
 		{Raw: "${models.llm.http.url}", Kind: RefModel, Name: "llm", Endpoint: "http", Attribute: "url"},
 		{Raw: "${knowledge.docs.host}", Kind: RefKnowledge, Name: "docs", Attribute: "host"},
-		{Raw: "${tools.search.http.url}", Kind: RefTool, Name: "search", Endpoint: "http", Attribute: "url"},
+		{Raw: "${tools.search.http.url}", Kind: RefIntegration, Name: "search", Endpoint: "http", Attribute: "url"},
 		{Raw: "${variables.API_KEY}", Kind: RefVariable, Name: "API_KEY"},
 		{Raw: "${source.name}", Kind: RefSource, Name: "name"},
 		{Raw: "${source.build}", Kind: RefSource, Name: "build"},

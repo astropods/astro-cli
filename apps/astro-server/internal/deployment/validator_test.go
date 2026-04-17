@@ -174,7 +174,7 @@ func TestValidateSpec(t *testing.T) {
 						},
 					},
 				},
-				Tools: map[string]spec.Tool{
+				Integrations: map[string]spec.Integration{
 					"jira": {Provider: "my-service"},
 				},
 			},
@@ -196,7 +196,7 @@ func TestValidateSpec(t *testing.T) {
 						},
 					},
 				},
-				Tools: map[string]spec.Tool{
+				Integrations: map[string]spec.Integration{
 					"jira": {Provider: "my-service"},
 				},
 			},
@@ -219,7 +219,7 @@ func TestValidateSpec(t *testing.T) {
 						},
 					},
 				},
-				Tools: map[string]spec.Tool{
+				Integrations: map[string]spec.Integration{
 					"jira": {Provider: "my-service"},
 				},
 			},
@@ -389,7 +389,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 			Knowledge: map[string]spec.Knowledge{
 				"pinecone": {Provider: "pinecone"},
 			},
-			Tools: map[string]spec.Tool{
+			Integrations: map[string]spec.Integration{
 				"github": {Provider: "github"},
 				"gitlab": {Provider: "gitlab"},
 			},
@@ -555,7 +555,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 					},
 				},
 			},
-			Tools: map[string]spec.Tool{
+			Integrations: map[string]spec.Integration{
 				"jira": {Provider: "my-service"},
 			},
 		}
@@ -667,8 +667,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 		if len(astroSpec.Models) != 1 {
 			t.Fatalf("expected 1 model after round-trip, got %d", len(astroSpec.Models))
 		}
-		if len(astroSpec.Tools) != 1 {
-			t.Fatalf("expected 1 tool after round-trip, got %d", len(astroSpec.Tools))
+		if len(astroSpec.Integrations) != 1 {
+			t.Fatalf("expected 1 tool after round-trip, got %d", len(astroSpec.Integrations))
 		}
 
 		creds := v.GetRequiredCredentials(&astroSpec, nil)

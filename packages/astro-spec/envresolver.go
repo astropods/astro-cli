@@ -81,11 +81,11 @@ type ConnectionAddress struct {
 
 // EnvResult holds the computed env var maps for every container.
 type EnvResult struct {
-	Agent     map[string]string
-	Models    map[string]map[string]string
-	Knowledge map[string]map[string]string
-	Tools     map[string]map[string]string
-	Ingestion map[string]map[string]string
+	Agent        map[string]string
+	Models       map[string]map[string]string
+	Knowledge    map[string]map[string]string
+	Integrations map[string]map[string]string
+	Ingestion    map[string]map[string]string
 }
 
 // CredentialMeta describes one required credential.
@@ -109,17 +109,17 @@ type CredentialMeta struct {
 // Returns an EnvResult with one map per container.
 func ResolveEnvVars(s *AstroSpec, addrs map[string]ConnectionAddress, credentials, inputValues map[string]string) EnvResult {
 	res := EnvResult{
-		Agent:     make(map[string]string),
-		Models:    make(map[string]map[string]string),
-		Knowledge: make(map[string]map[string]string),
-		Tools:     make(map[string]map[string]string),
-		Ingestion: make(map[string]map[string]string),
+		Agent:        make(map[string]string),
+		Models:       make(map[string]map[string]string),
+		Knowledge:    make(map[string]map[string]string),
+		Integrations: make(map[string]map[string]string),
+		Ingestion:    make(map[string]map[string]string),
 	}
 
 	// §8.1 / §8.2 / §8.3 — connection wiring into agent
 	resolveModelConnections(s, addrs, res.Agent)
 	resolveKnowledgeConnections(s, addrs, res.Agent)
-	resolveToolConnections(s, addrs, res.Agent)
+	resolveIntegrationConnections(s, addrs, res.Agent)
 
 	// §8.1 — credentials (cloud + custom provider secrets) into agent
 	for k, v := range credentials {
@@ -139,8 +139,8 @@ func ResolveEnvVars(s *AstroSpec, addrs map[string]ConnectionAddress, credential
 		for name := range s.Knowledge {
 			ensureComponentMap(res.Knowledge, name)[inp.Name] = v
 		}
-		for name := range s.Tools {
-			ensureComponentMap(res.Tools, name)[inp.Name] = v
+		for name := range s.Integrations {
+			ensureComponentMap(res.Integrations, name)[inp.Name] = v
 		}
 		for name := range s.Ingestion {
 			ensureComponentMap(res.Ingestion, name)[inp.Name] = v
@@ -169,10 +169,10 @@ func ResolveEnvVars(s *AstroSpec, addrs map[string]ConnectionAddress, credential
 			}
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		for _, inp := range t.Inputs {
 			if v := resolveInputValue(inp, inputValues); v != "" {
-				ensureComponentMap(res.Tools, name)[inp.Name] = v
+				ensureComponentMap(res.Integrations, name)[inp.Name] = v
 			}
 		}
 	}
@@ -242,17 +242,17 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 			}
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if t.IsProviderMode() {
 			if IsManagedProvider("tools", t.Provider) {
 				continue
 			}
 			if _, isCustom := s.Providers[t.Provider]; isCustom {
-				if _, isCloud := GetCloudToolCredentials(t.Provider); !isCloud {
+				if _, isCloud := GetCloudIntegrationCredentials(t.Provider); !isCloud {
 					continue
 				}
 			}
-			if suffixes, ok := GetCloudToolCredentials(t.Provider); ok {
+			if suffixes, ok := GetCloudIntegrationCredentials(t.Provider); ok {
 				p := strings.ToLower(t.Provider)
 				groups[p] = append(groups[p], cloudEntry{name, p, "tool", suffixes})
 			}
@@ -332,7 +332,7 @@ func CustomProviderCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 		if _, ok := GetCloudKnowledgeCredentials(provider); ok {
 			return true
 		}
-		if _, ok := GetCloudToolCredentials(provider); ok {
+		if _, ok := GetCloudIntegrationCredentials(provider); ok {
 			return true
 		}
 		return false
@@ -348,7 +348,7 @@ func CustomProviderCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 			groups[k.Provider] = append(groups[k.Provider], customEntry{name, s.Providers[k.Provider].Variables})
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if _, ok := s.Providers[t.Provider]; ok && !isBuiltinCloud(t.Provider) {
 			groups[t.Provider] = append(groups[t.Provider], customEntry{name, s.Providers[t.Provider].Variables})
 		}
@@ -403,7 +403,7 @@ func AgentConnectionKeys(s *AstroSpec, addrs map[string]ConnectionAddress) map[s
 	result := make(map[string]string)
 	resolveModelConnections(s, addrs, result)
 	resolveKnowledgeConnections(s, addrs, result)
-	resolveToolConnections(s, addrs, result)
+	resolveIntegrationConnections(s, addrs, result)
 	return result
 }
 
@@ -449,7 +449,7 @@ func AllCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 type AgentEnvMeta struct {
 	Source   string // "connection" or "credential"
 	Provider string // originating provider name (lowercase), e.g. "qdrant", "anthropic"
-	Category string // "model", "knowledge", "tool", "provider"
+	Category string // "model", "knowledge", "integration", "provider"
 	Optional bool   // credentials only
 }
 
@@ -499,7 +499,7 @@ func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
 			return name, "knowledge"
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if strings.HasPrefix(key, "INTEGRATION_"+SanitizeEnvName(name)+"_") {
 			prov := t.Provider
 			if prov == "" {
@@ -634,9 +634,9 @@ func resolveKnowledgeConnections(s *AstroSpec, addrs map[string]ConnectionAddres
 	}
 }
 
-// resolveToolConnections applies §8.3 rules for all container-mode tool entries.
-func resolveToolConnections(s *AstroSpec, addrs map[string]ConnectionAddress, dst map[string]string) {
-	for name, t := range s.Tools {
+// resolveIntegrationConnections applies §8.3 rules for all container-mode tool entries.
+func resolveIntegrationConnections(s *AstroSpec, addrs map[string]ConnectionAddress, dst map[string]string) {
+	for name, t := range s.Integrations {
 		if !t.DeploysContainer(s.Providers) {
 			continue // cloud or custom provider — no connection wiring
 		}

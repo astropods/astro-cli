@@ -185,7 +185,7 @@ func IsCloudKnowledgeProvider(name string) bool {
 	return ok && p.Cloud
 }
 
-func IsCloudToolProvider(name string) bool {
+func IsCloudIntegrationProvider(name string) bool {
 	p, ok := LookupBuiltin("tools", name)
 	return ok && p.Cloud
 }
@@ -206,7 +206,7 @@ func GetCloudKnowledgeCredentials(name string) ([]CredentialSuffix, bool) {
 	return p.Credentials, true
 }
 
-func GetCloudToolCredentials(name string) ([]CredentialSuffix, bool) {
+func GetCloudIntegrationCredentials(name string) ([]CredentialSuffix, bool) {
 	p, ok := LookupBuiltin("tools", name)
 	if !ok || !p.Cloud {
 		return nil, false

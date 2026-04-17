@@ -90,7 +90,7 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 			errs = append(errs, fmt.Sprintf("knowledge.%s.endpoints: required (at least one endpoint)", name))
 		}
 	}
-	for name, t := range submitted.Tools {
+	for name, t := range submitted.Integrations {
 		if t.Image == "" {
 			errs = append(errs, fmt.Sprintf("tools.%s.image: required", name))
 		}
@@ -197,14 +197,14 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 		resolved.Knowledge[name] = k
 	}
 
-	for name, t := range resolved.Tools {
+	for name, t := range resolved.Integrations {
 		if t.Replicas == 0 {
 			t.Replicas = 1
 		}
 		if t.Update.Strategy == "" {
 			t.Update = spec.DefaultUpdateStrategy()
 		}
-		resolved.Tools[name] = t
+		resolved.Integrations[name] = t
 	}
 
 	return &resolved

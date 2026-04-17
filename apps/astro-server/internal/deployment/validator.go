@@ -154,7 +154,7 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 			validateEntry("knowledge", "knowledge", name, knowledge.Provider)
 		}
 	}
-	for name, tool := range astroSpec.Tools {
+	for name, tool := range astroSpec.Integrations {
 		if tool.IsProviderMode() && tool.Container == nil {
 			validateEntry("integrations", "tools", name, tool.Provider)
 		}
@@ -204,12 +204,12 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 			}
 		}
 	}
-	for name, tool := range astroSpec.Tools {
+	for name, tool := range astroSpec.Integrations {
 		if tool.IsProviderMode() {
 			if spec.IsManagedProvider("tools", tool.Provider) {
 				continue
 			}
-			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
+			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {
 				provider := strings.ToLower(tool.Provider)
 				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
 					name: name, provider: provider, category: "tool", suffixes: suffixes,

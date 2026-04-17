@@ -98,7 +98,7 @@ func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 				"SEARCH_URL": "${tools.search.http.url}",
 			},
 		},
-		Tools: map[string]spec.DeploymentTool{
+		Integrations: map[string]spec.DeploymentIntegration{
 			"search": {Image: "search:latest", Endpoints: httpEndpoints(3000)},
 		},
 	}

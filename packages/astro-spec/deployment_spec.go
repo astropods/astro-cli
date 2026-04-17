@@ -6,18 +6,18 @@ import "sort"
 // It is the intermediate artifact between the astro-spec (what the agent is)
 // and infrastructure manifests (how it runs on a cluster).
 type AstroDeploymentSpec struct {
-	Spec          string                         `json:"spec" yaml:"spec"`
-	Source        DeploymentSource               `json:"source" yaml:"source"`
-	Target        DeploymentTarget               `json:"target" yaml:"target"`
-	Agent         DeploymentAgent                `json:"agent" yaml:"agent"`
-	Models        map[string]DeploymentModel     `json:"models,omitempty" yaml:"models,omitempty"`
-	Knowledge     map[string]DeploymentKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
-	Tools         map[string]DeploymentTool      `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Ingestion     map[string]DeploymentIngestion `json:"ingestion,omitempty" yaml:"ingestion,omitempty"`
-	Interfaces    *DeploymentInterfaces          `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
-	Variables     map[string]Variable            `json:"variables,omitempty" yaml:"variables,omitempty"`
-	Observability DeploymentObservability        `json:"observability" yaml:"observability"`
-	Editable      []string                       `json:"editable,omitempty" yaml:"editable,omitempty"`
+	Spec          string                           `json:"spec" yaml:"spec"`
+	Source        DeploymentSource                 `json:"source" yaml:"source"`
+	Target        DeploymentTarget                 `json:"target" yaml:"target"`
+	Agent         DeploymentAgent                  `json:"agent" yaml:"agent"`
+	Models        map[string]DeploymentModel       `json:"models,omitempty" yaml:"models,omitempty"`
+	Knowledge     map[string]DeploymentKnowledge   `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
+	Integrations  map[string]DeploymentIntegration `json:"integrations,omitempty" yaml:"integrations,omitempty"`
+	Ingestion     map[string]DeploymentIngestion   `json:"ingestion,omitempty" yaml:"ingestion,omitempty"`
+	Interfaces    *DeploymentInterfaces            `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
+	Variables     map[string]Variable              `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Observability DeploymentObservability          `json:"observability" yaml:"observability"`
+	Editable      []string                         `json:"editable,omitempty" yaml:"editable,omitempty"`
 }
 
 // Endpoint represents a named network endpoint on a component.
@@ -108,8 +108,8 @@ type DeploymentKnowledge struct {
 	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"` // implementation-internal
 }
 
-// DeploymentTool describes a tool sidecar container.
-type DeploymentTool struct {
+// DeploymentIntegration describes a tool sidecar container.
+type DeploymentIntegration struct {
 	Image       string              `json:"image" yaml:"image"`
 	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
 	Replicas    int                 `json:"replicas" yaml:"replicas"`

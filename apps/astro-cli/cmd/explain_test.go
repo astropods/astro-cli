@@ -49,7 +49,7 @@ func TestPlainProviderVarsPrefixed(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -70,7 +70,7 @@ func TestPlainProviderVars_BareNameNeverAppears(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -99,7 +99,7 @@ func TestPlainProviderVars_MultipleProviders(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 			"github":     {Provider: "github"},
 		},
@@ -127,7 +127,7 @@ func TestPlainProviderVars_AllSecretProducesNone(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"vault": {Provider: "vault"},
 		},
 	}
@@ -148,7 +148,7 @@ func TestPlainProviderVars_AllNonSecret(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"myapi": {Provider: "myapi"},
 		},
 	}
@@ -174,7 +174,7 @@ func TestPlainProviderVars_HyphenatedProviderName(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"mytool": {Provider: "my-api"},
 		},
 	}
@@ -244,7 +244,7 @@ func TestAutoEnvNonSecretProviderVarsPrefixed(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -268,7 +268,7 @@ func TestAutoEnv_MultipleNonSecretVarsSameProvider(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -296,7 +296,7 @@ func TestAutoEnv_SecretsExcludedFromNonSecretPath(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"myapi": {Provider: "myapi"},
 		},
 	}
@@ -318,7 +318,7 @@ func TestReferencedCustomProvidersSkipsUnreferenced(t *testing.T) {
 			"used":   {Variables: []spec.Input{{Name: "X", Secret: false}}},
 			"unused": {Variables: []spec.Input{{Name: "Y", Secret: false}}},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"mytool": {Provider: "used"},
 		},
 	}
@@ -339,9 +339,9 @@ func TestReferencedCustomProviders_AllSections(t *testing.T) {
 			"knowledge-prov": {},
 			"tool-prov":      {},
 		},
-		Models:    map[string]spec.Model{"m": {Provider: "model-prov"}},
-		Knowledge: map[string]spec.Knowledge{"k": {Provider: "knowledge-prov"}},
-		Tools:     map[string]spec.Tool{"t": {Provider: "tool-prov"}},
+		Models:       map[string]spec.Model{"m": {Provider: "model-prov"}},
+		Knowledge:    map[string]spec.Knowledge{"k": {Provider: "knowledge-prov"}},
+		Integrations: map[string]spec.Integration{"t": {Provider: "tool-prov"}},
 	}
 
 	refs := referencedCustomProviders(s)
@@ -358,7 +358,7 @@ func TestReferencedCustomProviders_NoProviderFieldSkipped(t *testing.T) {
 			"myprov": {},
 		},
 		// Tool without provider field — container mode, should not reference myprov
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"standalone": {},
 		},
 	}
@@ -374,8 +374,8 @@ func TestReferencedCustomProviders_SameProviderMultipleSections(t *testing.T) {
 		Providers: map[string]spec.CustomProvider{
 			"shared": {Variables: []spec.Input{{Name: "KEY", Secret: false}}},
 		},
-		Models: map[string]spec.Model{"m": {Provider: "shared"}},
-		Tools:  map[string]spec.Tool{"t": {Provider: "shared"}},
+		Models:       map[string]spec.Model{"m": {Provider: "shared"}},
+		Integrations: map[string]spec.Integration{"t": {Provider: "shared"}},
 	}
 
 	refs := referencedCustomProviders(s)

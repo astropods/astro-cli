@@ -162,7 +162,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 				Update:    spec.DefaultUpdateStrategy(),
 			},
 		},
-		Tools: map[string]spec.DeploymentTool{
+		Integrations: map[string]spec.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 1,
 				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
@@ -810,7 +810,7 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 			Resources: spec.DeploymentResources{CPU: "500m", Memory: "1Gi"},
 			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
 		},
-		Tools: map[string]spec.DeploymentTool{
+		Integrations: map[string]spec.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 2,
 				Resources: spec.DeploymentResources{CPU: "200m", Memory: "512Mi"},
@@ -916,7 +916,7 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
 			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
 		},
-		Tools: map[string]spec.DeploymentTool{
+		Integrations: map[string]spec.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 1,
 				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},

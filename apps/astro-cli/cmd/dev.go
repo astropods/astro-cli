@@ -890,7 +890,7 @@ func rewriteDockerHostsToLocalhost(s *spec.AstroSpec, envMap map[string]string) 
 			serviceNames[fmt.Sprintf("knowledge-%s", name)] = true
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		if t.DeploysContainer(s.Providers) {
 			serviceNames[fmt.Sprintf("tool-%s", name)] = true
 		}

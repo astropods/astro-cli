@@ -10,11 +10,11 @@ import (
 type ReferenceKind string
 
 const (
-	RefModel    ReferenceKind = "models"
-	RefKnowledge ReferenceKind = "knowledge"
-	RefTool     ReferenceKind = "tools"
-	RefVariable ReferenceKind = "variables"
-	RefSource   ReferenceKind = "source"
+	RefModel       ReferenceKind = "models"
+	RefKnowledge   ReferenceKind = "knowledge"
+	RefIntegration ReferenceKind = "tools"
+	RefVariable    ReferenceKind = "variables"
+	RefSource      ReferenceKind = "source"
 )
 
 // Reference represents a parsed ${} reference.
@@ -22,11 +22,11 @@ const (
 // Variable refs are 2-part (variables.key).
 // Source refs are 2-part (source.attr).
 type Reference struct {
-	Raw      string        // original string, e.g. "${models.local_llm.http.port}"
-	Kind     ReferenceKind // e.g. RefModel
-	Name     string        // component name or variable/source key
-	Endpoint string        // endpoint name for 4-part port/url refs (empty for host refs)
-	Attribute string       // e.g. "host", "port", "url" (empty for variables)
+	Raw       string        // original string, e.g. "${models.local_llm.http.port}"
+	Kind      ReferenceKind // e.g. RefModel
+	Name      string        // component name or variable/source key
+	Endpoint  string        // endpoint name for 4-part port/url refs (empty for host refs)
+	Attribute string        // e.g. "host", "port", "url" (empty for variables)
 }
 
 var refPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -104,8 +104,8 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 				}
 			}
 
-		case RefTool:
-			t, ok := ds.Tools[ref.Name]
+		case RefIntegration:
+			t, ok := ds.Integrations[ref.Name]
 			if !ok {
 				errs = append(errs, fmt.Sprintf("%s: tool %q not declared", ref.Raw, ref.Name))
 				continue
@@ -159,7 +159,7 @@ func parseRefInner(raw, inner string) (Reference, error) {
 	ref := Reference{Raw: raw}
 
 	switch ReferenceKind(section) {
-	case RefModel, RefKnowledge, RefTool:
+	case RefModel, RefKnowledge, RefIntegration:
 		ref.Kind = ReferenceKind(section)
 		ref.Name = parts[1]
 		if len(parts) == 3 {

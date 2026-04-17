@@ -78,7 +78,7 @@ func TestCloudCredentialKeys_SingleToolProvider(t *testing.T) {
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"github": {Provider: "github"},
 		},
 	}
@@ -121,7 +121,7 @@ func TestCloudCredentialKeys_AllCloudProviders(t *testing.T) {
 		{
 			name: "gitlab",
 			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
-				Tools: map[string]Tool{"t": {Provider: "gitlab"}}},
+				Integrations: map[string]Integration{"t": {Provider: "gitlab"}}},
 			wantKey: "GITLAB_TOKEN", cat: "tool",
 		},
 	}
@@ -195,7 +195,7 @@ func TestCloudCredentialKeys_MultipleProviders(t *testing.T) {
 		Models: map[string]Model{
 			"llm": {Provider: "anthropic"},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"gh": {Provider: "github"},
 		},
 	}
@@ -217,7 +217,7 @@ func TestCloudCredentialKeys_SkipsCustomProviders(t *testing.T) {
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 	}
@@ -261,7 +261,7 @@ func TestCustomProviderCredentialKeys_SecretVariables(t *testing.T) {
 				{Name: "TOKEN", Datatype: "string", Secret: true, Optional: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 	}
@@ -288,7 +288,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntries_NoNameMatch_NoBareKey(t *
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira-prod": {Provider: "my-jira"},
 			"jira-dev":  {Provider: "my-jira"},
 		},
@@ -375,7 +375,7 @@ func TestCustomProviderCredentialKeys_AllNonSecret(t *testing.T) {
 				{Name: "PROJECT", Datatype: "string", Secret: false},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 	}
@@ -398,7 +398,7 @@ func TestCustomProviderCredentialKeys_MultipleVariables(t *testing.T) {
 				{Name: "REGION", Datatype: "string", Secret: false},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"svc": {Provider: "my-svc"},
 		},
 	}
@@ -437,7 +437,7 @@ func TestCustomProviderCredentialKeys_ProviderNameSanitized(t *testing.T) {
 						{Name: "API_KEY", Datatype: "string", Secret: true},
 					}},
 				},
-				Tools: map[string]Tool{
+				Integrations: map[string]Integration{
 					"svc": {Provider: tc.providerName},
 				},
 			}
@@ -460,7 +460,7 @@ func TestCustomProviderCredentialKeys_DuplicateFirstAlphaIsPrimary(t *testing.T)
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"beta":  {Provider: "my-jira"},
 			"alpha": {Provider: "my-jira"},
 		},
@@ -487,7 +487,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntryNameMatchesProvider(t *testi
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"my-jira": {Provider: "my-jira"}, // name matches provider
 			"staging": {Provider: "my-jira"},
 		},
@@ -513,7 +513,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntryNameSanitized(t *testing.T) 
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira-prod": {Provider: "my-jira"}, // hyphen in entry name
 			"jira_dev":  {Provider: "my-jira"}, // underscore in entry name
 		},
@@ -541,7 +541,7 @@ func TestCustomProviderCredentialKeys_ThreeEntriesSameProvider(t *testing.T) {
 				{Name: "SECRET", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"a": {Provider: "svc"},
 			"b": {Provider: "svc"},
 			"c": {Provider: "svc"},
@@ -576,7 +576,7 @@ func TestCustomProviderCredentialKeys_MultipleDistinctProviders(t *testing.T) {
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 		Models: map[string]Model{
@@ -604,7 +604,7 @@ func TestCustomProviderCredentialKeys_SameProviderCrossSection(t *testing.T) {
 		Models: map[string]Model{
 			"m": {Provider: "my-svc"},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"t": {Provider: "my-svc"},
 		},
 	}
@@ -633,7 +633,7 @@ func TestCustomProviderCredentialKeys_MixedWithCloudProvider(t *testing.T) {
 		Models: map[string]Model{
 			"llm": {Provider: "anthropic"},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 	}
@@ -655,7 +655,7 @@ func TestCustomProviderCredentialKeys_OnlyOneEntryHasRedundantNameSkipped(t *tes
 				{Name: "TOKEN", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"svc": {Provider: "svc"}, // name == provider
 		},
 	}
@@ -678,7 +678,7 @@ func TestCustomProviderCredentialKeys_ProviderWithOnlyOptionalSecret(t *testing.
 				{Name: "OPTIONAL_KEY", Datatype: "string", Secret: true, Optional: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"t": {Provider: "svc"},
 		},
 	}
@@ -698,7 +698,7 @@ func TestCustomProviderCredentialKeys_DescriptionCarriedThrough(t *testing.T) {
 				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "My service key"},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"t": {Provider: "svc"},
 		},
 	}
@@ -731,7 +731,7 @@ func TestCustomProviderCredentialKeys_JiraIntegration(t *testing.T) {
 				{Name: "EMAIL", Datatype: "string", Secret: true, Description: "Atlassian account email for Jira API authentication"},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "jira"},
 		},
 	}
@@ -805,7 +805,7 @@ func TestResolveEnvVars_JiraIntegration(t *testing.T) {
 				{Name: "EMAIL", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "jira"},
 		},
 	}
@@ -1049,7 +1049,7 @@ func TestAgentConnectionKeys_ContainerModeTool(t *testing.T) {
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"search": {Container: &ContainerConfig{Image: "search:latest", Port: 3000}},
 		},
 	}
@@ -1073,7 +1073,7 @@ func TestAgentConnectionKeys_CloudProviderSkipped(t *testing.T) {
 		Knowledge: map[string]Knowledge{
 			"vec": {Provider: "pinecone"},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"gh": {Provider: "github"},
 		},
 	}
@@ -1083,7 +1083,7 @@ func TestAgentConnectionKeys_CloudProviderSkipped(t *testing.T) {
 	}
 }
 
-func TestAgentConnectionKeys_CustomProviderToolSkipped(t *testing.T) {
+func TestAgentConnectionKeys_CustomProviderIntegrationSkipped(t *testing.T) {
 	// Custom provider referenced by a tool → no connection wiring.
 	s := &AstroSpec{
 		Name:  "agent",
@@ -1093,7 +1093,7 @@ func TestAgentConnectionKeys_CustomProviderToolSkipped(t *testing.T) {
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"jira": {Provider: "my-jira"},
 		},
 	}
@@ -1219,11 +1219,11 @@ func TestResolveEnvVars_KnowledgeInputs(t *testing.T) {
 	}
 }
 
-func TestResolveEnvVars_ToolInputs(t *testing.T) {
+func TestResolveEnvVars_IntegrationInputs(t *testing.T) {
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"search": {
 				Container: &ContainerConfig{Image: "search:latest", Port: 3000},
 				Inputs: []Input{
@@ -1233,7 +1233,7 @@ func TestResolveEnvVars_ToolInputs(t *testing.T) {
 		},
 	}
 	res := ResolveEnvVars(s, nil, nil, nil)
-	assertEnv(t, res.Tools["search"], "RESULT_LIMIT", "10")
+	assertEnv(t, res.Integrations["search"], "RESULT_LIMIT", "10")
 	if _, ok := res.Agent["RESULT_LIMIT"]; ok {
 		t.Error("tool-specific input must not appear in agent container")
 	}
@@ -1272,7 +1272,7 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 		Knowledge: map[string]Knowledge{
 			"docs": {Provider: "qdrant", Inputs: []Input{{Name: "K_FLAG", Datatype: "string", Default: "y"}}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"srch": {Container: &ContainerConfig{Image: "s:1"}, Inputs: []Input{{Name: "TOOL_FLAG", Datatype: "string", Default: "z"}}},
 		},
 	}
@@ -1283,7 +1283,7 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 	if _, ok := res.Knowledge["docs"]["MODEL_FLAG"]; ok {
 		t.Error("model input leaked into knowledge container")
 	}
-	if _, ok := res.Tools["srch"]["MODEL_FLAG"]; ok {
+	if _, ok := res.Integrations["srch"]["MODEL_FLAG"]; ok {
 		t.Error("model input leaked into tool container")
 	}
 
@@ -1294,7 +1294,7 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 	}
 
 	// tool input only in tool container
-	assertEnv(t, res.Tools["srch"], "TOOL_FLAG", "z")
+	assertEnv(t, res.Integrations["srch"], "TOOL_FLAG", "z")
 	if _, ok := res.Models["llm"]["TOOL_FLAG"]; ok {
 		t.Error("tool input leaked into model container")
 	}
@@ -1323,7 +1323,7 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"docs":  {Provider: "qdrant", Persistent: true},
 			"cache": {Provider: "redis"},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"github": {Provider: "github"},
 			"search": {Container: &ContainerConfig{Image: "search:latest", Port: 3000}},
 		},
@@ -1377,7 +1377,7 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	// Top-level input in all containers
 	assertEnv(t, res.Models["llm"], "ALLOWED_ORIGINS", "http://localhost")
 	assertEnv(t, res.Knowledge["docs"], "ALLOWED_ORIGINS", "http://localhost")
-	assertEnv(t, res.Tools["search"], "ALLOWED_ORIGINS", "http://localhost")
+	assertEnv(t, res.Integrations["search"], "ALLOWED_ORIGINS", "http://localhost")
 
 	// Agent-specific input not in other containers
 	if _, ok := res.Models["llm"]["LOG_LEVEL"]; ok {
@@ -1526,7 +1526,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_NoProvider(t *testing.T) {
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"search": {Container: &ContainerConfig{Image: "search:1", Port: 3000}},
 		},
 	}
@@ -1542,7 +1542,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_WithProvider(t *testing.T) {
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"scraper": {Provider: "browserbase"},
 		},
 	}
@@ -1591,7 +1591,7 @@ func TestAllAgentAutoEnvKeys_NoEmptyProviderOrCategory(t *testing.T) {
 			"docs":   {Provider: "qdrant"},
 			"custom": {Container: &ContainerConfig{Image: "mydb:1", Port: 5432}},
 		},
-		Tools: map[string]Tool{
+		Integrations: map[string]Integration{
 			"search":  {Container: &ContainerConfig{Image: "search:1", Port: 3000}},
 			"scraper": {Provider: "browserbase"},
 		},

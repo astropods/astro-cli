@@ -99,7 +99,7 @@ integrations:
 				if backup.Provider != "openai" {
 					t.Errorf("Models[backup].Provider = %q, want %q", backup.Provider, "openai")
 				}
-				gh, ok := s.Tools["github"]
+				gh, ok := s.Integrations["github"]
 				if !ok {
 					t.Fatal("Tools[github] not found")
 				}

@@ -212,7 +212,7 @@ func TestApplyDeploymentSpec_WithKnowledgeNonPersistent(t *testing.T) {
 func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {
 			Image:     "test-registry.example.com/search:latest",
 			Endpoints: httpEp(3000),
@@ -510,7 +510,7 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 			Provider: "qdrant",
 		},
 	}
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
 			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
@@ -594,7 +594,7 @@ func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
 				Provider: "qdrant",
 			},
 		},
-		Tools: map[string]spec.DeploymentTool{
+		Integrations: map[string]spec.DeploymentIntegration{
 			"search": {
 				Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
 				Replicas: 1, Update: spec.DefaultUpdateStrategy(),

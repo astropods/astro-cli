@@ -11,17 +11,17 @@ import (
 
 // AstroSpec represents the complete Astro specification
 type AstroSpec struct {
-	Spec      string                    `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
-	Name      string                    `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
-	Meta      Meta                      `json:"meta" yaml:"meta"`
-	Agent     Container                 `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
-	Models    map[string]Model          `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
-	Knowledge map[string]Knowledge      `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
-	Tools     map[string]Tool           `json:"integrations,omitempty" yaml:"integrations,omitempty" jsonschema:"description=Integration sidecar containers"`
-	Providers map[string]CustomProvider `json:"providers,omitempty" yaml:"providers,omitempty" jsonschema:"description=Custom provider definitions"`
-	Inputs    map[string]Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into every container"`
-	Ingestion map[string]Ingestion      `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`
-	Dev       *Dev                      `json:"dev,omitempty" yaml:"dev,omitempty" jsonschema:"description=Local development overrides"`
+	Spec         string                    `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
+	Name         string                    `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
+	Meta         Meta                      `json:"meta" yaml:"meta"`
+	Agent        Container                 `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
+	Models       map[string]Model          `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
+	Knowledge    map[string]Knowledge      `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
+	Integrations map[string]Integration    `json:"integrations,omitempty" yaml:"integrations,omitempty" jsonschema:"description=Integration sidecar containers"`
+	Providers    map[string]CustomProvider `json:"providers,omitempty" yaml:"providers,omitempty" jsonschema:"description=Custom provider definitions"`
+	Inputs       map[string]Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into every container"`
+	Ingestion    map[string]Ingestion      `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`
+	Dev          *Dev                      `json:"dev,omitempty" yaml:"dev,omitempty" jsonschema:"description=Local development overrides"`
 }
 
 type Meta struct {
@@ -205,26 +205,26 @@ func (k Knowledge) ResolvedContainer() ContainerConfig {
 	}
 }
 
-type Tool struct {
+type Integration struct {
 	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Platform provider (e.g. github) or custom provider name"`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
 	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the integration container"`
 }
 
 // IsProviderMode returns true when the tool entry uses a cloud provider.
-func (t Tool) IsProviderMode() bool {
+func (t Integration) IsProviderMode() bool {
 	return t.Provider != ""
 }
 
 // DeploysContainer reports whether this tool entry deploys a sidecar container.
-func (t Tool) DeploysContainer(customProviders map[string]CustomProvider) bool {
+func (t Integration) DeploysContainer(customProviders map[string]CustomProvider) bool {
 	if t.Container != nil {
 		return true
 	}
 	if _, isCustom := customProviders[t.Provider]; isCustom {
 		return false
 	}
-	return t.Provider != "" && !IsCloudToolProvider(t.Provider)
+	return t.Provider != "" && !IsCloudIntegrationProvider(t.Provider)
 }
 
 // GPUConfig is a scheduling hint declaring that a container needs GPU resources.

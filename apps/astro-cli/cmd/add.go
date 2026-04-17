@@ -41,7 +41,7 @@ var addToolCmd = &cobra.Command{
 	Use:   "tool <provider>",
 	Short: "Add a tool integration to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
-	RunE:  runAddTool,
+	RunE:  runAddIntegration,
 }
 
 var addIngestionCmd = &cobra.Command{
@@ -138,9 +138,9 @@ func runAddKnowledge(cmd *cobra.Command, args []string) error {
 	return runAddDomain(cmd, "knowledge", provider)
 }
 
-func runAddTool(cmd *cobra.Command, args []string) error {
+func runAddIntegration(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "Usage: ast add tool <provider>\n\nAvailable providers:\n  %s\n  (or a custom provider defined in providers:)\n", strings.Join(add.ValidToolProviders, "\n  "))
+		fmt.Fprintf(cmd.OutOrStdout(), "Usage: ast add tool <provider>\n\nAvailable providers:\n  %s\n  (or a custom provider defined in providers:)\n", strings.Join(add.ValidIntegrationProviders, "\n  "))
 		return nil
 	}
 	provider := args[0]
@@ -149,8 +149,8 @@ func runAddTool(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	customProviders := specwriter.SectionNames(specPath, "providers")
-	if !slices.Contains(add.ValidToolProviders, provider) && !customProviders[provider] {
-		return fmt.Errorf("invalid provider %q\n\nAvailable providers:\n  %s\n  (or a custom provider defined in providers:)", provider, strings.Join(add.ValidToolProviders, "\n  "))
+	if !slices.Contains(add.ValidIntegrationProviders, provider) && !customProviders[provider] {
+		return fmt.Errorf("invalid provider %q\n\nAvailable providers:\n  %s\n  (or a custom provider defined in providers:)", provider, strings.Join(add.ValidIntegrationProviders, "\n  "))
 	}
 	return runAddDomain(cmd, "tool", provider)
 }

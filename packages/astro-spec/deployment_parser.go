@@ -139,7 +139,7 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 	}
 
 	// Rule 6, 6a, 14, 17
-	for name, t := range ds.Tools {
+	for name, t := range ds.Integrations {
 		if t.Image == "" {
 			return fmt.Errorf("tools.%s.image is required", name)
 		}

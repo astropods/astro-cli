@@ -188,7 +188,7 @@ func ParseSpec(path string) (*AstroSpec, error) {
 	}
 
 	// Validate tool entries
-	for name, t := range spec.Tools {
+	for name, t := range spec.Integrations {
 		if t.Provider != "" && t.Container != nil {
 			return nil, fmt.Errorf("tool %q: provider and container are mutually exclusive", name)
 		}
@@ -295,7 +295,7 @@ func SecretDefaultViolations(s *AstroSpec) []string {
 			check("knowledge."+name+".inputs", inp.Name, inp.Default, inp.Secret)
 		}
 	}
-	for name, t := range s.Tools {
+	for name, t := range s.Integrations {
 		for _, inp := range t.Inputs {
 			check("tools."+name+".inputs", inp.Name, inp.Default, inp.Secret)
 		}

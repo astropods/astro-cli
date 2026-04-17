@@ -364,7 +364,7 @@ knowledge:
 	}
 }
 
-func TestE2E_CloudTool_GitHub(t *testing.T) {
+func TestE2E_CloudIntegration_GitHub(t *testing.T) {
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1085,7 +1085,7 @@ knowledge:
 	assertConfigMapAbsent(t, r, []string{"PINECONE_HOST", "PINECONE_PORT"})
 }
 
-func TestE2E_ProviderEnv_ContainerTool(t *testing.T) {
+func TestE2E_ProviderEnv_ContainerIntegration(t *testing.T) {
 	// Container-mode tool → INTEGRATION_{NAME}_ prefix (§8.3)
 	r := runE2E(t, `
 spec: package/v1
@@ -1109,7 +1109,7 @@ integrations:
 	})
 }
 
-func TestE2E_ProviderEnv_CloudToolGitLab(t *testing.T) {
+func TestE2E_ProviderEnv_CloudIntegrationGitLab(t *testing.T) {
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1413,7 +1413,7 @@ models:
 	})
 }
 
-func TestE2E_ProviderEnv_TwoCloudToolsSameProvider(t *testing.T) {
+func TestE2E_ProviderEnv_TwoCloudIntegrationsSameProvider(t *testing.T) {
 	// Two tools using the same cloud provider (github). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
@@ -1694,7 +1694,7 @@ knowledge:
 	})
 }
 
-func TestE2E_ProviderEnv_TwoCloudToolsGitLab(t *testing.T) {
+func TestE2E_ProviderEnv_TwoCloudIntegrationsGitLab(t *testing.T) {
 	// Two tools using the same cloud provider (gitlab). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
@@ -1957,7 +1957,7 @@ knowledge:
 	assertConfigMapAbsent(t, r, []string{"KNOWLEDGE_VECTORS_HOST", "QDRANT_EMBEDDINGS_HOST"})
 }
 
-func TestE2E_ProviderEnv_TwoContainerTools(t *testing.T) {
+func TestE2E_ProviderEnv_TwoContainerIntegrations(t *testing.T) {
 	// Two container-mode tools — each gets distinct INTEGRATION_{NAME}_* env vars, no collision.
 	r := runE2E(t, `
 spec: package/v1

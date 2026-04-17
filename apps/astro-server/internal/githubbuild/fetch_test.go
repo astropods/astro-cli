@@ -146,7 +146,7 @@ func TestCollectComponentBuilds_WithSidecar(t *testing.T) {
 		Agent: spec.Container{
 			Build: &spec.BuildConfig{Context: "."},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"search": {
 				Container: &spec.ContainerConfig{
 					Build: &spec.BuildConfig{Context: "./tools/search"},
@@ -177,7 +177,7 @@ func TestCollectComponentBuilds_SkipsNoBuildBlock(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
 		Agent: spec.Container{},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloud-search": {Provider: "tavily"},
 		},
 	}

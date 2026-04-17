@@ -34,9 +34,9 @@ func TestComputeExpectedResourceNames_MinimalAgent(t *testing.T) {
 	}
 }
 
-func TestComputeExpectedResourceNames_WithToolsAndKnowledge(t *testing.T) {
+func TestComputeExpectedResourceNames_WithIntegrationsAndKnowledge(t *testing.T) {
 	ds := minimalDeploymentSpec()
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {Image: "img", Endpoints: httpEp(3000), Replicas: 1, Update: spec.DefaultUpdateStrategy()},
 	}
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
@@ -144,7 +144,7 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 
 	// First deploy with a tool
 	ds := minimalDeploymentSpec()
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
 			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
@@ -172,7 +172,7 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 
 	// Redeploy without the tool
 	ds2 := minimalDeploymentSpec()
-	ds2.Tools = nil
+	ds2.Integrations = nil
 
 	result2, err := a.ApplyDeploymentSpec(ctx, ds2)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestCleanupOrphanedResources_KeepsCurrentResources(t *testing.T) {
 	ctx := context.Background()
 
 	ds := minimalDeploymentSpec()
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
 			Replicas: 1, Update: spec.DefaultUpdateStrategy(),

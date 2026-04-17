@@ -101,8 +101,8 @@ func EnforceEditable(template, submitted *AstroDeploymentSpec) []string {
 	}
 
 	// tools
-	for name, tmpl := range template.Tools {
-		subm, ok := submitted.Tools[name]
+	for name, tmpl := range template.Integrations {
+		subm, ok := submitted.Integrations[name]
 		if !ok {
 			errs = append(errs, fmt.Sprintf("tools.%s: server-owned component cannot be removed", name))
 			continue
@@ -112,8 +112,8 @@ func EnforceEditable(template, submitted *AstroDeploymentSpec) []string {
 		}
 		errs = append(errs, enforceEndpoints(fmt.Sprintf("tools.%s", name), tmpl.Endpoints, subm.Endpoints)...)
 	}
-	for name := range submitted.Tools {
-		if _, ok := template.Tools[name]; !ok {
+	for name := range submitted.Integrations {
+		if _, ok := template.Integrations[name]; !ok {
 			errs = append(errs, fmt.Sprintf("tools.%s: cannot add components not present in template", name))
 		}
 	}

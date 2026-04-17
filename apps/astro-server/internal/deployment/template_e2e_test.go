@@ -188,8 +188,8 @@ dev:
 
 	// === Integrations ===
 	// github/gitlab are cloud, cloudflare is custom — none deploy containers
-	if len(ds.Tools) != 0 {
-		t.Errorf("tools: expected 0 (all cloud/custom providers), got %d", len(ds.Tools))
+	if len(ds.Integrations) != 0 {
+		t.Errorf("tools: expected 0 (all cloud/custom providers), got %d", len(ds.Integrations))
 	}
 
 	// === Ingestion: all four trigger types ===
@@ -464,12 +464,12 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	}
 
 	// === Integrations: all cloud/custom, no containers ===
-	if len(ds.Tools) != 0 {
-		keys := make([]string, 0, len(ds.Tools))
-		for k := range ds.Tools {
+	if len(ds.Integrations) != 0 {
+		keys := make([]string, 0, len(ds.Integrations))
+		for k := range ds.Integrations {
 			keys = append(keys, k)
 		}
-		t.Errorf("tools: expected 0 (all cloud/custom providers), got %d — keys: %v", len(ds.Tools), keys)
+		t.Errorf("tools: expected 0 (all cloud/custom providers), got %d — keys: %v", len(ds.Integrations), keys)
 	}
 
 	// === Ingestion: all four trigger types ===

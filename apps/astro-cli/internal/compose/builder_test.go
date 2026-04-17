@@ -221,7 +221,7 @@ func TestBuildProject_CloudProviderCredentials(t *testing.T) {
 		Models: map[string]spec.Model{
 			"anthropic": {Provider: "anthropic"},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"github": {Provider: "github"},
 		},
 	}
@@ -267,7 +267,7 @@ func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"jira": {Provider: "my-service"},
 		},
 	}
@@ -305,7 +305,7 @@ func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"jira": {Provider: "my-service"},
 		},
 	}
@@ -481,11 +481,11 @@ func TestBuildProject_KnowledgeInputsInjected(t *testing.T) {
 	}
 }
 
-func TestBuildProject_ToolInputsInjected(t *testing.T) {
+func TestBuildProject_IntegrationInputsInjected(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
 		Agent: spec.Container{Image: "agent:latest"},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"mcp": {
 				Container: &spec.ContainerConfig{
 					Image: "my-mcp:latest",
@@ -934,7 +934,7 @@ func TestBuildProject_CustomProviderPrefixedKeys(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}
@@ -982,7 +982,7 @@ func TestBuildProject_CustomProviderBareKeys(t *testing.T) {
 				},
 			},
 		},
-		Tools: map[string]spec.Tool{
+		Integrations: map[string]spec.Integration{
 			"cloudflare": {Provider: "cloudflare"},
 		},
 	}

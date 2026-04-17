@@ -6,8 +6,8 @@ var ValidModelProviders = []string{"anthropic", "openai", "google", "cohere", "o
 // ValidKnowledgeProviders lists accepted providers for "ast add knowledge".
 var ValidKnowledgeProviders = []string{"qdrant", "redis", "postgres", "neo4j", "pinecone"}
 
-// ValidToolProviders lists accepted providers for "ast add tool".
-var ValidToolProviders = []string{"github", "gitlab"}
+// ValidIntegrationProviders lists accepted providers for "ast add tool".
+var ValidIntegrationProviders = []string{"github", "gitlab"}
 
 type option struct {
 	label string

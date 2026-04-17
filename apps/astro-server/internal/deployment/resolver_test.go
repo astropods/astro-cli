@@ -205,7 +205,7 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
 		"docs": {Image: "qdrant:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}, Persistent: true},
 	}
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {Image: "search:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
 	}
 
@@ -244,8 +244,8 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	}
 
 	// Tool defaults
-	if resolved.Tools["search"].Replicas != 1 {
-		t.Errorf("tool replicas: expected 1, got %d", resolved.Tools["search"].Replicas)
+	if resolved.Integrations["search"].Replicas != 1 {
+		t.Errorf("tool replicas: expected 1, got %d", resolved.Integrations["search"].Replicas)
 	}
 }
 
@@ -330,9 +330,9 @@ func TestValidateAndResolve_MissingModelEndpoints(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolve_MissingToolImage(t *testing.T) {
+func TestValidateAndResolve_MissingIntegrationImage(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Tools = map[string]spec.DeploymentTool{
+	ds.Integrations = map[string]spec.DeploymentIntegration{
 		"search": {Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
 	}
 	result, err := ValidateAndResolve(ds)

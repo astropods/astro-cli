@@ -457,7 +457,7 @@ func TestTemplate_KnowledgeNonPersistent_NoStorage(t *testing.T) {
 
 func TestTemplate_Tool(t *testing.T) {
 	input := baseInput()
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"websearch": {
 			Container: &spec.ContainerConfig{
 				Image: "search:v2",
@@ -468,7 +468,7 @@ func TestTemplate_Tool(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	tool := ds.Tools["websearch"]
+	tool := ds.Integrations["websearch"]
 	if tool.Image != "registry.example.com/dockerhub/library/search:v2" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/search:v2, got %s", tool.Image)
 	}
@@ -487,21 +487,21 @@ func TestTemplate_Tool(t *testing.T) {
 	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_URL", "${tools.websearch.http.url}")
 }
 
-func TestTemplate_ToolDefaultPort(t *testing.T) {
+func TestTemplate_IntegrationDefaultPort(t *testing.T) {
 	input := baseInput()
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"noport": {Container: &spec.ContainerConfig{Image: "tool:latest"}},
 	}
 
 	ds := mustGenerate(t, input)
-	if spec.PrimaryPort(ds.Tools["noport"].Endpoints) != 8080 {
-		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Tools["noport"].Endpoints))
+	if spec.PrimaryPort(ds.Integrations["noport"].Endpoints) != 8080 {
+		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Integrations["noport"].Endpoints))
 	}
 }
 
-func TestTemplate_ToolEnvironmentPassthrough(t *testing.T) {
+func TestTemplate_IntegrationEnvironmentPassthrough(t *testing.T) {
 	input := baseInput()
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"mcp": {
 			Container: &spec.ContainerConfig{
 				Image:       "mcp:latest",
@@ -511,7 +511,7 @@ func TestTemplate_ToolEnvironmentPassthrough(t *testing.T) {
 	}
 
 	ds := mustGenerate(t, input)
-	if ds.Tools["mcp"].Environment["WORKERS"] != "4" {
+	if ds.Integrations["mcp"].Environment["WORKERS"] != "4" {
 		t.Error("tool environment not preserved")
 	}
 }
@@ -621,7 +621,7 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	input.Spec.Models = map[string]spec.Model{
 		"anthropic": {Provider: "anthropic"},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"github": {Provider: "github"},
 	}
 
@@ -655,9 +655,9 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	if len(ds.Models) != 0 {
 		t.Errorf("cloud models should not be in deployment spec, got %d", len(ds.Models))
 	}
-	// Cloud tools should NOT appear in ds.Tools
-	if len(ds.Tools) != 0 {
-		t.Errorf("cloud tools should not be in deployment spec, got %d", len(ds.Tools))
+	// Cloud tools should NOT appear in ds.Integrations
+	if len(ds.Integrations) != 0 {
+		t.Errorf("cloud tools should not be in deployment spec, got %d", len(ds.Integrations))
 	}
 
 	// Check agent env references wired for variables
@@ -719,7 +719,7 @@ func TestTemplate_VariablesCustomProvider(t *testing.T) {
 			},
 		},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"myapi": {Provider: "myapi"},
 	}
 
@@ -752,7 +752,7 @@ func TestTemplate_JiraIntegrationInputs(t *testing.T) {
 			},
 		},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"jira": {Provider: "jira"},
 	}
 
@@ -1060,7 +1060,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 				"docs":  {Provider: "qdrant", Persistent: true},
 				"cache": {Provider: "redis"},
 			},
-			Tools: map[string]spec.Tool{
+			Integrations: map[string]spec.Integration{
 				"websearch": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
 				"github":    {Provider: "github"},
 			},
@@ -1102,8 +1102,8 @@ func TestTemplate_FullSpec(t *testing.T) {
 	}
 
 	// Integrations — only self-hosted (websearch), not cloud (github)
-	if len(ds.Tools) != 1 {
-		t.Errorf("tools: expected 1 (websearch only), got %d", len(ds.Tools))
+	if len(ds.Integrations) != 1 {
+		t.Errorf("tools: expected 1 (websearch only), got %d", len(ds.Integrations))
 	}
 
 	// Ingestion
@@ -1169,8 +1169,8 @@ func TestTemplate_EmptySpec(t *testing.T) {
 	if len(ds.Knowledge) != 0 {
 		t.Errorf("knowledge: expected 0 for empty spec, got %d", len(ds.Knowledge))
 	}
-	if len(ds.Tools) != 0 {
-		t.Errorf("integrations: expected 0 for empty spec, got %d", len(ds.Tools))
+	if len(ds.Integrations) != 0 {
+		t.Errorf("integrations: expected 0 for empty spec, got %d", len(ds.Integrations))
 	}
 	if len(ds.Ingestion) != 0 {
 		t.Errorf("ingestion: expected 0 for empty spec, got %d", len(ds.Ingestion))
@@ -1528,9 +1528,9 @@ func TestTemplate_KnowledgeImageResolved(t *testing.T) {
 	}
 }
 
-func TestTemplate_ToolImageResolved(t *testing.T) {
+func TestTemplate_IntegrationImageResolved(t *testing.T) {
 	input := proxyInput()
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"search": {
 			Container: &spec.ContainerConfig{
 				Image: "proxy.registry.io/acme/search-tool:latest",
@@ -1542,8 +1542,8 @@ func TestTemplate_ToolImageResolved(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/search-tool:latest"
-	if ds.Tools["search"].Image != expected {
-		t.Errorf("tool image: expected %s, got %s", expected, ds.Tools["search"].Image)
+	if ds.Integrations["search"].Image != expected {
+		t.Errorf("tool image: expected %s, got %s", expected, ds.Integrations["search"].Image)
 	}
 }
 
@@ -1575,7 +1575,7 @@ func TestTemplate_AllComponentImagesResolved(t *testing.T) {
 	input.Spec.Knowledge = map[string]spec.Knowledge{
 		"k": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/knowledge:v1", Port: 5000}},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/tool:v1", Port: 3000}},
 	}
 	input.Spec.Ingestion = map[string]spec.Ingestion{
@@ -1592,7 +1592,7 @@ func TestTemplate_AllComponentImagesResolved(t *testing.T) {
 		"agent":     ds.Agent.Image,
 		"model":     ds.Models["m"].Image,
 		"knowledge": ds.Knowledge["k"].Image,
-		"tool":      ds.Tools["t"].Image,
+		"tool":      ds.Integrations["t"].Image,
 		"ingestion": ds.Ingestion["i"].Image,
 	}
 	for component, image := range checks {
@@ -1641,7 +1641,7 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 				"cache":   {Provider: "redis"},
 				"custom":  {Container: &spec.ContainerConfig{Image: "mydb:latest", Port: 5432}},
 			},
-			Tools: map[string]spec.Tool{
+			Integrations: map[string]spec.Integration{
 				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
 				"github": {Provider: "github"},
 			},
@@ -1854,7 +1854,7 @@ func TestTemplate_ECRNamespace_AllComponentsUseIt(t *testing.T) {
 	input.Spec.Knowledge = map[string]spec.Knowledge{
 		"k": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/knowledge:v1", Port: 5000}},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/tool:v1", Port: 3000}},
 	}
 	input.Spec.Ingestion = map[string]spec.Ingestion{
@@ -1872,7 +1872,7 @@ func TestTemplate_ECRNamespace_AllComponentsUseIt(t *testing.T) {
 		"agent":     ds.Agent.Image,
 		"model":     ds.Models["m"].Image,
 		"knowledge": ds.Knowledge["k"].Image,
-		"tool":      ds.Tools["t"].Image,
+		"tool":      ds.Integrations["t"].Image,
 		"ingestion": ds.Ingestion["i"].Image,
 	}
 	for component, image := range checks {
@@ -2075,7 +2075,7 @@ func TestTemplate_OldBuild_AllComponentsResolveWithAccountName(t *testing.T) {
 	input.Spec.Models = map[string]spec.Model{
 		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:abc", Port: 8000}},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:abc", Port: 3000}},
 	}
 
@@ -2085,7 +2085,7 @@ func TestTemplate_OldBuild_AllComponentsResolveWithAccountName(t *testing.T) {
 	checks := map[string]string{
 		"agent": ds.Agent.Image,
 		"model": ds.Models["m"].Image,
-		"tool":  ds.Tools["t"].Image,
+		"tool":  ds.Integrations["t"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, wantPrefix) {
@@ -2103,7 +2103,7 @@ func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
 	input.Spec.Models = map[string]spec.Model{
 		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:new", Port: 8000}},
 	}
-	input.Spec.Tools = map[string]spec.Tool{
+	input.Spec.Integrations = map[string]spec.Integration{
 		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:new", Port: 3000}},
 	}
 
@@ -2113,7 +2113,7 @@ func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
 	checks := map[string]string{
 		"agent": ds.Agent.Image,
 		"model": ds.Models["m"].Image,
-		"tool":  ds.Tools["t"].Image,
+		"tool":  ds.Integrations["t"].Image,
 	}
 	for component, image := range checks {
 		if !strings.HasPrefix(image, wantPrefix) {

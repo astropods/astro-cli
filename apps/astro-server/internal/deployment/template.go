@@ -217,17 +217,17 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	}
 
 	// Process tools
-	if len(astroSpec.Tools) > 0 {
-		for name, tool := range astroSpec.Tools {
+	if len(astroSpec.Integrations) > 0 {
+		for name, tool := range astroSpec.Integrations {
 			if !tool.DeploysContainer(astroSpec.Providers) {
 				continue
 			}
 
-			if ds.Tools == nil {
-				ds.Tools = make(map[string]spec.DeploymentTool)
+			if ds.Integrations == nil {
+				ds.Integrations = make(map[string]spec.DeploymentIntegration)
 			}
-			dt := buildDeploymentTool(tool, input)
-			ds.Tools[name] = dt
+			dt := buildDeploymentIntegration(tool, input)
+			ds.Integrations[name] = dt
 
 			primaryEp := primaryEndpointName(dt.Endpoints)
 			envPrefix := fmt.Sprintf("INTEGRATION_%s", spec.SanitizeEnvName(name))
@@ -566,9 +566,9 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 	return dk
 }
 
-func buildDeploymentTool(tool spec.Tool, input TemplateInput) spec.DeploymentTool {
+func buildDeploymentIntegration(tool spec.Integration, input TemplateInput) spec.DeploymentIntegration {
 	port := 8080
-	dt := spec.DeploymentTool{
+	dt := spec.DeploymentIntegration{
 		Replicas:  1,
 		Resources: spec.StandardResources,
 		Update:    spec.DefaultUpdateStrategy(),
@@ -824,15 +824,15 @@ func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploym
 	}
 
 	// Tool inputs — inject defaults into tool environment directly
-	for name, tool := range astroSpec.Tools {
+	for name, tool := range astroSpec.Integrations {
 		for _, inp := range tool.Inputs {
-			if inp.Default != "" && ds.Tools != nil {
-				if dt, ok := ds.Tools[name]; ok {
+			if inp.Default != "" && ds.Integrations != nil {
+				if dt, ok := ds.Integrations[name]; ok {
 					if dt.Environment == nil {
 						dt.Environment = make(map[string]string)
 					}
 					dt.Environment[inp.Name] = inp.Default
-					ds.Tools[name] = dt
+					ds.Integrations[name] = dt
 				}
 			}
 		}
