@@ -8,14 +8,8 @@ export default [
 
     // Public routes
     index("pages/Index.tsx"),
-    ...prefix("blueprints", [
-      layout("pages/blueprints/BlueprintsLayout.tsx", [
-        index("pages/blueprints/BlueprintsRedirect.tsx"),
-        route("discover", "pages/blueprints/Discover.tsx"),
-        route("personal", "pages/blueprints/Personal.tsx"),
-        route(":account", "pages/blueprints/AccountBlueprints.tsx"),
-      ]),
-    ]),
+    route("blueprints", "pages/blueprints/Blueprints.tsx"),
+    route("explore", "pages/Explore.tsx"),
     route("request-agent", "pages/RequestBlueprint.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route(":account", "pages/AccountProfile.tsx"),

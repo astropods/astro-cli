@@ -106,7 +106,7 @@ export function BlueprintListView({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
+    <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 content-start">
       {sorted.map((blueprint) => (
         <BlueprintCard
           key={`${blueprint.account}/${blueprint.name}`}

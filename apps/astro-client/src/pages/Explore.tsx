@@ -1,23 +1,24 @@
-import type { Route } from "./+types/Discover";
 import { useBlueprints } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { useAuth } from "@/lib/auth";
 
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request }: { request: Request }) {
   const api = createServerApi(request);
   const blueprintsData = await api.listBlueprints().catch(() => ({ agents: [], count: 0 }));
   return { blueprintsData };
 }
 
-export const meta: Route.MetaFunction = () => [
-  { title: "Discover Blueprints | Astro" },
-  { name: "description", content: "Discover public AI agent blueprints on Astro." },
-  { property: "og:title", content: "Discover Blueprints | Astro" },
-  { property: "og:description", content: "Discover public AI agent blueprints on Astro." },
-];
+export function meta() {
+  return [
+    { title: "Explore | Astro" },
+    { name: "description", content: "Explore public AI agent blueprints on Astro." },
+    { property: "og:title", content: "Explore | Astro" },
+    { property: "og:description", content: "Explore public AI agent blueprints on Astro." },
+  ];
+}
 
-export default function Discover({ loaderData }: Route.ComponentProps) {
+export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType<typeof loader>> }) {
   const { data, isLoading, isError, error, refetch } = useBlueprints({
     initialData: loaderData?.blueprintsData,
   });
@@ -25,8 +26,8 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <>
-      <h1 className="text-heading-1 text-foreground">Discover blueprints</h1>
+    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
+      <h1 className="mb-6 text-heading-1 text-foreground">Explore community blueprints</h1>
       <BlueprintListView
         blueprints={data?.agents ?? []}
         isLoading={isLoading}
@@ -37,6 +38,6 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
         emptyDescription="There are no blueprints in the registry yet."
         ownerAccounts={ownerAccounts}
       />
-    </>
+    </div>
   );
 }

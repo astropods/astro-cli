@@ -1,7 +1,5 @@
-import { Globe } from "lucide-react";
 import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { SidebarNav, SidebarNavItem } from "@/components/ui/sidebar-layout";
-import { Separator } from "@/components/ui/separator";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/lib/auth";
 import { blueprintsPaths } from "@/lib/routes";
@@ -12,27 +10,17 @@ export function BlueprintsSidebar() {
 
   return (
     <SidebarNav label="View">
-      <SidebarNavItem to={blueprintsPaths.discover}>
-        <span className="flex items-center gap-2">
-          <Globe className="size-4 shrink-0" />
-          Discover
-        </span>
-      </SidebarNavItem>
-
       {isAuthenticated && personalAccount && user && (
-        <>
-          <Separator className="my-1" />
-          <SidebarNavItem to={blueprintsPaths.personal}>
-            <span className="flex items-center gap-2">
-              <UserAvatar
-                handle={personalAccount.name}
-                name={personalAccount.display_name || personalAccount.name}
-                className="!size-4"
-              />
-              {personalAccount.name}
-            </span>
-          </SidebarNavItem>
-        </>
+        <SidebarNavItem to={blueprintsPaths.personal}>
+          <span className="flex items-center gap-2">
+            <UserAvatar
+              handle={personalAccount.name}
+              name={personalAccount.display_name || personalAccount.name}
+              className="!size-4"
+            />
+            {personalAccount.name}
+          </span>
+        </SidebarNavItem>
       )}
 
       {isAuthenticated &&
