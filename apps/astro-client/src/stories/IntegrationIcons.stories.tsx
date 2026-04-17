@@ -27,6 +27,8 @@ const KNOWN_IDS = [
   "linear",
   "microsoft-teams",
   "mongodb",
+  "mysql",
+  "neo4j",
   "notion",
   "openai",
   "pagerduty",
