@@ -110,7 +110,7 @@ function KnowledgeStoresContent() {
                       <p className="text-body-sm text-muted-foreground mb-6 max-w-md">
                         Create a store to give your agents a database for memory, vector search, or caching.
                       </p>
-                      <Button size="lg" onClick={() => navigate(newKnowledgePath)}>
+                      <Button onClick={() => navigate(newKnowledgePath)}>
                         <PlusIcon className="size-4" />
                         Add your first store
                       </Button>
