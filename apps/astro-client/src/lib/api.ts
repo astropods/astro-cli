@@ -807,6 +807,12 @@ class ApiClient {
     return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs/stream`;
   }
 
+  async getKnowledgeMetrics(account: string, name: string): Promise<KnowledgeMetrics> {
+    return this.request<KnowledgeMetrics>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/metrics`
+    );
+  }
+
   getKnowledgeEventsStreamUrl(account: string, name: string): string {
     return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
   }
@@ -1335,6 +1341,14 @@ export interface KnowledgeStore {
 }
 
 export type KnowledgeStoreListResponse = KnowledgeStore[];
+
+export interface KnowledgeMetrics {
+  cpu_cores: number | null;
+  memory_bytes: number | null;
+  storage_used: number | null;
+  storage_total: number | null;
+  uptime_seconds: number;
+}
 
 export interface CreateKnowledgeStoreInput {
   name: string;

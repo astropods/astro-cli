@@ -23,7 +23,7 @@ import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 import { SidePanel } from "@/components/deployed-agent/detail/SidePanel";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeLogs } from "@/api/queries/knowledge";
+import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeLogs, useKnowledgeMetrics } from "@/api/queries/knowledge";
 import { useApiClient } from "@/lib/api-context";
 import type { LogEntry } from "@/lib/log-utils";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
@@ -84,7 +84,36 @@ function formatEventTime(dateStr: string): string {
 
 // --- Overview tab ---
 
-function OverviewTab({ store }: { store: KnowledgeStore }) {
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+}
+
+function formatCPU(cores: number): string {
+  if (cores < 0.01) return `${(cores * 1000).toFixed(0)}m`;
+  return `${cores.toFixed(2)}`;
+}
+
+function OverviewTab({ store, account }: { store: KnowledgeStore; account: string }) {
+  const isReady = store.status === "ready";
+  const { data: metrics, isLoading: metricsLoading } = useKnowledgeMetrics(account, store.name, isReady);
+
+  const cpuValue = metrics?.cpu_cores != null ? formatCPU(metrics.cpu_cores) : "—";
+  const memValue = metrics?.memory_bytes != null ? formatBytes(metrics.memory_bytes) : "—";
+  const storageValue = metrics?.storage_used != null
+    ? `${formatBytes(metrics.storage_used)}${metrics.storage_total != null ? ` / ${formatBytes(metrics.storage_total)}` : ""}`
+    : (store.storage ?? "—");
+  const uptimeValue = metrics ? formatUptime(metrics.uptime_seconds) : "—";
+
   return (
     <div className="space-y-6">
       {store.status === "error" && store.error && (
@@ -96,14 +125,10 @@ function OverviewTab({ store }: { store: KnowledgeStore }) {
 
       {/* Metrics row */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricCard label="Requests" value="—" showTrend={false} />
-        <MetricCard label="P95 Latency" value="—" showTrend={false} />
-        <MetricCard label="Error Rate" value="—" showTrend={false} />
-        <MetricCard
-          label="Data Size"
-          value={store.storage ?? "—"}
-          showTrend={false}
-        />
+        <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} />
+        <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} />
+        <MetricCard label="Storage" value={storageValue} showTrend={false} loading={metricsLoading} />
+        <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} />
       </div>
 
       {/* Two-column: Agent bindings + Event log */}
@@ -617,7 +642,7 @@ function KnowledgeStoreDetailContent() {
           </div>
 
           {/* Tab content */}
-          {tab === "overview" && <OverviewTab store={store} />}
+          {tab === "overview" && <OverviewTab store={store} account={account} />}
           {tab === "logs" && store.mode === "managed" && <LogsTab account={account} storeName={store.name} />}
         </div>
       </div>

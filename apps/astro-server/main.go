@@ -362,8 +362,11 @@ func runAPI(
 	ghStore := githubconnection.New(db)
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 
+	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
+	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient, ksStore)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient, ksStore, promClient)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -503,7 +506,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -812,6 +815,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.PathParam("name", "Store name"),
 					oapispec.Response(200, nil),
+				)
+				api.GET(accountMember, "/knowledge/:name/metrics", "Knowledge store infrastructure metrics", handlers.GetKnowledgeStoreMetrics(log, ksStore, promClient),
+					oapispec.Tags("Knowledge"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Store name"),
+					oapispec.Response(200, &handlers.KnowledgeMetricsResponse{}),
 				)
 				api.GET(accountMember, "/knowledge/:name/events", "Stream knowledge store provisioning events", handlers.GetKnowledgeStoreEvents(log, ksStore, k8sClient),
 					oapispec.Tags("Knowledge"),

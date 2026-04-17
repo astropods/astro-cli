@@ -69,6 +69,16 @@ export function useKnowledgeLogs(
   });
 }
 
+export function useKnowledgeMetrics(account: string, name: string, enabled = true) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: knowledgeKeys.metrics(account, name),
+    queryFn: () => api.getKnowledgeMetrics(account, name),
+    enabled: !!account && !!name && enabled,
+    refetchInterval: 30_000,
+  });
+}
+
 export function useKnowledgeCredentials(account: string, name: string, enabled = true) {
   const api = useApiClient();
   return useQuery({

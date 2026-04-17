@@ -7,4 +7,4 @@ export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
 export { useSubmitFeedback } from './feedback';
 export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';
-export { useKnowledgeStores, useKnowledgeStore, useKnowledgeLogs, useKnowledgeCredentials, useCreateKnowledgeStore, useConnectKnowledgeStore, useDeleteKnowledgeStore } from './knowledge';
+export { useKnowledgeStores, useKnowledgeStore, useKnowledgeLogs, useKnowledgeMetrics, useKnowledgeCredentials, useCreateKnowledgeStore, useConnectKnowledgeStore, useDeleteKnowledgeStore } from './knowledge';

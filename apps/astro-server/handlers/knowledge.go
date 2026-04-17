@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -106,6 +107,15 @@ type KnowledgeResponse struct {
 
 // KnowledgeCredentialsResponse holds decrypted credentials for a knowledge store.
 type KnowledgeCredentialsResponse map[string]string
+
+// KnowledgeMetricsResponse holds infrastructure metrics for a knowledge store.
+type KnowledgeMetricsResponse struct {
+	CPUCores      *float64 `json:"cpu_cores"`      // Current CPU usage in cores
+	MemoryBytes   *int64   `json:"memory_bytes"`   // Current memory working set in bytes
+	StorageUsed   *int64   `json:"storage_used"`   // PVC bytes used
+	StorageTotal  *int64   `json:"storage_total"`  // PVC bytes capacity
+	UptimeSeconds int64    `json:"uptime_seconds"` // Seconds since store was created
+}
 
 // parseRegionFromServiceName extracts the AWS region from a VPC endpoint
 // service name like "com.amazonaws.vpce.us-east-1.vpce-svc-0123456789abcdef".
@@ -848,6 +858,103 @@ func StreamKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store,
 			}
 		}
 	}
+}
+
+// GetKnowledgeStoreMetrics returns infrastructure metrics for a knowledge store.
+func GetKnowledgeStoreMetrics(log *logger.Logger, ksStore *knowledgestore.Store, promClient *promquery.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil || ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+
+		resp := KnowledgeMetricsResponse{
+			UptimeSeconds: int64(time.Since(ks.CreatedAt).Seconds()),
+		}
+
+		// Parse allocated storage into bytes for the response.
+		if ks.Storage != "" {
+			resp.StorageTotal = parseStorageBytes(ks.Storage)
+		}
+
+		if promClient == nil {
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
+		ns := k8s.KnowledgeNamespace(acct.ID)
+		pod := k8s.KnowledgeResourceName(ks.ID) + "-0"
+		cluster := promClient.Cluster()
+
+		clusterFilter := ""
+		if cluster != "" {
+			clusterFilter = fmt.Sprintf(`,cluster="%s"`, cluster)
+		}
+
+		// CPU usage (cores) — 5m rate
+		cpuQL := fmt.Sprintf(
+			`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod="%s",container="app"%s}[5m]))`,
+			ns, pod, clusterFilter,
+		)
+		if samples, err := promClient.Query(c.Request.Context(), cpuQL); err == nil && len(samples) > 0 {
+			v := samples[0].Value
+			resp.CPUCores = &v
+		}
+
+		// Memory working set (bytes)
+		memQL := fmt.Sprintf(
+			`sum(container_memory_working_set_bytes{namespace="%s",pod="%s",container="app"%s})`,
+			ns, pod, clusterFilter,
+		)
+		if samples, err := promClient.Query(c.Request.Context(), memQL); err == nil && len(samples) > 0 {
+			v := int64(samples[0].Value)
+			resp.MemoryBytes = &v
+		}
+
+		// PVC storage used (bytes)
+		resourceName := k8s.KnowledgeResourceName(ks.ID)
+		storageQL := fmt.Sprintf(
+			`kubelet_volume_stats_used_bytes{namespace="%s",persistentvolumeclaim=~".*%s.*"%s}`,
+			ns, resourceName, clusterFilter,
+		)
+		if samples, err := promClient.Query(c.Request.Context(), storageQL); err == nil && len(samples) > 0 {
+			v := int64(samples[0].Value)
+			resp.StorageUsed = &v
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// parseStorageBytes converts K8s storage strings like "10Gi" to bytes.
+func parseStorageBytes(s string) *int64 {
+	s = strings.TrimSpace(s)
+	multiplier := int64(1)
+	if strings.HasSuffix(s, "Gi") {
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "Gi")
+	} else if strings.HasSuffix(s, "Mi") {
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(s, "Mi")
+	} else if strings.HasSuffix(s, "Ti") {
+		multiplier = 1024 * 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "Ti")
+	} else {
+		return nil
+	}
+	val, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil
+	}
+	result := val * multiplier
+	return &result
 }
 
 func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient) gin.HandlerFunc {
