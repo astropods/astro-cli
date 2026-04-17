@@ -261,7 +261,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         {isTailing && filtered.length > 0 && (
           <div className="flex items-center gap-2 px-[18px] pt-5 pb-3 font-mono text-mono-sm text-faint-foreground bg-background flex-shrink-0">
             <TailDot />
-            Live tail active — new lines appear as they arrive
+            Live tail active. New lines appear as they arrive.
           </div>
         )}
         <div className="relative flex-1 min-h-0">

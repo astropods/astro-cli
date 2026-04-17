@@ -153,7 +153,7 @@ export function SchedulePicker({ label, value, onChange, error }: SchedulePicker
   const applyCronText = () => {
     const trimmed = cronText.trim();
     if (!isValidCron(trimmed)) {
-      setCronError("Invalid cron expression — use 5 fields: minute hour day month weekday");
+      setCronError("Invalid cron expression. Use 5 fields: minute hour day month weekday");
       return;
     }
     setCronError("");

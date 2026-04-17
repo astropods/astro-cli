@@ -114,7 +114,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
               {revisionNumber != null && (
                 <Tag className="px-1.5 h-[18px]">Config {revisionNumber}</Tag>
               )}
-              <span className="font-mono text-mono-sm text-faint-foreground">— read only</span>
+              <span className="font-mono text-mono-sm text-faint-foreground">(read only)</span>
             </>
           )}
           {isNewBuild && !rollbackContext && (

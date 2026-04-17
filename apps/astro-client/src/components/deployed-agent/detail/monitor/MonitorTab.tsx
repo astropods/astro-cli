@@ -587,7 +587,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
             ERROR
           </span>
           <span style={{ fontFamily: S.body, fontSize: T.body, color: C.coral, flex: 1 }}>
-            This deployment is in an error state — no replicas are ready.
+            This deployment is in an error state. No replicas are ready.
           </span>
         </div>
       )}
@@ -877,7 +877,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
               )}
               {traces.length > 0 && visibleTraces.length === 0 && (
                 <div style={{ padding: "24px 16px", textAlign: "center" }}>
-                  <p style={{ fontFamily: S.body, fontSize: T.body, color: C.success, margin: 0 }}>✓ All clear — no errors in this window</p>
+                  <p style={{ fontFamily: S.body, fontSize: T.body, color: C.success, margin: 0 }}>✓ All clear. No errors in this window.</p>
                 </div>
               )}
               {visibleTraceRows.map((trace) => {

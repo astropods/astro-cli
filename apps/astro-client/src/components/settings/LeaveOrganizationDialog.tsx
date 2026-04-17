@@ -120,7 +120,7 @@ export function LeaveOrganizationDialog({
             {isSoleMember ? (
               <>
                 You are the only member of <strong>{orgDisplayName}</strong>.
-                You cannot leave the organization — you must delete it instead.
+                You cannot leave the organization. You must delete it instead.
               </>
             ) : isLastAdmin ? (
               <>

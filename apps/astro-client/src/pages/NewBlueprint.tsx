@@ -361,7 +361,7 @@ function NewBlueprintContent() {
                                 <div className="flex-1">
                                   <h3 className="text-sm font-semibold mb-0.5">Set up with GitHub</h3>
                                   <p className="text-xs leading-relaxed text-muted-foreground">
-                                    Connect a repo — any git push will automatically build and push your agent.
+                                    Connect a repo. Any git push will automatically build and push your agent.
                                   </p>
                                 </div>
                               </div>
@@ -494,7 +494,7 @@ function NewBlueprintContent() {
                         </p>
                         <p className="mt-1.5 text-xs text-muted-foreground max-w-[280px]">
                           {scanResult === "scanning"
-                            ? "Looking for astropods.yml — we'll kick off a build if we find one."
+                            ? "Looking for astropods.yml. We'll kick off a build if we find one."
                             : "Registering your blueprint in the registry."}
                         </p>
                         <p className="mt-2 font-mono text-xs text-muted-foreground/60">{selectedOrg}/{slug}</p>
@@ -638,7 +638,7 @@ function NewBlueprintContent() {
                           </div>
                           <span className="text-base font-semibold text-foreground">
                             {scanResult === "found"
-                              ? "astropods.yml found — build in progress"
+                              ? "astropods.yml found, build in progress"
                               : scanResult === "not-found"
                               ? "Blueprint registered, repo connected"
                               : "Blueprint registered!"}
@@ -668,9 +668,9 @@ function NewBlueprintContent() {
                         </div>
                         <p className="text-xs text-muted-foreground text-center max-w-[300px]">
                           {scanResult === "found"
-                            ? "Build kicked off — head to your blueprint to track progress in the GitHub sidebar."
+                            ? "Build kicked off. Head to your blueprint to track progress in the GitHub sidebar."
                             : scanResult === "not-found"
-                            ? `We didn't find an astropods.yml in ${selectedRepo?.full_name ?? "your repo"}. Push one to trigger your first build — we'll pick it up automatically.`
+                            ? `We didn't find an astropods.yml in ${selectedRepo?.full_name ?? "your repo"}. Push one to trigger your first build. We'll pick it up automatically.`
                             : `Install the Astro CLI, run ast init ${slug}, then ast push to get your first image into the registry.`}
                         </p>
                       </div>

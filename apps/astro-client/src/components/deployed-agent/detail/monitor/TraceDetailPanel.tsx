@@ -144,7 +144,7 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
           label="Output"
           icon={<ArrowDownLeft className="size-3.5 text-muted-foreground" />}
           content={trace.output}
-          emptyMessage="Trace did not complete — no output recorded"
+          emptyMessage="Trace did not complete. No output recorded."
         />
       </div>
     </div>

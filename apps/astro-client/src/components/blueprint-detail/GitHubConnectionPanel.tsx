@@ -454,7 +454,7 @@ function BuildLogsDialog({
       <DialogContent className="sm:max-w-3xl gap-0 p-0">
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <DialogTitle className="text-sm font-medium">
-            Build logs — <span className="font-mono">{buildId}</span>{" "}
+            Build logs: <span className="font-mono">{buildId}</span>{" "}
             <span className="text-muted-foreground font-normal">·{commitSha}</span>
           </DialogTitle>
           <DialogDescription className="text-xs">
@@ -471,7 +471,7 @@ function BuildLogsDialog({
             </div>
           )}
           {isError && (
-            <p className="text-sm text-red-400 p-4">Logs unavailable — the pod may have been cleaned up.</p>
+            <p className="text-sm text-red-400 p-4">Logs unavailable. The pod may have been cleaned up.</p>
           )}
           {data && componentLogs.length === 0 && (
             <p className="text-zinc-500 text-xs p-4 font-mono">(no output)</p>
