@@ -72,6 +72,7 @@ The `source` object identifies the agent and build being deployed.
 
 | Field      | Type   | Required     | Description                              |
 | ---------- | ------ | ------------ | ---------------------------------------- |
+| `account`  | string | **REQUIRED** | Account that owns the agent.             |
 | `name`     | string | **REQUIRED** | Agent name from the Astropods Spec.      |
 | `build`    | string | **REQUIRED** | Build identifier.                        |
 | `registry` | string | **REQUIRED** | Registry where agent images were pushed. |
@@ -82,10 +83,12 @@ The `source` object identifies the agent and build being deployed.
 
 The `target` object specifies where the deployment runs.
 
-| Field       | Type   | Required     | Description                                                                        |
-| ----------- | ------ | ------------ | ---------------------------------------------------------------------------------- |
-| `runtime`   | string | **REQUIRED** | Target runtime. MUST be `kubernetes`. Implementations MAY add additional runtimes. |
-| `namespace` | string | **REQUIRED** | Target namespace. MUST be unique within the cluster.                               |
+| Field           | Type   | Required     | Description                                                                        |
+| --------------- | ------ | ------------ | ---------------------------------------------------------------------------------- |
+| `runtime`       | string | **REQUIRED** | Target runtime. MUST be `kubernetes`. Implementations MAY add additional runtimes. |
+| `account`       | string | OPTIONAL     | Target account for cross-account deploys. Defaults to `source.account`.            |
+| `display_name`  | string | OPTIONAL     | Human-readable deployment name. Must be unique within the account.                 |
+| `deployment_id` | string | OPTIONAL     | Existing deployment ID for in-place updates.                                       |
 
 ---
 
@@ -121,6 +124,8 @@ Each entry in the `models` map configures a self-hosted model container.
 | `image`       | string                  | **REQUIRED** | Resolved container image reference.                                                |
 | `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 12.6).                                            |
 | `model`       | string                  | OPTIONAL     | Provider-specific model identifier (e.g. `llama3.2`). Carried from Astropods Spec. |
+| `persistent`  | boolean                 | OPTIONAL     | Whether to persist model data (e.g. pulled weights). Default: `false`.             |
+| `provider`    | string                  | OPTIONAL     | Provider name (implementation-internal).                                           |
 | `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                                  |
 | `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 12.1).                                       |
 | `gpu`         | GPUConfig               | OPTIONAL     | GPU resource requirements (Section 12.2).                                          |
@@ -139,10 +144,12 @@ Each entry in the `knowledge` map configures a knowledge store container.
 | `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                       |
 | `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 12.1).                            |
 | `persistent`  | boolean                 | OPTIONAL     | Whether to use persistent storage (StatefulSet). Default: `false`.      |
+| `volume`      | string                  | OPTIONAL     | Mount path for persistent storage.                                      |
 | `storage`     | StorageConfig           | OPTIONAL     | PVC configuration (Section 12.3). REQUIRED when `persistent` is `true`. |
 | `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the knowledge store container.                |
 | `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 12.4).                              |
 | `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 12.5).                                        |
+| `provider`    | string                  | OPTIONAL     | Provider name (implementation-internal).                                |
 
 Knowledge entries that are bound to managed stores at deploy time do not appear in this map — the platform resolves their connection details into concrete env vars in `agent.environment` before the spec is finalized.
 
@@ -182,6 +189,19 @@ The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed
 | `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 12.1).                       |
 | `environment` | map\<string, string\>   | OPTIONAL     | Adapter-specific environment variables. Supports `${}` references. |
 | `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 12.4).                         |
+| `auth`        | InterfacesAuth          | OPTIONAL     | Per-adapter authentication configuration.                          |
+
+#### InterfacesAuth
+
+| Field  | Type    | Required | Description                                                                    |
+| ------ | ------- | -------- | ------------------------------------------------------------------------------ |
+| `web`  | WebAuth | OPTIONAL | Authentication for the web adapter ingress. Nil means no auth.                 |
+
+#### WebAuth
+
+| Field  | Type   | Required | Description                                                                              |
+| ------ | ------ | -------- | ---------------------------------------------------------------------------------------- |
+| `type` | string | OPTIONAL | Authentication type. `oidc` uses server-level OIDC config.                               |
 
 Adapter-specific behavioral configuration (e.g. actionable emoji reactions, socket mode, auto-threading) is passed to the messaging sidecar via the `SLACK_CONFIG` environment variable as a JSON object. This variable is injected into `interfaces.environment` through the variables mechanism and is editable in the deploy UI.
 
@@ -209,11 +229,15 @@ Each entry in the `variables` map declares a deployment variable. Variables are 
 
 The `observability` object configures monitoring and telemetry.
 
-| Field        | Type    | Required | Description                                                                  |
-| ------------ | ------- | -------- | ---------------------------------------------------------------------------- |
-| `enabled`    | boolean | OPTIONAL | Whether to deploy a collector sidecar. Default: `true`.                      |
-| `provider`   | string  | OPTIONAL | Observability provider. Currently only `langfuse` is supported.              |
-| `log_stream` | string  | OPTIONAL | Provider-specific log stream name. Default: `{source.name}-{deployment_id}`. |
+| Field         | Type                | Required | Description                                                                  |
+| ------------- | ------------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`     | boolean             | OPTIONAL | Whether to deploy a collector sidecar. Default: `true`.                      |
+| `provider`    | string              | OPTIONAL | Observability provider. Currently only `langfuse` is supported.              |
+| `image`       | string              | OPTIONAL | Collector sidecar image (implementation-internal).                           |
+| `port`        | integer             | OPTIONAL | OTLP receiver port (implementation-internal). Default: `4318`.               |
+| `resources`   | Resources           | OPTIONAL | CPU and memory configuration (Section 12.1). Implementation-internal.        |
+| `environment` | map\<string, string\> | OPTIONAL | Collector environment variables. Implementation-internal.                  |
+| `log_stream`  | string              | OPTIONAL | Provider-specific log stream name. Default: `{source.name}-{deployment_id}`. |
 
 ---
 
@@ -284,16 +308,15 @@ Extends the Astropods Spec GPUConfig with `count` for multi-GPU scheduling.
 
 ### 12.4 Healthcheck
 
-Defines both liveness and readiness probes. The runtime MUST create identical probes from this configuration. Extends the Astropods Spec Healthcheck with `initial_delay` for runtime probe scheduling.
+Defines both liveness and readiness probes. The runtime MUST create identical probes from this configuration.
 
-| Field           | Type     | Required | Description                                                           |
-| --------------- | -------- | -------- | --------------------------------------------------------------------- |
-| `test`          | string[] | OPTIONAL | Exec probe command (e.g. `["CMD", "redis-cli", "ping"]`).             |
-| `path`          | string   | OPTIONAL | HTTP GET probe path (e.g. `/health`).                                 |
-| `initial_delay` | string   | OPTIONAL | Delay before first check (deployment-spec extension). Default: `10s`. |
-| `interval`      | string   | OPTIONAL | Check frequency. Default: `10s`.                                      |
-| `timeout`       | string   | OPTIONAL | Per-check timeout. Default: `5s`.                                     |
-| `retries`       | integer  | OPTIONAL | Consecutive failures before unhealthy. Default: `3`.                  |
+| Field      | Type     | Required | Description                                                |
+| ---------- | -------- | -------- | ---------------------------------------------------------- |
+| `test`     | string[] | OPTIONAL | Exec probe command (e.g. `["CMD", "redis-cli", "ping"]`).  |
+| `path`     | string   | OPTIONAL | HTTP GET probe path (e.g. `/health`).                      |
+| `interval` | string   | OPTIONAL | Check frequency. Default: `10s`.                           |
+| `timeout`  | string   | OPTIONAL | Per-check timeout. Default: `5s`.                          |
+| `retries`  | integer  | OPTIONAL | Consecutive failures before unhealthy. Default: `3`.       |
 
 When neither `test` nor `path` is set, the server SHOULD generate a provider-appropriate probe.
 
@@ -333,23 +356,22 @@ Implementations MUST enforce the following rules:
 1. `spec` MUST be `deployment/v1`.
 2. `source.name`, `source.build`, and `source.registry` MUST be non-empty strings.
 3. `target.runtime` MUST be `kubernetes`.
-4. `target.namespace` MUST be a non-empty string valid for the target runtime.
-5. `agent.image` MUST be a non-empty string and `agent.endpoints` MUST contain at least one entry.
-6. For each entry in `models` and `knowledge`: `image` MUST be a non-empty string, `endpoints` MUST contain at least one entry, and each endpoint `port` MUST be a positive integer.
-7. For each entry in `knowledge`: when `persistent` is `true`, `storage` MUST be present.
-8. When `endpoint.protocol` is provided, it MUST be one of `http`, `grpc`, or `tcp`.
-9. For each entry in `ingestion`: `image` MUST be a non-empty string, `trigger` MUST be present, and `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
-10. When `trigger.type` is `schedule`, `trigger.schedule` MUST be a non-empty string containing a valid cron expression.
-11. When `trigger.type` is NOT `schedule`, `trigger.schedule` MUST NOT be present.
-12. When `interfaces` is present: `adapters` MUST be a non-empty array, and `image` MUST be a non-empty string.
-13. For each entry in `variables` where `optional` is `false` or absent: exactly one of `value` or `ref` MUST be present and non-empty.
-14. `variables.*.targets` MUST be a non-empty array. Each element MUST be `agent`, `ingestion`, `ingestion.<name>` where `<name>` is a key in `ingestion`, or `interface.<adapter>` where `<adapter>` is a name listed in `interfaces.adapters`.
-15. All `${}` references in `agent.environment` and `interfaces.environment` MUST resolve to a declared component, variable, or source attribute.
-16. There MUST NOT be duplicate ports within the same deployment scope.
-17. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
-18. When `storage.access_mode` is provided, it MUST be one of `ReadWriteOnce` or `ReadWriteMany`.
-19. When `update.strategy` is provided, it MUST be one of `rolling` or `recreate`.
-20. When `agent.distributed` is `false` or absent, `agent.replicas` MUST be `1`.
+4. `agent.image` MUST be a non-empty string and `agent.endpoints` MUST contain at least one entry.
+5. For each entry in `models` and `knowledge`: `image` MUST be a non-empty string, `endpoints` MUST contain at least one entry, and each endpoint `port` MUST be a positive integer.
+6. For each entry in `knowledge`: when `persistent` is `true`, `storage` MUST be present.
+7. When `endpoint.protocol` is provided, it MUST be one of `http`, `grpc`, or `tcp`.
+8. For each entry in `ingestion`: `image` MUST be a non-empty string, `trigger` MUST be present, and `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
+9. When `trigger.type` is `schedule`, `trigger.schedule` MUST be a non-empty string containing a valid cron expression.
+10. When `trigger.type` is NOT `schedule`, `trigger.schedule` MUST NOT be present.
+11. When `interfaces` is present: `adapters` MUST be a non-empty array, and `image` MUST be a non-empty string.
+12. For each entry in `variables` where `optional` is `false` or absent: exactly one of `value` or `ref` MUST be present and non-empty.
+13. `variables.*.targets` MUST be a non-empty array. Each element MUST be `agent`, `ingestion`, `ingestion.<name>` where `<name>` is a key in `ingestion`, or `interface.<adapter>` where `<adapter>` is a name listed in `interfaces.adapters`.
+14. All `${}` references in `agent.environment` and `interfaces.environment` MUST resolve to a declared component, variable, or source attribute.
+15. There MUST NOT be duplicate ports within the same deployment scope.
+16. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
+17. When `storage.access_mode` is provided, it MUST be one of `ReadWriteOnce` or `ReadWriteMany`.
+18. When `update.strategy` is provided, it MUST be one of `rolling` or `recreate`.
+19. When `agent.distributed` is `false` or absent, `agent.replicas` MUST be `1`.
 
 ---
 
