@@ -719,16 +719,15 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 
 	if resp.StatusCode == http.StatusUnauthorized && !skipAuth && tokenOverride == "" {
 		// Token may have expired mid-push — force refresh and retry once
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck,gosec
 		retryReq, retryErr := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 		if retryErr == nil {
 			retryReq.Header.Set("Content-Type", "application/json")
 			retryReq.Header.Set("X-Cli-Version", version)
 			if refreshErr := auth.RefreshAndUpdateHeader(context.Background(), retryReq, binaryName); refreshErr == nil {
-				retryResp, doErr := client.Do(retryReq) //nolint:gosec
-				if doErr == nil {
-					resp.Body.Close() //nolint:errcheck
+				if retryResp, doErr := client.Do(retryReq); doErr == nil { //nolint:gosec
 					resp = retryResp
+					defer resp.Body.Close() //nolint:errcheck,gosec
 				}
 			}
 		}
