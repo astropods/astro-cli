@@ -84,46 +84,52 @@ function KnowledgeStoresContent() {
           </div>
         </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {tableHeaders.map((header) => (
-                <TableHead key={header}>{header}</TableHead>
-              ))}
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <>
-                {[1, 2, 3].map((i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={tableHeaders.length + 1}>
-                      <Skeleton className="h-5 w-full rounded" />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </>
-            ) : stores.length === 0 ? (
+        {isLoading ? (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={tableHeaders.length + 1} className="p-0">
-                  <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
-                    <div className="mb-3.5 flex size-10 items-center justify-center rounded-md bg-muted">
-                      <CircleStackIcon className="size-5 text-faint-foreground" />
-                    </div>
-                    <p className="text-heading-4 text-foreground mb-1.5">No knowledge stores yet</p>
-                    <p className="text-body text-faint-foreground mb-6">
-                      Create a store to give your agents a database for memory, vector search, or caching.
-                    </p>
-                    <Button onClick={() => navigate(newKnowledgePath)}>
-                      <PlusIcon className="size-4" />
-                      Add your first store
-                    </Button>
-                  </div>
-                </TableCell>
+                {tableHeaders.map((header) => (
+                  <TableHead key={header}>{header}</TableHead>
+                ))}
+                <TableHead className="w-10" />
               </TableRow>
-            ) : (
-              stores.map((store) => (
+            </TableHeader>
+            <TableBody>
+              {[1, 2, 3].map((i) => (
+                <TableRow key={i}>
+                  <TableCell colSpan={tableHeaders.length + 1}>
+                    <Skeleton className="h-5 w-full rounded" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : stores.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+            <div className="flex justify-center mb-3 text-muted-foreground">
+              <CircleStackIcon className="size-6" />
+            </div>
+            <p className="text-sm font-medium text-foreground">No knowledge stores yet</p>
+            <p className="text-xs text-muted-foreground mt-1 mb-4">
+              Create a store to give your agents a database for memory, vector search, or caching.
+            </p>
+            <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
+              <PlusIcon className="size-3.5" />
+              Add your first store
+            </Button>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {tableHeaders.map((header) => (
+                  <TableHead key={header}>{header}</TableHead>
+                ))}
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stores.map((store) => (
                 <TableRow
                   key={store.id}
                   interactive
@@ -187,10 +193,10 @@ function KnowledgeStoresContent() {
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {deleteTarget && (
