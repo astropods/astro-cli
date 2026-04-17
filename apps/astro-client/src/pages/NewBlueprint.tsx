@@ -392,7 +392,7 @@ function NewBlueprintContent() {
                                   <div className="space-y-3">
                                     <p className="inline-flex items-center gap-1.5 text-xs text-foreground">
                                       <CheckCircleIcon className="size-3.5 text-green-700" />
-                                      GitHub connected
+                                      {accountRepos.data?.repos[0]?.full_name.split("/")[0] ?? "GitHub"} connected
                                     </p>
                                     <Select
                                       value={selectedRepo?.full_name ?? ""}
@@ -411,7 +411,7 @@ function NewBlueprintContent() {
                                             <SelectItem key={repo.full_name} value={repo.full_name} disabled={!!usedBy}>
                                               <span className="flex items-center gap-2">
                                                 <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                                                {repo.full_name}
+                                                {repo.full_name.split("/")[1]}
                                                 {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
                                                 {usedBy && <span className="text-[10px] text-muted-foreground">linked to {usedBy.agent_name}</span>}
                                               </span>
