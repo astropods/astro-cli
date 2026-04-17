@@ -20,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/astropods/astro/apps/astro-server/internal/account"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
@@ -54,103 +53,6 @@ const agentMDCacheTTL = 60 * time.Second
 type GitHubLinkRequest struct {
 	RepoFullName string `json:"repo_full_name" binding:"required"`
 	Branch       string `json:"branch"`
-}
-
-// GitHubConnect handles POST /api/v1/agents/:account/:name/github/connect.
-// Checks if the user already has a GitHub Pipes connection. If not, returns an OAuth redirect URL.
-// If already connected, the client should proceed to GitHubLink.
-func GitHubConnect(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		session, ok := middleware.GetSession(c)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-			return
-		}
-
-		acct, ok := middleware.GetAccountFromContext(c)
-		if !ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
-			return
-		}
-
-		agentName := c.Param("name")
-
-		// Check if user already has GitHub connected via Pipes.
-		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-
-		if err == nil {
-			// Already connected — client can proceed to list repos and link.
-			c.JSON(http.StatusOK, gin.H{"connected": true})
-			return
-		}
-
-		if !errors.Is(err, pipes.ErrNeedsReauthorization) && !errors.Is(err, pipes.ErrNotInstalled) {
-			log.Error("pipes: get access token", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check GitHub connection"})
-			return
-		}
-
-		// Build return_to URL: server callback that will complete the connection.
-		returnTo := fmt.Sprintf("%s/api/v1/agents/%s/%s/github/callback",
-			cfg.WebhookBaseURL, acct.Name, agentName)
-
-		authURL, err := pipesClient.GetAuthorizationURL(c.Request.Context(), pipes.GetAuthorizationURLInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-			ReturnTo:       returnTo,
-		})
-		if err != nil {
-			log.Error("pipes: get authorization URL", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate GitHub authorization URL"})
-			return
-		}
-
-		c.JSON(http.StatusOK, GitHubConnectResponse{RedirectURL: authURL})
-	}
-}
-
-// GitHubCallback handles GET /api/v1/agents/:account/:name/github/callback.
-// WorkOS redirects the user here after completing GitHub OAuth. No body — the user session
-// carries auth context. After getting the token, we redirect to the frontend repo selector.
-func GitHubCallback(log *logger.Logger, pipesClient *pipes.Client, accountStore *account.AccountStore, cfg GitHubHandlerConfig) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		session, ok := middleware.GetSession(c)
-		if !ok {
-			c.Redirect(http.StatusFound, cfg.FrontendURL+"?github_error=not_authenticated")
-			return
-		}
-
-		acct, ok := middleware.GetAccountFromContext(c)
-		if !ok {
-			c.Redirect(http.StatusFound, cfg.FrontendURL+"?github_error=account_not_found")
-			return
-		}
-
-		agentName := c.Param("name")
-
-		// Verify token is now available.
-		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-		if err != nil {
-			log.Error("pipes: token unavailable after callback", "error", err, "user", session.UserID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+"?github_error=token_unavailable")
-			return
-		}
-
-		log.Info("GitHub OAuth completed", "account", acct.Name, "agent", agentName, "user", session.UserID)
-
-		// Redirect to frontend — user can now select a repo.
-		c.Redirect(http.StatusFound, fmt.Sprintf("%s/%s/%s?github_connected=true",
-			cfg.FrontendURL, acct.Name, agentName))
-	}
 }
 
 // GitHubListRepos handles GET /api/v1/agents/:account/:name/github/repos.

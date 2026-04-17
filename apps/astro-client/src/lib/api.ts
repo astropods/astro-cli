@@ -837,13 +837,6 @@ class ApiClient {
     );
   }
 
-  async gitHubConnect(account: string, name: string): Promise<GitHubConnectResponse> {
-    return this.request<GitHubConnectResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/connect`,
-      { method: 'POST' }
-    );
-  }
-
   async gitHubListRepos(account: string, name: string): Promise<{ repos: GitHubRepo[] }> {
     return this.request<{ repos: GitHubRepo[] }>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/repos`

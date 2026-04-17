@@ -56,12 +56,6 @@ export function useGitHubBuildLogs(account: string, name: string, buildId: strin
   });
 }
 
-export function useGitHubConnect(account: string, name: string) {
-  return useMutation({
-    mutationFn: () => api.gitHubConnect(account, name),
-  });
-}
-
 export function useGitHubLink(account: string, name: string) {
   const queryClient = useQueryClient();
   return useMutation({

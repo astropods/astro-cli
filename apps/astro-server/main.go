@@ -1243,16 +1243,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		githubRoutes := protected.Group("/agents/:account/:name")
 		githubRoutes.Use(middleware.ResolveAccount(accountStore))
 		{
-			api.POST(githubRoutes, "/github/connect", "Start GitHub OAuth for repo connection",
-				handlers.GitHubConnect(log, pipesClient, githubCfg),
-				oapispec.Tags("GitHub"),
-				oapispec.BearerAuth(),
-			)
-			api.GET(githubRoutes, "/github/callback", "WorkOS GitHub OAuth callback",
-				handlers.GitHubCallback(log, pipesClient, accountStore, githubCfg),
-				oapispec.Tags("GitHub"),
-				oapispec.BearerAuth(),
-			)
 			api.GET(githubRoutes, "/github/repos", "List user GitHub repos",
 				handlers.GitHubListRepos(log, pipesClient),
 				oapispec.Tags("GitHub"),

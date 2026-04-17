@@ -21,7 +21,7 @@ import { SidebarSection } from "./SidebarSection";
 import {
   useGitHubStatus,
   useGitHubRepos,
-  useGitHubConnect,
+  useGitHubAccountConnect,
   useGitHubLink,
   useGitHubDisconnect,
   useGitHubBuildLogs,
@@ -43,7 +43,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   const githubConnected = searchParams.get("github_connected") === "true";
 
   const { data: status, isLoading: statusLoading } = useGitHubStatus(account, name);
-  const connect = useGitHubConnect(account, name);
+  const connect = useGitHubAccountConnect(account);
   const disconnect = useGitHubDisconnect(account, name);
   const rebuild = useGitHubRebuild(account, name);
 
@@ -58,10 +58,9 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   }, [githubConnected]);
 
   function handleConnect() {
-    connect.mutate(undefined, {
+    connect.mutate(`/${account}/${name}?github_connected=true`, {
       onSuccess: (data) => {
         if (data.connected) {
-          // Token already exists — go straight to repo selector.
           setRepoDialogOpen(true);
         } else if (data.redirect_url) {
           window.location.href = data.redirect_url;
