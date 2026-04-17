@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, BookOpenIcon, EllipsisHorizontalIcon, CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useAuth } from "@/lib/auth";
-import { useDefaultAccount } from "@/hooks/use-default-account";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import {
@@ -44,14 +43,8 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 function KnowledgeStoresContent() {
-  const { personalAccount, isAuthenticated } = useAuth();
-  const { defaultAccount, validStoredDefault, handleSetDefault } = useDefaultAccount();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const userAccount = searchParams.get("account") || validStoredDefault || personalAccount?.name || "";
-
-  const setActiveAccount = (account: string) => {
-    setSearchParams(account === personalAccount?.name ? {} : { account });
-  };
+  const { isAuthenticated } = useAuth();
+  const { activeAccount: userAccount } = useActiveAccount();
 
   const navigate = useNavigate();
   const { data, isLoading } = useKnowledgeStores(userAccount, isAuthenticated);
@@ -67,17 +60,11 @@ function KnowledgeStoresContent() {
         <div className="mb-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-heading-1 text-foreground">Knowledge Stores</h1>
-            <p className="mt-1 text-body-sm text-muted-foreground">
+            <p className="mt-1 text-[13px] text-muted-foreground">
               Account-level databases shared across agent deployments.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <OrgSwitcher
-              activeAccount={userAccount}
-              defaultAccount={defaultAccount}
-              onChange={setActiveAccount}
-              onSetDefault={handleSetDefault}
-            />
             <Button variant="outline" size="sm">
               <BookOpenIcon className="size-4" />
               Learn more

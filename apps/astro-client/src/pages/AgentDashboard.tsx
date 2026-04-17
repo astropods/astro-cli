@@ -1,37 +1,25 @@
-import { useMemo, useState, type ElementType, type ReactNode } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
 import { createServerApi } from "@/lib/api.server";
-import {
-  BookOpenIcon,
-  UsersIcon,
-  PlusIcon,
-} from "@heroicons/react/24/outline";
-import { Bot } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
-import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { useAccountMembers } from "@/api/queries/accounts";
 import { useAuth } from "@/lib/auth";
-import { useDefaultAccount } from "@/hooks/use-default-account";
-import { blueprintsPaths, deploymentPath } from "@/lib/routes";
+import { useActiveAccount } from "@/hooks/use-active-account";
+import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 import type { AgentDeployment } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export const meta: Route.MetaFunction = () => [{ title: "Dashboard | Astro" }];
+export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   try {
     const auth = await api.getCurrentUser();
-    const url = new URL(request.url);
-    const accountParam = url.searchParams.get("account");
-    const account = auth.accounts?.find((a) => a.name === accountParam)
-      ?? auth.accounts?.find((a) => a.type === "personal");
+    const account = auth.accounts?.find((a) => a.type === "personal");
     if (!account) return { count: 0 };
     const { count } = await api.countDeployments(account.name);
     return { count };
@@ -40,26 +28,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 }
 
-function DashboardLabel({ icon: Icon, to, children }: { icon: ElementType; to?: string; children: ReactNode }) {
-  const className = cn("inline-flex items-center gap-1.5 font-mono text-mono-sm", to && "hover:text-teal-700 transition-colors");
-  const content = <><Icon className="size-3.5" strokeWidth={1.5} />{children}</>;
-  return to ? <Link to={to} className={className}>{content}</Link> : <span className={className}>{content}</span>;
-}
 
 function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 18) return "Good afternoon";
-    return "Good evening";
-  }, []);
-
-  const { personalAccount, accounts, isAuthenticated } = useAuth();
-  const { defaultAccount, validStoredDefault, handleSetDefault } = useDefaultAccount();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { accounts, isAuthenticated } = useAuth();
+  const { activeAccount: userAccount } = useActiveAccount();
   const location = useLocation();
   const navigate = useNavigate();
-  const userAccount = searchParams.get("account") || validStoredDefault || personalAccount?.name || "";
 
   const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
   const revealDeploymentId = revealState?.revealDeploymentId ?? null;
@@ -68,22 +42,15 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const revealAvatarUrl = revealState?.revealAvatarUrl ?? null;
   const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
-  const setActiveAccount = (account: string) => {
-    setSearchParams({ account });
-  };
-  const displayName = personalAccount?.display_name || personalAccount?.name || "";
 
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, {
     enabled: isAuthenticated,
   });
-  const { data: membersData } = useAccountMembers(userAccount);
 
   const blueprintCount = accountBlueprints?.agents.length ?? 0;
   const deployments = data?.deployments ?? [];
   const blueprintAgents = accountBlueprints?.agents ?? [];
-  const memberCount = membersData?.members.length ?? 0;
-  const activeAccountType = accounts.find((a) => a.name === userAccount)?.type;
 
   const revealDeployment = useMemo<AgentDeployment | null>(() => {
     if (!revealDeploymentId) return null;
@@ -129,42 +96,9 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
       }
     >
       <div className="px-6 py-6">
-        <div className="mb-6 flex flex-col gap-3">
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <h1 className="min-w-0 text-heading-1 text-foreground">
-              {greeting}
-              {displayName ? `, ${displayName}` : ""}
-            </h1>
-            <div className="flex items-center gap-2">
-              <OrgSwitcher
-                activeAccount={userAccount}
-                defaultAccount={defaultAccount}
-                onChange={setActiveAccount}
-                onSetDefault={handleSetDefault}
-              />
-              {!isAgentsEmpty && (
-                <Button asChild size="sm">
-                  <Link to="/new/custom">
-                    <PlusIcon className="size-4" />
-                    New blueprint
-                  </Link>
-                </Button>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 text-body-sm text-muted-foreground">
-            {activeAccountType === "organization" && (
-              <DashboardLabel icon={UsersIcon}>
-                {memberCount} member{memberCount !== 1 ? "s" : ""}
-              </DashboardLabel>
-            )}
-            <DashboardLabel icon={Bot}>
-              {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
-            </DashboardLabel>
-            <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
-              {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
-            </DashboardLabel>
-          </div>
+        <div className="mb-6">
+          <h1 className="text-heading-1 text-foreground">Agents</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">Deployed agents running in your account.</p>
         </div>
 
         <DashboardStats account={userAccount} isLoading={isLoading} />
