@@ -145,9 +145,16 @@ test("archiving a blueprint releases its GitHub repo so it can be reused", async
     .then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
   expect(before.connections.some((c) => c.repo_full_name === "testuser/my-repo")).toBe(true);
 
-  // Archive code-reviewer via the UI
+  // Archive code-reviewer via the UI — wait for both navigation and the blueprint
+  // list API response before asserting visibility, to avoid flaky "element not found"
+  // failures in CI where the sequential account + agents fetches haven't resolved yet.
+  const agentsLoaded = page.waitForResponse(
+    (res) => res.url().includes(`/api/v1/agents/${ACCOUNT}`) && res.request().method() === "GET",
+    { timeout: 15_000 },
+  );
   await page.goto(`/${ACCOUNT}`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("code-reviewer").first()).toBeVisible({ timeout: 15_000 });
+  await agentsLoaded;
+  await expect(page.getByText("code-reviewer").first()).toBeVisible({ timeout: 5_000 });
   await page.locator("[aria-label='Blueprint options']").first().click();
   await page.getByRole("menuitem", { name: /^archive$/i }).click();
   await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });

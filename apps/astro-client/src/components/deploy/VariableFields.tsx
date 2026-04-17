@@ -6,7 +6,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
-import { VariableField } from "./VariableField";
+import { VariableField, humanizeKey } from "./VariableField";
 import type { AccountVariable } from "@/lib/api";
 
 /** Display-only variable metadata — only the fields the component actually renders. */
@@ -25,12 +25,6 @@ export interface VariableDisplay {
 }
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */
-function humanizeKey(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export interface VariableFieldsProps {
   variables: [string, VariableDisplay][];

@@ -152,7 +152,7 @@ describe('DeployBlueprint page', () => {
       await user.type(nameInput, 'My Bot');
 
       // Fill required credential
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
@@ -176,7 +176,7 @@ describe('DeployBlueprint page', () => {
       await user.clear(nameInput);
 
       // Fill credentials so that's not the blocker
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
@@ -240,7 +240,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       expect(screen.getByText('Configuration')).toBeInTheDocument();
-      expect(screen.getByLabelText('Openai Api Key')).toBeInTheDocument();
+      expect(screen.getByLabelText('OpenAI API Key')).toBeInTheDocument();
     });
 
     it('renders optional credential fields from template', async () => {
@@ -285,7 +285,7 @@ describe('DeployBlueprint page', () => {
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
-        expect(screen.getByLabelText('Openai Api Key')).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByLabelText('OpenAI API Key')).toHaveAttribute('aria-invalid', 'true');
       });
       expect(screen.getByText('Required')).toBeInTheDocument();
     });
@@ -294,7 +294,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      expect(screen.getByLabelText('Openai Api Key')).not.toHaveAttribute('aria-invalid');
+      expect(screen.getByLabelText('OpenAI API Key')).not.toHaveAttribute('aria-invalid');
       expect(screen.queryByText('Required')).not.toBeInTheDocument();
     });
 
@@ -306,14 +306,14 @@ describe('DeployBlueprint page', () => {
       // Submit with empty fields
       await user.click(screen.getByRole('button', { name: /deploy/i }));
       await waitFor(() => {
-        expect(screen.getByLabelText('Openai Api Key')).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByLabelText('OpenAI API Key')).toHaveAttribute('aria-invalid', 'true');
       });
 
       // Fill the field
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       await waitFor(() => {
-        expect(screen.getByLabelText('Openai Api Key')).not.toHaveAttribute('aria-invalid');
+        expect(screen.getByLabelText('OpenAI API Key')).not.toHaveAttribute('aria-invalid');
       });
       expect(screen.queryByText('Required')).not.toBeInTheDocument();
     });
@@ -324,7 +324,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       // Fill credentials so that's not the issue
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       // Deselect Web
       await user.click(screen.getByRole('button', { name: /web/i }));
@@ -345,7 +345,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
       await user.click(screen.getByRole('button', { name: /web/i }));
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
@@ -367,7 +367,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       // Fill agent credential
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       // Select Slack
       await user.click(screen.getByRole('button', { name: /slack/i }));
@@ -402,7 +402,7 @@ describe('DeployBlueprint page', () => {
 
       // Wait a tick and verify no request was made
       await waitFor(() => {
-        expect(screen.getByLabelText('Openai Api Key')).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByLabelText('OpenAI API Key')).toHaveAttribute('aria-invalid', 'true');
       });
       expect(capturedRequests).toHaveLength(0);
     });
@@ -416,7 +416,7 @@ describe('DeployBlueprint page', () => {
       renderInstallWithAgentsRoute();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
@@ -445,7 +445,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       // Fill required credential
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       // Enable Slack and fill its tokens
       await user.click(screen.getByRole('button', { name: /slack/i }));
@@ -521,7 +521,7 @@ describe('DeployBlueprint page', () => {
       renderInstallWithAgentsRoute();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-required');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-required');
       await user.click(screen.getByRole('button', { name: /slack/i }));
 
       await waitFor(() => {
@@ -565,7 +565,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
@@ -590,7 +590,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'bad-key');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'bad-key');
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
@@ -615,7 +615,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {

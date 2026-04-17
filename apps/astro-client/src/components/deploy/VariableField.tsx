@@ -35,7 +35,7 @@ const LABEL_ACRONYMS: Record<string, string> = {
 };
 
 /** Convert "SLACK_API_KEY" → "Slack API Key", "ORG_IDS" → "Org IDs" */
-export function labelFromKey(key: string): string {
+export function humanizeKey(key: string): string {
   return key
     .replace(/_/g, " ")
     .toLowerCase()
@@ -130,7 +130,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
             {meta.icon ? <span className="shrink-0">{renderFieldIcon(meta.icon)}</span> : null}
             <div>
               <p className="text-[13px] font-medium text-foreground select-none">
-                {meta.label ?? labelFromKey(fieldKey)}
+                {meta.label ?? humanizeKey(fieldKey)}
               </p>
               {meta.description ? (
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
