@@ -23,7 +23,7 @@ import {
   getBlueprintAuthors,
   getBlueprintCapabilities,
 } from "@/lib/blueprint-utils";
-import type { AccountPublic, Blueprint, BlueprintCardData } from "@/lib/api";
+import type { AccountPublic, Blueprint } from "@/lib/api";
 
 // ─── Build success overlay ────────────────────────────────────────────────────
 
