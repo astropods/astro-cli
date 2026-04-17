@@ -30,7 +30,7 @@ export default function Blueprints() {
           <Button asChild size="sm">
             <Link to="/new/custom">
               <PlusIcon className="size-4" />
-              New blueprint
+              Create blueprint
             </Link>
           </Button>
         )}
