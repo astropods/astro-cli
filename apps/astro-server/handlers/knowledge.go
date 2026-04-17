@@ -936,7 +936,7 @@ func GetKnowledgeStoreMetrics(log *logger.Logger, ksStore *knowledgestore.Store,
 // parseStorageBytes converts K8s storage strings like "10Gi" to bytes.
 func parseStorageBytes(s string) *int64 {
 	s = strings.TrimSpace(s)
-	multiplier := int64(1)
+	var multiplier int64
 	if strings.HasSuffix(s, "Gi") {
 		multiplier = 1024 * 1024 * 1024
 		s = strings.TrimSuffix(s, "Gi")
