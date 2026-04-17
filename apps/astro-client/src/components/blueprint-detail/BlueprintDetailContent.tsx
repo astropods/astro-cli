@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { generateAstropodsYml } from "@/lib/astropods-yml";
 import { Link } from "react-router";
 import { FileText, BookOpen, ArrowUpRight, Slack } from "lucide-react";
 import { CommandLineIcon } from "@heroicons/react/24/outline";
@@ -81,7 +82,7 @@ export function BlueprintDetailContent({
   githubRepoName,
   visibility = "private",
 }: BlueprintDetailContentProps) {
-  const astropodsYml = `spec: package/v1\nname: ${name}\n\nmeta:\n  visibility: ${visibility}\n\nagent:\n  build:\n    context: .\n    dockerfile: Dockerfile`;
+  const astropodsYml = generateAstropodsYml(name, visibility);
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
       <BlueprintDetailHeader

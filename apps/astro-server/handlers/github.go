@@ -426,33 +426,45 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WebhookSecret:        "",
 		}
 
-		// Save connection first so rebuild can proceed even if webhook creation fails.
+		// Save the connection record before installing the webhook so we have
+		// something to clean up if webhook creation fails.
 		if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
 			log.Error("githubconnection: upsert", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save connection"})
 			return
 		}
 
-		// Install webhook (best-effort — update connection if it succeeds).
+		// Install the webhook. Without it, git pushes never trigger builds — the
+		// whole point of linking a repo — so a failure here is fatal. Roll back the
+		// connection record and surface the error so the user can retry.
 		secretBytes := make([]byte, 32)
-		if _, err := rand.Read(secretBytes); err == nil {
-			webhookSecret := hex.EncodeToString(secretBytes)
-			gh := githubclient.New(token.AccessToken)
-			webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
-			webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
-				RepoFullName: req.RepoFullName,
-				PayloadURL:   webhookPayloadURL,
-				Secret:       webhookSecret,
-			})
-			if err != nil {
-				log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", req.RepoFullName)
-			} else {
-				conn.WebhookID = webhookID
-				conn.WebhookSecret = webhookSecret
-				if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
-					log.Warn("github: webhook created but failed to persist", "error", updateErr)
-				}
-			}
+		if _, err := rand.Read(secretBytes); err != nil {
+			_ = ghStore.Delete(c.Request.Context(), acct.ID, agentName)
+			log.Error("github: generate webhook secret", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate webhook secret"})
+			return
+		}
+		webhookSecret := hex.EncodeToString(secretBytes)
+		gh := githubclient.New(token.AccessToken)
+		webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
+		webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
+			RepoFullName: req.RepoFullName,
+			PayloadURL:   webhookPayloadURL,
+			Secret:       webhookSecret,
+		})
+		if err != nil {
+			_ = ghStore.Delete(c.Request.Context(), acct.ID, agentName)
+			log.Error("github: create webhook failed", "error", err, "repo", req.RepoFullName)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to install webhook on repository"})
+			return
+		}
+
+		// Webhook installed — persist the ID and secret so incoming push events can be verified.
+		// Best-effort: the webhook is live on GitHub's side, so a persist failure is non-fatal.
+		conn.WebhookID = webhookID
+		conn.WebhookSecret = webhookSecret
+		if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
+			log.Warn("github: webhook created but failed to persist ID", "error", updateErr)
 		}
 
 		// Fetch and store AGENT.md as draft_card so the detail page can show it before the first build.

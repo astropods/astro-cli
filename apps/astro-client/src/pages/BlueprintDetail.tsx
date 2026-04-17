@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
+import { Check } from "lucide-react";
 import { useParams, Link, useNavigate } from "react-router";
 import type { BlueprintCardProps } from "@/components/BlueprintCard";
 import type { Route } from "./+types/BlueprintDetail";
@@ -51,9 +52,7 @@ function BuildSuccessOverlay({ account, name, onDismiss }: { account: string; na
         <div>
           <div className="flex items-center justify-center gap-2 mb-2">
             <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-              <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2.5 6l2.5 2.5 4.5-5" />
-              </svg>
+              <Check className="size-3" />
             </div>
             <h2 className="text-lg font-semibold">Blueprint is live</h2>
           </div>

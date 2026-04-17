@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
 import { useAuth } from "../lib/auth";
 import { useExperiments } from "@/lib/experiments";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubAccountConnections } from "@/api/queries";
@@ -26,7 +26,7 @@ import {
   CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Globe, LockKeyhole } from "lucide-react";
+import { Check, Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 
@@ -51,6 +51,46 @@ const STEPS: { id: Step; label: string; description: string }[] = [
   { id: "publishing", label: "Initializing...", description: "Creating your blueprint in the registry." },
   { id: "review", label: "Review", description: "Your blueprint is ready." },
 ];
+
+// ─── Source step reducer ──────────────────────────────────────────────────────
+
+type SourceState = {
+  sourcePath: SourcePath;
+  githubConnected: boolean;
+  selectedRepo: GitHubRepo | null;
+  selectedBranch: string;
+  scanResult: "scanning" | "found" | "not-found" | null;
+};
+
+type SourceAction =
+  | { type: "SET_SOURCE_PATH"; path: SourcePath }
+  | { type: "GITHUB_CONNECTED" }
+  | { type: "SELECT_REPO"; repo: GitHubRepo | null }
+  | { type: "SELECT_BRANCH"; branch: string }
+  | { type: "SET_SCAN_RESULT"; result: "scanning" | "found" | "not-found" | null };
+
+const initialSourceState: SourceState = {
+  sourcePath: null,
+  githubConnected: false,
+  selectedRepo: null,
+  selectedBranch: "main",
+  scanResult: null,
+};
+
+function sourceReducer(state: SourceState, action: SourceAction): SourceState {
+  switch (action.type) {
+    case "SET_SOURCE_PATH":
+      return { ...state, sourcePath: action.path, selectedRepo: null, selectedBranch: "main", scanResult: null };
+    case "GITHUB_CONNECTED":
+      return { ...state, sourcePath: "import", githubConnected: true };
+    case "SELECT_REPO":
+      return { ...state, selectedRepo: action.repo, selectedBranch: action.repo?.default_branch ?? "main", scanResult: null };
+    case "SELECT_BRANCH":
+      return { ...state, selectedBranch: action.branch };
+    case "SET_SCAN_RESULT":
+      return { ...state, scanResult: action.result };
+  }
+}
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -79,11 +119,7 @@ function NewBlueprintContent() {
   const slug = useMemo(() => slugify(name), [name]);
 
   // Source step state
-  const [sourcePath, setSourcePath] = useState<SourcePath>(null);
-  const [githubConnected, setGithubConnected] = useState(false);
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [selectedBranch, setSelectedBranch] = useState("main");
-  const [scanResult, setScanResult] = useState<"scanning" | "found" | "not-found" | null>(null);
+  const [{ sourcePath, githubConnected, selectedRepo, selectedBranch, scanResult }, dispatch] = useReducer(sourceReducer, initialSourceState);
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
@@ -110,8 +146,7 @@ function NewBlueprintContent() {
         sessionStorage.removeItem(WIZARD_STATE_KEY);
       } catch { /* ignore */ }
     }
-    setSourcePath("import");
-    setGithubConnected(true);
+    dispatch({ type: "GITHUB_CONNECTED" });
     setActiveStep("source");
     setCompletedSteps(new Set<Step>(["setup"]));
     setSearchParams({}, { replace: true });
@@ -177,8 +212,7 @@ function NewBlueprintContent() {
       if (res.connected) {
         // Token already exists via Pipes — skip OAuth, go straight to repo selection
         sessionStorage.removeItem(WIZARD_STATE_KEY);
-        setSourcePath("import");
-        setGithubConnected(true);
+        dispatch({ type: "GITHUB_CONNECTED" });
       } else if (res.redirect_url) {
         window.location.href = res.redirect_url;
       }
@@ -209,7 +243,7 @@ function NewBlueprintContent() {
 
       if (sourcePath === "import" && selectedRepo) {
         // 2. Scan first — lightweight read, no connection needed.
-        setScanResult("scanning");
+        dispatch({ type: "SET_SCAN_RESULT", result: "scanning" });
         let found = false;
         try {
           const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch, agentName: slug });
@@ -223,11 +257,11 @@ function NewBlueprintContent() {
         }).catch(() => {});
 
         if (found) {
-          setScanResult("found");
+          dispatch({ type: "SET_SCAN_RESULT", result: "found" });
           // Await so the build row exists before navigating to the detail page.
           await rebuild.mutateAsync().catch(() => {});
         } else {
-          setScanResult("not-found");
+          dispatch({ type: "SET_SCAN_RESULT", result: "not-found" });
         }
       }
 
@@ -297,7 +331,7 @@ function NewBlueprintContent() {
                           {/* Set up locally */}
                           <button
                             type="button"
-                            onClick={() => setSourcePath("fresh")}
+                            onClick={() => dispatch({ type: "SET_SOURCE_PATH", path: "fresh" })}
                             className={cn(
                               "flex w-full cursor-pointer items-start gap-4 rounded-lg border p-4 text-left transition-all",
                               sourcePath === "fresh" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
@@ -322,7 +356,7 @@ function NewBlueprintContent() {
                           )}>
                             <button
                               type="button"
-                              onClick={() => setSourcePath("import")}
+                              onClick={() => dispatch({ type: "SET_SOURCE_PATH", path: "import" })}
                               className="w-full cursor-pointer text-left p-4"
                             >
                               <div className="flex items-start gap-4">
@@ -370,8 +404,7 @@ function NewBlueprintContent() {
                                       value={selectedRepo?.full_name ?? ""}
                                       onValueChange={(value) => {
                                         const repo = accountRepos.data?.repos.find(r => r.full_name === value) ?? null;
-                                        setSelectedRepo(repo);
-                                        setSelectedBranch(repo?.default_branch || "main");
+                                        dispatch({ type: "SELECT_REPO", repo });
                                       }}
                                     >
                                       <SelectTrigger>
@@ -394,7 +427,7 @@ function NewBlueprintContent() {
                                       </SelectContent>
                                     </Select>
                                     {selectedRepo && (
-                                      <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                                      <Select value={selectedBranch} onValueChange={(branch) => dispatch({ type: "SELECT_BRANCH", branch })}>
                                         <SelectTrigger>
                                           <SelectValue />
                                         </SelectTrigger>
@@ -607,9 +640,7 @@ function NewBlueprintContent() {
                         <LiveRevealConfetti containerRef={reviewPanelRef} />
                         <div className="flex items-center gap-2">
                           <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-                            <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2.5 6l2.5 2.5 4.5-5" />
-                            </svg>
+                            <Check className="size-3" />
                           </div>
                           <span className="text-base font-semibold text-foreground">
                             {scanResult === "found"
