@@ -110,7 +110,7 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
             key={p}
             type="button"
             onClick={() => onSelect(p)}
-            className="flex w-full cursor-pointer items-center gap-4 rounded-lg border border-border bg-white px-5 py-4 text-left transition-colors hover:bg-muted/40 dark:bg-popover"
+            className="flex w-full cursor-pointer items-center gap-4 rounded-lg border border-border bg-white px-5 py-4 text-left transition-all hover:border-teal-500 hover:shadow-md dark:bg-popover dark:hover:border-teal-700"
           >
             <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
               <ProviderIcon provider={p} className="size-6" />
