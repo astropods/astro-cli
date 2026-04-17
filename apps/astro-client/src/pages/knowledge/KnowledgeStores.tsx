@@ -60,7 +60,7 @@ function KnowledgeStoresContent() {
 
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
 
-  const tableHeaders = ["NAME", "STATUS", "PROVIDER", "MODE", "STORAGE", "CREATED"];
+  const tableHeaders = ["Name", "Status", "Provider", "Mode", "Storage", "Created"];
 
   return (
     <div className="flex-1 bg-muted">
