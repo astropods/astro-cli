@@ -20,6 +20,9 @@ import { useRestartPod } from "@/api/queries/deployments";
 import type { DeployHistoryStatus, MappedContainer, DomainUrl } from "./history/types";
 import type { K8sEvent } from "@/lib/api";
 
+type TabId = "vars" | "domains" | "events";
+interface Tab { id: TabId; label: string; visible: boolean; }
+
 export interface ActiveContainerAccordionProps {
   workloadName: string;
   podName?: string;
@@ -57,7 +60,7 @@ export function ActiveContainerAccordion({
   isGloballyRestarting = false,
   onPodRestartStateChange,
 }: ActiveContainerAccordionProps) {
-  const [view, setView] = useState<"vars" | "domains" | "events">("vars");
+  const [view, setView] = useState<TabId>("vars");
   const restartMutation = useRestartPod();
   const [isLocallyRestarting, setIsLocallyRestarting] = useState(false);
   // canClear is unlocked 8s after mutation success — prevents instant clearing if pod restarts fast
@@ -68,10 +71,15 @@ export function ActiveContainerAccordion({
   const { selectedContainer, setSelectedContainer, activeContainer } = useContainerSelection(containers);
 
   const vars = activeContainer?.vars ?? [];
-  const canShowVars = selectedContainer !== "collector";
+  const canShowVars = selectedContainer !== "collector" && vars.length > 0;
   const canShowDomains = (urls ?? []).length > 0;
   const canShowEvents = events.length > 0;
   const canExpand = canShowVars || canShowDomains || canShowEvents;
+  const tabs: Tab[] = [
+    { id: "vars", label: "Variables", visible: canShowVars },
+    { id: "domains", label: "Domains", visible: canShowDomains },
+    { id: "events", label: "Events", visible: canShowEvents },
+  ];
   const totalContainers = containers.length;
   const readyContainers = containers.filter((c) => c.ready).length;
   const allReady = totalContainers > 0 && readyContainers === totalContainers;
@@ -107,11 +115,9 @@ export function ActiveContainerAccordion({
     });
   };
 
-  const effectiveView: "vars" | "domains" | "events" = (() => {
-    const available = { vars: canShowVars, domains: canShowDomains, events: canShowEvents };
-    if (available[view]) return view;
-    const fallback: Array<"vars" | "domains" | "events"> = ["vars", "domains", "events"];
-    return fallback.find((v) => available[v]) ?? "vars";
+  const effectiveView: TabId = (() => {
+    if (tabs.find((t) => t.id === view)?.visible) return view;
+    return tabs.find((t) => t.visible)?.id ?? "vars";
   })();
 
   const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
@@ -188,22 +194,20 @@ export function ActiveContainerAccordion({
       {isOpen && canExpand && (
         <div className="border border-border border-t-0 rounded-b-sm overflow-hidden">
           <div className={cn("flex items-center bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
-            {(["vars", "domains", "events"] as const).map((v) =>
-              (v === "domains" && !canShowDomains) || (v === "events" && !canShowEvents) ? null : (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={cn(
-                    "px-3.5 py-[7px] bg-transparent border-none cursor-pointer font-sans text-body capitalize border-b-2 transition-colors duration-100",
-                    effectiveView === v
-                      ? "font-medium text-foreground border-b-primary"
-                      : "font-normal text-faint-foreground border-b-transparent",
-                  )}
-                >
-                  {v === "vars" ? "Variables" : v === "domains" ? "Domains" : "Events"}
-                </button>
-              ),
-            )}
+            {tabs.filter((t) => t.visible).map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                className={cn(
+                  "px-3.5 py-[7px] bg-transparent border-none cursor-pointer font-sans text-body capitalize border-b-2 transition-colors duration-100",
+                  effectiveView === id
+                    ? "font-medium text-foreground border-b-primary"
+                    : "font-normal text-faint-foreground border-b-transparent",
+                )}
+              >
+                {label}
+              </button>
+            ))}
             {containers.length > 1 && (
               <div className={cn("ml-auto pr-2", isCompact && "pb-2")}>
                 <Select value={selectedContainer} onValueChange={setSelectedContainer}>
