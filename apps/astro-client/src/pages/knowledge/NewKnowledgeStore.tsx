@@ -411,7 +411,7 @@ function ConfigureForm({
 
     if (mode === "managed") {
       create.mutate(
-        { name, provider, storage: storage || undefined, public: isPublic || undefined },
+        { name, provider, storage: storage || undefined, public: isPublic },
         { onSuccess: onMutationSuccess, onError: () => setStep("form") },
       );
     } else {

@@ -585,10 +585,12 @@ function KnowledgeStoreDetailContent() {
                     {statusLabel(store.status)}
                   </StatusBadge>
                 </div>
-                {store.arn && (
+                {(store.public_host || store.arn) && (
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono text-mono-sm text-muted-foreground">{store.arn}</span>
-                    <CopyButton text={store.arn} />
+                    <span className="font-mono text-mono-sm text-muted-foreground">
+                      {store.public_host || store.arn}
+                    </span>
+                    <CopyButton text={store.public_host || store.arn} />
                   </div>
                 )}
               </div>
