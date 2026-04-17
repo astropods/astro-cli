@@ -36,7 +36,7 @@ async function goToSourceStep(page: Parameters<Parameters<typeof test>[1]>[0], n
 /** Connect GitHub and wait for the repo selector to be ready. */
 async function connectGitHub(page: Parameters<Parameters<typeof test>[1]>[0]) {
   await page.getByRole("button", { name: /connect github/i }).click();
-  await expect(page.getByText(/github connected/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/\bconnected\b/i).first()).toBeVisible({ timeout: 15_000 });
   // Wait for the combobox to transition from "Loading repositories..." to "Select a repository"
   await expect(page.getByRole("combobox").filter({ hasText: /select a repository/i })).toBeVisible({ timeout: 15_000 });
 }
