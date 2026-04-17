@@ -738,7 +738,7 @@ function NewKnowledgeStoreContent() {
         <div className="flex items-center gap-2 text-body-sm">
           <Link
             to={knowledgePath}
-            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeftIcon className="size-4" />
             Knowledge Stores
