@@ -22,7 +22,6 @@ import { useIsMobile } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
 import { FeedbackModal } from "@/components/FeedbackModal";
-import { useExperiments } from "@/lib/experiments";
 import { useTheme, type Theme } from "@/lib/theme";
 import {
   Tooltip,
@@ -125,7 +124,6 @@ export function AppHeader() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  const { experiments } = useExperiments();
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
 
   // Close sheet on navigation
