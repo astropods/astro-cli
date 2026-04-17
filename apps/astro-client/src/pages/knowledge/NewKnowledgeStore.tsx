@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
+import { Tag } from "@/components/Tag";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
 import { useCreateKnowledgeStore, useConnectKnowledgeStore, useKnowledgeStore } from "@/api/queries/knowledge";
@@ -109,19 +110,15 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
             key={p}
             type="button"
             onClick={() => onSelect(p)}
-            className="flex w-full items-center gap-4 rounded-lg border border-border bg-surface px-5 py-4 text-left transition-colors hover:bg-muted/40"
+            className="flex w-full items-center gap-4 rounded-lg border border-border bg-background px-5 py-4 text-left transition-colors hover:bg-muted/40"
           >
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
               <ProviderIcon provider={p} className="size-6" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-foreground">{PROVIDER_LABELS[p]}</span>
-                {MANAGED_SET.has(p) && (
-                  <span className="inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-mono-sm text-teal-700">
-                    Managed available
-                  </span>
-                )}
+                {MANAGED_SET.has(p) && <Tag color="teal">Managed available</Tag>}
               </div>
               <p className="text-body-sm text-muted-foreground">{PROVIDER_CATEGORIES[p]}</p>
             </div>
