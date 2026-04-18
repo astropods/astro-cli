@@ -5,18 +5,18 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { renderRoute } from '@/test/test-utils';
-import Discover from './blueprints/Discover';
+import Explore from './Explore';
 
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-function renderDiscover({ initialEntries = ['/blueprints/discover'] } = {}) {
+function renderDiscover({ initialEntries = ['/explore'] } = {}) {
   return renderRoute(
     [
       {
-        path: '/blueprints/discover',
+        path: '/explore',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Component: Discover as any,
+        Component: Explore as any,
       },
     ],
     { initialEntries },
