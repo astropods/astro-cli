@@ -54,7 +54,7 @@ test("full onboarding: create blueprint, initialize, navigate to detail, then de
   expect(payload.source?.name).toBe("mynewagent");
   expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-onboarding-test-key");
 
-  await page.waitForURL("**/dashboard*", { timeout: 20_000 });
+  await page.waitForURL("**/agents*", { timeout: 20_000 });
 });
 
 test("review panel: 'continue setup' button navigates to blueprint detail without waiting for auto-nav poll", async ({ page }) => {

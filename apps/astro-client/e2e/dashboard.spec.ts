@@ -8,16 +8,16 @@ test.beforeEach(async () => {
 
 test("dashboard shows deployed agents", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByText(/good (morning|afternoon|evening)/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Cross Account Agent")).toBeVisible({ timeout: 10_000 });
 });
 
 test("dashboard search filter narrows visible agents", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Slack Overlap Bot")).toBeVisible({ timeout: 10_000 });
@@ -30,7 +30,7 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
 
 test("active agent card links to monitor tab", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
 
@@ -49,9 +49,9 @@ test("deploys navigate to dashboard", async ({ page }) => {
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
 
   await Promise.all([
-    page.waitForURL("**/dashboard**", { timeout: 20_000 }),
+    page.waitForURL("**/agents**", { timeout: 20_000 }),
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page).toHaveURL(/\/agents/);
 });

@@ -48,7 +48,7 @@ test.describe("deploy page", () => {
 
     await Promise.all([
       deployRequest,
-      page.waitForURL("**/dashboard*", { timeout: 20_000 }),
+      page.waitForURL("**/agents*", { timeout: 20_000 }),
       page.getByRole("button", { name: /deploy/i }).click(),
     ]);
 
@@ -87,7 +87,7 @@ test.describe("deploy page", () => {
 
     await Promise.all([
       deployRequest,
-      page.waitForURL("**/dashboard*", { timeout: 20_000 }),
+      page.waitForURL("**/agents*", { timeout: 20_000 }),
       page.getByRole("button", { name: /deploy/i }).click(),
     ]);
 
