@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowRightIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { ArrowRightIcon, CommandLineIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
@@ -35,6 +35,12 @@ export function BlueprintsEmptyState() {
             <Link to="/new/custom">
               <PlusIcon className="size-4 text-current" />
               Create blueprint
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="https://docs.astropods.com" target="_blank" rel="noopener noreferrer">
+              <CommandLineIcon className="size-4" />
+              Start from CLI
             </Link>
           </Button>
         </div>

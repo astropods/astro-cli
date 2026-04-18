@@ -26,7 +26,7 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
+    <div className="@container w-full flex-1 overflow-y-auto bg-muted px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
       <h1 className="mb-6 text-heading-1 text-foreground">Explore community blueprints</h1>
       <BlueprintListView
         blueprints={data?.agents ?? []}

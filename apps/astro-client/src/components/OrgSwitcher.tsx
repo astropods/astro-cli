@@ -83,7 +83,7 @@ export function OrgSwitcher({
             <button
               id={selectId}
               type="button"
-              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-sm bg-accent px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700"
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700"
             >
               {activeAccountObj && (
                 <span className="inline-flex items-center gap-1.5">
