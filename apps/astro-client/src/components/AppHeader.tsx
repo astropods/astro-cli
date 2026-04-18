@@ -169,29 +169,9 @@ export function AppHeader() {
             )}
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
-            {externalNav.map((item) => (
-              <a
-                key={item.to}
-                href={item.to}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden sm:inline whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {item.label}
-              </a>
-            ))}
+          <div className="ml-auto flex items-center gap-2">
             {(isAuthenticated || isLoading) && (
-              <>
-                <button
-                  className="hidden sm:inline whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground cursor-pointer disabled:pointer-events-none disabled:opacity-50"
-                  onClick={() => setFeedbackOpen(true)}
-                  disabled={isLoading}
-                >
-                  Feedback
-                </button>
-                <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-              </>
+              <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
             )}
             <Button variant="outline" size="sm" className="gap-1.5 text-[13px] font-normal" asChild>
               <Link to={explorePath}>
@@ -257,6 +237,15 @@ export function AppHeader() {
                       </Button>
                       {experiments.theming && <ThemeSwitcher />}
                     </div>
+                    <Separator className="my-1" />
+                    <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => setFeedbackOpen(true)}>
+                      Feedback
+                    </Button>
+                    {externalNav.map((item) => (
+                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2" asChild>
+                        <a href={item.to} target="_blank" rel="noopener noreferrer">{item.label}</a>
+                      </Button>
+                    ))}
                   </>
                 ) : (
                   <>
@@ -266,6 +255,12 @@ export function AppHeader() {
                     <Button className="w-full justify-start" asChild>
                       <Link to="/signup">Sign up</Link>
                     </Button>
+                    <Separator className="my-1" />
+                    {externalNav.map((item) => (
+                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2" asChild>
+                        <a href={item.to} target="_blank" rel="noopener noreferrer">{item.label}</a>
+                      </Button>
+                    ))}
                   </>
                 )}
               </div>
@@ -282,10 +277,10 @@ export function AppHeader() {
               external={item.external}
               className={({ isActive }) =>
                 cn(
-                  "flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] transition-colors",
+                  "flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-[11px] text-heading-4 transition-colors",
                   !item.external && isActive
-                    ? "border-foreground font-medium text-foreground"
-                    : "border-transparent font-normal text-muted-foreground hover:text-foreground",
+                    ? "border-[var(--color-teal-600)] font-medium text-foreground"
+                    : "border-transparent font-normal text-faint-foreground hover:text-foreground",
                 )
               }
             >
