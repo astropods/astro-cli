@@ -13,7 +13,7 @@ export function DashboardAgentsEmptyState() {
       <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
         To deploy an agent you'll need a blueprint, a spec that defines what your agent does.
       </p>
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-3">
         <Button asChild>
           <Link to="/getting-started">
             <PlusIcon className="size-4" />
