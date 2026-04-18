@@ -6,9 +6,9 @@ import { explorePath } from "@/lib/routes";
 export function DashboardAgentsEmptyState() {
   return (
     <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-      <p className="text-base font-semibold text-foreground mb-2">No agents deployed yet</p>
-      <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-        To deploy an agent you'll need a blueprint, a spec that defines what your agent does. Create your own or explore ones built by the community.
+      <p className="text-heading-3 text-foreground mb-2">No agents deployed yet</p>
+      <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
+        To deploy an agent you'll need a blueprint, a spec that defines what your agent does.
       </p>
       <div className="flex items-center justify-center gap-3">
         <Button asChild>
