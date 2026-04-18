@@ -42,7 +42,7 @@ export function BlueprintsEmptyState() {
 
       <div>
         <div className="mb-3 flex items-center justify-between gap-4">
-          <h2 className="text-heading-3 text-foreground">Start from a community blueprint</h2>
+          <h2 className="text-heading-3 text-foreground">Explore community blueprints</h2>
           <Button variant="ghost" size="sm" asChild>
             <Link to={explorePath} className="gap-1">
               Browse all
