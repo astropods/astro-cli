@@ -20,8 +20,9 @@ export default function Blueprints() {
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-muted px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
-      <div className="mb-6 flex items-start justify-between">
+    <div className="flex-1 bg-muted">
+    <div className="@container w-full px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-heading-1 text-foreground">Blueprints</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">Agent configurations available to deploy in your account.</p>
@@ -44,6 +45,7 @@ export default function Blueprints() {
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
       />
+    </div>
     </div>
   );
 }
