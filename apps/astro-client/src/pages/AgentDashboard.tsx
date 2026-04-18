@@ -11,7 +11,6 @@ import { useActiveAccount } from "@/hooks/use-active-account";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 import type { AgentDeployment } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
@@ -30,7 +29,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 
 function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
-  const { accounts, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { activeAccount: userAccount } = useActiveAccount();
   const location = useLocation();
   const navigate = useNavigate();
@@ -48,7 +47,6 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
     enabled: isAuthenticated,
   });
 
-  const blueprintCount = accountBlueprints?.agents.length ?? 0;
   const deployments = data?.deployments ?? [];
   const blueprintAgents = accountBlueprints?.agents ?? [];
 
