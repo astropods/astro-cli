@@ -15,7 +15,8 @@ function renderDiscover({ initialEntries = ['/blueprints/discover'] } = {}) {
     [
       {
         path: '/blueprints/discover',
-        Component: Discover,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Component: Discover as any,
       },
     ],
     { initialEntries },
