@@ -108,7 +108,7 @@ describe('Blueprints – Discover page', () => {
       renderDiscover();
       await waitForAgents();
 
-      expect(screen.getByRole('heading', { level: 1, name: 'Discover blueprints' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Explore community blueprints' })).toBeInTheDocument();
     });
   });
 

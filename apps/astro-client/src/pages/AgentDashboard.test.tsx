@@ -93,7 +93,7 @@ describe('AgentDashboard page', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Deploy your first agent')).toBeInTheDocument();
+      expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
     });
   });
 
