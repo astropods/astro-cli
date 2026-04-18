@@ -331,6 +331,50 @@ func TestSearchAccounts_DBError(t *testing.T) {
 
 // --- CreateAccount handler tests ---
 
+func TestCreateAccount_OrgRequiresDisplayName(t *testing.T) {
+	tests := []struct {
+		name        string
+		displayName string
+	}{
+		{"missing", ""},
+		{"whitespace only", "   "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			db, _, _ := sqlmock.New()
+			store := account.NewAccountStore(db)
+			log := logger.New("error", "json")
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+				c.Next()
+			})
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, "", nil))
+
+			body := fmt.Sprintf(`{"name":"valid-org","type":"organization","display_name":%q}`, tt.displayName)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for display_name=%q, got %d: %s", tt.displayName, rec.Code, rec.Body.String())
+			}
+
+			var resp map[string]interface{}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to unmarshal: %v", err)
+			}
+			if resp["details"] != "display name is required for organization accounts" {
+				t.Errorf("unexpected details: %v", resp["details"])
+			}
+		})
+	}
+}
+
 func TestCreateAccount_InvalidName(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -358,7 +402,9 @@ func TestCreateAccount_InvalidName(t *testing.T) {
 			})
 			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, "", nil))
 
-			body := fmt.Sprintf(`{"name":%q,"type":"organization"}`, tt.orgName)
+			// Include a valid display_name so the org-display-name check doesn't
+			// fire before we reach name validation.
+			body := fmt.Sprintf(`{"name":%q,"type":"organization","display_name":"My Org"}`, tt.orgName)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
