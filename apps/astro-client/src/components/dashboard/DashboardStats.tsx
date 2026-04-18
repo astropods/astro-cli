@@ -21,7 +21,7 @@ export function DashboardStats({
   const totalTokens = (allTimeSummary?.input_tokens ?? 0) + (allTimeSummary?.output_tokens ?? 0);
 
   return (
-    <div className="mb-9 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+    <div className="mb-9 grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
       <MetricCard
         label="TOTAL TOKENS"
         value={totalTokens.toLocaleString()}

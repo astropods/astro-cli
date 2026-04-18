@@ -119,7 +119,7 @@ export function DeployedAgentsSection({
         <div className="mb-4">
           <DashboardToolbar {...toolbarProps} disabled />
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
           {Array.from({ length: skeletonCount }).map((_, i) => (
             <AgentCardSkeleton key={i} />
           ))}
@@ -146,7 +146,7 @@ export function DeployedAgentsSection({
         </div>
       )}
       {filtered.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
           {filtered.map((deployment) => {
             if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
               return <AgentCardSkeleton key={deployment.id} />;
