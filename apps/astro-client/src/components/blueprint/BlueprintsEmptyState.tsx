@@ -27,7 +27,7 @@ export function BlueprintsEmptyState() {
           <AgentMascots size={36} />
         </div>
         <h2 className="mb-2 text-heading-2 text-foreground">No blueprints yet</h2>
-        <p className="mb-6 max-w-sm text-body-sm text-muted-foreground">
+        <p className="mb-6 max-w-sm text-sm text-muted-foreground">
           Blueprints define what your agent does. Create your own or start from a community blueprint.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -45,7 +45,7 @@ export function BlueprintsEmptyState() {
           <h2 className="text-heading-3 text-foreground">Explore community blueprints</h2>
           <Button variant="ghost" size="sm" asChild>
             <Link to={explorePath} className="gap-1">
-              Browse all
+              View all
               <ArrowRightIcon className="size-3.5" />
             </Link>
           </Button>
