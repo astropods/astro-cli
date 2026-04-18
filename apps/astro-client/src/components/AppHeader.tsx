@@ -6,7 +6,7 @@ import {
   ArrowRightStartOnRectangleIcon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
-  ChatBubbleLeftEllipsisIcon,
+  GlobeAltIcon,
   SunIcon,
   MoonIcon,
   ComputerDesktopIcon,
@@ -16,9 +16,8 @@ import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
 import { useExperiments } from "@/lib/experiments";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
-import { useIsMobile } from "@/hooks/use-compact-layout";
+import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
-import { UserCard } from "@/components/UserCard";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useActiveAccount } from "@/hooks/use-active-account";
@@ -123,7 +122,7 @@ export function AppHeader() {
   const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
   const { experiments } = useExperiments();
   const location = useLocation();
-  const isMobile = useIsMobile();
+  const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const { activeAccount, defaultAccount, setActiveAccount, toggleDefault } = useActiveAccount();
@@ -143,79 +142,163 @@ export function AppHeader() {
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
   const knowledgeNav: NavItem[] = experiments.knowledgeStore ? [{ label: "Stores", to: "/knowledge" }] : [];
-  const exploreNav: NavItem[] = [{ label: "Explore", to: explorePath }];
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [...publicNav, { label: "Agents", to: dashboardPath }, ...knowledgeNav, ...exploreNav]
-    : [...publicNav, ...exploreNav];
+    ? [...publicNav, { label: "Agents", to: dashboardPath }, ...knowledgeNav]
+    : [...publicNav];
 
   if (isMobile) {
     return (
-      <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
-        <div className="flex items-center gap-2.5">
-          <Link to="/" className="flex shrink-0 items-center">
-            <Logo />
-          </Link>
-          {isAuthenticated && (
-            <>
-              <div className="h-4 w-px bg-border" />
-              <OrgSwitcher
-                compact
-                activeAccount={activeAccount}
-                defaultAccount={defaultAccount}
-                onChange={setActiveAccount}
-                onSetDefault={toggleDefault}
-              />
-            </>
-          )}
+      <header className="border-b border-border bg-surface">
+        {/* Row 1: logo + scope switcher | external links + feedback | hamburger */}
+        <div className="flex h-14 items-center gap-2 px-4">
+          <div className="flex shrink-0 items-center gap-2.5">
+            <Link to="/" className="flex shrink-0 items-center">
+              <Logo />
+            </Link>
+            {isAuthenticated && (
+              <>
+                <div className="h-4 w-px bg-border" />
+                <OrgSwitcher
+                  compact
+                  activeAccount={activeAccount}
+                  defaultAccount={defaultAccount}
+                  onChange={setActiveAccount}
+                  onSetDefault={toggleDefault}
+                />
+              </>
+            )}
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            {externalNav.map((item) => (
+              <a
+                key={item.to}
+                href={item.to}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden sm:inline whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {item.label}
+              </a>
+            ))}
+            {(isAuthenticated || isLoading) && (
+              <>
+                <button
+                  className="hidden sm:inline whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground cursor-pointer disabled:pointer-events-none disabled:opacity-50"
+                  onClick={() => setFeedbackOpen(true)}
+                  disabled={isLoading}
+                >
+                  Feedback
+                </button>
+                <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+              </>
+            )}
+            <Button variant="outline" size="sm" className="gap-1.5 text-[13px] font-normal" asChild>
+              <Link to={explorePath}>
+                <GlobeAltIcon className="size-4" />
+                Explore
+              </Link>
+            </Button>
+          </div>
+
+          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Bars3Icon className="size-5" />
+                <span className="sr-only">Open menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right">
+              <SheetHeader>
+                <SheetTitle>Menu</SheetTitle>
+              </SheetHeader>
+              <div className="flex flex-col gap-1 px-4">
+                {isLoading ? (
+                  <Skeleton className="h-12 w-full" />
+                ) : isAuthenticated && user ? (
+                  <>
+                    <div className="flex items-center gap-3 py-2">
+                      <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
+                      <div className="flex min-w-0 flex-col leading-tight">
+                        <span className="truncate text-sm font-semibold">{displayName}</span>
+                        <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                      </div>
+                    </div>
+                    <Separator className="my-1" />
+                    {personalAccount && (
+                      <>
+                        <Button variant="ghost" className="w-full justify-start gap-2" asChild>
+                          <Link to={`/${personalAccount.name}`}>
+                            <UserCircleIcon className="size-4" />
+                            Profile
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" className="w-full justify-start gap-2" asChild>
+                          <Link to="/settings">
+                            <Cog6ToothIcon className="size-4" />
+                            Settings
+                          </Link>
+                        </Button>
+                        <Separator className="my-1" />
+                      </>
+                    )}
+                    {hasPermission('admin:view') && (
+                      <Button variant="ghost" className="w-full justify-start gap-2" asChild>
+                        <Link to="/admin">
+                          <WrenchScrewdriverIcon className="size-4" />
+                          Admin
+                        </Link>
+                      </Button>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <Button variant="ghost" className="justify-start gap-2" onClick={logout}>
+                        <ArrowRightStartOnRectangleIcon className="size-4" />
+                        Sign out
+                      </Button>
+                      {experiments.theming && <ThemeSwitcher />}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="ghost" className="w-full justify-start" asChild>
+                      <Link to="/login">Log in</Link>
+                    </Button>
+                    <Button className="w-full justify-start" asChild>
+                      <Link to="/signup">Sign up</Link>
+                    </Button>
+                  </>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
 
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Bars3Icon className="size-5" />
-              <span className="sr-only">Open menu</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="right">
-            <SheetHeader>
-              <SheetTitle>Menu</SheetTitle>
-            </SheetHeader>
-            <nav className="flex flex-col gap-1 px-4">
-              {[...navItems, ...externalNav].map((item) => (
-                <ExternalOrNavLink key={item.to} to={item.to} external={item.external}>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start font-normal"
-                  >
-                    {item.label}
-                  </Button>
-                </ExternalOrNavLink>
-              ))}
-              <Separator className="my-2" />
-              {isLoading ? (
-                <Skeleton className="h-12 w-full" />
-              ) : isAuthenticated && user ? (
-                <UserCard user={user} displayName={displayName} handle={personalAccount?.name} onSignOut={logout} />
-              ) : (
-                <>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start"
-                    asChild
-                  >
-                    <Link to="/login">Log in</Link>
-                  </Button>
-                  <Button
-                    className="w-full justify-start"
-                    asChild
-                  >
-                    <Link to="/signup">Sign up</Link>
-                  </Button>
-                </>
+        {/* Row 2: nav tabs */}
+        <nav className="flex items-center overflow-x-auto px-4 scrollbar-none">
+          {navItems.map((item) => (
+            <ExternalOrNavLink
+              key={item.to}
+              to={item.to}
+              external={item.external}
+              className={({ isActive }) =>
+                cn(
+                  "flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] transition-colors",
+                  !item.external && isActive
+                    ? "border-foreground font-medium text-foreground"
+                    : "border-transparent font-normal text-muted-foreground hover:text-foreground",
+                )
+              }
+            >
+              {item.label}
+              {item.to === dashboardPath && !!agentCount && (
+                <Tag className="ml-1.5 size-5 px-0">{agentCount}</Tag>
               )}
-            </nav>
-          </SheetContent>
-        </Sheet>
+              {item.to === "/blueprints" && !!blueprintCount && (
+                <Tag className="ml-1.5 size-5 px-0">{blueprintCount}</Tag>
+              )}
+            </ExternalOrNavLink>
+          ))}
+        </nav>
       </header>
     );
   }
@@ -281,31 +364,26 @@ export function AppHeader() {
           </ExternalOrNavLink>
         ))}
 
-        {/* <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search"
-            className="h-8 w-[168px] rounded-sm border-stone-300 pl-8 text-[13px] dark:border-input"
-          />
-        </div> */}
-
-        <div className="flex items-center gap-1">
         {(isAuthenticated || isLoading) && (
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 mr-2 text-[13px] font-normal"
+            <button
+              className="whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground cursor-pointer disabled:pointer-events-none disabled:opacity-50"
               onClick={() => setFeedbackOpen(true)}
               disabled={isLoading}
             >
-              <ChatBubbleLeftEllipsisIcon className="size-4" />
               Feedback
-            </Button>
+            </button>
             <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           </>
         )}
+
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" asChild className="gap-1.5 mr-2 text-[13px] font-normal">
+            <Link to={explorePath}>
+              <GlobeAltIcon className="size-4" />
+              Explore
+            </Link>
+          </Button>
         {isLoading ? (
           <Skeleton className="size-8 rounded-full" />
         ) : isAuthenticated && user ? (
