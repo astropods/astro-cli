@@ -1,4 +1,5 @@
 export const dashboardPath = "/agents";
+export const explorePath = "/explore";
 
 export const blueprintsPaths = {
   discover: "/blueprints/discover",
