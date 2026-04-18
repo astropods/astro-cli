@@ -38,7 +38,7 @@ export function BlueprintsEmptyState() {
             </Link>
           </Button>
           <Button variant="outline" asChild>
-            <Link to="https://docs.astropods.com" target="_blank" rel="noopener noreferrer">
+            <Link to="https://docs.astropods.com/install-cli" target="_blank" rel="noopener noreferrer">
               <CommandLineIcon className="size-4" />
               Start from CLI
             </Link>
