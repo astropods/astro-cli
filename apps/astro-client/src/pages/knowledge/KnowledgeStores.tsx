@@ -109,8 +109,8 @@ function KnowledgeStoresContent() {
             <div className="flex justify-center mb-3 text-muted-foreground">
               <CircleStackIcon className="size-6" />
             </div>
-            <p className="text-sm font-medium text-foreground">No knowledge stores yet</p>
-            <p className="text-xs text-muted-foreground mt-1 mb-4">
+            <p className="text-heading-3 text-foreground mb-1.5">No knowledge stores yet</p>
+            <p className="text-body text-muted-foreground mb-4">
               Create a store to give your agents a database for memory, vector search, or caching.
             </p>
             <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
