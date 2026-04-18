@@ -8,7 +8,7 @@ export function DashboardAgentsEmptyState() {
     <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
       <p className="text-heading-2 text-foreground mb-2">No agents deployed yet</p>
       <p className="text-body-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-        Blueprints define your agent. Browse the community or build your own.
+        To deploy an agent you'll need a blueprint, a spec that defines what your agent does. Create your own or explore ones built by the community.
       </p>
       <div className="flex items-center justify-center gap-3">
         <Button asChild>
