@@ -83,7 +83,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
 
   return (
     <div
-      className="flex-1 bg-muted dark:bg-background"
+      className="flex-1 bg-muted"
       style={
         isAgentsEmpty
           ? {

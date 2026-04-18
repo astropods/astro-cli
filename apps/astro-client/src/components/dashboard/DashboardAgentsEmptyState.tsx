@@ -5,7 +5,7 @@ import { explorePath } from "@/lib/routes";
 
 export function DashboardAgentsEmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+    <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
       <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-muted">
         <RocketLaunchIcon className="size-6 text-muted-foreground" />
       </div>
