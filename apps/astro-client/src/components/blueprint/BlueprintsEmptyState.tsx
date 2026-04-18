@@ -26,7 +26,7 @@ export function BlueprintsEmptyState() {
         <div className="mb-4">
           <AgentMascots size={36} />
         </div>
-        <h2 className="mb-2 text-heading-2 text-foreground">No blueprints yet</h2>
+        <h2 className="mb-2 text-base font-semibold text-foreground">No blueprints yet</h2>
         <p className="mb-6 max-w-sm text-sm text-muted-foreground">
           Blueprints define what your agent does. Create your own or start from a community blueprint.
         </p>
