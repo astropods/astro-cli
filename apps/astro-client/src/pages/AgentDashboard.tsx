@@ -83,7 +83,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
 
   return (
     <div
-      className="flex-1 bg-muted"
+      className="@container flex-1 bg-muted"
       style={
         isAgentsEmpty
           ? {
@@ -93,7 +93,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           : undefined
       }
     >
-      <div className="@container px-6 py-6">
+      <div className="px-6 py-6">
         <div className="mb-6">
           <h1 className="text-heading-1 text-foreground">Agents</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">Deployed agents running in your account.</p>

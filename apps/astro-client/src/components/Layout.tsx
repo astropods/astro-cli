@@ -60,7 +60,7 @@ export default function Layout() {
 
   return (
     <ActiveAccountProvider>
-      <div className="flex min-h-dvh flex-col">
+      <div className="flex min-h-dvh flex-col bg-muted">
         <AppHeader />
         {displayError && (
           <div
