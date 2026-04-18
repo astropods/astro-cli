@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -29,13 +29,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const orgAuth = {
-  ...mockAuthContext,
-  accounts: [
-    { id: 'org-1', name: 'my-org', type: 'organization' as const },
-    { id: 'acct-1', name: 'testuser', type: 'personal' as const },
-  ],
-};
 
 function renderDashboard(path = '/agents', auth = mockAuthContext) {
   return renderRoute(
@@ -52,10 +45,10 @@ function renderDashboard(path = '/agents', auth = mockAuthContext) {
 }
 
 describe('AgentDashboard page', () => {
-  it('renders the dashboard heading', async () => {
+  it('renders the Agents heading', async () => {
     renderDashboard();
     await waitFor(() => {
-      expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument();
     });
   });
 
@@ -89,25 +82,6 @@ describe('AgentDashboard page', () => {
     });
   });
 
-  it('shows agent count in stats area', async () => {
-    server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
-          deployments: [
-            { id: 'dep-1', name: 'alpha', display_name: 'Alpha', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
-            { id: 'dep-2', name: 'beta', display_name: 'Beta', build_id: 'b2', namespace: 'ns-2', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-02T00:00:00Z', components: [] },
-          ],
-          count: 2,
-        }),
-      ),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('2 agents')).toBeInTheDocument();
-    });
-  });
 
   it('shows empty state when no agents are deployed', async () => {
     server.use(
@@ -123,25 +97,6 @@ describe('AgentDashboard page', () => {
     });
   });
 
-  it('shows blueprint count in stats area', async () => {
-    server.use(
-      http.get('/api/v1/agents/:account', () =>
-        HttpResponse.json({
-          agents: [
-            { name: 'agent-1', account: 'testuser', registry: 'r', versions: [] },
-            { name: 'agent-2', account: 'testuser', registry: 'r', versions: [] },
-          ],
-          count: 2,
-        }),
-      ),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('2 blueprints')).toBeInTheDocument();
-    });
-  });
 
   it('filters agents by search text', async () => {
     server.use(
@@ -197,97 +152,12 @@ describe('AgentDashboard page', () => {
 describe('dashboard actions', () => {
   it('does not show browse blueprints or settings actions', async () => {
     renderDashboard('/agents');
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument());
     expect(screen.queryByRole('link', { name: /browse blueprints/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
   });
 });
 
-describe('org switcher', () => {
-  it('renders the active account name', async () => {
-    renderDashboard('/agents');
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.getByText('testuser')).toBeInTheDocument();
-  });
-
-  it('shows active account in the switcher trigger', async () => {
-    renderDashboard('/dashboard?account=my-org', orgAuth);
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.getByText('my-org')).toBeInTheDocument();
-  });
-
-  it('shows member count label for org accounts', async () => {
-    server.use(
-      http.get('/api/v1/accounts/:account/members', () =>
-        HttpResponse.json({
-          members: [
-            { id: 'u1', email: 'a@a.com', role: 'member' },
-            { id: 'u2', email: 'b@b.com', role: 'admin' },
-          ],
-        }),
-      ),
-    );
-
-    renderDashboard('/dashboard?account=my-org', orgAuth);
-
-    await waitFor(() => {
-      expect(screen.getByText('2 members')).toBeInTheDocument();
-    });
-  });
-
-  it('hides member count label for personal accounts', async () => {
-    renderDashboard('/agents');
-    await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-    expect(screen.queryByText(/\d+ members?/)).not.toBeInTheDocument();
-  });
-
-  describe('account switching', () => {
-    const store = new Map<string, string>();
-    const localStorageMock = {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
-    };
-
-    beforeAll(() => vi.stubGlobal('localStorage', localStorageMock));
-    afterAll(() => vi.unstubAllGlobals());
-    beforeEach(() => store.clear());
-    afterEach(() => store.clear());
-
-    it('switches from personal to org account', async () => {
-      const user = userEvent.setup();
-      renderDashboard('/agents', orgAuth);
-
-      await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-      // my-org not visible while trigger shows testuser and dropdown is closed
-      expect(screen.queryByText('my-org')).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole('button', { name: /view/i }));
-      await user.click(await screen.findByText('my-org'));
-
-      await waitFor(() => expect(screen.getByText('my-org')).toBeInTheDocument());
-    });
-
-    it('switches to personal account when clicked even when another account is starred', async () => {
-      const user = userEvent.setup();
-      localStorage.setItem('astro:default-account', 'my-org');
-
-      renderDashboard('/agents', orgAuth);
-
-      await waitFor(() => expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument());
-      // Starred org shown in trigger; personal not yet visible there
-      expect(screen.getByText('my-org')).toBeInTheDocument();
-
-      await user.click(screen.getByRole('button', { name: /view/i }));
-      const items = await screen.findAllByRole('menuitem');
-      await user.click(items.find((item) => item.textContent?.includes('testuser'))!);
-
-      // my-org must no longer appear — trigger switched to personal account
-      await waitFor(() => expect(screen.queryByText('my-org')).not.toBeInTheDocument());
-    });
-  });
-});
 
 
 describe('stats', () => {
@@ -385,7 +255,7 @@ describe('reveal overlay after deploy', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/good (morning|afternoon|evening)/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument();
     });
     expect(screen.queryByTestId('live-reveal-overlay')).not.toBeInTheDocument();
   });

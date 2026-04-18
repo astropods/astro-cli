@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { createRoutesStub } from 'react-router';
 import { AuthContext, type AuthContextType } from '@/lib/auth-context';
+import { ActiveAccountProvider } from '@/hooks/use-active-account';
 
 // Fresh QueryClient per test — no retries, no gc delay, instant stale
 function createTestQueryClient() {
@@ -104,7 +105,9 @@ export function renderRoute(
   if (auth !== null) {
     tree = (
       <AuthContext.Provider value={auth ?? mockAuthContext}>
-        {tree}
+        <ActiveAccountProvider>
+          {tree}
+        </ActiveAccountProvider>
       </AuthContext.Provider>
     );
   }

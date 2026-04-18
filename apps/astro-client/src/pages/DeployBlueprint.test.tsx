@@ -411,7 +411,7 @@ describe('DeployBlueprint page', () => {
   // ── Deployment Submission ─────────────────────────────────────────
 
   describe('deployment submission', () => {
-    it('navigates to /dashboard on successful deploy', async () => {
+    it('navigates to /agents on successful deploy', async () => {
       const user = userEvent.setup();
       renderInstallWithAgentsRoute();
       await waitForForm();
