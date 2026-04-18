@@ -151,9 +151,23 @@ export function AppHeader() {
   if (isMobile) {
     return (
       <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
-        <Link to="/">
-          <Logo />
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <Link to="/" className="flex shrink-0 items-center">
+            <Logo />
+          </Link>
+          {isAuthenticated && (
+            <>
+              <div className="h-4 w-px bg-border" />
+              <OrgSwitcher
+                compact
+                activeAccount={activeAccount}
+                defaultAccount={defaultAccount}
+                onChange={setActiveAccount}
+                onSetDefault={toggleDefault}
+              />
+            </>
+          )}
+        </div>
 
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetTrigger asChild>
