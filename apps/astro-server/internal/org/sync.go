@@ -237,6 +237,22 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 	})
 }
 
+// GetMembershipRoles returns a map of WorkOS organization ID → role slug for all
+// active memberships of the given user. Returns nil on error (non-fatal for callers).
+func (s *Sync) GetMembershipRoles(ctx context.Context, userID string) map[string]string {
+	memberships, err := s.client.ListMembershipsForUser(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	roles := make(map[string]string, len(memberships))
+	for _, m := range memberships {
+		if m.Status == "active" && m.RoleSlug != "" {
+			roles[m.OrganizationID] = m.RoleSlug
+		}
+	}
+	return roles
+}
+
 // SyncMembershipsForUser reconciles local account_members with WorkOS memberships
 // for a specific user. Called on login as a fallback sync mechanism.
 func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error {

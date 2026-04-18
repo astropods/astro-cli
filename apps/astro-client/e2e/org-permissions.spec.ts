@@ -116,3 +116,35 @@ test.describe("member permissions", () => {
     await expect(leaveBtn).toBeEnabled();
   });
 });
+
+// --- Organizations list role badge tests (/settings/organizations) ---
+
+test.describe("organizations list role badges", () => {
+  test("shows Admin badge next to org name when role is admin", async ({ page }) => {
+    test.setTimeout(30_000);
+    await setRole("admin");
+    await page.goto("/settings/organizations", { waitUntil: "domcontentloaded" });
+
+    const orgCard = page.locator("a, div").filter({ hasText: "Test Org" }).first();
+    await expect(orgCard).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Admin")).toBeVisible();
+  });
+
+  test("shows Member badge next to org name when role is member", async ({ page }) => {
+    test.setTimeout(30_000);
+    await setRole("member");
+    await page.goto("/settings/organizations", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByText("Test Org")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Member")).toBeVisible();
+  });
+
+  test("shows Owner badge next to org name when role is owner", async ({ page }) => {
+    test.setTimeout(30_000);
+    await setRole("owner");
+    await page.goto("/settings/organizations", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByText("Test Org")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Owner")).toBeVisible();
+  });
+});

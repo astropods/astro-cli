@@ -454,7 +454,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 			Role:         sessionData.Session.Role,
 			Permissions:  permissions,
 			ExpiresAt:    sessionData.Session.ExpiresAt.Format(time.RFC3339),
-			Accounts:     h.fetchAccounts(sessionData.User.ID),
+			Accounts:     h.fetchAccounts(c.Request.Context(), sessionData.User.ID),
 		})
 	}
 }
@@ -504,7 +504,7 @@ func (h *AuthHandler) Refresh() gin.HandlerFunc {
 			Role:         refreshed.Session.Role,
 			Permissions:  refreshedPermissions,
 			ExpiresAt:    refreshed.Session.ExpiresAt.Format(time.RFC3339),
-			Accounts:     h.fetchAccounts(refreshed.User.ID),
+			Accounts:     h.fetchAccounts(c.Request.Context(), refreshed.User.ID),
 		})
 	}
 }
@@ -615,26 +615,39 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 			Role:         newSessionData.Session.Role,
 			Permissions:  permissions,
 			ExpiresAt:    newSessionData.Session.ExpiresAt.Format(time.RFC3339),
-			Accounts:     h.fetchAccounts(newSessionData.User.ID),
+			Accounts:     h.fetchAccounts(c.Request.Context(), newSessionData.User.ID),
 		})
 	}
 }
 
-// fetchAccounts returns the accounts for a user, always returning a non-nil slice
-func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
+// fetchAccounts returns the accounts for a user, always returning a non-nil slice.
+// For organization accounts it includes the user's role, fetched from WorkOS.
+func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.AuthAccountResponse {
 	accounts := make([]auth.AuthAccountResponse, 0)
+
+	// Fetch per-org roles from WorkOS so each org card can show the correct badge.
+	var orgRoles map[string]string
+	if h.orgSync != nil {
+		orgRoles = h.orgSync.GetMembershipRoles(ctx, userID)
+	}
+
 	if h.accountStore != nil {
 		userAccounts, err := h.accountStore.GetAccountsForUser(userID)
 		if err != nil {
 			h.log.Warn("Failed to fetch accounts for user", "error", err, "user_id", userID)
 		} else {
 			for _, a := range userAccounts {
+				role := ""
+				if orgRoles != nil && a.WorkOSOrganizationID != "" {
+					role = orgRoles[a.WorkOSOrganizationID]
+				}
 				accounts = append(accounts, auth.AuthAccountResponse{
 					ID:                   a.ID,
 					Name:                 a.Name,
 					Type:                 a.Type,
 					DisplayName:          a.DisplayName,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
+					Role:                 role,
 				})
 			}
 		}

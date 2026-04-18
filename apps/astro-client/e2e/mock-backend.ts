@@ -50,7 +50,7 @@ const makeAuthResponse = () => ({
   expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   accounts: [
     { id: "acct-1", name: ACCOUNT, type: "personal" },
-    { id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID },
+    { id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID, role: currentOrgRole },
   ],
 });
 

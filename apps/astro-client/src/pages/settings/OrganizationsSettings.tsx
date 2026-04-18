@@ -3,11 +3,17 @@ import { Settings } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { Tag } from '@/components/Tag'
+import { Tag, type TagColor } from '@/components/Tag'
 import { UserAvatar } from '@/components/UserAvatar'
 import { useAuth } from '@/lib/auth'
 
 export const meta: MetaFunction = () => [{ title: "Organizations - Settings | Astro" }];
+
+const ORG_ROLE_TAG: Record<string, { label: string; color: TagColor }> = {
+  owner:  { label: 'Owner',  color: 'yellow'  },
+  admin:  { label: 'Admin',  color: 'blue'    },
+  member: { label: 'Member', color: 'default' },
+}
 
 export default function OrganizationsSettings() {
   const { accounts } = useAuth()
@@ -38,7 +44,9 @@ export default function OrganizationsSettings() {
         <p className="text-[13px] text-muted-foreground py-4">You're not a member of any organizations yet.</p>
       ) : (
         <div className="space-y-2">
-          {orgs.map(org => (
+          {orgs.map(org => {
+            const roleTag = org.role ? ORG_ROLE_TAG[org.role.toLowerCase()] : null
+            return (
             <div
               key={org.name}
               className="flex items-center gap-4 px-5 py-4 rounded-lg border border-border"
@@ -50,14 +58,12 @@ export default function OrganizationsSettings() {
               />
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2.5">
-                  <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
-                  {org.role && (
-                    <Tag color={org.role === 'admin' ? 'blue' : 'default'}>
-                      {org.role === 'admin' ? 'Admin' : 'Member'}
-                    </Tag>
-                  )}
-                </div>
+                <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
+                {roleTag && (
+                  <div className="mt-1">
+                    <Tag color={roleTag.color}>{roleTag.label}</Tag>
+                  </div>
+                )}
               </div>
 
               <Button variant="outline" size="sm" asChild>
@@ -67,7 +73,8 @@ export default function OrganizationsSettings() {
                 </Link>
               </Button>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
