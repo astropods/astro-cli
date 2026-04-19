@@ -707,7 +707,7 @@ func TestRegisterAgent_UsesAccountFromRegistryPath(t *testing.T) {
 	}
 }
 
-func TestRegisterAgent_DefaultsToPrivateWhenVisibilityUnset(t *testing.T) {
+func TestRegisterAgent_SendsPrivateVisibility(t *testing.T) {
 	var receivedBody map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody) //nolint:errcheck
@@ -719,7 +719,6 @@ func TestRegisterAgent_DefaultsToPrivateWhenVisibilityUnset(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	// No meta.visibility set
 	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -734,7 +733,7 @@ func TestRegisterAgent_DefaultsToPrivateWhenVisibilityUnset(t *testing.T) {
 	}
 }
 
-func TestRegisterAgent_UsesPublicVisibilityFromSpec(t *testing.T) {
+func TestRegisterAgent_SendsPublicVisibility(t *testing.T) {
 	var receivedBody map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody) //nolint:errcheck
@@ -746,8 +745,7 @@ func TestRegisterAgent_UsesPublicVisibilityFromSpec(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	// meta.visibility: public
-	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nmeta:\n  visibility: public\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -758,6 +756,149 @@ func TestRegisterAgent_UsesPublicVisibilityFromSpec(t *testing.T) {
 
 	if receivedBody["visibility"] != "public" {
 		t.Errorf("expected visibility 'public', got %q", receivedBody["visibility"])
+	}
+}
+
+func TestGetAgentFromServer_ReturnsVisibility(t *testing.T) {
+	tests := []struct {
+		name               string
+		responseBody       map[string]any
+		statusCode         int
+		expectedExists     bool
+		expectedVisibility string
+	}{
+		{
+			name:               "public agent",
+			statusCode:         http.StatusOK,
+			responseBody:       map[string]any{"visibility": "public"},
+			expectedExists:     true,
+			expectedVisibility: "public",
+		},
+		{
+			name:               "private agent",
+			statusCode:         http.StatusOK,
+			responseBody:       map[string]any{"visibility": "private"},
+			expectedExists:     true,
+			expectedVisibility: "private",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				if tt.responseBody != nil {
+					json.NewEncoder(w).Encode(tt.responseBody) //nolint:errcheck
+				}
+			}))
+			defer srv.Close()
+
+			info := getAgentFromServer(srv.URL, "testaccount", "test-agent", true, "")
+
+			if info.Exists != tt.expectedExists {
+				t.Errorf("Exists = %v, want %v", info.Exists, tt.expectedExists)
+			}
+			if info.Visibility != tt.expectedVisibility {
+				t.Errorf("Visibility = %q, want %q", info.Visibility, tt.expectedVisibility)
+			}
+		})
+	}
+}
+
+func TestVisibilityNeedsConfirm(t *testing.T) {
+	tests := []struct {
+		name          string
+		pushPublic    bool
+		pushPrivate   bool
+		serverExists  bool
+		serverVis     string
+		expectConfirm bool
+		expectVis     string // resolved visibility after preservation logic
+	}{
+		{
+			name:          "no flags, new agent — private, no confirm",
+			serverExists:  false,
+			expectVis:     "private",
+			expectConfirm: false,
+		},
+		{
+			name:          "no flags, already private — private, no confirm",
+			serverExists:  true,
+			serverVis:     "private",
+			expectVis:     "private",
+			expectConfirm: false,
+		},
+		{
+			name:          "no flags, already public — preserved public, no confirm",
+			serverExists:  true,
+			serverVis:     "public",
+			expectVis:     "public",
+			expectConfirm: false,
+		},
+		{
+			name:          "--public, new agent — public, confirm",
+			pushPublic:    true,
+			serverExists:  false,
+			expectVis:     "public",
+			expectConfirm: true,
+		},
+		{
+			name:          "--public, already public — public, no confirm",
+			pushPublic:    true,
+			serverExists:  true,
+			serverVis:     "public",
+			expectVis:     "public",
+			expectConfirm: false,
+		},
+		{
+			name:          "--public, was private — public, confirm",
+			pushPublic:    true,
+			serverExists:  true,
+			serverVis:     "private",
+			expectVis:     "public",
+			expectConfirm: true,
+		},
+		{
+			name:          "--private, was public — private, confirm",
+			pushPrivate:   true,
+			serverExists:  true,
+			serverVis:     "public",
+			expectVis:     "private",
+			expectConfirm: true,
+		},
+		{
+			name:          "--private, new agent — private, no confirm",
+			pushPrivate:   true,
+			serverExists:  false,
+			expectVis:     "private",
+			expectConfirm: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := agentServerInfo{Exists: tt.serverExists, Visibility: tt.serverVis}
+
+			// Reproduce the production visibility resolution logic
+			visibility := "private"
+			if tt.pushPublic {
+				visibility = "public"
+			}
+			if server.Exists && server.Visibility == "public" && !tt.pushPrivate {
+				visibility = "public"
+			}
+
+			needsConfirm := (visibility == "public" && (!server.Exists || server.Visibility != "public")) ||
+				(tt.pushPrivate && server.Exists && server.Visibility == "public")
+
+			if visibility != tt.expectVis {
+				t.Errorf("visibility = %q, want %q", visibility, tt.expectVis)
+			}
+			if needsConfirm != tt.expectConfirm {
+				t.Errorf("needsConfirm = %v, want %v", needsConfirm, tt.expectConfirm)
+			}
+		})
 	}
 }
 

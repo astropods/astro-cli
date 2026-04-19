@@ -24,4 +24,20 @@ From your agent project directory, push to the registry:
 ast push
 ```
 
-Your agent is then available in your account. Use `ast push --build` to force a build first, then push to the registry.
+Your agent is then available in your account. By default, blueprints are **private**, visible only to you.
+
+### Visibility
+
+To make your blueprint publicly visible to everyone on the Astro AI catalog, pass `--public`:
+
+```bash
+ast push --public
+```
+
+You will be prompted to confirm before the blueprint is made public. To explicitly keep it private:
+
+```bash
+ast push --private
+```
+
+If a blueprint is already public and you push without a visibility flag, the public visibility is preserved automatically. Changing visibility in either direction always prompts for confirmation.

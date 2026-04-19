@@ -158,6 +158,8 @@ ast push [flags]
 
 | Flag | Description |
 |------|-------------|
+| `--public` | Make the blueprint publicly visible to everyone |
+| `--private` | Keep the blueprint private (default) |
 | `--skip-build` | Skip building containers before pushing |
 | `--skip-push` | Skip pushing images to the registry |
 | `--skip-register` | Skip registering the spec with the server |
@@ -166,7 +168,7 @@ ast push [flags]
 | `--no-auth` | Skip authentication (not recommended) |
 | `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64`) |
 
-By default, `push` builds containers, pushes images to the Astropods registry, and registers the agent spec with the server. Requires an account and [`ast login`](/authentication) first.
+By default, `push` builds containers, pushes images to the Astropods registry, and registers the agent spec with the server. Blueprints default to private. Pass `--public` to make a blueprint visible to everyone; you will be prompted to confirm. If a blueprint is already public and no visibility flag is given, it remains public. Requires an account and [`ast login`](/authentication) first.
 
 ---
 

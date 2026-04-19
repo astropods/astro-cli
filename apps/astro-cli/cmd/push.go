@@ -70,6 +70,8 @@ var (
 	skipRegister bool
 	noAuth       bool
 	pushPlatform string
+	pushPublic   bool
+	pushPrivate  bool
 )
 
 func init() {
@@ -81,6 +83,9 @@ func init() {
 	pushCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
 	pushCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
 	pushCmd.Flags().StringVar(&pushPlatform, "platform", "linux/amd64", "Target platform(s) for push (comma-separated)")
+	pushCmd.Flags().BoolVar(&pushPublic, "public", false, "Make the blueprint publicly visible to everyone")
+	pushCmd.Flags().BoolVar(&pushPrivate, "private", false, "Keep the blueprint private (default)")
+	pushCmd.MarkFlagsMutuallyExclusive("public", "private")
 }
 
 func runPush(cmd *cobra.Command, args []string) error {
@@ -425,6 +430,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
+	// Determine visibility from flags (--public / --private); default is private
+	visibility := "private"
+	if pushPublic {
+		visibility = "public"
+	}
+
 	// Register agent spec with server
 	if !skipRegister && effectiveServerURL != "" {
 		// Read AGENT.md if it exists (agent card file)
@@ -434,22 +445,22 @@ func runPush(cmd *cobra.Command, args []string) error {
 			readmeContent = string(readmeData)
 		}
 
-		// Determine visibility
-		visibility := astroSpec.Meta.Visibility
-		if visibility != "public" && visibility != "private" {
-			visibility = "" // ignore invalid values
-		}
-
-		// Default to private when not set in spec
-		if visibility == "" {
-			visibility = "private"
-		}
-
-		// If the agent already exists with a different visibility, confirm the change
+		// Fetch the blueprint's current state from the server
 		serverAgent := getAgentFromServer(effectiveServerURL, namespace, agentName, noAuth, orgToken)
-		if serverAgent.Exists && serverAgent.Visibility != "" && visibility != serverAgent.Visibility {
+
+		// If the blueprint is already public and the user hasn't explicitly requested private,
+		// preserve the existing public visibility — no change, no prompt.
+		if serverAgent.Exists && serverAgent.Visibility == "public" && !pushPrivate {
+			visibility = "public"
+		}
+
+		// Confirm when: making a blueprint public that isn't already public,
+		// or explicitly downgrading a public blueprint to private.
+		needsConfirm := (visibility == "public" && (!serverAgent.Exists || serverAgent.Visibility != "public")) ||
+			(pushPrivate && serverAgent.Exists && serverAgent.Visibility == "public")
+		if needsConfirm {
 			if !confirmVisibilityChange(serverAgent.Visibility, visibility) {
-				visibility = serverAgent.Visibility // keep current visibility
+				return fmt.Errorf("push cancelled")
 			}
 		}
 
@@ -477,6 +488,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	var lines []string
 	lines = append(lines, bold.Render("✓ Pushed successfully!"))
+	lines = append(lines, dim.Render("Blueprint is "+visibility))
 	lines = append(lines, "")
 	lines = append(lines, "  "+bold.Render(agentName)+"  "+dim.Render("tag "+pushTag))
 	lines = append(lines, "  "+dim.Render("View online → ")+link.Render(agentURL))
@@ -856,15 +868,27 @@ func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool,
 	return agentServerInfo{Exists: true, Visibility: body.Visibility}
 }
 
-// confirmVisibilityChange asks the user to confirm a visibility change from current to desired.
+// confirmVisibilityChange asks the user to confirm the target visibility.
+// current may be empty when the agent does not yet exist on the server.
 func confirmVisibilityChange(current, desired string) bool {
-	var confirmed bool
+	var title, description string
+	if desired == "public" {
+		title = "Make blueprint public?"
+		description = "This will make the blueprint available to everyone."
+		if current == "private" {
+			description = "This will change the blueprint from private to public, making it available to everyone."
+		}
+	} else {
+		title = "Make blueprint private?"
+		description = fmt.Sprintf("This will change the blueprint from %s to private.", current)
+	}
 
+	var confirmed bool
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
-				Title(fmt.Sprintf("Change visibility from %s to %s?", current, desired)).
-				Description(fmt.Sprintf("This agent is currently %s. Your spec sets visibility to %s.", current, desired)).
+				Title(title).
+				Description(description).
 				Value(&confirmed),
 		),
 	)
