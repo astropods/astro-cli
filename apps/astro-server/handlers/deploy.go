@@ -2515,9 +2515,6 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			mergeDeploymentPrefill(template, existing, storedVars, accountStore)
 
-			// Request-level inputs override prefilled values.
-			mergeRequestIntoTemplate(template, &req)
-
 			resp := deployment.ShapeTemplate(template, &req)
 			c.JSON(http.StatusOK, resp)
 			return
@@ -2572,29 +2569,6 @@ func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploy
 					template.Ingestion[name] = tmplIng
 				}
 			}
-		}
-	}
-}
-
-// mergeRequestIntoTemplate applies request-level adapter and variable inputs
-// onto a template that was already prefilled from a deployment. Request values
-// take precedence over stored values.
-func mergeRequestIntoTemplate(template *spec.AstroDeploymentSpec, req *spec.TemplateRequest) {
-	// Adapters: if the request specifies adapters, override the prefilled ones.
-	if req.Adapters != nil && template.Interfaces != nil {
-		template.Interfaces.Adapters = req.Adapters
-	}
-	// Variables: if the request provides values, override the prefilled ones.
-	for key, input := range req.Variables {
-		if v, ok := template.Variables[key]; ok {
-			if input.Value != "" {
-				v.Value = input.Value
-				v.Ref = ""
-			} else if input.Ref != "" {
-				v.Ref = input.Ref
-				v.Value = ""
-			}
-			template.Variables[key] = v
 		}
 	}
 }
