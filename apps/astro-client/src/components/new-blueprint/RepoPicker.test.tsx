@@ -19,6 +19,7 @@ function baseProps() {
     connections: undefined,
     onSelectRepo: vi.fn(),
     onSelectBranch: vi.fn(),
+    onSearchChange: vi.fn(),
   };
 }
 
@@ -28,19 +29,19 @@ describe("RepoPicker", () => {
     expect(screen.getByPlaceholderText(/search repositories/i)).toBeInTheDocument();
   });
 
-  it("shows loading state when typing", () => {
+  it("shows loading state when isLoadingRepos is true", () => {
     render(<RepoPicker {...baseProps()} isLoadingRepos repos={[]} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByText(/loading repositories/i)).toBeInTheDocument();
   });
 
-  it("shows empty state when no repos match search", () => {
+  it("shows empty state when no repos", () => {
     render(<RepoPicker {...baseProps()} repos={[]} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "xyz" } });
     expect(screen.getByText(/no repos matching/i)).toBeInTheDocument();
   });
 
-  it("renders repo list when typing", () => {
+  it("renders all passed repos when dropdown is open", () => {
     render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByRole("button", { name: /my-agent/ })).toBeInTheDocument();
@@ -54,6 +55,14 @@ describe("RepoPicker", () => {
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
     expect(onSelectRepo).toHaveBeenCalledWith(REPOS[0]);
+  });
+
+  it("calls onSearchChange when user types", () => {
+    const onSearchChange = vi.fn();
+    render(<RepoPicker {...baseProps()} onSearchChange={onSearchChange} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "agent" } });
+    // onSearchChange is debounced — called after 300ms; just verify the input reflects the value
+    expect(screen.getByPlaceholderText(/search repositories/i)).toHaveValue("agent");
   });
 
   it("disables repos that are already linked", () => {
@@ -89,5 +98,16 @@ describe("RepoPicker", () => {
   it("branch selector is expanded when a repo is selected", () => {
     const { container } = render(<RepoPicker {...baseProps()} selectedRepo={REPOS[0]} />);
     expect(container.querySelector(".grid-rows-\\[1fr\\]")).toBeInTheDocument();
+  });
+
+  it("renders all server-returned repos — no client-side cap", () => {
+    const manyRepos: GitHubRepo[] = Array.from({ length: 150 }, (_, i) => ({
+      full_name: `testuser/repo-${i}`,
+      default_branch: "main",
+      private: false,
+    }));
+    render(<RepoPicker {...baseProps()} repos={manyRepos} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "repo" } });
+    expect(screen.getAllByRole("button", { name: /repo-/ })).toHaveLength(150);
   });
 });

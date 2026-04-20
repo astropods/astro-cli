@@ -128,10 +128,15 @@ function NewBlueprintContent() {
   const isCreatingBlueprint = createBlueprint.isPending || uploadAvatar.isPending;
   const navigate = useNavigate();
 
+  const [githubLogin, setGithubLogin] = useState<string | undefined>(undefined);
+  const [repoQuery, setRepoQuery] = useState("");
+
   const accountConnect = useGitHubAccountConnect(selectedOrg);
-  const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected });
+  const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected, q: repoQuery, login: githubLogin });
   const accountConnections = useGitHubAccountConnections(selectedOrg, { enabled: githubConnected });
-  const githubLogin = accountRepos.data?.repos[0]?.full_name.split("/")[0];
+
+  const repos = accountRepos.data?.repos ?? [];
+  const isLoadingRepos = accountRepos.isLoading;
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
@@ -149,6 +154,8 @@ function NewBlueprintContent() {
         sessionStorage.removeItem(WIZARD_STATE_KEY);
       } catch { /* ignore */ }
     }
+    const login = searchParams.get("github_login");
+    if (login) setGithubLogin(login);
     dispatch({ type: "GITHUB_CONNECTED" });
     setActiveStep("source");
     setCompletedSteps(new Set<Step>(["setup"]));
@@ -230,6 +237,7 @@ function NewBlueprintContent() {
       if (res.connected) {
         // Token already exists via Pipes — skip OAuth, go straight to repo selection
         sessionStorage.removeItem(WIZARD_STATE_KEY);
+        if (res.github_login) setGithubLogin(res.github_login);
         dispatch({ type: "GITHUB_CONNECTED" });
       } else if (res.redirect_url) {
         window.location.href = res.redirect_url;
@@ -418,29 +426,23 @@ function NewBlueprintContent() {
                                   )}>
                                     <div className="overflow-hidden">
                                       <div className="border-t border-border">
-                                        {!githubLogin ? (
-                                          <div className="flex items-center gap-1.5 px-4 py-3 text-xs text-muted-foreground">
-                                            <ArrowPathIcon className="size-3.5 animate-spin" />
-                                            Loading...
-                                          </div>
-                                        ) : (
                                           <>
                                             <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
                                               <CheckCircleIcon className="size-3.5 text-green-700" />
-                                              {githubLogin} connected
+                                              {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
                                             </p>
                                             <RepoPicker
                                               githubLogin={githubLogin}
                                               selectedRepo={selectedRepo}
                                               selectedBranch={selectedBranch}
-                                              isLoadingRepos={accountRepos.isLoading}
-                                              repos={accountRepos.data?.repos ?? []}
+                                              isLoadingRepos={isLoadingRepos}
+                                              repos={repos}
                                               connections={accountConnections.data?.connections}
                                               onSelectRepo={handleSelectRepo}
                                               onSelectBranch={handleSelectBranch}
+                                              onSearchChange={setRepoQuery}
                                             />
                                           </>
-                                        )}
                                       </div>
                                     </div>
                                   </div>

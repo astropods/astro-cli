@@ -55,10 +55,16 @@ type GitHubLinkRequest struct {
 	Branch       string `json:"branch"`
 }
 
-// GitHubListRepos handles GET /api/v1/agents/:account/:name/github/repos.
-// Returns the user's GitHub repos so the frontend can show a repo selector.
+// GitHubListRepos handles GET /api/v1/agents/:account/:name/github/repos?q=<query>.
+// Returns matching GitHub repos for the repo selector. Delegates to SearchRepos.
 func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		q := strings.TrimSpace(c.Query("q"))
+		if q == "" {
+			c.JSON(http.StatusOK, gin.H{"repos": []any{}})
+			return
+		}
+
 		session, ok := middleware.GetSession(c)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
@@ -80,10 +86,10 @@ func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerF
 		}
 
 		gh := githubclient.New(token.AccessToken)
-		repos, err := gh.ListRepos(c.Request.Context())
+		repos, err := gh.SearchRepos(c.Request.Context(), q, strings.TrimSpace(c.Query("login")))
 		if err != nil {
-			log.Error("github: list repos", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list GitHub repos"})
+			log.Error("github: search repos", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search GitHub repos"})
 			return
 		}
 
@@ -120,13 +126,21 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 		}
 
 		// Check if the user already has a GitHub token via Pipes.
-		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+		existingToken, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 			Provider:       "github",
 			UserID:         session.UserID,
 			OrganizationID: session.OrganizationID,
 		})
 		if err == nil {
-			c.JSON(http.StatusOK, gin.H{"connected": true})
+			// Fetch the GitHub login to include in the response so the frontend
+			// can display "{login} connected" without a separate API call.
+			login := ""
+			if gh := githubclient.New(existingToken.AccessToken); gh != nil {
+				if l, loginErr := gh.GetLogin(c.Request.Context()); loginErr == nil {
+					login = l
+				}
+			}
+			c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
 			return
 		}
 
@@ -173,7 +187,7 @@ func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg Gi
 			redirectTo = "/new/custom"
 		}
 
-		_, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 			Provider:       "github",
 			UserID:         session.UserID,
 			OrganizationID: session.OrganizationID,
@@ -184,12 +198,25 @@ func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg Gi
 			return
 		}
 
-		c.Redirect(http.StatusFound, fmt.Sprintf("%s%s?github_connected=true", cfg.FrontendURL, redirectTo))
+		// Fetch the GitHub login to pass to the frontend so it can display "{login} connected"
+		// without a separate API call. Best-effort — omit if it fails.
+		loginParam := ""
+		if gh := githubclient.New(token.AccessToken); gh != nil {
+			if login, loginErr := gh.GetLogin(c.Request.Context()); loginErr == nil && login != "" {
+				loginParam = "&github_login=" + url.QueryEscape(login)
+			}
+		}
+
+		c.Redirect(http.StatusFound, fmt.Sprintf("%s%s?github_connected=true%s", cfg.FrontendURL, redirectTo, loginParam))
 	}
 }
 
 // GitHubAccountListRepos handles GET /api/v1/accounts/:account/github/repos.
-// Blueprint-agnostic repo listing — reuses the Pipes token, no agent scope required.
+// Uses the GitHub Search API for all cases:
+//   - no ?q  → returns the user's repos sorted by push date
+//   - ?q=foo → returns repos matching "foo" in name, scoped to the user
+//
+// Pass ?login=<login> to skip an extra GET /user round-trip.
 func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
@@ -213,14 +240,13 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 		}
 
 		gh := githubclient.New(token.AccessToken)
-		repos, err := gh.ListRepos(c.Request.Context())
+		repos, err := gh.SearchRepos(c.Request.Context(), strings.TrimSpace(c.Query("q")), strings.TrimSpace(c.Query("login")))
 		if err != nil {
-			log.Error("github: list account repos", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list GitHub repos"})
+			log.Error("github: search account repos", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search GitHub repos"})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"repos": repos})
+		c.JSON(http.StatusOK, gin.H{"repos": repos, "has_more": false})
 	}
 }
 

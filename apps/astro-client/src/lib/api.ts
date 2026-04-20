@@ -878,9 +878,11 @@ class ApiClient {
     );
   }
 
-  async gitHubListAccountRepos(account: string): Promise<{ repos: GitHubRepo[] }> {
-    return this.request<{ repos: GitHubRepo[] }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/repos`
+  async gitHubListAccountRepos(account: string, q: string, login?: string): Promise<{ repos: GitHubRepo[]; has_more: boolean }> {
+    const params = new URLSearchParams({ q });
+    if (login) params.set("login", login);
+    return this.request<{ repos: GitHubRepo[]; has_more: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/repos?${params}`
     );
   }
 
@@ -1452,6 +1454,7 @@ export interface GitHubStatusResponse {
 export interface GitHubConnectResponse {
   connected?: boolean;
   redirect_url?: string;
+  github_login?: string;
 }
 
 export interface GitHubLinkInput {

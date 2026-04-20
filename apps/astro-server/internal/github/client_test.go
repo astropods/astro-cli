@@ -125,33 +125,62 @@ func TestClient_GetBranchHead_HTTPError(t *testing.T) {
 	}
 }
 
-func TestClient_ListRepos(t *testing.T) {
+func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		perms := struct {
-			Admin bool `json:"admin"`
-		}{Admin: true}
-		repos := []Repo{
-			{FullName: "owner/repo-a", DefaultBranch: "main", Private: false, Permissions: perms},
-			{FullName: "owner/repo-b", DefaultBranch: "main", Private: true, Permissions: perms},
+		q := r.URL.Query().Get("q")
+		if q != "user:testuser" {
+			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
+			return
 		}
+		if r.URL.Query().Get("sort") != "pushed" {
+			http.Error(w, "expected sort=pushed for empty query", http.StatusBadRequest)
+			return
+		}
+		result := struct {
+			Items []Repo `json:"items"`
+		}{Items: []Repo{
+			{FullName: "testuser/repo-a", DefaultBranch: "main", Private: false},
+			{FullName: "testuser/repo-b", DefaultBranch: "main", Private: true},
+		}}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(repos)
+		_ = json.NewEncoder(w).Encode(result)
 	}))
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	repos, err := c.ListRepos(context.Background())
+	repos, err := c.SearchRepos(context.Background(), "", "testuser")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(repos) != 2 {
 		t.Fatalf("got %d repos, want 2", len(repos))
 	}
-	if repos[0].FullName != "owner/repo-a" {
-		t.Errorf("repos[0].FullName = %q, want %q", repos[0].FullName, "owner/repo-a")
+}
+
+func TestClient_SearchRepos_WithQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if q != "user:testuser agent in:name" {
+			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
+			return
+		}
+		result := struct {
+			Items []Repo `json:"items"`
+		}{Items: []Repo{
+			{FullName: "testuser/my-agent", DefaultBranch: "main", Private: false},
+		}}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	repos, err := c.SearchRepos(context.Background(), "agent", "testuser")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !repos[1].Private {
-		t.Error("repos[1].Private = false, want true")
+	if len(repos) != 1 || repos[0].FullName != "testuser/my-agent" {
+		t.Fatalf("unexpected repos: %v", repos)
 	}
 }
 
@@ -243,12 +272,14 @@ func TestClient_AuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		_ = json.NewEncoder(w).Encode([]Repo{})
+		_ = json.NewEncoder(w).Encode(struct {
+			Items []Repo `json:"items"`
+		}{})
 	}))
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	_, _ = c.ListRepos(context.Background())
+	_, _ = c.SearchRepos(context.Background(), "", "testuser")
 
 	if gotAuth != "Bearer test-token" {
 		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-token")

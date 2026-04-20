@@ -85,11 +85,13 @@ export function useGitHubAccountConnect(account: string) {
   });
 }
 
-export function useGitHubAccountRepos(account: string, opts?: { enabled?: boolean }) {
+export function useGitHubAccountRepos(account: string, opts?: { enabled?: boolean; q?: string; login?: string }) {
+  const q = opts?.q ?? '';
   return useQuery({
-    queryKey: githubKeys.accountRepos(account),
-    queryFn: () => api.gitHubListAccountRepos(account),
+    queryKey: githubKeys.accountRepos(account, q),
+    queryFn: () => api.gitHubListAccountRepos(account, q, opts?.login),
     enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
   });
 }
 

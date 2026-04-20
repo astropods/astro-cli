@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ type RepoPickerProps = {
   connections: Connection[] | undefined;
   onSelectRepo: (repo: GitHubRepo | null) => void;
   onSelectBranch: (branch: string) => void;
+  onSearchChange: (q: string) => void;
 };
 
 export function RepoPicker({
@@ -29,16 +30,14 @@ export function RepoPicker({
   connections,
   onSelectRepo,
   onSelectBranch,
+  onSearchChange,
 }: RepoPickerProps) {
   const [query, setQuery] = useState("");
   const [repoOpen, setRepoOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const filtered = query.trim()
-    ? repos.filter(r => r.full_name.toLowerCase().includes(query.toLowerCase()))
-    : repos;
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const branches = [
     "main",
@@ -48,6 +47,7 @@ export function RepoPicker({
       : []),
   ];
 
+  // Close on outside click
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -59,6 +59,13 @@ export function RepoPicker({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    setRepoOpen(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onSearchChange(value), 300);
+  }
+
   function handleSelectRepo(repo: GitHubRepo) {
     onSelectRepo(repo);
     setQuery("");
@@ -68,8 +75,17 @@ export function RepoPicker({
   function handleClear() {
     onSelectRepo(null);
     setQuery("");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    onSearchChange("");
     setTimeout(() => inputRef.current?.focus(), 0);
   }
+
+  const handleCaretClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !repoOpen;
+    setRepoOpen(next);
+    if (next) setTimeout(() => inputRef.current?.focus(), 0);
+  }, [repoOpen]);
 
   return (
     <div ref={containerRef} className="px-4 py-3 space-y-3">
@@ -108,16 +124,28 @@ export function RepoPicker({
                 className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
                 placeholder="Search repositories..."
                 value={query}
-                onChange={e => { setQuery(e.target.value); setRepoOpen(!!e.target.value.trim()); }}
+                onChange={e => handleQueryChange(e.target.value)}
               />
-              {query && (
+              {query ? (
                 <button
                   type="button"
-                  onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+                  onClick={() => { setQuery(""); onSearchChange(""); inputRef.current?.focus(); }}
                   className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Clear search"
                 >
                   <XMarkIcon className="size-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCaretClick}
+                  className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={repoOpen ? "Close repository list" : "Browse repositories"}
+                >
+                  <ChevronDown className={cn(
+                    "size-3.5 transition-transform duration-200",
+                    repoOpen && "rotate-180",
+                  )} />
                 </button>
               )}
             </>
@@ -127,7 +155,7 @@ export function RepoPicker({
         {/* Repo dropdown — inline so the card grows naturally */}
         <div className={cn(
           "grid transition-[grid-template-rows] duration-200 ease-out",
-          repoOpen && query.trim() ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          repoOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}>
           <div className="overflow-hidden">
             <div className="mt-1.5 max-h-52 overflow-y-auto rounded-sm border border-border bg-background">
@@ -136,32 +164,34 @@ export function RepoPicker({
                   <ArrowPathIcon className="size-4 animate-spin" />
                   Loading repositories...
                 </div>
-              ) : filtered.length === 0 ? (
+              ) : repos.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
-                  No repos matching &ldquo;{query}&rdquo;
+                  {query ? <>No repos matching &ldquo;{query}&rdquo;</> : "No repositories found"}
                 </div>
-              ) : filtered.map(repo => {
-                const usedBy = connections?.find(c => c.repo_full_name === repo.full_name);
-                const isSelected = selectedRepo?.full_name === repo.full_name;
-                return (
-                  <button
-                    key={repo.full_name}
-                    type="button"
-                    disabled={!!usedBy}
-                    onClick={() => handleSelectRepo(repo)}
-                    className={cn(
-                      "w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors",
-                      isSelected ? "bg-primary/5" : "hover:bg-muted/60",
-                      usedBy ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
-                    )}
-                  >
-                    <span className="flex-1 font-medium truncate">{repo.full_name.split("/")[1]}</span>
-                    {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
-                    {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">linked to {usedBy.agent_name}</span>}
-                    {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}
-                  </button>
-                );
-              })}
+              ) : (
+                repos.map(repo => {
+                  const usedBy = connections?.find(c => c.repo_full_name === repo.full_name);
+                  const isSelected = selectedRepo?.full_name === repo.full_name;
+                  return (
+                    <button
+                      key={repo.full_name}
+                      type="button"
+                      disabled={!!usedBy}
+                      onClick={() => handleSelectRepo(repo)}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors",
+                        isSelected ? "bg-primary/5" : "hover:bg-muted/60",
+                        usedBy ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+                      )}
+                    >
+                      <span className="flex-1 font-medium truncate">{repo.full_name.split("/")[1]}</span>
+                      {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
+                      {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">linked to {usedBy.agent_name}</span>}
+                      {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

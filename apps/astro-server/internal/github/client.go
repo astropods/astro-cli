@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -83,20 +84,55 @@ func (c *Client) GetBranchHead(ctx context.Context, repoFullName, branch string)
 	return result.Commit.SHA, nil
 }
 
-// ListRepos returns repos the authenticated user has admin access to, sorted by recent push.
-// Only admin repos are returned because webhook installation requires admin permission.
-func (c *Client) ListRepos(ctx context.Context) ([]Repo, error) {
-	var all []Repo
-	if err := c.get(ctx, "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator", &all); err != nil {
-		return nil, fmt.Errorf("github: list repos: %w", err)
+// ListReposPaged returns repos the authenticated user has admin access to, one page at a time.
+// page is 1-indexed. perPage is capped at 100 by GitHub.
+// GetLogin returns the GitHub login of the authenticated user.
+func (c *Client) GetLogin(ctx context.Context) (string, error) {
+	var user struct {
+		Login string `json:"login"`
 	}
-	repos := make([]Repo, 0, len(all))
-	for _, r := range all {
-		if r.Permissions.Admin {
-			repos = append(repos, r)
+	if err := c.get(ctx, "/user", &user); err != nil {
+		return "", fmt.Errorf("github: get user: %w", err)
+	}
+	return user.Login, nil
+}
+
+// SearchRepos searches the authenticated user's repositories via the GitHub Search API.
+// login scopes results to user:{login}; if empty, GetLogin is called first.
+// With an empty query it returns all repos sorted by push date; with a query it
+// filters by name using the in:name qualifier.
+// Note: the Search API does not return permissions objects reliably, so admin
+// filtering is skipped — non-admin repos will fail at webhook installation time.
+func (c *Client) SearchRepos(ctx context.Context, query, login string) ([]Repo, error) {
+	if login == "" {
+		var err error
+		login, err = c.GetLogin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("github: get user login: %w", err)
 		}
 	}
-	return repos, nil
+
+	var q, sort string
+	if query == "" {
+		q = fmt.Sprintf("user:%s", login)
+		sort = "pushed"
+	} else {
+		q = fmt.Sprintf("user:%s %s in:name", login, query)
+		sort = "updated"
+	}
+
+	params := url.Values{
+		"q":        {q},
+		"sort":     {sort},
+		"per_page": {"30"},
+	}
+	var result struct {
+		Items []Repo `json:"items"`
+	}
+	if err := c.get(ctx, "/search/repositories?"+params.Encode(), &result); err != nil {
+		return nil, fmt.Errorf("github: search repos: %w", err)
+	}
+	return result.Items, nil
 }
 
 // Webhook represents a GitHub repository webhook.

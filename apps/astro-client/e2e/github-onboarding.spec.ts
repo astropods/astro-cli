@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
   // Serve repos directly from the browser context so there's no async gap
   // between "connected: true" landing and repo options being renderable.
   // The mock backend still handles connect/link/connections/status.
-  await page.route("**/api/v1/accounts/*/github/repos", (route) =>
+  await page.route("**/api/v1/accounts/*/github/repos**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
