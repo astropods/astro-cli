@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -13,6 +14,25 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
+
+// memberRoleSyncer is the subset of *org.Sync used by role-change and removal
+// handlers. Defined as an interface so tests can inject fakes to cover
+// permission paths that would otherwise require mocking WorkOS HTTP calls.
+type memberRoleSyncer interface {
+	ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerRole string) (string, error)
+	RemoveMember(ctx context.Context, accountID, userID, callerRole string) error
+}
+
+// callerOrgRole returns the caller's role slug within the resolved org, or
+// empty string if there's no org-scoped session. Used to enforce role
+// hierarchy when managing existing members.
+func callerOrgRole(c *gin.Context) string {
+	session, ok := middleware.GetSession(c)
+	if !ok {
+		return ""
+	}
+	return session.Role
+}
 
 // validRoles is the set of role slugs accepted by member management endpoints.
 var validRoles = map[string]bool{
@@ -237,7 +257,7 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 }
 
 // UpdateMemberRole handles PUT /api/v1/accounts/:account/members/:user_id
-func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
+func UpdateMemberRole(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -265,8 +285,12 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 			return
 		}
 
-		previousRole, err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role)
+		previousRole, err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role, callerOrgRole(c))
 		if err != nil {
+			if errors.Is(err, org.ErrOwnerManagementForbidden) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
+				return
+			}
 			log.Error("Failed to update member role", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to update member role",
@@ -289,8 +313,9 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 }
 
 // RemoveMember handles DELETE /api/v1/accounts/:account/members/:user_id
-// Self-removal (leaving) is allowed for any member; removing others requires org:manage.
-func RemoveMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+// Self-removal (leaving) is allowed for any member; removing others requires
+// org:manage. Additionally, only owners can remove other owners.
+func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -314,7 +339,11 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.A
 			}
 		}
 
-		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID); err != nil {
+		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID, callerOrgRole(c)); err != nil {
+			if errors.Is(err, org.ErrOwnerManagementForbidden) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
+				return
+			}
 			log.Error("Failed to remove member", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to remove member",

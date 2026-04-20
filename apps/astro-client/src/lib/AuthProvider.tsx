@@ -5,7 +5,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { api, type AuthResponse, type ApiError } from './api';
+import { api, type AuthResponse, ApiRequestError } from './api';
 import { AuthContext, initialAuthState, type AuthState } from './auth-context';
 
 interface AuthProviderProps {
@@ -62,12 +62,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const response = await api.getCurrentUser();
         updateFromResponse(response);
       } catch (err) {
-        const error = err as ApiError;
+        const error = err as ApiRequestError;
         // Not authenticated is not an error state, just means user needs to log in
         if (
-          error.error === 'unauthorized' ||
-          error.error === 'session_invalid' ||
-          error.error === 'session_expired'
+          error.code === 'unauthorized' ||
+          error.code === 'session_invalid' ||
+          error.code === 'session_expired'
         ) {
           setState({
             ...initialAuthState,
@@ -78,8 +78,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ...initialAuthState,
             isLoading: false,
             error:
-              error.error_description ||
-              error.error ||
+              error.message ||
+              error.code ||
               'Failed to check authentication',
           });
         }

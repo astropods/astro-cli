@@ -216,4 +216,68 @@ describe('OrgMembersSettings', () => {
       expect(screen.getByText('Invited')).toBeInTheDocument();
     });
   });
+
+  // Mirrors the backend guard in org.ErrOwnerManagementForbidden: admins can
+  // manage regular members, but they cannot change the role of or remove an
+  // owner. Only another owner can manage an owner.
+  describe('owner hierarchy protection', () => {
+    const withOwner = [
+      activeMembers[0], // user-1, admin (the viewer when role=admin)
+      {
+        account_id: 'org-1',
+        user_id: 'user-owner',
+        role: 'owner',
+        status: 'active',
+        username: 'theowner',
+        display_name: 'The Owner',
+        created_at: '2025-01-02T00:00:00Z',
+      },
+    ];
+
+    it('admin sees the owner row as read-only (no role dropdown, no action menu)', async () => {
+      useMembersMock(withOwner);
+      renderPage('admin');
+      await waitFor(() => {
+        expect(screen.getByText('The Owner')).toBeInTheDocument();
+      });
+
+      // Owner row's role cell should be plain text, not a dropdown trigger.
+      const ownerRoleEl = screen.getByText('owner');
+      expect(ownerRoleEl.tagName).not.toBe('BUTTON');
+      expect(ownerRoleEl.closest('button')).toBeNull();
+
+      // No action-menu (kebab) button should exist for any row:
+      // user-1 is the viewer themselves, user-owner is protected by hierarchy.
+      const iconOnlyButtons = screen
+        .getAllByRole('button')
+        .filter((btn) => !btn.textContent?.trim());
+      expect(iconOnlyButtons).toHaveLength(0);
+    });
+
+    it('owner sees another owner as manageable (dropdown + action menu)', async () => {
+      useMembersMock([
+        {
+          ...activeMembers[0],
+          role: 'owner', // viewer is an owner
+        },
+        withOwner[1], // second owner target
+      ]);
+      renderPage('owner');
+      await waitFor(() => {
+        expect(screen.getByText('The Owner')).toBeInTheDocument();
+      });
+
+      // The target owner's role cell should be rendered as a button (dropdown).
+      const ownerRoleButton = screen
+        .getAllByRole('button')
+        .find((btn) => btn.textContent?.toLowerCase().includes('owner'));
+      expect(ownerRoleButton).toBeTruthy();
+
+      // And an icon-only kebab should be present (for the removable target row).
+      const iconOnlyButtons = screen
+        .getAllByRole('button')
+        .filter((btn) => !btn.textContent?.trim());
+      expect(iconOnlyButtons.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

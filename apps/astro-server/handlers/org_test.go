@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,42 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
+
+// fakeMemberRoleSyncer is a test stub for memberRoleSyncer. It captures the
+// arguments passed to each call so tests can assert that the handler forwards
+// the caller's role, and returns configurable errors to exercise the 403
+// mapping for ErrOwnerManagementForbidden.
+type fakeMemberRoleSyncer struct {
+	changeErr        error
+	changePrevRole   string
+	removeErr        error
+	changeCalledWith struct {
+		accountID  string
+		userID     string
+		newRole    string
+		callerRole string
+	}
+	removeCalledWith struct {
+		accountID  string
+		userID     string
+		callerRole string
+	}
+}
+
+func (f *fakeMemberRoleSyncer) ChangeMemberRole(_ context.Context, accountID, userID, newRole, callerRole string) (string, error) {
+	f.changeCalledWith.accountID = accountID
+	f.changeCalledWith.userID = userID
+	f.changeCalledWith.newRole = newRole
+	f.changeCalledWith.callerRole = callerRole
+	return f.changePrevRole, f.changeErr
+}
+
+func (f *fakeMemberRoleSyncer) RemoveMember(_ context.Context, accountID, userID, callerRole string) error {
+	f.removeCalledWith.accountID = accountID
+	f.removeCalledWith.userID = userID
+	f.removeCalledWith.callerRole = callerRole
+	return f.removeErr
+}
 
 func init() {
 	gin.SetMode(gin.TestMode)
@@ -1016,5 +1053,175 @@ func TestCreateInvitations_InvalidRole_Rejected(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid role should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Role hierarchy tests: only owners can manage existing owners ---
+
+func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "admin-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{removeErr: org.ErrOwnerManagementForbidden}
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, fake, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/owner-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("admin removing owner should return 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fake.removeCalledWith.callerRole != "admin" {
+		t.Errorf("expected callerRole=admin passed to sync, got %q", fake.removeCalledWith.callerRole)
+	}
+	if fake.removeCalledWith.userID != "owner-1" {
+		t.Errorf("expected target user-id=owner-1, got %q", fake.removeCalledWith.userID)
+	}
+}
+
+func TestRemoveMember_OwnerCanRemoveOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "owner-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "owner", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{removeErr: nil}
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, fake, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/owner-2", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("owner should be able to remove another owner, got 403: %s", rec.Body.String())
+	}
+	if fake.removeCalledWith.callerRole != "owner" {
+		t.Errorf("expected callerRole=owner passed to sync, got %q", fake.removeCalledWith.callerRole)
+	}
+}
+
+func TestRemoveMember_AdminCanRemoveNonOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "admin-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{removeErr: nil}
+
+	router := gin.New()
+	router.DELETE("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		RemoveMember(log, fake, store, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/member-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("admin should be able to remove non-owner members, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestUpdateMemberRole_AdminCannotDemoteOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "admin-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{changeErr: org.ErrOwnerManagementForbidden}
+
+	router := gin.New()
+	router.PUT("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		UpdateMemberRole(log, fake, store, nil))
+
+	body := `{"role": "member"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/owner-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("admin demoting owner should return 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fake.changeCalledWith.callerRole != "admin" {
+		t.Errorf("expected callerRole=admin passed to sync, got %q", fake.changeCalledWith.callerRole)
+	}
+	if fake.changeCalledWith.newRole != "member" {
+		t.Errorf("expected newRole=member passed to sync, got %q", fake.changeCalledWith.newRole)
+	}
+}
+
+func TestUpdateMemberRole_OwnerCanChangeOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "owner-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "owner", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{changeErr: nil, changePrevRole: "owner"}
+
+	router := gin.New()
+	router.PUT("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		UpdateMemberRole(log, fake, store, nil))
+
+	body := `{"role": "admin"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/owner-2", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("owner should be able to change another owner's role, got 403: %s", rec.Body.String())
+	}
+	if fake.changeCalledWith.callerRole != "owner" {
+		t.Errorf("expected callerRole=owner passed to sync, got %q", fake.changeCalledWith.callerRole)
+	}
+}
+
+func TestUpdateMemberRole_AdminCanChangeNonOwner(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "admin-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
+
+	fake := &fakeMemberRoleSyncer{changeErr: nil, changePrevRole: "member"}
+
+	router := gin.New()
+	router.PUT("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		UpdateMemberRole(log, fake, store, nil))
+
+	body := `{"role": "admin"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/member-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("admin should be able to promote a non-owner, got 403: %s", rec.Body.String())
 	}
 }

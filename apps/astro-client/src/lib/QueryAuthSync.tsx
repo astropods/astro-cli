@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ApiError } from './api';
+import { ApiRequestError } from './api';
 import { useAuth } from './use-auth';
 
 function isAuthError(error: unknown): boolean {
-  const apiError = error as ApiError | undefined;
-  if (apiError?.status === 401) return true;
-  const code = apiError?.error;
-  return code === 'unauthorized' || code === 'session_invalid' || code === 'session_expired';
+  if (!(error instanceof ApiRequestError)) return false;
+  if (error.status === 401) return true;
+  return (
+    error.code === 'unauthorized' ||
+    error.code === 'session_invalid' ||
+    error.code === 'session_expired'
+  );
 }
 
 /**

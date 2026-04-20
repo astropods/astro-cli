@@ -3,12 +3,18 @@ package org
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 )
+
+// ErrOwnerManagementForbidden is returned when a non-owner caller attempts to
+// change the role of or remove a member whose current role is "owner".
+// Handlers should map this to HTTP 403.
+var ErrOwnerManagementForbidden = errors.New("only owners can modify or remove other owners")
 
 // Sync provides write-path sync logic (Astro → WorkOS) for organization memberships.
 type Sync struct {
@@ -82,7 +88,10 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 
 // ChangeMemberRole updates a member's role in WorkOS. No local role to update.
 // Returns the previous role slug so callers can include it in audit logs.
-func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole string) (previousRole string, err error) {
+// callerRole is the role of the caller in the org (from JWT session); if the
+// target member is currently an owner and the caller is not an owner, returns
+// ErrOwnerManagementForbidden to enforce role hierarchy.
+func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerRole string) (previousRole string, err error) {
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
 		return "", fmt.Errorf("account not found: %w", err)
@@ -116,6 +125,9 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole 
 
 	// Serialize owner-guard check + mutation to prevent TOCTOU races.
 	err = s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
+		if currentMembership.RoleSlug == "owner" && callerRole != "owner" {
+			return ErrOwnerManagementForbidden
+		}
 		if currentMembership.RoleSlug == "owner" && newRole != "owner" {
 			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
 			if err != nil {
@@ -147,7 +159,10 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole 
 }
 
 // RemoveMember removes a member from an org account, deleting from WorkOS first then locally.
-func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error {
+// callerRole is the role of the caller in the org (from JWT session); if the
+// target member is currently an owner and the caller is not an owner, returns
+// ErrOwnerManagementForbidden to enforce role hierarchy.
+func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole string) error {
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
 		return fmt.Errorf("account not found: %w", err)
@@ -166,6 +181,9 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 		membership, membershipErr := s.findMembershipForUser(ctx, acct.WorkOSOrganizationID, userID)
 		if membershipErr != nil {
 			return fmt.Errorf("member not found locally or in WorkOS: %w", membershipErr)
+		}
+		if membership.RoleSlug == "owner" && callerRole != "owner" {
+			return ErrOwnerManagementForbidden
 		}
 		if err := s.client.DeleteMembership(ctx, membership.ID); err != nil {
 			return fmt.Errorf("failed to delete WorkOS membership: %w", err)
@@ -188,6 +206,9 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 
 	// Serialize owner-guard check + deletion to prevent TOCTOU races.
 	return s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
+		if membership.RoleSlug == "owner" && callerRole != "owner" {
+			return ErrOwnerManagementForbidden
+		}
 		if membership.RoleSlug == "owner" {
 			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
 			if err != nil {

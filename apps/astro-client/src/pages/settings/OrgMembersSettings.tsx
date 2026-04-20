@@ -38,20 +38,18 @@ const ROLES = [
 
 function RoleCell({
   role,
-  isAdmin,
-  canChange,
+  canManage,
   disabled,
   onChangeRole,
 }: {
   role: string;
-  isAdmin: boolean;
-  canChange: boolean;
+  canManage: boolean;
   disabled?: boolean;
   onChangeRole: (role: string) => void;
 }) {
   const label = ROLES.find((r) => r.value === role)?.label ?? role;
 
-  if (!isAdmin || !canChange) {
+  if (!canManage) {
     return (
       <span className="text-[13px] text-foreground capitalize">{label}</span>
     );
@@ -88,7 +86,7 @@ function MemberRow({
   member,
   isLast,
   isCurrentUser,
-  isAdmin,
+  canManage,
   disabled,
   onChangeRole,
   onRemove,
@@ -96,7 +94,7 @@ function MemberRow({
   member: AccountMember;
   isLast: boolean;
   isCurrentUser: boolean;
-  isAdmin: boolean;
+  canManage: boolean;
   disabled?: boolean;
   onChangeRole: (role: string) => void;
   onRemove: () => void;
@@ -137,8 +135,7 @@ function MemberRow({
         ) : (
           <RoleCell
             role={member.role}
-            isAdmin={isAdmin}
-            canChange={!isCurrentUser}
+            canManage={canManage}
             disabled={disabled}
             onChangeRole={onChangeRole}
           />
@@ -152,7 +149,7 @@ function MemberRow({
       </div>
 
       <div className="flex justify-end">
-        {isAdmin && !isCurrentUser && (
+        {canManage && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-xs" disabled={disabled}>
@@ -205,8 +202,18 @@ export default function OrgMembersSettings() {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   // Session role reflects the currently-switched org context
-  const isAdmin = role === "admin" || role === "owner";
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin" || isOwner;
   const members = membersData?.members ?? [];
+
+  // A member can be managed by the caller when the caller has admin/owner
+  // privileges AND the target isn't the caller themselves AND — to respect
+  // the role hierarchy — the target isn't an owner unless the caller is too.
+  // This mirrors the backend check in org.ErrOwnerManagementForbidden.
+  const canManageMember = (m: AccountMember) =>
+    isAdmin &&
+    m.user_id !== user?.id &&
+    !(m.role === "owner" && !isOwner);
 
   const handleChangeRole = (member: AccountMember, newRole: string) => {
     updateRole.mutate(
@@ -285,7 +292,7 @@ export default function OrgMembersSettings() {
                 member={member}
                 isLast={i === members.length - 1}
                 isCurrentUser={member.user_id === user?.id}
-                isAdmin={isAdmin}
+                canManage={canManageMember(member)}
                 disabled={updateRole.isPending || removeMember.isPending}
                 onChangeRole={(r) => handleChangeRole(member, r)}
                 onRemove={() => handleRemove(member)}
