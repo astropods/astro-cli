@@ -60,7 +60,7 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	}
 
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -271,7 +271,7 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	}
 
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -983,7 +983,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 
 	// Spec with @org/name format — the push should resolve to org namespace
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: \"@my-org/test-agent\"\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: \"@my-org/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 

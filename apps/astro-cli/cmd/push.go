@@ -133,11 +133,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("server URL required for registration: run '%s login', use --server, or use --skip-register", binaryName)
 	}
 
-	// Parse Astro spec
-	fmt.Printf("%s→%s Parsing %s\n", colorCyan, colorReset, filepath.Base(specPath))
-	astroSpec, err := spec.ParseSpec(specPath)
+	// Validate spec strictly before doing any work. Invalid specs must not build or push.
+	fmt.Printf("%s→%s Validating %s\n", colorCyan, colorReset, filepath.Base(specPath))
+	astroSpec, err := validateSpecFile(specPath)
 	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
+		return err
 	}
 	warnDeprecatedMetaFields(specPath, workingDir)
 
