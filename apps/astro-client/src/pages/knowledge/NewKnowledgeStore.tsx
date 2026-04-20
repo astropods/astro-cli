@@ -32,6 +32,7 @@ import {
   PROVIDER_FIELDS,
   PROVIDER_PORTS,
 } from "@/components/knowledge/knowledge-utils";
+import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeProvider, KnowledgeStore, KnowledgeEvent } from "@/lib/api";
@@ -210,6 +211,13 @@ function ProvisioningStage({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* PrivateLink progress */}
+      {store?.endpoint && (
+        <div className="mt-4">
+          <PrivateLinkSection store={store} />
         </div>
       )}
     </div>
