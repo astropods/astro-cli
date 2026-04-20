@@ -1,16 +1,16 @@
 # Deployment Template — Interactive POST Endpoint
 
-Scope: evolving the deployment template endpoint from a static GET to an interactive POST that accepts deploy-time inputs, shapes the template accordingly, and returns inline validation.
+Scope: converting the deployment template from a static GET to an interactive POST that accepts deploy-time inputs (adapters, variables), shapes the template accordingly, and returns inline validation. Knowledge store bindings are out of scope — they build on top of this endpoint in a follow-up.
 
 ---
 
 ## What Changes
 
-Today, the deployment template is a GET endpoint. It takes no input — it reads the registered `astropods.yml` spec and returns a `deployment-template/v1` with placeholder references and empty slots. Deploy-time decisions like adapter selection are handled with workarounds: the template always emits an empty adapters list and optional Slack variables, the user fills in values client-side, and the deploy handler merges everything at submit time.
+Today, the deployment template is a GET endpoint. It takes no input — it reads the registered `astropods.yml` spec and returns a flat `deployment-template/v1` with placeholder references and empty slots. Deploy-time decisions like adapter selection are handled client-side: the template always emits an empty adapters list and optional Slack variables, the client fills in values locally, transforms the template into a `deployment/v1` spec (`fulfillTemplate()`), and POSTs to `/deploy`.
 
-This breaks down with knowledge store bindings. A binding is a deploy-time decision that changes the template structurally: bound entries lose container config, credential variables shift to platform-managed, and editable fields change. The template shape is no longer derivable from the spec alone.
+This means the client owns fulfillment logic (stripping template-only fields, merging variables, building the interfaces payload) and validation is deferred to the deploy endpoint. As deploy-time decisions grow more complex — knowledge store bindings will change template structure — this client-side approach doesn't scale.
 
-After this change, the template endpoint becomes a POST. The client sends partial inputs — bindings, adapters, variables — and gets back a template shaped by those inputs plus validation results. The client iterates until `valid: true`, then posts to `/deploy`. Adapters and bindings follow the same pattern: deploy-time overlays that shape what the template contains.
+After this change, the template endpoint becomes a POST. The client sends partial inputs — adapters, variables — and gets back a template shaped by those inputs plus validation results. The server does the fulfillment: `template` in the response already has values filled in, spec version set to `deployment/v1`, and template-only fields stripped. When `validation.valid: true`, the client takes `template` as-is and POSTs it to `/deploy`.
 
 ---
 
@@ -28,9 +28,6 @@ All fields optional. An empty body `{}` produces the same result as the current 
 {
   "build": "abc123",
   "deployment_id": "dep-xxx-xxx",
-  "bindings": {
-    "db": "arn:knowledge:acme:postgres-main"
-  },
   "adapters": ["slack"],
   "variables": {
     "SLACK_BOT_TOKEN": { "value": "xoxb-..." },
@@ -43,7 +40,6 @@ All fields optional. An empty body `{}` produces the same result as the current 
 |-------|---------|
 | `build` | Pin to a specific build ID instead of latest |
 | `deployment_id` | Prefill from an existing deployment (replaces GET `/:deploymentID`) |
-| `bindings` | Knowledge entry name → managed store ARN |
 | `adapters` | Selected interface adapters (e.g. `["slack", "web"]`) |
 | `variables` | Variable values or account-variable refs to pre-fill and validate |
 
@@ -53,15 +49,14 @@ All fields optional. An empty body `{}` produces the same result as the current 
 {
   "spec": "deployment-template/v1",
   "template": {
-    "spec": "deployment-template/v1",
+    "spec": "deployment/v1",
     "source": { "account": "acme", "name": "my-agent", "build": "abc123", "registry": "..." },
     "target": { "runtime": "kubernetes" },
     "agent": { "..." : "..." },
     "knowledge": { "..." : "..." },
     "interfaces": { "..." : "..." },
     "observability": { "..." : "..." },
-    "variables": { "SLACK_BOT_TOKEN": { "..." : "..." }, "MY_VAR": { "..." : "..." } },
-    "editable": ["agent.replicas", "agent.resources", "variables.*.value"]
+    "variables": { "SLACK_BOT_TOKEN": { "..." : "..." }, "MY_VAR": { "..." : "..." } }
   },
   "variables": {
     "SLACK_BOT_TOKEN": { "secret": true, "optional": false, "targets": ["interface.slack"], "description": "..." },
@@ -75,8 +70,7 @@ All fields optional. An empty body `{}` produces the same result as the current 
   "validation": {
     "valid": false,
     "errors": [
-      { "field": "variables.SLACK_APP_TOKEN", "message": "required for slack adapter" },
-      { "field": "bindings.db", "message": "store is not ready" }
+      { "field": "variables.SLACK_APP_TOKEN", "message": "required for slack adapter" }
     ]
   }
 }
@@ -86,55 +80,23 @@ Top-level fields:
 
 | Field | Purpose |
 |-------|---------|
-| `spec` | Response format version |
-| `template` | A complete `AstroDeploymentSpec` — 100% compatible with the deploy endpoint. Fill in variable values, POST to `/deploy`. |
-| `variables` | Promoted copy of `template.variables` — the primary interaction surface for the UI |
-| `editable` | Promoted copy of `template.editable` — which template fields the client may modify |
-| `validation` | Current validity state + errors. The client iterates until `valid: true`. |
+| `spec` | Response envelope version — always `deployment-template/v1` |
+| `template` | A complete `deployment/v1` spec — directly postable to `/deploy` when valid |
+| `variables` | Variable schema for the UI (description, datatype, display-as, options, secret, optional, targets) |
+| `editable` | Which template fields the client may modify |
+| `validation` | Current validity state + field-level errors |
 
-`template` is a self-contained `AstroDeploymentSpec` with user-provided values already filled in. When the client sends `variables: { "X": { "value": "foo" } }`, the returned `template.variables.X.value` is `"foo"`. When `valid: true`, the client takes `template` as-is and POSTs it to `/deploy` — no client-side fulfillment step needed.
+### Two variable surfaces
 
-Root-level `variables` carries the **schema** (description, optional, secret, targets, datatype, display-as, options) for rendering the form. `template.variables` carries the **fulfilled values** for deployment. The server does the fulfillment on every POST — the client only needs to read the schema and submit inputs.
+Root-level `variables` carries the **schema** for rendering the form — description, optional, secret, targets, datatype, display-as, options. This is what the UI reads to build inputs.
+
+`template.variables` carries the **fulfilled values** for deployment — only runtime fields (value, ref, targets, secret, optional). Template-only fields (description, datatype, display-as, options, default) are stripped. When the client sends `variables: { "X": { "value": "foo" } }`, the returned `template.variables.X.value` is `"foo"`.
+
+The server does fulfillment on every POST. The client reads the schema, submits inputs, and when `valid: true` takes `template` as-is.
 
 ---
 
 ## How Inputs Shape the Template
-
-### Bindings
-
-When `bindings.db = "arn:knowledge:acme:postgres-main"`:
-
-1. **Server resolves the ARN** — looks up the store, validates it belongs to the account, checks provider match against the spec's `knowledge.db.provider`, checks `status = ready`.
-
-2. **`knowledge.db` in the template** gets a `binding` object and loses container config:
-
-```json
-{
-  "knowledge": {
-    "db": {
-      "provider": "postgres",
-      "endpoints": { "http": { "port": 5432 } },
-      "binding": {
-        "arn": "arn:knowledge:acme:postgres-main",
-        "provider": "postgres",
-        "status": "ready"
-      }
-    }
-  }
-}
-```
-
-Fields zeroed: `image`, `replicas`, `resources`, `persistent`, `volume`, `storage`, `healthcheck`, `update`, `environment`. The store already provides all of these.
-
-`endpoints` stays populated from the provider registry — the reference resolver still needs port info for `${knowledge.db.http.port}`.
-
-3. **Credential variables for the bound provider are removed** — the managed store owns its credentials; the agent gets them via cross-namespace secret injection at deploy time.
-
-4. **Editable fields** for the bound entry (`knowledge.db.replicas`, `knowledge.db.storage`, etc.) are removed from the `editable` list.
-
-5. **Agent env var references are unchanged** — `POSTGRES_HOST = ${knowledge.db.host}` stays in the template. The reference resolves to different DNS at deploy time (store's ClusterIP in the knowledge namespace vs. agent-namespace service).
-
-When a binding is absent, the knowledge entry is produced exactly as today — full container config, credentials in variables, all editable fields present.
 
 ### Adapters
 
@@ -155,7 +117,7 @@ This replaces the current pattern where Slack variables are always emitted as op
 
 When `variables.X = { "value": "..." }` or `variables.X = { "ref": "vault-name" }`:
 
-1. The variable's `value` or `ref` field is set in the returned template.
+1. The variable's `value` or `ref` field is set in the returned `template.variables.X`.
 2. Validation checks the value against the variable's constraints (required, datatype).
 3. Variables that reference account variables (`ref`) are validated for existence.
 
@@ -166,12 +128,11 @@ Variables not provided in the request retain their template defaults (if any) or
 When `deployment_id` is provided:
 
 1. The stored deployment's build is used (unless `build` is also provided).
-2. Stored variable values are merged into the template (same logic as current `GetPrefilledDeploymentTemplate`): non-secret values restored directly, secret values with refs restore the ref, secret values without refs left empty.
+2. Stored variable values are merged: non-secret values restored directly, secret values with refs restore the ref, secret values without refs left empty.
 3. Stored adapters are merged into the template.
-4. Stored bindings (from `knowledge_store_bindings` table) are included as if the client had sent them in `bindings`.
-5. Stored ingestion schedules and display name are merged.
+4. Stored ingestion schedules and display name are merged.
 
-Request-level inputs (`bindings`, `adapters`, `variables`) override the prefilled values when both are present.
+Request-level inputs (`adapters`, `variables`) override the prefilled values when both are present.
 
 ---
 
@@ -185,9 +146,6 @@ Validation runs on every POST and returns all errors at once. The template is al
 |----------|------|
 | Required variables | Non-optional variables without `value` or `ref` produce an error |
 | Adapter requirements | Slack selected → `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` must have values |
-| Binding existence | ARN must resolve to a store in the caller's account |
-| Binding provider match | Store's provider must match the knowledge entry's provider in the spec |
-| Binding status | Store must be `ready` (not `provisioning` or `error`) |
 | Variable refs | Account variable refs must exist in the account's variable store |
 | Ingestion schedules | Cron expressions validated if present |
 
@@ -195,7 +153,7 @@ Validation runs on every POST and returns all errors at once. The template is al
 
 - Whether the agent image exists in the registry (checked at deploy time)
 - Whether K8s resources can be created (checked at deploy time)
-- Cross-account permissions for shared stores (future)
+- Knowledge store bindings (future)
 
 ### Iterative flow
 
@@ -208,126 +166,149 @@ Client                                    Server
   ├─ POST {adapters: ["slack"]} ───────────►│ Shape template with adapters
   │◄─── template + errors: [SLACK_BOT_TOKEN required] ─┤
   │                                         │
-  ├─ POST {adapters, variables, bindings} ─►│ Full validation
+  ├─ POST {adapters, variables} ───────────►│ Full validation
   │◄─── template + valid: true ─────────────┤
   │                                         │
-  ├─ POST /deploy (fulfilled spec) ────────►│ Deploy
+  ├─ POST /deploy (template as-is) ────────►│ Deploy
 ```
 
 ---
 
-## Deploy Endpoint Changes
+## Server Implementation
 
-`POST /api/v1/deploy` continues to accept a fulfilled `deployment/v1` spec. The spec now may contain knowledge entries with a `binding` field.
-
-When the deploy handler sees `knowledge.db.binding != nil`:
-
-1. **Validates** the binding (store exists, ready, provider match) — same checks as the template endpoint, but authoritative.
-2. **Skips container creation** — no StatefulSet or Service created in the agent namespace for that entry.
-3. **Resolves DNS differently** — `${knowledge.db.host}` resolves to `{store-id}.knlg0-{account-id}.svc.cluster.local` instead of `{agent}-knowledge-db.{agent-ns}.svc.cluster.local`.
-4. **Injects credentials** via cross-namespace secret reference — the agent pod gets `secretKeyRef` entries pointing at the store's credentials secret in the knowledge namespace.
-5. **Records the binding** — inserts into `knowledge_store_bindings` table.
-6. **On undeploy** — deletes the binding row. The store continues running.
-
-### Data model
-
-```sql
-CREATE TABLE public.knowledge_store_bindings (
-    deployment_id      varchar(11)  NOT NULL,
-    knowledge_name     varchar      NOT NULL,
-    knowledge_store_id varchar(11)  NOT NULL,
-    created_at         timestamptz  NOT NULL DEFAULT now(),
-    PRIMARY KEY (deployment_id, knowledge_name),
-    FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
-    FOREIGN KEY (knowledge_store_id) REFERENCES public.knowledge_stores(id) ON DELETE RESTRICT
-);
-```
-
-`ON DELETE RESTRICT` on the store FK enforces the rule that stores with active bindings cannot be deleted (409 Conflict from the store DELETE endpoint).
-
----
-
-## Spec Struct Changes
-
-### New: `TemplateResponse`
+### New structs — `packages/astro-spec/deployment_spec.go`
 
 ```go
+type TemplateRequest struct {
+    Build        string                   `json:"build,omitempty"`
+    DeploymentID string                   `json:"deployment_id,omitempty"`
+    Adapters     []string                 `json:"adapters,omitempty"`
+    Variables    map[string]VariableInput `json:"variables,omitempty"`
+}
+
+type VariableInput struct {
+    Value string `json:"value,omitempty"`
+    Ref   string `json:"ref,omitempty"`
+}
+
 type TemplateResponse struct {
-    Spec       string                    `json:"spec"`                 // "deployment-template/v1"
-    Template   AstroDeploymentSpec       `json:"template"`             // full deployment spec, compatible with /deploy
-    Variables  map[string]Variable       `json:"variables,omitempty"`  // promoted from template for UI convenience
-    Editable   []string                  `json:"editable,omitempty"`   // promoted from template for UI convenience
-    Validation TemplateValidation        `json:"validation"`           // validity + errors
+    Spec       string              `json:"spec"`
+    Template   AstroDeploymentSpec `json:"template"`
+    Variables  map[string]Variable `json:"variables,omitempty"`
+    Editable   []string            `json:"editable,omitempty"`
+    Validation TemplateValidation  `json:"validation"`
+}
+
+type TemplateValidation struct {
+    Valid  bool              `json:"valid"`
+    Errors []ValidationError `json:"errors,omitempty"`
+}
+
+type ValidationError struct {
+    Field   string `json:"field"`
+    Message string `json:"message"`
 }
 ```
 
-`Template` is a standard `AstroDeploymentSpec` — same struct used everywhere, directly postable to `/deploy`. Root-level `Variables` and `Editable` are the same references promoted so the UI doesn't need to dig into `template` for its primary interaction surface.
+### Template shaping — `apps/astro-server/internal/deployment/template.go`
 
-### New: `KnowledgeBinding`
+New function `ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *spec.TemplateResponse`:
 
-```go
-type KnowledgeBinding struct {
-    ARN      string `json:"arn" yaml:"arn"`
-    Provider string `json:"provider" yaml:"provider"`
-    Status   string `json:"status" yaml:"status"`
-}
-```
+1. Deep-copy the base template.
+2. Apply adapter shaping — set `interfaces.adapters`, flip Slack variable optionality.
+3. Fill variable values/refs from the request.
+4. Split the result:
+   - `Template` = base with values filled in, spec set to `deployment/v1`, template-only variable fields (description, datatype, display-as, options, default) stripped, editable removed.
+   - Root `Variables` = full variable map with schema fields intact.
+   - Root `Editable` = the editable fields list.
+5. Run validation, populate `Validation`.
 
-### Modified: `DeploymentKnowledge`
+The existing `GenerateDeploymentTemplate()` is unchanged — it still produces the base template. `ShapeTemplate` is a post-processing step.
 
-```go
-type DeploymentKnowledge struct {
-    // ... all existing fields ...
-    Binding *KnowledgeBinding `json:"binding,omitempty" yaml:"binding,omitempty"`
-}
-```
+### POST handler — `apps/astro-server/handlers/deploy.go`
 
-`Binding` is nil for internal (container-deployed) entries. When non-nil, container fields are zero-valued — the binding is the authority.
+New `PostDeploymentTemplate(...)` handler:
 
-No changes to `AstroSpec` or `astropods.yml` parsing.
+1. Parse JSON body into `TemplateRequest` (empty body = `{}`).
+2. If `req.DeploymentID` is set: look up deployment, verify membership, load stored vars/adapters/schedules. Merge into request (request-level inputs override stored values).
+3. Call `generateTemplate()` with build from request (or deployment, or latest).
+4. Call `deployment.ShapeTemplate(base, &req)`.
+5. Return `TemplateResponse` as JSON (always JSON, no YAML option).
+
+### Route registration — `apps/astro-server/main.go`
+
+Register POST alongside existing GETs. The GETs remain unchanged for backward compatibility.
 
 ---
 
-## Client Flow
+## Client Implementation
 
-### Fresh deploy
+### API method — `apps/astro-client/src/lib/api.ts`
 
-1. User opens deploy page for an agent.
-2. Client POSTs `{}` → gets base template + variable schema + validation errors.
-3. UI renders form from root `variables` (schema), adapter toggles, binding picker per knowledge entry.
-4. User interacts — toggles adapter, selects binding, fills variable. Client re-POSTs with current inputs → server returns reshaped template (with values filled in) + updated validation.
-5. When `validation.valid: true` → deploy button enabled. Client takes `template` as-is and POSTs to `/deploy`. No client-side fulfillment — the server already baked the values in.
+New method and types:
 
-### Redeploy / configure
+```typescript
+interface TemplateRequest {
+  build?: string;
+  deployment_id?: string;
+  adapters?: string[];
+  variables?: Record<string, { value?: string; ref?: string }>;
+}
 
-1. Client POSTs `{ "deployment_id": "dep-xxx" }` → gets prefilled template with stored values already filled into `template`, plus variable schema at root.
-2. Same iterative flow — user changes inputs, client re-POSTs, server returns updated template + validation.
-3. Re-POST includes `deployment_id` (for base prefill) plus the user's overrides.
+interface TemplateResponse {
+  spec: 'deployment-template/v1';
+  template: DeploymentSpec;
+  variables: Record<string, DeploymentVariable>;
+  editable: string[];
+  validation: { valid: boolean; errors: { field: string; message: string }[] };
+}
+```
 
-### Debouncing
+### Migration strategy
 
-Variable value changes are debounced client-side (no re-POST on every keystroke). Structural changes (adapter toggle, binding selection) trigger immediate re-POST since they reshape the template.
+Rather than rewriting the deploy form in one shot, migrate incrementally:
+
+**Phase 1 — Server endpoint only.** Add the POST handler, register the route. GET endpoints unchanged. No client changes. The POST endpoint can be tested independently.
+
+**Phase 2 — Client switches to POST.** Replace the GET fetch with POST. The `useDeployForm` hook re-POSTs when adapters or structural inputs change. Server validation errors surface alongside existing client-side validation. `fulfillTemplate()` is replaced — on submit, use `response.template` directly.
+
+**Phase 3 — Remove client-side fulfillment.** Delete `fulfillTemplate()` and the client-side validation that the server now handles. The client becomes a thin form that reads schema from `response.variables` and submits inputs.
+
+### Deploy form changes — `apps/astro-client/src/components/deploy/useDeployForm.ts`
+
+The hook currently:
+- Fetches template once via GET
+- Manages all form state locally
+- Calls `fulfillTemplate()` on submit to build the `deployment/v1` spec
+
+After migration:
+- Initial fetch = POST `{}` (or `{ deployment_id }` for redeploy)
+- Adapter toggles trigger re-POST (structural change reshapes template)
+- Variable changes are debounced — no re-POST on every keystroke, only on submit or after debounce
+- `response.validation` drives the deploy button enabled state
+- On submit: take `response.template` as-is, POST to `/deploy`
+
+### Settings page — `apps/astro-client/src/pages/DeployedAgentSettings.tsx`
+
+Currently uses `usePrefilledDeploymentTemplate` (GET with deploymentID path param). Switches to POST with `{ deployment_id }` in body.
 
 ---
 
 ## Backward Compatibility
 
-The existing GET endpoints remain registered during a transition period:
+The existing GET endpoints remain registered and return the legacy flat `AstroDeploymentSpec` format (with `variables` and `editable` inline). No behavioral change for existing GET consumers.
 
-- `GET /agents/:account/:name/deployment-template` → internally delegates to the POST handler with empty inputs.
-- `GET /agents/:account/:name/deployment-template/:deploymentID` → delegates with `{ "deployment_id": deploymentID }`.
+- `GET /agents/:account/:name/deployment-template` — unchanged.
+- `GET /agents/:account/:name/deployment-template/:deploymentID` — unchanged.
 
-Both return the legacy flat `AstroDeploymentSpec` format (with `variables` and `editable` inline) for response compatibility. The new structured response (`spec`, `template`, `variables`, `editable`, `validation` at root) is only returned by the POST endpoint.
-
-The deploy endpoint (`POST /deploy`) accepts specs with or without `binding` fields. Specs without bindings deploy exactly as today.
+The deploy endpoint (`POST /deploy`) is unchanged — it still accepts `deployment/v1` specs.
 
 ---
 
 ## What Is Not Built Here
 
-- Multi-store binding (one knowledge entry → multiple stores)
-- Binding to external stores (bring-your-own credentials) — separate spec
-- Model or tool bindings (only knowledge entries support binding)
+- Knowledge store bindings (follow-up — builds on the request/response envelope defined here)
+- Model or tool bindings
 - Real-time validation via WebSocket (POST-based iteration is sufficient)
-- Automatic binding suggestion (e.g. "you have a postgres store, want to use it?")
-- CLI template workflow changes (CLI deploys non-interactively; `--bind` flag passes bindings directly to the deploy endpoint)
+- CLI template workflow changes (CLI deploys non-interactively)
+- Account variable ref validation (requires wiring in the account variable store — can be added incrementally)
