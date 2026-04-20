@@ -50,11 +50,6 @@ function setupTemplateHandler() {
       const tmpl = body.build === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild;
       return HttpResponse.json(wrapTemplateResponse(tmpl, body));
     }),
-    http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
-      const body = (await request.json().catch(() => ({}))) as { build?: string; deployment_id?: string; adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> };
-      const tmpl = body.build === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild;
-      return HttpResponse.json(wrapTemplateResponse(tmpl, body));
-    }),
   );
 }
 

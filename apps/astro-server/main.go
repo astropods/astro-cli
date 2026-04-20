@@ -923,30 +923,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment template generation
-			api.GET(protected, "/agents/:account/:name/deployment-template", "Get deployment template",
-				handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg),
-				oapispec.Tags("Agents"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.QueryParam("build", "Specific build ID (default: latest)", false),
-				oapispec.QueryParam("format", "Response format: json or yaml (default: yaml)", false),
-				oapispec.Desc("Returns a deployment spec template for the agent. Defaults to YAML unless ?format=json."),
-				oapispec.Response(200, nil),
-			)
-			api.GET(protected, "/agents/:account/:name/deployment-template/:deploymentID", "Get pre-filled deployment template",
-				handlers.GetPrefilledDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore),
-				oapispec.Tags("Agents"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.PathParam("deploymentID", "Existing deployment ID to pre-fill from"),
-				oapispec.QueryParam("build", "Specific build ID (default: latest)", false),
-				oapispec.QueryParam("format", "Response format: json or yaml (default: yaml)", false),
-				oapispec.Desc("Returns a deployment spec template pre-filled with values from an existing deployment."),
-				oapispec.Response(200, nil),
-			)
-
 			api.POST(protected, "/agents/:account/:name/deployment-template", "Interactive deployment template",
 				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore),
 				oapispec.Tags("Agents"),

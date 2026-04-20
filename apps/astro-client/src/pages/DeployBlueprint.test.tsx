@@ -93,9 +93,6 @@ describe('DeployBlueprint page', () => {
         http.post('/api/v1/agents/:account/:name/deployment-template', () =>
           HttpResponse.json({ error: 'internal_error', error_description: 'Template service unavailable' }, { status: 500 }),
         ),
-        http.post('/api/v1/agents/:account/:name/deployment-template', () =>
-          HttpResponse.json({ error: 'internal_error', error_description: 'Template service unavailable' }, { status: 500 }),
-        ),
       );
 
       renderInstall();

@@ -2322,8 +2322,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 }
 
 // generateTemplate resolves an agent build and generates a deployment template.
-// Shared by GetDeploymentTemplate and GetPrefilledDeploymentTemplate.
-// buildIDOverride, when non-empty, pins the build instead of reading ?build= or using latest.
+// buildIDOverride, when non-empty, pins the build instead of using latest.
 func generateTemplate(
 	c *gin.Context,
 	log *logger.Logger,
@@ -2411,128 +2410,6 @@ func generateTemplate(
 	}
 
 	return template, true
-}
-
-// respondWithTemplate sends the template as JSON or YAML based on query param.
-func respondWithTemplate(c *gin.Context, template *spec.AstroDeploymentSpec) {
-	if c.Query("format") == "json" {
-		c.JSON(http.StatusOK, template)
-		return
-	}
-	yamlBytes, err := spec.SerializeDeploymentSpec(template)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize template"})
-		return
-	}
-	c.Data(http.StatusOK, "application/yaml", yamlBytes)
-}
-
-// GetDeploymentTemplate returns a handler for generating deployment spec templates.
-// GET /api/v1/agents/:account/:name/deployment-template
-// Optional query: ?build=<build_id>
-func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, "")
-		if !ok {
-			return
-		}
-		respondWithTemplate(c, template)
-	}
-}
-
-// GetPrefilledDeploymentTemplate returns a handler for generating a deployment template
-// pre-filled with values from an existing deployment.
-// GET /api/v1/agents/:account/:name/deployment-template/:deploymentID
-func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		deploymentID := c.Param("deploymentID")
-
-		// Look up existing deployment first so we can pin the build to what is currently deployed.
-		// The config panel must always redeploy the same build — upgrading to a newer build is
-		// only possible via the "new build available" banner.
-		existing, err := deployStore.GetDeploymentByID(deploymentID)
-		if err != nil {
-			log.Error("Failed to get deployment", "error", err, "deployment_id", deploymentID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
-			return
-		}
-		if existing == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-			return
-		}
-
-		// Verify requesting user is a member of deployment's account
-		user, _ := middleware.GetUser(c)
-		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
-			return
-		}
-
-		// Resolve the revision first (if requested) so we can use its build_id for template generation.
-		specJSONToMerge := existing.DeploymentSpecJSON
-		buildIDForTemplate := existing.BuildID
-		revisionRequested := false
-		// Allow the client to override the build ID (e.g. for new-build upgrades from the CTA).
-		if buildOverride := c.Query("build"); buildOverride != "" {
-			buildIDForTemplate = buildOverride
-		}
-		if revisionStr := c.Query("revision"); revisionStr != "" {
-			revNum, convErr := strconv.Atoi(revisionStr)
-			if convErr != nil || revNum < 1 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid revision"})
-				return
-			}
-			rev, revErr := deployStore.GetRevisionByNumber(deploymentID, revNum)
-			if revErr != nil {
-				log.Error("Failed to get revision", "error", revErr, "deployment_id", deploymentID, "revision", revNum)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
-				return
-			}
-			if rev == nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "revision not found"})
-				return
-			}
-			specJSONToMerge = string(rev.SpecJSON)
-			buildIDForTemplate = rev.BuildID
-			revisionRequested = true
-		}
-
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDForTemplate)
-		if !ok {
-			return
-		}
-
-		// Get stored variables
-		storedVars, err := deployStore.GetDeploymentVariables(deploymentID)
-		if err != nil {
-			log.Error("Failed to get deployment variables", "error", err, "deployment_id", deploymentID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
-			return
-		}
-
-		// Merge stored values using shared helper
-		prefillExisting := existing
-		// For revision requests, create a temporary existing with the revision's spec JSON
-		// so the helper merges from the revision instead of the current deployment.
-		if revisionRequested && specJSONToMerge != existing.DeploymentSpecJSON {
-			revExisting := *existing
-			revExisting.DeploymentSpecJSON = specJSONToMerge
-			prefillExisting = &revExisting
-		}
-		mergeDeploymentPrefill(template, prefillExisting, storedVars, accountStore)
-
-		// For historical revisions, also override display name from the stored spec.
-		if revisionRequested && specJSONToMerge != "" {
-			var storedSpec spec.AstroDeploymentSpec
-			if jsonErr := json.Unmarshal([]byte(specJSONToMerge), &storedSpec); jsonErr == nil {
-				if storedSpec.Target.DisplayName != "" {
-					template.Target.DisplayName = storedSpec.Target.DisplayName
-				}
-			}
-		}
-
-		respondWithTemplate(c, template)
-	}
 }
 
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
@@ -2658,7 +2535,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 }
 
 // mergeDeploymentPrefill merges stored deployment values into a template.
-// Shared between PostDeploymentTemplate and GetPrefilledDeploymentTemplate.
+// Used by PostDeploymentTemplate when deployment_id is provided.
 func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, storedVars []deploymentstore.Variable, accountStore *account.AccountStore) {
 	template.Target.DeploymentID = existing.ID
 	template.Target.DisplayName = existing.DisplayName
