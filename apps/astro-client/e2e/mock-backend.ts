@@ -556,10 +556,110 @@ Bun.serve({
     const templateMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment-template$/);
     if (templateMatch) {
       const [, accountName, agentName] = templateMatch;
+
+      // POST: interactive template endpoint — wraps response in TemplateResponse envelope
+      if (request.method === "POST") {
+        const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+        const deploymentId = body.deployment_id as string | undefined;
+
+        // Resolve base template
+        let flat: Record<string, unknown> | null = null;
+        if (accountName === ACCOUNT && agentName in templatesByAgent) {
+          flat = structuredClone(templatesByAgent[agentName as keyof typeof templatesByAgent]) as Record<string, unknown>;
+        } else if (accountName === ACCOUNT && createdBlueprints.has(agentName)) {
+          flat = {
+            spec: "deployment-template/v1",
+            source: { account: ACCOUNT, name: agentName, build: "build-new-1", registry: "registry.example.com" },
+            target: { runtime: "kubernetes" },
+            agent: { image: `registry.example.com/${ACCOUNT}/${agentName}:build-new-1`, endpoints: { http: { port: 8080 } } },
+            interfaces: { adapters: ["web"] },
+            variables: { ...baseVariables },
+            editable: ["variables.*.value", "interfaces.adapters"],
+          };
+        }
+        if (!flat) return json({ error: "not_found" }, 404);
+
+        // Prefill from stored deployment when deployment_id is provided
+        if (deploymentId) {
+          const storedPayload = storedPayloads[deploymentId] as Record<string, unknown> | undefined;
+          if (storedPayload) {
+            flat.target = { ...(flat.target as Record<string, unknown>), deployment_id: deploymentId, display_name: agentName };
+            const storedVars = storedPayload.variables as Record<string, Record<string, unknown>> | undefined;
+            if (storedVars && flat.variables) {
+              const tmplVars = flat.variables as Record<string, Record<string, unknown>>;
+              for (const [key, sv] of Object.entries(storedVars)) {
+                if (tmplVars[key] && sv.value !== undefined) {
+                  tmplVars[key] = { ...tmplVars[key], value: sv.value };
+                }
+              }
+            }
+            const storedIngestion = storedPayload.ingestion as Record<string, Record<string, unknown>> | undefined;
+            if (storedIngestion && flat.ingestion) {
+              const tmplIngestion = flat.ingestion as Record<string, Record<string, unknown>>;
+              for (const [name, si] of Object.entries(storedIngestion)) {
+                if (tmplIngestion[name]) {
+                  const trigger = si.trigger as Record<string, unknown> | undefined;
+                  const tmplTrigger = (tmplIngestion[name] as Record<string, unknown>).trigger as Record<string, unknown>;
+                  if (trigger?.schedule) tmplTrigger.schedule = trigger.schedule;
+                }
+              }
+            }
+            const storedInterfaces = storedPayload.interfaces as Record<string, unknown> | undefined;
+            if (storedInterfaces?.adapters && flat.interfaces) {
+              (flat.interfaces as Record<string, unknown>).adapters = storedInterfaces.adapters;
+            }
+          } else {
+            const staticTemplate = prefilledTemplatesByDeployment[deploymentId as keyof typeof prefilledTemplatesByDeployment];
+            if (staticTemplate) {
+              flat = structuredClone(staticTemplate) as Record<string, unknown>;
+            }
+          }
+        }
+
+        // Merge request-level variable inputs
+        const reqVars = body.variables as Record<string, Record<string, unknown>> | undefined;
+        if (reqVars && flat.variables) {
+          const tmplVars = flat.variables as Record<string, Record<string, unknown>>;
+          for (const [key, input] of Object.entries(reqVars)) {
+            if (tmplVars[key]) {
+              if (input.value) { tmplVars[key] = { ...tmplVars[key], value: input.value, ref: undefined }; }
+              else if (input.ref) { tmplVars[key] = { ...tmplVars[key], ref: input.ref, value: undefined }; }
+            }
+          }
+        }
+
+        // Merge request-level adapters
+        const reqAdapters = body.adapters as string[] | undefined;
+        if (reqAdapters && flat.interfaces) {
+          (flat.interfaces as Record<string, unknown>).adapters = reqAdapters;
+        }
+
+        // Build TemplateResponse envelope
+        const { editable, variables, spec: _spec, ...templateRest } = flat;
+        const templateVars: Record<string, unknown> = {};
+        if (variables) {
+          for (const [k, v] of Object.entries(variables as Record<string, Record<string, unknown>>)) {
+            templateVars[k] = { value: v.value, ref: v.ref, targets: v.targets, secret: v.secret, optional: v.optional };
+          }
+        }
+        const errors = variables
+          ? Object.entries(variables as Record<string, Record<string, unknown>>)
+              .filter(([, v]) => !v.optional && !v.value && !v.ref)
+              .map(([key]) => ({ field: `variables.${key}`, message: "required variable is empty" }))
+          : [];
+        return json({
+          spec: "deployment-template/v1",
+          template: { ...templateRest, spec: "deployment/v1", variables: templateVars },
+          variables: variables ?? {},
+          editable: editable ?? [],
+          validation: { valid: errors.length === 0, errors },
+        });
+      }
+
+      // GET: legacy flat template (kept for backward compat during transition)
       if (accountName === ACCOUNT && agentName in templatesByAgent) {
         return json(templatesByAgent[agentName as keyof typeof templatesByAgent]);
       }
-      // Fallback template for newly created blueprints
       if (accountName === ACCOUNT && createdBlueprints.has(agentName)) {
         return json({
           spec: "deployment-template/v1",
