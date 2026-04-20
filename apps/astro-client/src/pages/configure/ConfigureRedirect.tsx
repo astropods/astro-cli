@@ -1,6 +1,10 @@
-import { Navigate, useParams } from "react-router";
+import { redirect } from "react-router";
+import type { Route } from "./+types/ConfigureRedirect";
+
+export async function loader({ params }: Route.LoaderArgs) {
+  return redirect(`/${params.account}/agents/${params.deploymentId}/configure/deployment`);
+}
 
 export default function ConfigureRedirect() {
-  const { account, deploymentId } = useParams<{ account: string; deploymentId: string }>();
-  return <Navigate to={`/${account}/agents/${deploymentId}/configure/deployment`} replace />;
+  return null;
 }

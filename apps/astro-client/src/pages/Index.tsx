@@ -1,5 +1,9 @@
-import { Navigate } from "react-router";
+import { redirect } from "react-router";
+
+export async function loader() {
+  return redirect("/blueprints");
+}
 
 export default function RedirectForIndex() {
-  return <Navigate to="/blueprints" replace />;
+  return null;
 }

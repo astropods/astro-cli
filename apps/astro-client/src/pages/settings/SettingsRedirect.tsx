@@ -1,5 +1,9 @@
-import { Navigate } from "react-router";
+import { redirect } from "react-router";
+
+export async function loader() {
+  return redirect("/settings/account");
+}
 
 export default function SettingsRedirect() {
-  return <Navigate to="/settings/account" replace />;
+  return null;
 }
