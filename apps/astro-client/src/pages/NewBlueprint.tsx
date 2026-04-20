@@ -17,18 +17,19 @@ import {
 import { cn } from "@/lib/utils";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
-import { Camera } from "lucide-react";
+import { Camera, Check } from "lucide-react";
 import {
   ArrowPathIcon,
   BuildingOffice2Icon,
-  CommandLineIcon,
   CheckCircleIcon,
+  CommandLineIcon,
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Check, Globe, LockKeyhole } from "lucide-react";
+import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
-import { Tag } from "@/components/Tag";
+import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
+import { LinkConfirmDialog } from "@/components/new-blueprint/LinkConfirmDialog";
 
 export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
 
@@ -116,6 +117,7 @@ function NewBlueprintContent() {
   const [avatarFile, setAvatarFile] = useState<Blob | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [showLinkConfirm, setShowLinkConfirm] = useState(false);
   const slug = useMemo(() => slugify(name), [name]);
 
   // Source step state
@@ -129,6 +131,7 @@ function NewBlueprintContent() {
   const accountConnect = useGitHubAccountConnect(selectedOrg);
   const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected });
   const accountConnections = useGitHubAccountConnections(selectedOrg, { enabled: githubConnected });
+  const githubLogin = accountRepos.data?.repos[0]?.full_name.split("/")[0];
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
@@ -200,6 +203,26 @@ function NewBlueprintContent() {
     setActiveStep("source");
   }, []);
 
+  const handleSelectGitHub = useCallback(() => {
+    dispatch({ type: "SET_SOURCE_PATH", path: "import" });
+  }, []);
+
+  const handleSelectLocal = useCallback(() => {
+    dispatch({ type: "SET_SOURCE_PATH", path: "fresh" });
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setActiveStep("setup");
+  }, []);
+
+  const handleSelectRepo = useCallback((repo: GitHubRepo | null) => {
+    dispatch({ type: "SELECT_REPO", repo });
+  }, []);
+
+  const handleSelectBranch = useCallback((branch: string) => {
+    dispatch({ type: "SELECT_BRANCH", branch });
+  }, []);
+
   const handleGitHubConnect = useCallback(async () => {
     try {
       sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ name, selectedOrg, visibility }));
@@ -267,6 +290,19 @@ function NewBlueprintContent() {
     }
   }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan, rebuild]);
 
+  const handleCreateOrConfirm = useCallback(() => {
+    if (sourcePath === "import" && selectedRepo) {
+      setShowLinkConfirm(true);
+    } else {
+      handlePublish();
+    }
+  }, [sourcePath, selectedRepo, handlePublish]);
+
+  const handleConfirmAndPublish = useCallback(() => {
+    setShowLinkConfirm(false);
+    handlePublish();
+  }, [handlePublish]);
+
   const avatarPreview = avatarPreviewUrl ? (
     <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
   ) : (
@@ -304,7 +340,7 @@ function NewBlueprintContent() {
             style={{
               width: `${STEPS.length * 100}%`,
               transform: `translateX(-${activeStepIndex * (100 / STEPS.length)}%)`,
-              transition: 'transform 0.55s cubic-bezier(0.16,1,0.3,1)',
+              transition: 'transform 0.3s ease-out',
             }}
           >
           {STEPS.map((step, i) => {
@@ -313,65 +349,49 @@ function NewBlueprintContent() {
                 key={step.id}
                 style={{ width: `${100 / STEPS.length}%` }}
               >
-                <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col min-h-[460px]">
+                <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col" style={{ minHeight: 460 }}>
 
                   {/* ── Source ── */}
                   {step.id === "source" && i <= activeStepIndex && (
                     <div className="flex flex-col flex-1">
-                      <div className="flex-1 px-6 pt-6 pb-4 overflow-y-auto">
+
+                      {/* Fixed header */}
+                      <div className="px-6 pt-6 pb-4 shrink-0">
                         <p className="text-sm font-semibold mb-0.5">Starting point</p>
-                        <p className="text-xs text-muted-foreground mb-5">Start from scratch or bring in existing code.</p>
-                        <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground">Start from scratch or bring in existing code.</p>
+                      </div>
+                      <div className="border-b border-border shrink-0" />
 
-                          {/* Set up locally */}
-                          <button
-                            type="button"
-                            onClick={() => dispatch({ type: "SET_SOURCE_PATH", path: "fresh" })}
-                            className={cn(
-                              "flex w-full cursor-pointer items-start gap-4 rounded-lg border p-4 text-left transition-all",
-                              sourcePath === "fresh" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
-                            )}
-                          >
-                            <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
-                              {sourcePath === "fresh" && <div className="size-2.5 rounded-full bg-primary" />}
-                            </div>
-                            <CommandLineIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
-                            <div className="flex-1">
-                              <h3 className="text-sm font-semibold mb-0.5">Set up locally</h3>
-                              <p className="text-xs leading-relaxed text-muted-foreground">
-                                Scaffold a new agent with the Astro CLI and build it locally.
-                              </p>
-                            </div>
-                          </button>
+                      {/* Content — no overflow-y-auto so inline dropdowns expand the card */}
+                      <div className="flex-1">
+                            <div className="px-6 py-4 space-y-3">
 
-                          {/* Set up with GitHub */}
-                          <div className={cn(
-                            "w-full rounded-lg border transition-all",
-                            sourcePath === "import" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card"
-                          )}>
-                            <button
-                              type="button"
-                              onClick={() => dispatch({ type: "SET_SOURCE_PATH", path: "import" })}
-                              className="w-full cursor-pointer text-left p-4"
-                            >
-                              <div className="flex items-start gap-4">
-                                <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
-                                  {sourcePath === "import" && <div className="size-2.5 rounded-full bg-primary" />}
-                                </div>
-                                <GitHubIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
-                                <div className="flex-1">
-                                  <h3 className="text-sm font-semibold mb-0.5">Set up with GitHub</h3>
-                                  <p className="text-xs leading-relaxed text-muted-foreground">
-                                    Connect a repo. Any git push will automatically build and push your agent.
-                                  </p>
-                                </div>
-                              </div>
-                            </button>
+                              {/* Set up with GitHub */}
+                              <div className={cn(
+                                "w-full rounded-lg border transition-all",
+                                sourcePath === "import" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card"
+                              )}>
+                                <button
+                                  type="button"
+                                  onClick={handleSelectGitHub}
+                                  className="w-full cursor-pointer text-left p-4"
+                                >
+                                  <div className="flex items-start gap-4">
+                                    <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
+                                      {sourcePath === "import" && <div className="size-2.5 rounded-full bg-primary" />}
+                                    </div>
+                                    <GitHubIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
+                                    <div className="flex-1">
+                                      <h3 className="text-sm font-semibold mb-0.5">Set up with GitHub</h3>
+                                      <p className="text-xs leading-relaxed text-muted-foreground">
+                                        Connect a repo. Any git push will automatically build and push your agent.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </button>
 
-                            {sourcePath === "import" && (
-                              <div className="border-t border-border px-4 pb-4 pt-3">
-                                {!githubConnected ? (
-                                  <div className="space-y-2">
+                                {sourcePath === "import" && !githubConnected && (
+                                  <div className="border-t border-border px-4 pb-4 pt-3 space-y-2">
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -389,81 +409,107 @@ function NewBlueprintContent() {
                                       <p className="text-xs text-destructive">Failed to connect. Please try again.</p>
                                     )}
                                   </div>
-                                ) : (
-                                  <div className="space-y-3">
-                                    <p className="inline-flex items-center gap-1.5 text-xs text-foreground">
-                                      <CheckCircleIcon className="size-3.5 text-green-700" />
-                                      {accountRepos.data?.repos[0]?.full_name.split("/")[0] ?? "GitHub"} connected
-                                    </p>
-                                    <Select
-                                      value={selectedRepo?.full_name ?? ""}
-                                      onValueChange={(value) => {
-                                        const repo = accountRepos.data?.repos.find(r => r.full_name === value) ?? null;
-                                        dispatch({ type: "SELECT_REPO", repo });
-                                      }}
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue placeholder={accountRepos.isLoading ? "Loading repositories..." : "Select a repository"} />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {accountRepos.data?.repos.map((repo) => {
-                                          const usedBy = accountConnections.data?.connections.find(c => c.repo_full_name === repo.full_name);
-                                          return (
-                                            <SelectItem key={repo.full_name} value={repo.full_name} disabled={!!usedBy}>
-                                              <span className="flex items-center gap-2">
-                                                <GitHubIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                                                {repo.full_name.split("/")[1]}
-                                                {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
-                                                {usedBy && <span className="text-[10px] text-muted-foreground">linked to {usedBy.agent_name}</span>}
-                                              </span>
-                                            </SelectItem>
-                                          );
-                                        })}
-                                      </SelectContent>
-                                    </Select>
-                                    {selectedRepo && (
-                                      <Select value={selectedBranch} onValueChange={(branch) => dispatch({ type: "SELECT_BRANCH", branch })}>
-                                        <SelectTrigger>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="main">main</SelectItem>
-                                          <SelectItem value="master">master</SelectItem>
-                                          {selectedRepo.default_branch && !["main", "master"].includes(selectedRepo.default_branch) && (
-                                            <SelectItem value={selectedRepo.default_branch}>
-                                              {selectedRepo.default_branch}
-                                            </SelectItem>
-                                          )}
-                                        </SelectContent>
-                                      </Select>
-                                    )}
+                                )}
+
+                                {sourcePath === "import" && (
+                                  <div className={cn(
+                                    "grid transition-[grid-template-rows] duration-200 ease-out",
+                                    githubConnected ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                                  )}>
+                                    <div className="overflow-hidden">
+                                      <div className="border-t border-border">
+                                        {!githubLogin ? (
+                                          <div className="flex items-center gap-1.5 px-4 py-3 text-xs text-muted-foreground">
+                                            <ArrowPathIcon className="size-3.5 animate-spin" />
+                                            Loading...
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
+                                              <CheckCircleIcon className="size-3.5 text-green-700" />
+                                              {githubLogin} connected
+                                            </p>
+                                            <RepoPicker
+                                              githubLogin={githubLogin}
+                                              selectedRepo={selectedRepo}
+                                              selectedBranch={selectedBranch}
+                                              isLoadingRepos={accountRepos.isLoading}
+                                              repos={accountRepos.data?.repos ?? []}
+                                              connections={accountConnections.data?.connections}
+                                              onSelectRepo={handleSelectRepo}
+                                              onSelectBranch={handleSelectBranch}
+                                            />
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </div>
-                            )}
-                          </div>
 
+                              {/* Set up locally */}
+                              <button
+                                type="button"
+                                onClick={handleSelectLocal}
+                                className={cn(
+                                  "flex w-full cursor-pointer items-start gap-4 rounded-lg border p-4 text-left transition-all",
+                                  sourcePath === "fresh" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
+                                )}
+                              >
+                                <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
+                                  {sourcePath === "fresh" && <div className="size-2.5 rounded-full bg-primary" />}
+                                </div>
+                                <CommandLineIcon className="mt-0.5 size-5 shrink-0 text-foreground" />
+                                <div className="flex-1">
+                                  <h3 className="text-sm font-semibold mb-0.5">Set up locally</h3>
+                                  <p className="text-xs leading-relaxed text-muted-foreground">
+                                    Scaffold a new agent with the Astro CLI and build it locally.
+                                  </p>
+                                </div>
+                              </button>
+
+                            </div>
+                      </div>
+
+                      {/* Fixed footer */}
+                      <div className="border-t border-border px-6 py-4 flex items-center justify-between shrink-0">
+                        <Button variant="outline" size="sm" onClick={handleBack}>
+                          Back
+                        </Button>
+                        <div className="flex items-center gap-3">
+                          <Button
+                            size="sm"
+                            onClick={handleCreateOrConfirm}
+                            disabled={
+                              isCreatingBlueprint ||
+                              !sourcePath ||
+                              (sourcePath === "import" && (!githubConnected || !selectedRepo))
+                            }
+                          >
+                            {isCreatingBlueprint ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <ArrowPathIcon className="size-4 animate-spin" />
+                                Creating...
+                              </span>
+                            ) : "Create blueprint"}
+                          </Button>
                         </div>
                       </div>
-                      <div className="border-t border-border px-6 py-4 flex items-center justify-between">
-                        <Button variant="outline" size="sm" onClick={() => setActiveStep("setup")}>Back</Button>
-                        <Button
-                          size="sm"
-                          onClick={handlePublish}
-                          disabled={
-                            isCreatingBlueprint ||
-                            !sourcePath ||
-                            (sourcePath === "import" && (!githubConnected || !selectedRepo))
-                          }
-                        >
-                          {isCreatingBlueprint ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <ArrowPathIcon className="size-4 animate-spin" />
-                              Creating...
-                            </span>
-                          ) : "Create blueprint"}
-                        </Button>
-                      </div>
+
+                      <LinkConfirmDialog
+                        open={showLinkConfirm}
+                        onOpenChange={setShowLinkConfirm}
+                        avatarPreviewUrl={avatarPreviewUrl}
+                        slug={slug}
+                        name={name}
+                        selectedOrg={selectedOrg}
+                        selectedRepo={selectedRepo}
+                        selectedBranch={selectedBranch}
+                        visibility={visibility}
+                        isCreatingBlueprint={isCreatingBlueprint}
+                        onConfirm={handleConfirmAndPublish}
+                      />
+
                     </div>
                   )}
 

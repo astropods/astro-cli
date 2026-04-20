@@ -34,31 +34,31 @@ function buildEye(
 
   switch (style) {
     case "dots":
-      return `<circle cx="${ex}" cy="${ey}" r="${r}" fill="${color}" />`;
+      return `<circle class="dp-eye" cx="${ex}" cy="${ey}" r="${r}" fill="${color}" />`;
 
     case "rings":
-      return `<circle cx="${ex}" cy="${ey}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" />`;
+      return `<circle class="dp-eye" cx="${ex}" cy="${ey}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" />`;
 
     case "slits":
-      return `<line x1="${ex}" y1="${ey - r}" x2="${ex}" y2="${ey + r}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" />`;
+      return `<line class="dp-eye" x1="${ex}" y1="${ey - r}" x2="${ex}" y2="${ey + r}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" />`;
 
     case "triangles": {
       const h = r * 1.2;
-      return `<polygon points="${ex},${ey - h} ${ex - h},${ey + h * 0.6} ${ex + h},${ey + h * 0.6}" fill="${color}" />`;
+      return `<polygon class="dp-eye" points="${ex},${ey - h} ${ex - h},${ey + h * 0.6} ${ex + h},${ey + h * 0.6}" fill="${color}" />`;
     }
 
     case "dashes":
-      return `<line x1="${ex - r}" y1="${ey}" x2="${ex + r}" y2="${ey}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" />`;
+      return `<line class="dp-eye" x1="${ex - r}" y1="${ey}" x2="${ex + r}" y2="${ey}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" />`;
 
     case "squares":
-      return `<rect x="${ex - r}" y="${ey - r}" width="${r * 2}" height="${r * 2}" fill="${color}" />`;
+      return `<rect class="dp-eye" x="${ex - r}" y="${ey - r}" width="${r * 2}" height="${r * 2}" fill="${color}" />`;
 
     case "semicircles":
-      return `<path d="M ${ex - r} ${ey} A ${r} ${r} 0 0 1 ${ex + r} ${ey}" fill="${color}" />`;
+      return `<path class="dp-eye" d="M ${ex - r} ${ey} A ${r} ${r} 0 0 1 ${ex + r} ${ey}" fill="${color}" />`;
 
     case "diamonds": {
       const d = r;
-      return `<polygon points="${ex},${ey - d} ${ex + d},${ey} ${ex},${ey + d} ${ex - d},${ey}" fill="${color}" />`;
+      return `<polygon class="dp-eye" points="${ex},${ey - d} ${ex + d},${ey} ${ex},${ey + d} ${ex - d},${ey}" fill="${color}" />`;
     }
   }
 }

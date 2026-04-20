@@ -33,19 +33,18 @@ async function goToSourceStep(page: Parameters<Parameters<typeof test>[1]>[0], n
   await expect(page.getByText(/starting point/i)).toBeVisible({ timeout: 10_000 });
 }
 
-/** Connect GitHub and wait for the repo selector to be ready. */
+/** Connect GitHub and wait for the repo search input to be ready. */
 async function connectGitHub(page: Parameters<Parameters<typeof test>[1]>[0]) {
   await page.getByRole("button", { name: /connect github/i }).click();
   await expect(page.getByText(/\bconnected\b/i).first()).toBeVisible({ timeout: 15_000 });
-  // Wait for the combobox to transition from "Loading repositories..." to "Select a repository"
-  await expect(page.getByRole("combobox").filter({ hasText: /select a repository/i })).toBeVisible({ timeout: 15_000 });
+  // Search input appears inline once githubLogin is available
+  await expect(page.getByPlaceholder(/search repositories/i)).toBeVisible({ timeout: 15_000 });
 }
 
-/** Open the repo combobox and wait for Radix option items to mount in the portal. */
+/** Type in the search box to open the repo dropdown and wait for results to appear. */
 async function openRepoPicker(page: Parameters<Parameters<typeof test>[1]>[0]) {
-  await page.getByRole("combobox").filter({ hasText: /select a repository/i }).click();
-  // SelectItem renders with role="option"; wait for at least one to mount
-  await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10_000 });
+  await page.getByPlaceholder(/search repositories/i).fill("repo");
+  await expect(page.getByRole("button", { name: /my-repo/ }).first()).toBeVisible({ timeout: 10_000 });
 }
 
 // ─── Test 1: Local setup flow ─────────────────────────────────────────────────
@@ -83,13 +82,18 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
   await connectGitHub(page);
   await openRepoPicker(page);
 
-  await page.getByRole("option", { name: /my-repo/ }).click();
+  await page.getByRole("button", { name: /my-repo/ }).click();
   await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
+  // First click opens the link confirmation dialog
+  await page.getByRole("button", { name: /create blueprint/i }).click();
+  await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });
+
+  // Confirm in the dialog to send the actual request
   const createReq = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/api/v1/agents/${ACCOUNT}`),
   );
-  await page.getByRole("button", { name: /create blueprint/i }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /create blueprint/i }).click();
   await createReq;
 
   await expect(page.getByText(/initializing mygithub/i)).toBeVisible({ timeout: 10_000 });
@@ -122,11 +126,11 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
   await openRepoPicker(page);
 
   // testuser/my-repo should be present but disabled, with "linked to" hint
-  await expect(page.getByRole("option", { name: /my-repo/ })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("button", { name: /my-repo/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).toBeVisible({ timeout: 5_000 });
 
   // testuser/another-repo should be selectable (not disabled)
-  await expect(page.getByRole("option", { name: /another-repo/ })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("button", { name: /another-repo/ })).toBeVisible({ timeout: 5_000 });
 });
 
 // ─── Test 4: Archiving a blueprint releases its repo ─────────────────────────
@@ -186,6 +190,6 @@ test.skip("archiving a blueprint releases its GitHub repo so it can be reused", 
   await connectGitHub(page);
   await openRepoPicker(page);
 
-  await expect(page.getByRole("option", { name: /testuser\/my-repo/ })).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("button", { name: /my-repo/ })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText(/linked to code-reviewer/i)).not.toBeVisible();
 });

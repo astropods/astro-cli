@@ -91,6 +91,35 @@ body {
   }
 }
 
+@keyframes dp-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+.dp-float {
+  animation: dp-float 2.6s ease-in-out infinite;
+}
+
+@keyframes dp-eye-blink {
+  0%, 85%, 100% { transform: scaleY(1); }
+  92% { transform: scaleY(0.05); }
+}
+
+.dp-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dp-eye-blink 4s ease-in-out infinite;
+}
+
+@keyframes dp-dot-fade {
+  0%, 60%, 100% { opacity: 0; }
+  30% { opacity: 1; }
+}
+
+.dp-dot-1 { animation: dp-dot-fade 1.4s ease-in-out infinite; }
+.dp-dot-2 { animation: dp-dot-fade 1.4s ease-in-out 0.23s infinite; }
+.dp-dot-3 { animation: dp-dot-fade 1.4s ease-in-out 0.46s infinite; }
+
 @keyframes dp-slot-in {
   0% {
     transform: translateY(110%);
