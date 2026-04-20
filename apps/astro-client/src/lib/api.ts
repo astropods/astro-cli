@@ -108,10 +108,10 @@ export class ApiRequestError extends Error {
   missing_variables?: string[];
 
   constructor(apiError: ApiError, status: number) {
-    super(apiError.error_description || apiError.details || `Request failed with status ${status}`);
+    super(apiError.error_description || apiError.details || apiError.error || `Request failed with status ${status}`);
     this.name = 'ApiRequestError';
     this.status = status;
-    this.code = apiError.code;
+    this.code = apiError.error ?? apiError.code;
     this.details = apiError.details;
     this.validation_errors = apiError.validation_errors;
     this.missing_variables = apiError.missing_variables;

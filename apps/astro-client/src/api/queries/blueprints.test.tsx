@@ -33,7 +33,7 @@ describe('useBlueprints', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+    expect(result.current.error).toMatchObject({ code: 'internal_error' });
   });
 });
 
@@ -68,7 +68,7 @@ describe('useBlueprint', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'not_found' });
+    expect(result.current.error).toMatchObject({ code: 'not_found' });
   });
 
   // Regression: if ListDeployments returns a dotted name like
@@ -82,7 +82,7 @@ describe('useBlueprint', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'not_found' });
+    expect(result.current.error).toMatchObject({ code: 'not_found' });
   });
 });
 
@@ -113,7 +113,7 @@ describe('usePrefilledDeploymentTemplate', () => {
     );
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.error).toMatchObject({ error: 'not_found' });
+    expect(result.current.error).toMatchObject({ code: 'not_found' });
   });
 });
 
@@ -338,7 +338,7 @@ describe('useCreateBlueprint', () => {
     result.current.mutate({ name: 'my-new-agent' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+    expect(result.current.error).toMatchObject({ code: 'internal_error' });
   });
 });
 

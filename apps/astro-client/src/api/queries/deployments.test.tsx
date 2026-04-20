@@ -33,7 +33,7 @@ describe('useDeployments', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+    expect(result.current.error).toMatchObject({ code: 'internal_error' });
   });
 });
 
@@ -115,7 +115,7 @@ describe('useDeployment', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'not_found' });
+    expect(result.current.error).toMatchObject({ code: 'not_found' });
   });
 
   it('returns an error when the server fails', async () => {
@@ -130,7 +130,7 @@ describe('useDeployment', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+    expect(result.current.error).toMatchObject({ code: 'internal_error' });
   });
 
   it('does not fetch when id is empty', () => {
@@ -166,7 +166,7 @@ describe('useDeploymentEvents', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+    expect(result.current.error).toMatchObject({ code: 'internal_error' });
   });
 
   it('does not fetch when disabled', () => {

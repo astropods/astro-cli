@@ -37,7 +37,7 @@ describe('useSubmitFeedback', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'failed to submit feedback' });
+    expect(result.current.error).toMatchObject({ code: 'failed to submit feedback' });
   });
 
   it('surfaces rate limit error', async () => {
@@ -58,7 +58,7 @@ describe('useSubmitFeedback', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(result.current.error).toMatchObject({
-      error: 'too many feedback submissions, please try again later',
+      code: 'too many feedback submissions, please try again later',
     });
   });
 
@@ -76,6 +76,6 @@ describe('useSubmitFeedback', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ error: 'message is required' });
+    expect(result.current.error).toMatchObject({ code: 'message is required' });
   });
 });
