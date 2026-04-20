@@ -419,6 +419,14 @@ class ApiClient {
     );
   }
 
+  // Interactive POST deployment template: accepts deploy-time inputs, shapes template, returns validation.
+  async postDeploymentTemplate(account: string, name: string, body: TemplateRequest = {}): Promise<TemplateResponse> {
+    return this.request<TemplateResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
+
   // Get deployment template pre-filled with values from an existing deployment.
   // Pass revision to prefill from a specific historical revision's spec.
   async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, revision?: number, build?: string): Promise<DeploymentTemplate> {
@@ -1100,6 +1108,33 @@ export interface DeploymentTemplate {
 export type DeploymentSpec = Omit<DeploymentTemplate, 'spec' | 'editable'> & {
   spec: 'deployment/v1';
 };
+
+// --- Interactive POST template types ---
+
+export interface TemplateRequest {
+  build?: string;
+  deployment_id?: string;
+  adapters?: string[];
+  variables?: Record<string, { value?: string; ref?: string }>;
+}
+
+export interface TemplateResponse {
+  spec: 'deployment-template/v1';
+  template: DeploymentSpec;
+  variables: Record<string, DeploymentVariable>;
+  editable: string[];
+  validation: TemplateValidation;
+}
+
+export interface TemplateValidation {
+  valid: boolean;
+  errors: ValidationError[];
+}
+
+export interface ValidationError {
+  field: string;
+  message: string;
+}
 
 export interface ResourceStatus {
   kind: string;

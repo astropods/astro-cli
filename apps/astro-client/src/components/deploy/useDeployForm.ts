@@ -1,9 +1,9 @@
 import { useState, useMemo } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
-import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
+import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
@@ -46,6 +46,10 @@ export interface UseDeployFormOptions {
    * is derived from the existing deployment.
    */
   skipTemplateFetch?: boolean;
+  /** Existing deployment ID for prefill (redeploy/configure). */
+  deploymentId?: string;
+  /** Pin to a specific build ID (e.g. for new-build upgrades). */
+  build?: string;
 }
 
 // --- Adapter configuration (must match server) ---
@@ -107,6 +111,19 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
     options: v.options,
     defaultValue: v.default,
   };
+}
+
+/**
+ * Converts a POST TemplateResponse into the legacy DeploymentTemplate shape
+ * so existing form logic (variable rendering, adapter fields) works unchanged.
+ */
+function toDeploymentTemplate(resp: TemplateResponse): DeploymentTemplate {
+  return {
+    ...resp.template,
+    spec: 'deployment-template/v1',
+    variables: resp.variables,
+    editable: resp.editable,
+  } as DeploymentTemplate;
 }
 
 const hasTextValue = (value: string | undefined): boolean => !!value?.trim();
@@ -172,76 +189,6 @@ export function slugToTitle(slug: string): string {
     .join(" ");
 }
 
-function fulfillTemplate(
-  template: DeploymentTemplate,
-  variableValues: Record<string, string>,
-  selectedAdapters: string[],
-  adapterVariableDefs: Record<string, [string, VariableDisplay][]>,
-  targetAccount: string,
-  deployName: string,
-  ingestionSchedules: Record<string, string>,
-  webAuthEnabled: boolean,
-): DeploymentSpec {
-  // Destructure out editable (template-only) so it is not present in the fulfilled spec
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
-  const { editable: _editable, ...rest } = template;
-
-  // Rebuild variables: keep only runtime fields, fill in user-supplied value or vault ref
-  const variables: Record<string, DeploymentVariable> = rest.variables
-    ? Object.fromEntries(
-        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => [
-          key,
-          { ...resolveValue(variableValues[key] ?? ''), targets, secret, optional },
-        ]),
-      )
-    : {};
-  // Inject adapter credentials not already declared in template variables
-  for (const adapterId of selectedAdapters) {
-    const creds = adapterVariableDefs[adapterId] ?? [];
-    for (const [key, cred] of creds) {
-      if (!(key in variables)) {
-        variables[key] = {
-          ...resolveValue(variableValues[key] ?? ''),
-          targets: [`interface.${adapterId}`],
-          secret: cred.secret ?? false,
-          optional: cred.optional ?? false,
-        };
-      }
-    }
-  }
-
-  // SLACK_CONFIG is stored as three virtual fields in the form; serialize them back
-  if (SLACK_CONFIG_KEY in variables) {
-    variables[SLACK_CONFIG_KEY] = {
-      ...variables[SLACK_CONFIG_KEY],
-      value: serializeSlackConfig(variableValues),
-    };
-  }
-
-  // Merge user-supplied cron expressions into ingestion schedule triggers
-  const ingestion = rest.ingestion
-    ? Object.fromEntries(
-        Object.entries(rest.ingestion).map(([name, ing]) => {
-          if (ing.trigger?.type === "schedule" && name in ingestionSchedules) {
-            return [name, { ...ing, trigger: { ...ing.trigger, schedule: ingestionSchedules[name] } }];
-          }
-          return [name, ing];
-        }),
-      )
-    : rest.ingestion;
-
-  return {
-    ...rest,
-    spec: 'deployment/v1',
-    target: { ...rest.target, account: targetAccount, display_name: deployName },
-    variables: Object.keys(variables).length > 0 ? variables : undefined,
-    interfaces: rest.interfaces
-      ? buildInterfacesPayload(rest.interfaces, selectedAdapters, webAuthEnabled)
-      : rest.interfaces,
-    ingestion,
-  };
-}
-
 // --- Validation errors ---
 
 export interface FormErrors {
@@ -270,16 +217,31 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     [accountVarsData?.variables],
   );
 
-  const {
-    data: fetchedTemplate,
-    isLoading: templateLoading,
-    error: templateError,
-  } = useDeploymentTemplate(account, name, {
-    initialData: opts?.initialTemplate,
-    enabled: !opts?.skipTemplateFetch,
-  });
+  // Fetch template via interactive POST endpoint.
+  const templateMutation = usePostDeploymentTemplate(account, name);
+  const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(null);
+  const templateFetchedRef = useRef(false);
 
-  const template = opts?.skipTemplateFetch ? (opts.initialTemplate ?? null) : fetchedTemplate;
+  useEffect(() => {
+    if (opts?.skipTemplateFetch || templateFetchedRef.current) return;
+    if (!account || !name) return;
+    templateFetchedRef.current = true;
+    const body: TemplateRequest = {};
+    if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
+    if (opts?.build) body.build = opts.build;
+    templateMutation.mutate(body, { onSuccess: setTemplateResponse });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount
+  }, [account, name]);
+
+  const templateLoading = templateMutation.isPending && !templateResponse;
+  const templateError = templateMutation.error;
+
+  // Derive legacy DeploymentTemplate shape for existing form logic.
+  const template: DeploymentTemplate | null = useMemo(() => {
+    if (templateResponse) return toDeploymentTemplate(templateResponse);
+    // Fall back to SSR initialTemplate (GET format) when POST hasn't resolved yet.
+    return opts?.initialTemplate ?? null;
+  }, [templateResponse, opts?.initialTemplate]);
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
@@ -491,21 +453,68 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid;
   };
 
-  // Submission
+  // Submission: POST template with all inputs, then deploy with the fulfilled spec.
   const deploy = async () => {
     if (!template || !account || !name) return;
 
     setDeployError(null);
-    const spec = fulfillTemplate(
-      template,
-      allFormValues,
-      selectedAdapters,
-      adapterVariableDefs,
-      targetAccount,
-      deployName.trim(),
-      ingestionSchedules,
-      webAuthEnabled,
-    );
+
+    // Build the variables payload from form values.
+    const variableInputs: Record<string, { value?: string; ref?: string }> = {};
+    for (const [key] of [...variableEntries, ...Object.values(adapterVariableDefs).flat()]) {
+      const raw = allFormValues[key];
+      if (raw != null && raw !== "") {
+        variableInputs[key] = resolveValue(raw);
+      }
+    }
+    // SLACK_CONFIG: serialize the three virtual fields back into a single JSON value.
+    if (SLACK_CONFIG_KEY in (template.variables ?? {})) {
+      variableInputs[SLACK_CONFIG_KEY] = { value: serializeSlackConfig(allFormValues) };
+    }
+
+    // POST template with all inputs to get the server-fulfilled spec.
+    const req: TemplateRequest = {
+      adapters: selectedAdapters,
+      variables: variableInputs,
+    };
+    if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
+    if (opts?.build) req.build = opts.build;
+
+    let resp: TemplateResponse;
+    try {
+      resp = await templateMutation.mutateAsync(req);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setDeployError({
+        message: sentenceCase(apiErr.error ?? "Failed to validate deployment"),
+        details: apiErr.details as string | undefined,
+      });
+      throw err;
+    }
+
+    if (!resp.validation.valid) {
+      const messages = resp.validation.errors.map(e => `${e.field}: ${e.message}`);
+      setDeployError({ message: "Validation failed", details: messages.join("\n") });
+      return;
+    }
+
+    // The server-fulfilled template is ready — patch target and ingestion schedules, then deploy.
+    const ingestion = resp.template.ingestion
+      ? Object.fromEntries(
+          Object.entries(resp.template.ingestion).map(([n, ing]) => {
+            if (ing.trigger?.type === "schedule" && n in ingestionSchedules) {
+              return [n, { ...ing, trigger: { ...ing.trigger, schedule: ingestionSchedules[n] } }];
+            }
+            return [n, ing];
+          }),
+        )
+      : resp.template.ingestion;
+
+    const spec: DeploymentSpec = {
+      ...resp.template,
+      target: { ...resp.template.target, account: targetAccount, display_name: deployName.trim() },
+      ingestion,
+    };
 
     try {
       return await deployMutation.mutateAsync(spec);
@@ -538,6 +547,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     template,
     templateLoading,
     templateErrorMessage,
+    serverValidation: templateResponse?.validation ?? null,
 
     accounts,
     targetAccount,

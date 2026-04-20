@@ -29,7 +29,7 @@ interface ConfigurePanelProps {
   rollbackContext?: { revision: number; buildId: string };
 }
 
-function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false, readOnly = false, revisionNumber, isNewBuild, rollbackContext }: {
+function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false, readOnly = false, revisionNumber, isNewBuild, newBuildId, rollbackContext }: {
   deployment: AgentDeployment;
   account: string;
   template: import("@/lib/api").DeploymentTemplate;
@@ -40,10 +40,11 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   readOnly?: boolean;
   revisionNumber?: number;
   isNewBuild?: boolean;
+  newBuildId?: string;
   rollbackContext?: { revision: number; buildId: string };
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
-  const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
+  const form = useDeployForm(account, deployment.name, { initialTemplate: template, deploymentId: deployment.id, build: newBuildId, initialValues });
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
@@ -278,6 +279,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
       readOnly={readOnly}
       revisionNumber={revisionOverride ?? rollbackContext?.revision}
       isNewBuild={isNewBuild}
+      newBuildId={newBuildId}
       rollbackContext={rollbackContext}
     />
   );

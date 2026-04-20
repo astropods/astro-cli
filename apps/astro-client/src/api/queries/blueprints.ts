@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
-import { api, type BlueprintsListResponse, type Blueprint, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse } from '../../lib/api';
+import { api, type BlueprintsListResponse, type Blueprint, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
 import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
 
@@ -60,6 +60,12 @@ export function usePrefilledDeploymentTemplate(account: string, name: string, de
     queryKey: blueprintKeys.prefilledTemplate(account, name, deploymentId, revision, build),
     queryFn: () => api.getPrefilledDeploymentTemplate(account, name, deploymentId, revision, build),
     enabled: (opts?.enabled ?? true) && !!account && !!name && !!deploymentId,
+  });
+}
+
+export function usePostDeploymentTemplate(account: string, name: string) {
+  return useMutation({
+    mutationFn: (body: TemplateRequest) => api.postDeploymentTemplate(account, name, body),
   });
 }
 

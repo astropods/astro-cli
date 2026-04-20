@@ -375,6 +375,16 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 				shaped.Variables[key] = v
 			}
 		}
+		// When web is selected, expose the HTTP endpoint for ingress.
+		if slices.Contains(req.Adapters, "web") {
+			if ep, ok := shaped.Interfaces.Endpoints["http"]; ok {
+				if ep.Expose == nil {
+					ep.Expose = &spec.EndpointExpose{}
+				}
+				ep.Expose.Enabled = true
+				shaped.Interfaces.Endpoints["http"] = ep
+			}
+		}
 	}
 
 	// --- Variable filling ---

@@ -6,6 +6,7 @@ import { server } from '@/test/msw/server';
 import { renderWithProviders } from '@/test/test-utils';
 import { ConfigurePanel } from './ConfigurePanel';
 import type { AgentDeployment, DeploymentTemplate } from '@/lib/api';
+import { wrapTemplateResponse } from '@/test/msw/handlers';
 
 afterEach(cleanup);
 afterEach(() => server.resetHandlers());
@@ -48,6 +49,11 @@ function setupTemplateHandler() {
       const url = new URL(request.url);
       const buildOverride = url.searchParams.get('build');
       return HttpResponse.json(buildOverride === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild);
+    }),
+    http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as { build?: string; deployment_id?: string; adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> };
+      const tmpl = body.build === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild;
+      return HttpResponse.json(wrapTemplateResponse(tmpl, body));
     }),
   );
 }

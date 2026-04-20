@@ -2159,11 +2159,26 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 
 	// Set adapters
 	slackSelected := false
+	webSelected := false
 	if getSpec.Interfaces != nil {
 		getSpec.Interfaces.Adapters = adapterSelection
 		for _, a := range adapterSelection {
 			if a == "slack" {
 				slackSelected = true
+			}
+			if a == "web" {
+				webSelected = true
+			}
+		}
+		// When web is selected, expose HTTP endpoint (the POST path does this via adapter shaping;
+		// the GET path relied on client-side buildInterfacesPayload).
+		if webSelected {
+			if ep, ok := getSpec.Interfaces.Endpoints["http"]; ok {
+				if ep.Expose == nil {
+					ep.Expose = &spec.EndpointExpose{}
+				}
+				ep.Expose.Enabled = true
+				getSpec.Interfaces.Endpoints["http"] = ep
 			}
 		}
 	}

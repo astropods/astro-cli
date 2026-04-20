@@ -3,6 +3,8 @@ import type {
   BlueprintsListResponse,
   Blueprint,
   DeploymentTemplate,
+  DeploymentSpec,
+  TemplateResponse,
   DeploymentsListResponse,
   DeployResponse,
   UndeployResponse,
@@ -151,6 +153,44 @@ export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
+/** Wraps a legacy DeploymentTemplate into a TemplateResponse envelope for the POST endpoint.
+ *  Optionally merges request inputs (adapters, variables) to simulate server-side shaping. */
+export function wrapTemplateResponse(
+  tmpl: DeploymentTemplate,
+  reqBody?: { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> },
+): TemplateResponse {
+  const { editable, variables, spec: _spec, ...rest } = tmpl;
+  const templateVars: Record<string, { value?: string; ref?: string; targets: string[]; secret?: boolean; optional?: boolean }> = {};
+  if (variables) {
+    for (const [k, v] of Object.entries(variables)) {
+      const override = reqBody?.variables?.[k];
+      templateVars[k] = {
+        value: override?.value ?? v.value,
+        ref: override?.ref ?? v.ref,
+        targets: v.targets,
+        secret: v.secret,
+        optional: v.optional,
+      };
+    }
+  }
+  // Merge adapters
+  const interfaces = rest.interfaces as Record<string, unknown> | undefined;
+  const shapedRest = reqBody?.adapters && interfaces
+    ? { ...rest, interfaces: { ...interfaces, adapters: reqBody.adapters } }
+    : rest;
+
+  const errors = Object.entries(templateVars)
+    .filter(([, v]) => !v.optional && !v.value && !v.ref)
+    .map(([key]) => ({ field: `variables.${key}`, message: 'required variable is empty' }));
+  return {
+    spec: 'deployment-template/v1',
+    template: { ...shapedRest, spec: 'deployment/v1', variables: templateVars } as DeploymentSpec,
+    variables: variables ?? {},
+    editable: editable ?? [],
+    validation: { valid: errors.length === 0, errors },
+  };
+}
+
 export const mockDeploymentEvents: DeploymentEventsResponse = {
   events: [
     {
@@ -210,6 +250,16 @@ export const handlers = [
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     return HttpResponse.json(mockTemplate);
+  }),
+
+  // POST /api/v1/agents/:account/:name/deployment-template (interactive POST)
+  http.post('/api/v1/agents/:account/:name/deployment-template', async ({ params, request }) => {
+    const agent = mockBlueprints.find((a) => a.account === params.account && a.name === params.name);
+    if (!agent) {
+      return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+    }
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> }));
   }),
 
   // GET /api/v1/accounts/:account/members

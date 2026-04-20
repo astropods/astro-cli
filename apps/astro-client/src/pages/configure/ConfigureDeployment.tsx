@@ -36,7 +36,7 @@ export default function ConfigureDeployment() {
 
   const form = useDeployForm(account, deployment.name, {
     initialTemplate: template,
-    skipTemplateFetch: true,
+    deploymentId: deployment.id,
     initialValues,
   });
 
