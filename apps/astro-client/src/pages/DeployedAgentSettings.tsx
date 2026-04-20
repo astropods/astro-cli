@@ -95,7 +95,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Failed to load settings</h1>
         <p className="text-muted-foreground text-sm mb-4">
-          Could not load deployment configuration. Please try again.
+          Couldn't load deployment configuration. Please try again.
         </p>
         <Button asChild>
           <Link to={deploymentPath(account, deployment.id)}>Back to agent</Link>

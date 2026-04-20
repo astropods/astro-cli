@@ -266,7 +266,7 @@ export function DeploymentHistoryTable({
             {historyError && (
               <div className="p-3.5 pt-0">
                 <ErrorPanel title="Unable to load deployment history" dismissible>
-                  Could not load deployment history from the server.
+                  Couldn't load deployment history from the server.
                 </ErrorPanel>
               </div>
             )}
