@@ -532,7 +532,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 			}
 		}
 
-		if k8sClient != nil && ks.Status == knowledgestore.StatusProvisioning {
+		if k8sClient != nil && (ks.Status == knowledgestore.StatusProvisioning || ks.Status == knowledgestore.StatusConnecting || ks.Status == knowledgestore.StatusPendingAcceptance) {
 			ns := k8s.KnowledgeNamespace(acct.ID)
 			evts, _ := k8sClient.Clientset().CoreV1().Events(ns).List(c.Request.Context(), metav1.ListOptions{
 				FieldSelector: fmt.Sprintf("involvedObject.name=%s-0", k8s.KnowledgeResourceName(ks.ID)),
