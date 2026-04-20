@@ -1129,6 +1129,7 @@ export interface TemplateInterfaces {
   auth?: { web?: { type?: string } };
 }
 
+
 export interface TemplateValidation {
   valid: boolean;
   errors: ValidationError[];
