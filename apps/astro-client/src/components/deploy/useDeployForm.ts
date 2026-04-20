@@ -47,6 +47,8 @@ export interface UseDeployFormOptions {
   deploymentId?: string;
   /** Pin to a specific build ID (e.g. for new-build upgrades). */
   build?: string;
+  /** Load a historical revision's config (requires deploymentId). */
+  revision?: number;
 }
 
 // --- Adapter configuration (must match server) ---
@@ -232,6 +234,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
+    if (opts?.revision) body.revision = opts.revision;
     templateMutation.mutate(body, { onSuccess: setTemplateResponse });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when agent identity changes
   }, [account, name]);

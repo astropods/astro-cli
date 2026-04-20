@@ -2539,6 +2539,27 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				buildIDOverride = existing.BuildID
 			}
 
+			// Resolve historical revision when requested.
+			prefillExisting := existing
+			if req.Revision > 0 {
+				rev, revErr := deployStore.GetRevisionByNumber(req.DeploymentID, req.Revision)
+				if revErr != nil {
+					log.Error("Failed to get revision", "error", revErr, "deployment_id", req.DeploymentID, "revision", req.Revision)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
+					return
+				}
+				if rev == nil {
+					c.JSON(http.StatusNotFound, gin.H{"error": "revision not found"})
+					return
+				}
+				if buildIDOverride == existing.BuildID {
+					buildIDOverride = rev.BuildID
+				}
+				revExisting := *existing
+				revExisting.DeploymentSpecJSON = string(rev.SpecJSON)
+				prefillExisting = &revExisting
+			}
+
 			// Generate base template first, then merge prefill values.
 			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
 			if !ok {
@@ -2552,7 +2573,17 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
-			mergeDeploymentPrefill(template, existing, storedVars, accountStore)
+			mergeDeploymentPrefill(template, prefillExisting, storedVars, accountStore)
+
+			// For historical revisions, also override display name from the stored spec.
+			if req.Revision > 0 {
+				var storedSpec spec.AstroDeploymentSpec
+				if jsonErr := json.Unmarshal([]byte(prefillExisting.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
+					if storedSpec.Target.DisplayName != "" {
+						template.Target.DisplayName = storedSpec.Target.DisplayName
+					}
+				}
+			}
 
 			resp := deployment.ShapeTemplate(template, &req)
 			c.JSON(http.StatusOK, resp)

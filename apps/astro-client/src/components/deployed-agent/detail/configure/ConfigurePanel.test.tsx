@@ -45,11 +45,6 @@ const mockTemplateNewBuild: DeploymentTemplate = {
 
 function setupTemplateHandler() {
   server.use(
-    http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', ({ request }) => {
-      const url = new URL(request.url);
-      const buildOverride = url.searchParams.get('build');
-      return HttpResponse.json(buildOverride === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild);
-    }),
     http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
       const body = (await request.json().catch(() => ({}))) as { build?: string; deployment_id?: string; adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> };
       const tmpl = body.build === NEW_BUILD_ID ? mockTemplateNewBuild : mockTemplateOldBuild;

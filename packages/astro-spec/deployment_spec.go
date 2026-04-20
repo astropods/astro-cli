@@ -290,6 +290,7 @@ func ExposedEndpoint(endpoints map[string]Endpoint) *Endpoint {
 type TemplateRequest struct {
 	Build        string                   `json:"build,omitempty"`
 	DeploymentID string                   `json:"deployment_id,omitempty"`
+	Revision     int                      `json:"revision,omitempty"`
 	Adapters     []string                 `json:"adapters,omitempty"`
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
 }

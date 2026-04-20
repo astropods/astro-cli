@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Rocket, Play, Check } from "lucide-react";
 import { Cog6ToothIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
-import { usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
@@ -29,10 +28,9 @@ interface ConfigurePanelProps {
   rollbackContext?: { revision: number; buildId: string };
 }
 
-function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false, readOnly = false, revisionNumber, isNewBuild, newBuildId, rollbackContext }: {
+function ConfigurePanelContent({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, readOnly = false, revisionNumber, isNewBuild, newBuildId, rollbackContext }: {
   deployment: AgentDeployment;
   account: string;
-  template: import("@/lib/api").DeploymentTemplate;
   onClose: () => void;
   onRedeployStart?: () => void;
   onRedeploy?: () => void;
@@ -43,12 +41,51 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   newBuildId?: string;
   rollbackContext?: { revision: number; buildId: string };
 }) {
-  const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
-  const form = useDeployForm(account, deployment.name, { initialTemplate: template, deploymentId: deployment.id, build: newBuildId, initialValues });
+  const form = useDeployForm(account, deployment.name, {
+    deploymentId: deployment.id,
+    build: newBuildId,
+    revision: revisionNumber,
+  });
+
+  // Seed form state from the POST-fetched template once it loads.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (form.template && !seededRef.current) {
+      seededRef.current = true;
+      form.reset(extractInitialValues(form.template, account));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
+  }, [form.template]);
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
 
+  const shellClass = fullPage
+    ? "flex min-h-full w-full flex-col bg-surface"
+    : PANEL_SHELL_CLASS;
+
+  // Show loading/error before template is ready.
+  if (form.templateLoading || !form.template) {
+    return (
+      <div className={shellClass}>
+        <div className={PANEL_HEADER_CLASS}>
+          <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
+          <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
+            <XMarkIcon className="size-4" />
+          </Button>
+        </div>
+        <div className="flex flex-1 items-center justify-center px-5">
+          {form.templateErrorMessage
+            ? <p className="text-body-sm text-destructive">{form.templateErrorMessage}</p>
+            : <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          }
+        </div>
+      </div>
+    );
+  }
+
+  const template = form.template;
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -64,9 +101,6 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   };
 
   const manualIngestions = deployment.manual_ingestions ?? [];
-  const shellClass = fullPage
-    ? "flex min-h-full w-full flex-col bg-surface"
-    : PANEL_SHELL_CLASS;
   const formClass = fullPage
     ? "flex min-h-0 flex-1 flex-col"
     : "dp-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain";
@@ -246,38 +280,18 @@ function ManualTriggers({
 }
 
 export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, newBuildId, rollbackContext }: ConfigurePanelProps) {
-  const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride, build: newBuildId });
-  const shellClass = fullPage
-    ? "flex min-h-full w-full flex-col bg-surface"
-    : PANEL_SHELL_CLASS;
-
-  const shell = (children: React.ReactNode) => (
-    <div className={shellClass}>
-      <div className={PANEL_HEADER_CLASS}>
-        <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
-        <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
-        <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
-          <XMarkIcon className="size-4" />
-        </Button>
-      </div>
-      <div className="flex flex-1 items-center justify-center px-5">{children}</div>
-    </div>
-  );
-
-  if (isLoading) return shell(<Loader2 className="size-5 animate-spin text-muted-foreground" />);
-  if (isError || !template) return shell(<p className="text-body-sm text-destructive">Failed to load configuration.</p>);
+  const revision = revisionOverride ?? rollbackContext?.revision;
   return (
-    <ConfigurePanelLoaded
-      key={revisionOverride ?? 'current'}
+    <ConfigurePanelContent
+      key={revision ?? 'current'}
       deployment={deployment}
       account={account}
-      template={template}
       onClose={onClose}
       onRedeployStart={onRedeployStart}
       onRedeploy={onRedeploy}
       fullPage={fullPage}
       readOnly={readOnly}
-      revisionNumber={revisionOverride ?? rollbackContext?.revision}
+      revisionNumber={revision}
       isNewBuild={isNewBuild}
       newBuildId={newBuildId}
       rollbackContext={rollbackContext}
