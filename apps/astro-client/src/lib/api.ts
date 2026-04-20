@@ -473,9 +473,11 @@ class ApiClient {
     workloadName: string,
     container: string,
     since?: string,
+    timezone?: string,
   ): Promise<LogEntry[]> {
     const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
+    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
     const response = await fetch(url, {
       credentials: 'include',
@@ -491,8 +493,9 @@ class ApiClient {
     return response.json();
   }
 
-  getDeploymentLogsStreamUrl(deploymentId: string, workloadName: string, container: string): string {
+  getDeploymentLogsStreamUrl(deploymentId: string, workloadName: string, container: string, timezone?: string): string {
     const params = new URLSearchParams({ workload: workloadName, container });
+    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
     return `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs/stream?${params}`;
   }
 

@@ -83,4 +83,12 @@ describe("formatLogTimestamp", () => {
   it("returns the original string if it cannot be parsed", () => {
     expect(formatLogTimestamp("not-a-timestamp")).toBe("not-a-timestamp");
   });
+
+  it("strips negative UTC offset and preserves local time", () => {
+    expect(formatLogTimestamp("2026-04-13T17:48:08.470-04:00")).toBe("2026-04-13 17:48:08.470");
+  });
+
+  it("strips positive UTC offset and preserves local time", () => {
+    expect(formatLogTimestamp("2026-04-14T03:48:08.470+05:30")).toBe("2026-04-14 03:48:08.470");
+  });
 });

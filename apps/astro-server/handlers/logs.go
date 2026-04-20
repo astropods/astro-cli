@@ -20,9 +20,9 @@ type logEntry struct {
 	Message   string `json:"message"`
 }
 
-func lokiLineToEntry(ll loki.LogLine) logEntry {
+func lokiLineToEntry(ll loki.LogLine, loc *time.Location) logEntry {
 	return logEntry{
-		Timestamp: ll.Timestamp.UTC().Format(time.RFC3339Nano),
+		Timestamp: ll.Timestamp.In(loc).Format(time.RFC3339Nano),
 		Level:     ll.Level,
 		Message:   strings.TrimRight(ll.Line, "\n"),
 	}
@@ -39,6 +39,7 @@ func streamLogs(
 	k8sClient k8s.ClusterClient,
 	namespace, podName string,
 	logOpts *corev1.PodLogOptions,
+	loc *time.Location,
 ) {
 	if lokiClient != nil {
 		lines, err := lokiClient.QueryLogs(c.Request.Context(), lokiParams)
@@ -49,7 +50,7 @@ func streamLogs(
 		}
 		entries := make([]logEntry, 0, len(lines))
 		for _, l := range lines {
-			entries = append(entries, lokiLineToEntry(l))
+			entries = append(entries, lokiLineToEntry(l, loc))
 		}
 		c.JSON(http.StatusOK, entries)
 		return
@@ -84,7 +85,11 @@ func streamLogs(
 		}
 		entry := logEntry{Message: line}
 		if m := k8sTS.FindStringSubmatch(line); m != nil {
-			entry.Timestamp = m[1]
+			if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
+				entry.Timestamp = t.In(loc).Format(time.RFC3339Nano)
+			} else {
+				entry.Timestamp = m[1]
+			}
 			entry.Message = m[2]
 		}
 		entries = append(entries, entry)

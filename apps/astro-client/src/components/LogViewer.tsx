@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
+import { Link } from "react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatLogTimestamp, levelColorClass, normalizeLevel, type LogEntry } from "@/lib/log-utils";
+import { loadTimezone } from "@/lib/timezone";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
 
 function highlightText(text: string, search: string): React.ReactNode {
@@ -63,6 +65,7 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
+  const timezone = loadTimezone();
   const [logSearch, setLogSearch] = useState("");
   const deferredSearch = useDeferredValue(logSearch);
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs);
@@ -217,7 +220,18 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
             <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)] disabled:pointer-events-auto disabled:cursor-not-allowed">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent
+              footer={
+                <div className="border-t border-border px-2 py-1.5">
+                  <Link
+                    to="/settings/account"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-body-sm text-teal-700 hover:underline underline-offset-2"
+                  >
+                    {timezone}
+                  </Link>
+                </div>
+              }
+            >
               {TIME_RANGE_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}

@@ -679,9 +679,17 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 			}
 		}
 
+		loc := time.UTC
+		if tz := c.Query("timezone"); tz != "" {
+			if parsed, err := time.LoadLocation(tz); err == nil {
+				loc = parsed
+			}
+		}
+
 		streamLogs(c, log,
 			lokiClient, lokiParams,
 			k8sClient, ns, k8s.KnowledgeResourceName(ks.ID)+"-0", &corev1.PodLogOptions{Container: "app", TailLines: &tailLines, Timestamps: true},
+			loc,
 		)
 	}
 }
@@ -723,8 +731,15 @@ func StreamKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store,
 		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
 		flusher.Flush()
 
+		loc := time.UTC
+		if tz := c.Query("timezone"); tz != "" {
+			if parsed, err := time.LoadLocation(tz); err == nil {
+				loc = parsed
+			}
+		}
+
 		writeEvent := func(ll loki.LogLine) bool {
-			payload, _ := json.Marshal(lokiLineToEntry(ll))
+			payload, _ := json.Marshal(lokiLineToEntry(ll, loc))
 			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
 			if writeErr != nil {
 				return false

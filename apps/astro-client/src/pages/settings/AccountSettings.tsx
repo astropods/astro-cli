@@ -2,9 +2,11 @@ import { useState } from "react";
 import type { MetaFunction } from "react-router";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimezoneSelect } from "@/components/ui/timezone-select";
 import { useAuth } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
+import { useLogTimezone } from "@/lib/timezone";
 import { SectionHeader, SavedIndicator } from "@/components/settings/SettingsShared";
 import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
@@ -73,6 +75,25 @@ function AccountSection() {
   );
 }
 
+function PreferencesSection() {
+  const { timezone, setTimezone } = useLogTimezone();
+  const { showSaved, flash } = useSavedFlash();
+
+  return (
+    <div className="flex flex-col gap-2 max-w-sm">
+      <Label size="md">Timezone</Label>
+      <div className="flex items-center gap-3">
+        <TimezoneSelect
+          value={timezone}
+          onValueChange={(tz) => { setTimezone(tz); flash(); }}
+          className="flex-1"
+        />
+        <SavedIndicator visible={showSaved} />
+      </div>
+    </div>
+  );
+}
+
 function DangerZone() {
   const [open, setOpen] = useState(false);
 
@@ -97,6 +118,9 @@ export default function AccountSettings() {
       <hr className="my-2 border-border" />
       <SectionHeader title="Account" subtitle="Email, password, and authentication" />
       <AccountSection />
+      <hr className="my-2 border-border" />
+      <SectionHeader title="Preferences" subtitle="Display and localization" />
+      <PreferencesSection />
       <hr className="my-2 border-border" />
       <SectionHeader title="Danger Zone" subtitle="These actions are irreversible" />
       <DangerZone />

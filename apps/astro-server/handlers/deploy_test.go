@@ -3069,6 +3069,174 @@ func TestInjectManagedCredentials(t *testing.T) {
 	})
 }
 
+func TestGetDeploymentLogs_TimezoneParam(t *testing.T) {
+	// 72000 seconds past epoch = 1970-01-01T20:00:00Z UTC.
+	// In America/New_York (UTC-5 in January) that is 1970-01-01T15:00:00-05:00.
+	const nanos = "72000000000000"
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"p"},"values":[["` + nanos + `","line one\n"]]}]}}`)) //nolint:errcheck
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&timezone=America/New_York", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var entries []struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	// Timestamp should be offset-adjusted, not UTC.
+	if strings.HasSuffix(entries[0].Timestamp, "Z") {
+		t.Errorf("timestamp %q is UTC; expected a local offset", entries[0].Timestamp)
+	}
+	// The local hour for UTC 20:00 in New York (UTC-5) is 15.
+	if !strings.Contains(entries[0].Timestamp, "T15:00:00") {
+		t.Errorf("timestamp %q: expected local hour 15 (UTC-5)", entries[0].Timestamp)
+	}
+}
+
+func TestGetDeploymentLogs_InvalidTimezone_FallsBackToUTC(t *testing.T) {
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[{"stream":{"pod":"p"},"values":[["1000000000","msg\n"]]}]}}`)) //nolint:errcheck
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&timezone=Not/ATimezone", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var entries []struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].Timestamp != "1970-01-01T00:00:01Z" {
+		t.Errorf("timestamp = %q, want UTC fallback 1970-01-01T00:00:01Z", entries[0].Timestamp)
+	}
+}
+
+func TestStreamDeploymentLogs_TimezoneParam(t *testing.T) {
+	// 72000 seconds past epoch = 1970-01-01T20:00:00Z UTC.
+	// In America/New_York (UTC-5 in January) that is 1970-01-01T15:00:00-05:00.
+	lokiSrv := lokiTailServer(t, []map[string]interface{}{{
+		"streams": []map[string]interface{}{{
+			"stream": map[string]string{"pod": "p"},
+			"values": [][]string{{"72000000000000", "live line"}},
+		}},
+	}})
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupStreamLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&timezone=America/New_York", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var logLines []string
+	var inNamedEvent bool
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			inNamedEvent = false
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			inNamedEvent = true
+		} else if strings.HasPrefix(line, "data:") && !inNamedEvent {
+			logLines = append(logLines, line)
+		}
+		if len(logLines) >= 1 {
+			cancel()
+		}
+	}
+
+	if len(logLines) != 1 {
+		t.Fatalf("got %d log lines, want 1", len(logLines))
+	}
+	// Extract the JSON payload from "data: {...}"
+	payload := strings.TrimPrefix(logLines[0], "data: ")
+	var entry struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if strings.HasSuffix(entry.Timestamp, "Z") {
+		t.Errorf("timestamp %q is UTC; expected a local offset", entry.Timestamp)
+	}
+	if !strings.Contains(entry.Timestamp, "T15:00:00") {
+		t.Errorf("timestamp %q: expected local hour 15 (UTC-5)", entry.Timestamp)
+	}
+}
+
 func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 	router, deployMock, accountMock := setupLogsTest(t, nil /* no Loki, no k8s */)
 

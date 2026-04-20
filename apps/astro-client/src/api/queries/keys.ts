@@ -51,8 +51,8 @@ export const githubKeys = {
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,
-  logs: (deploymentId: string, workloadName: string, container: string, timeRange?: string) =>
-    ['deployments', deploymentId, 'logs', workloadName, container, timeRange] as const,
+  logs: (deploymentId: string, workloadName: string, container: string, timeRange?: string, timezone?: string) =>
+    ['deployments', deploymentId, 'logs', workloadName, container, timeRange, timezone] as const,
   spec: (account: string, name: string) =>
     ['deployments', account, name, 'spec'] as const,
   history: (account: string, name: string, deploymentId?: string) =>

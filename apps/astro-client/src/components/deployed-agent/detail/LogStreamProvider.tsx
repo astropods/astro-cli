@@ -22,7 +22,7 @@ export interface LogStreamContextValue {
   lines: LogEntry[];
   status: LogStreamStatus;
   error: string | undefined;
-  startStream: (deploymentId: string, workloadName: string, container: string) => void;
+  startStream: (deploymentId: string, workloadName: string, container: string, timezone?: string) => void;
   stopStream: () => void;
 }
 
@@ -75,7 +75,7 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "reset" });
   }, []);
 
-  const startStream = useCallback((deploymentId: string, workloadName: string, container: string) => {
+  const startStream = useCallback((deploymentId: string, workloadName: string, container: string, timezone?: string) => {
     if (esRef.current) {
       esRef.current.onmessage = null;
       esRef.current.onerror = null;
@@ -85,7 +85,7 @@ export function LogStreamProvider({ children }: { children: ReactNode }) {
 
     dispatch({ type: "connecting" });
 
-    const url = api.getDeploymentLogsStreamUrl(deploymentId, workloadName, container);
+    const url = api.getDeploymentLogsStreamUrl(deploymentId, workloadName, container, timezone);
     const es = new EventSource(url);
     esRef.current = es;
 

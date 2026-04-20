@@ -89,17 +89,18 @@ export function useDeploymentLogs(
   workloadName: string,
   container: string,
   timeRange = '1h',
+  timezone = 'UTC',
   options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   const api = useApiClient();
   const baseEnabled = !!deploymentId && !!workloadName && !!container;
   const enabled = (options?.enabled ?? true) && baseEnabled;
   return useQuery({
-    queryKey: deploymentKeys.logs(deploymentId, workloadName, container, timeRange),
+    queryKey: deploymentKeys.logs(deploymentId, workloadName, container, timeRange, timezone),
     queryFn: () => {
       const ms = TIME_RANGE_MS[timeRange];
       const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
-      return api.getDeploymentLogs(deploymentId, workloadName, container, since);
+      return api.getDeploymentLogs(deploymentId, workloadName, container, since, timezone);
     },
     enabled,
     refetchInterval: options?.refetchInterval,

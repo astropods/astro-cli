@@ -1875,6 +1875,13 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		workloadName := c.Query("workload")
 		containerName := c.Query("container")
 
+		loc := time.UTC
+		if tz := c.Query("timezone"); tz != "" {
+			if parsed, err := time.LoadLocation(tz); err == nil {
+				loc = parsed
+			}
+		}
+
 		tailLines := int64(200)
 		if tl := c.Query("tailLines"); tl != "" {
 			if parsed, err := strconv.ParseInt(tl, 10, 64); err == nil && parsed > 0 {
@@ -1925,7 +1932,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			logOpts.Container = containerName
 		}
 
-		streamLogs(c, log, lokiClient, lokiParams, k8sClient, dep.Namespace, podName, logOpts)
+		streamLogs(c, log, lokiClient, lokiParams, k8sClient, dep.Namespace, podName, logOpts, loc)
 	}
 }
 
@@ -1988,6 +1995,14 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		workloadName := c.Query("workload")
 		containerName := c.Query("container")
 		podName := c.Query("pod")
+
+		loc := time.UTC
+		if tz := c.Query("timezone"); tz != "" {
+			if parsed, err := time.LoadLocation(tz); err == nil {
+				loc = parsed
+			}
+		}
+
 		backend := "none"
 		if lokiClient != nil {
 			backend = "loki"
@@ -2026,7 +2041,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		log.Debug("SSE ready event sent", "deployment", dep.ID)
 
 		writeEvent := func(ll loki.LogLine) bool {
-			payload, _ := json.Marshal(lokiLineToEntry(ll))
+			payload, _ := json.Marshal(lokiLineToEntry(ll, loc))
 			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
 			if writeErr != nil {
 				log.Debug("SSE write failed, client likely disconnected", "deployment", dep.ID, "error", writeErr)
