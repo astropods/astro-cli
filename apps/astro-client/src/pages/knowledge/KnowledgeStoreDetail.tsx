@@ -169,11 +169,8 @@ function OverviewTab({ store, account }: { store: KnowledgeStore; account: strin
 function EventTimeline({ store }: { store: KnowledgeStore }) {
   const k8sEvents: KnowledgeEvent[] = store.events ?? [];
   const milestones = [
-    ...(store.endpoint?.status === "ready"
-      ? [{ label: "PrivateLink established", time: store.updated_at }]
-      : []),
-    ...(store.endpoint
-      ? [{ label: "Connection verified", time: store.updated_at }]
+    ...(store.status === "ready"
+      ? [{ label: store.endpoint ? "PrivateLink established" : "Store ready", time: store.updated_at }]
       : []),
     { label: "Store created", time: store.created_at },
   ];
