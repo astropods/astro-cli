@@ -39,16 +39,10 @@ export interface DeployFormInitialValues {
 export interface UseDeployFormOptions {
   /** SSR-prefetched template response (POST format). */
   initialTemplateResponse?: TemplateResponse;
-  /** Legacy SSR-prefetched template (GET format). Converted internally. */
+  /** Pre-fetched template (GET format) used as fallback while POST loads. */
   initialTemplate?: DeploymentTemplate;
   /** Pre-fill form state (e.g. from an existing deployment's spec). */
   initialValues?: DeployFormInitialValues;
-  /**
-   * When true, skip fetching the template from the API and rely entirely
-   * on `initialTemplate`. Used on the settings page where the template
-   * is derived from the existing deployment.
-   */
-  skipTemplateFetch?: boolean;
   /** Existing deployment ID for prefill (redeploy/configure). */
   deploymentId?: string;
   /** Pin to a specific build ID (e.g. for new-build upgrades). */
@@ -225,17 +219,21 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(
     opts?.initialTemplateResponse ?? null,
   );
-  const templateFetchedRef = useRef(!!opts?.initialTemplateResponse);
+  const fetchedForRef = useRef<string | null>(
+    opts?.initialTemplateResponse ? `${account}/${name}` : null,
+  );
 
   useEffect(() => {
-    if (opts?.skipTemplateFetch || templateFetchedRef.current) return;
+    const key = `${account}/${name}`;
+    if (fetchedForRef.current === key) return;
     if (!account || !name) return;
-    templateFetchedRef.current = true;
+    fetchedForRef.current = key;
+    setTemplateResponse(null);
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     templateMutation.mutate(body, { onSuccess: setTemplateResponse });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when agent identity changes
   }, [account, name]);
 
   const templateLoading = templateMutation.isPending && !templateResponse;
@@ -460,7 +458,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Submission: POST template with all inputs, then deploy with the fulfilled spec.
   const deploy = async () => {
-    if (!template || !account || !name) return;
+    if (!template || !account || !name) {
+      console.warn('[useDeployForm] deploy() called before template loaded');
+      return;
+    }
 
     setDeployError(null);
 

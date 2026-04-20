@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate, useOutletContext, type MetaFunction } from "react-router";
 import { Play, Check, Loader2 } from "lucide-react";
 import type { ConfigureContext } from "./types";
@@ -32,12 +32,12 @@ export default function ConfigureDeployment() {
     deploymentId: deployment.id,
   });
 
-  // Derive initial values from the form's template (POST-fetched) for change tracking.
-  const initialValues = useMemo(
-    () => form.template ? extractInitialValues(form.template, account) : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only derive once when template first loads
-    [form.template !== null],
-  );
+  // Capture initial values once when the template first loads — used for change tracking.
+  const initialValuesRef = useRef<ReturnType<typeof extractInitialValues> | null>(null);
+  if (form.template && !initialValuesRef.current) {
+    initialValuesRef.current = extractInitialValues(form.template, account);
+  }
+  const initialValues = initialValuesRef.current;
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);

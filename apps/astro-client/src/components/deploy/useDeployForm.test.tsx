@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { slugToTitle, buildInterfacesPayload, useDeployForm } from './useDeployForm';
 import { mockAuthContext } from '@/test/test-utils';
-import { mockTemplate } from '@/test/msw/handlers';
+import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
 import type { DeploymentTemplate } from '@/lib/api';
 import { AuthContext } from '@/lib/auth-context';
 import { type ReactNode } from 'react';
@@ -79,8 +79,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
@@ -117,8 +116,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
@@ -151,8 +149,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
@@ -201,8 +198,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
@@ -224,7 +220,7 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.variableValues.SENTRY_DSN).toBe('existing-value');
   });
 
-  it('uses template as form template when skipTemplateFetch is true', () => {
+  it('uses initialTemplateResponse as form template', () => {
     const prefilledTemplate: DeploymentTemplate = {
       ...mockTemplate,
       target: { ...mockTemplate.target, display_name: 'My Agent', deployment_id: 'dep-123' },
@@ -235,8 +231,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
@@ -245,7 +240,7 @@ describe('useDeployForm with pre-filled template', () => {
       { wrapper },
     );
 
-    expect(result.current.template).toBe(prefilledTemplate);
+    expect(result.current.template).not.toBeNull();
     expect(result.current.template?.target.deployment_id).toBe('dep-123');
   });
 
@@ -263,8 +258,7 @@ describe('useDeployForm with pre-filled template', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: prefilledTemplate,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
           initialValues: {
             deployName: 'My Agent',
             targetAccount: 'testuser',
