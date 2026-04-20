@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
@@ -18,10 +18,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MetricCard } from "@/components/MetricCard";
+import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 import { SidePanel } from "@/components/deployed-agent/detail/SidePanel";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeMetrics, useKnowledgeLogs } from "@/api/queries/knowledge";
+import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeLogs, useKnowledgeMetrics } from "@/api/queries/knowledge";
+import { useApiClient } from "@/lib/api-context";
+import type { LogEntry } from "@/lib/log-utils";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import {
@@ -34,11 +37,11 @@ import { getIntegrationIconUrl } from "@/lib/assets";
 import { InformationCircleIcon } from "@heroicons/react/24/outline";
 import type { KnowledgeStore, KnowledgeEvent, KnowledgeProvider } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Store | Astro" }];
 
 const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
+type Tab = "overview" | "logs";
 
 // --- Helpers ---
 
@@ -193,25 +196,108 @@ function EventTimeline({ store }: { store: KnowledgeStore }) {
   );
 }
 
-// --- Logs section ---
+// --- Logs tab ---
 
-function LogsSection({ store, account }: { store: KnowledgeStore; account: string }) {
+const MAX_TAIL_LINES = 5000;
+
+function useKnowledgeLogStream(account: string, storeName: string) {
+  const api = useApiClient();
+  const [lines, setLines] = useState<LogEntry[]>([]);
+  const [status, setStatus] = useState<"idle" | "connecting" | "tailing" | "reconnecting">("idle");
+  const [error, setError] = useState<string>();
+  const esRef = useRef<EventSource | null>(null);
+
+  const stop = useCallback(() => {
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    setStatus("idle");
+    setLines([]);
+    setError(undefined);
+  }, []);
+
+  const start = useCallback(() => {
+    stop();
+    setStatus("connecting");
+
+    const url = api.getKnowledgeLogsStreamUrl(account, storeName);
+    const es = new EventSource(url);
+    esRef.current = es;
+    let hasBeenLive = false;
+
+    es.onmessage = (e: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(e.data) as { timestamp: string; level: string; message: string };
+        setLines((prev) => {
+          const next = [...prev, { timestamp: parsed.timestamp, level: parsed.level || null, message: parsed.message }];
+          return next.length > MAX_TAIL_LINES ? next.slice(-MAX_TAIL_LINES) : next;
+        });
+      } catch { /* ignore */ }
+    };
+
+    es.addEventListener("ready", () => {
+      hasBeenLive = true;
+      setStatus("tailing");
+    });
+
+    es.addEventListener("error", (e: Event) => {
+      if ("data" in e) {
+        try {
+          const parsed = JSON.parse((e as MessageEvent).data) as { message?: string };
+          setError(parsed.message ?? "Stream error");
+        } catch { /* ignore */ }
+      }
+    });
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CONNECTING) {
+        if (hasBeenLive) setStatus("reconnecting");
+        else setError("Failed to connect to log stream");
+      } else if (es.readyState === EventSource.CLOSED) {
+        setStatus("idle");
+      }
+    };
+  }, [api, account, storeName, stop]);
+
+  useEffect(() => {
+    return () => { esRef.current?.close(); esRef.current = null; };
+  }, []);
+
+  return { lines, status, error, start, stop };
+}
+
+function LogsTab({ account, storeName }: { account: string; storeName: string }) {
   const [timeRange, setTimeRange] = useState<LogTimeRange>("1h");
-  const isReady = store.status === "ready";
-  const { data, isLoading, isError } = useKnowledgeLogs(account, store.name, timeRange, { enabled: isReady });
-  const handleTimeRangeChange = useCallback((r: LogTimeRange) => setTimeRange(r), []);
+  const [tailing, setTailing] = useState(false);
+  const { data: historyLogs, isLoading, isError } = useKnowledgeLogs(account, storeName, timeRange, { enabled: !tailing });
+  const stream = useKnowledgeLogStream(account, storeName);
+
+  const handleTailToggle = useCallback(() => {
+    if (tailing) {
+      stream.stop();
+      setTailing(false);
+    } else {
+      stream.start();
+      setTailing(true);
+    }
+  }, [tailing, stream]);
+
+  const logs = tailing ? stream.lines : (historyLogs ?? []);
+  const loading = tailing ? stream.status === "connecting" : isLoading;
+  const errorMsg = tailing ? stream.error : (isError ? "Failed to load logs" : undefined);
 
   return (
-    <div className="rounded-lg border border-border bg-white overflow-hidden">
+    <div className="h-[600px]">
       <LogViewer
-        logs={data ?? []}
-        isLoading={isLoading}
+        logs={logs}
+        isLoading={loading}
         timeRange={timeRange}
-        onTimeRangeChange={handleTimeRangeChange}
-        error={isError ? "Couldn't load logs." : undefined}
-        leading={
-          <h3 className="text-heading-4 text-foreground">Logs</h3>
-        }
+        onTimeRangeChange={setTimeRange}
+        error={errorMsg}
+        isTailing={tailing && stream.status === "tailing"}
+        isReconnecting={stream.status === "reconnecting"}
+        onTailToggle={handleTailToggle}
       />
     </div>
   );
@@ -385,8 +471,13 @@ function KnowledgeStoreDetailContent() {
   const account = validStoredDefault || personalAccount?.name || "";
 
   const { data: store, isLoading } = useKnowledgeStore(account, storeName ?? "", isAuthenticated && !!storeName);
+  const [tab, setTab] = useState<Tab>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tab, setTab] = useState<"overview" | "logs">("overview");
+
+  const tabs: { key: Tab; label: string; hidden?: boolean }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "logs", label: "Logs", hidden: store?.mode !== "managed" },
+  ];
 
   if (isLoading) {
     return (
@@ -415,7 +506,7 @@ function KnowledgeStoreDetailContent() {
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto bg-muted">
+      <div className="flex-1 overflow-y-auto bg-surface">
         <div className="px-6 py-6">
           {/* Header */}
           <div className="mb-6">
@@ -468,27 +559,28 @@ function KnowledgeStoreDetailContent() {
             </div>
           </div>
 
-          {/* Tab bar */}
-          <div className="flex gap-1 mb-6 border-b border-border">
-            {(["overview", "logs"] as const).map((t) => (
+          {/* Tabs */}
+          <div className="mb-6 flex gap-4 border-b border-border">
+            {tabs.filter((t) => !t.hidden).map((t) => (
               <button
-                key={t}
+                key={t.key}
                 type="button"
-                onClick={() => setTab(t)}
                 className={cn(
-                  "px-3 py-2 text-body-sm font-medium capitalize transition-colors border-b-2 -mb-px",
-                  tab === t
-                    ? "border-foreground text-foreground"
+                  "pb-2 text-body-sm font-medium transition-colors border-b-2",
+                  tab === t.key
+                    ? "border-teal-700 text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
+                onClick={() => setTab(t.key)}
               >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {t.label}
               </button>
             ))}
           </div>
 
+          {/* Tab content */}
           {tab === "overview" && <OverviewTab store={store} account={account} />}
-          {tab === "logs" && <LogsSection store={store} account={account} />}
+          {tab === "logs" && store.mode === "managed" && <LogsTab account={account} storeName={store.name} />}
         </div>
       </div>
 
