@@ -151,7 +151,7 @@ export function AppHeader() {
       <header className="border-b border-border bg-surface">
         {/* Row 1: logo + scope switcher | external links + feedback | hamburger */}
         <div className="flex h-14 items-center gap-2 px-4">
-          <div className="flex shrink-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center gap-2.5">
             <Link to="/" className="flex shrink-0 items-center">
               <Logo />
             </Link>
