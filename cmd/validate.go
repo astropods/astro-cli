@@ -43,33 +43,46 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	data, err := os.ReadFile(specPath) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", filepath.Base(specPath), err)
-	}
-
-	lines := strings.Split(string(data), "\n")
-
 	fmt.Println()
 	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
 
-	var errs []validationError
+	if _, err := validateSpecFile(specPath); err != nil {
+		return err
+	}
+
+	fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
+	return nil
+}
+
+// validateSpecFile runs strict validation (YAML parse + JSON schema + semantic)
+// on the spec at specPath. On failure, error details are printed to stdout and
+// a non-nil error is returned. On success, returns the parsed *spec.AstroSpec.
+func validateSpecFile(specPath string) (*spec.AstroSpec, error) {
+	data, err := os.ReadFile(specPath) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("cannot read %s: %w", filepath.Base(specPath), err)
+	}
+
+	lines := strings.Split(string(data), "\n")
 
 	// YAML parse check
 	var raw interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		fmt.Printf("%s✗%s YAML syntax error: %v\n\n", colorRed, colorReset, err)
-		return fmt.Errorf("validation failed")
+		return nil, fmt.Errorf("validation failed")
 	}
 
 	var rootNode yaml.Node
 	_ = yaml.Unmarshal(data, &rootNode)
 
+	var errs []validationError
+
 	// JSON schema validation
 	errs = append(errs, schemaValidationErrors(raw, &rootNode)...)
 
 	// Semantic validation (required fields, mutual exclusions, etc.)
-	if _, semErr := spec.ParseSpec(specPath); semErr != nil {
+	parsed, semErr := spec.ParseSpec(specPath)
+	if semErr != nil {
 		msg := semErr.Error()
 		line := 0
 		if idx := strings.Index(msg, ": "); idx > 0 {
@@ -78,16 +91,15 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		errs = append(errs, validationError{message: msg, line: line})
 	}
 
-	if len(errs) == 0 {
-		fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
-		return nil
+	if len(errs) > 0 {
+		for _, e := range errs {
+			printValidationError(e, lines, filepath.Base(specPath))
+		}
+		fmt.Printf("%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
+		return nil, fmt.Errorf("validation failed")
 	}
 
-	for _, e := range errs {
-		printValidationError(e, lines, filepath.Base(specPath))
-	}
-	fmt.Printf("%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
-	return fmt.Errorf("validation failed")
+	return parsed, nil
 }
 
 func printValidationError(e validationError, lines []string, filename string) {
