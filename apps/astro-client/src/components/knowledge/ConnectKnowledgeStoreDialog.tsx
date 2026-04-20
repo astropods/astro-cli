@@ -28,6 +28,7 @@ import {
   PROVIDER_PORTS,
 } from "./knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
+import { ErrorPanel } from "@/components/ui/status-panel";
 
 interface ConnectKnowledgeStoreDialogProps {
   account: string;
@@ -258,9 +259,9 @@ export function ConnectKnowledgeStoreDialog({ account, open, onOpenChange }: Con
           )}
 
           {connect.isError && (
-            <p className="text-xs text-destructive">
+            <ErrorPanel variant="inline">
               {connect.error instanceof Error ? connect.error.message : "Failed to connect store"}
-            </p>
+            </ErrorPanel>
           )}
 
           <div className="flex justify-end gap-2">

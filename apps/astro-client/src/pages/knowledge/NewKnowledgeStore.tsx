@@ -39,6 +39,7 @@ import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeProvider, KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ErrorPanel } from "@/components/ui/status-panel";
 
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
 
@@ -737,9 +738,11 @@ function ConfigureForm({
 
         {/* Error */}
         {mutation.isError && (
-          <p className="mt-4 text-xs text-destructive">
-            {mutation.error instanceof Error ? mutation.error.message : mode === "managed" ? "Failed to create store" : "Failed to connect store"}
-          </p>
+          <div className="mt-4">
+            <ErrorPanel variant="inline">
+              {mutation.error instanceof Error ? mutation.error.message : mode === "managed" ? "Failed to create store" : "Failed to connect store"}
+            </ErrorPanel>
+          </div>
         )}
 
         {/* Submit */}
