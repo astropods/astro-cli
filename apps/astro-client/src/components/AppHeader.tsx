@@ -149,14 +149,14 @@ export function AppHeader() {
   if (isMobile) {
     return (
       <header className="border-b border-border bg-surface">
-        {/* Row 1: logo + scope switcher | external links + feedback | hamburger */}
+        {/* Row 1: logo + scope switcher (≥380px) | explore | hamburger */}
         <div className="flex h-14 items-center gap-2 px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <Link to="/" className="flex shrink-0 items-center">
               <Logo />
             </Link>
             {isAuthenticated && (
-              <>
+              <div className="hidden min-[380px]:contents">
                 <div className="h-4 w-px bg-border" />
                 <OrgSwitcher
                   compact
@@ -165,7 +165,7 @@ export function AppHeader() {
                   onChange={setActiveAccount}
                   onSetDefault={toggleDefault}
                 />
-              </>
+              </div>
             )}
           </div>
 
@@ -173,7 +173,12 @@ export function AppHeader() {
             {(isAuthenticated || isLoading) && (
               <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
             )}
-            <Button variant="outline" size="sm" className="gap-1.5 text-[13px] font-normal" asChild>
+            <Button variant="outline" size="icon" className="min-[480px]:hidden" aria-label="Explore" asChild>
+              <Link to={explorePath}>
+                <GlobeAltIcon className="size-4" />
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" className="hidden min-[480px]:flex gap-1.5 text-[13px] font-normal" asChild>
               <Link to={explorePath}>
                 <GlobeAltIcon className="size-4" />
                 Explore
@@ -267,6 +272,19 @@ export function AppHeader() {
             </SheetContent>
           </Sheet>
         </div>
+
+        {/* Row 1.5: scope switcher on very narrow screens */}
+        {isAuthenticated && (
+          <div className="flex min-[380px]:hidden items-center px-4 pb-1">
+            <OrgSwitcher
+              compact
+              activeAccount={activeAccount}
+              defaultAccount={defaultAccount}
+              onChange={setActiveAccount}
+              onSetDefault={toggleDefault}
+            />
+          </div>
+        )}
 
         {/* Row 2: nav tabs */}
         <nav className="flex items-center overflow-x-auto px-4 scrollbar-none">
