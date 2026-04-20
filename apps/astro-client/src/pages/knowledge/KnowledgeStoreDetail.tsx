@@ -76,13 +76,6 @@ function ProviderIcon({ provider, className }: { provider: KnowledgeProvider; cl
   return <CircleStackIcon className={cn("text-muted-foreground/60", className)} />;
 }
 
-function formatEventTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
-    " \u2022 " +
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-}
-
 // --- Overview tab ---
 
 function formatBytes(bytes: number): string {
@@ -167,56 +160,35 @@ function OverviewTab({ store, account }: { store: KnowledgeStore; account: strin
 }
 
 function EventTimeline({ store }: { store: KnowledgeStore }) {
-  const k8sEvents: KnowledgeEvent[] = store.events ?? [];
-  const milestones = [
-    ...(store.status === "ready"
-      ? [{ label: store.endpoint ? "PrivateLink established" : "Store ready", time: store.updated_at }]
-      : []),
-    { label: "Store created", time: store.created_at },
-  ];
+  const events: KnowledgeEvent[] = store.events ?? [];
+
+  if (events.length === 0) {
+    return <p className="text-body-sm text-muted-foreground">No events</p>;
+  }
 
   return (
-    <div className="space-y-3">
-      {/* K8s events from the API */}
-      {k8sEvents.length > 0 && (
-        <div className="space-y-2">
-          {k8sEvents.map((event, i) => {
-            const isWarning = event.type === "Warning";
-            return (
-              <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
-                {isWarning ? (
-                  <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
-                ) : (
-                  <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-600" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
-                  <span className="text-body-sm text-muted-foreground">: {event.message}</span>
-                </div>
-                {event.count > 1 && (
-                  <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">
-                    x{event.count}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Static milestone timeline */}
-      <div className="relative space-y-0">
-        <div className="absolute left-[5px] top-2 bottom-2 w-px bg-border" />
-        {milestones.map((event, i) => (
-          <div key={i} className="relative flex items-start gap-4 py-2.5">
-            <span className="relative z-10 mt-1.5 size-[11px] shrink-0 rounded-full border-2 border-teal-600 bg-surface" />
-            <div className="min-w-0">
-              <p className="text-body-sm text-foreground">{event.label}</p>
-              <p className="text-mono-sm text-muted-foreground">{formatEventTime(event.time)}</p>
+    <div className="space-y-2">
+      {events.map((event, i) => {
+        const isWarning = event.type === "Warning";
+        return (
+          <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
+            {isWarning ? (
+              <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+            ) : (
+              <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-600" />
+            )}
+            <div className="flex-1 min-w-0">
+              <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
+              <span className="text-body-sm text-muted-foreground">: {event.message}</span>
             </div>
+            {event.count > 1 && (
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">
+                x{event.count}
+              </span>
+            )}
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }
