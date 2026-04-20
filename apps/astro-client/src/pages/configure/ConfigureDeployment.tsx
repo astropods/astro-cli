@@ -20,7 +20,6 @@ export default function ConfigureDeployment() {
   const {
     account,
     deployment,
-    template,
     hasNewerBuildAvailable,
     currentBuildId,
     latestBuildId,
@@ -29,16 +28,16 @@ export default function ConfigureDeployment() {
 
   const basePath = deploymentPath(account, deployment.id);
 
-  const initialValues = useMemo(
-    () => extractInitialValues(template, account),
-    [template, account],
-  );
-
   const form = useDeployForm(account, deployment.name, {
-    initialTemplate: template,
     deploymentId: deployment.id,
-    initialValues,
   });
+
+  // Derive initial values from the form's template (POST-fetched) for change tracking.
+  const initialValues = useMemo(
+    () => form.template ? extractInitialValues(form.template, account) : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only derive once when template first loads
+    [form.template !== null],
+  );
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
@@ -51,11 +50,11 @@ export default function ConfigureDeployment() {
     ingestionSchedules: form.ingestionSchedules,
   };
   const initialTrackedState: TrackedFormState = {
-    deployName: initialValues.deployName ?? "",
-    variableValues: initialValues.variableValues ?? {},
-    selectedAdapters: initialValues.selectedAdapters ?? ["web"],
-    adapterCredentials: initialValues.adapterCredentials ?? {},
-    ingestionSchedules: initialValues.ingestionSchedules ?? {},
+    deployName: initialValues?.deployName ?? "",
+    variableValues: initialValues?.variableValues ?? {},
+    selectedAdapters: initialValues?.selectedAdapters ?? ["web"],
+    adapterCredentials: initialValues?.adapterCredentials ?? {},
+    ingestionSchedules: initialValues?.ingestionSchedules ?? {},
   };
   const changes = useChangeTracking(initialTrackedState, trackedState);
 
@@ -124,7 +123,7 @@ export default function ConfigureDeployment() {
         latestBuildId={latestBuildId}
         isSaving={form.isDeploying}
         formId={FORM_ID}
-        onReset={() => form.reset(initialValues)}
+        onReset={() => form.reset(initialValues ?? undefined)}
       />
     </>
   );

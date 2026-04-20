@@ -6,7 +6,7 @@ import { Rocket, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { useDeployments } from "@/api/queries/deployments";
-import { useBlueprint, usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
+import { useBlueprint } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import { dashboardPath, deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 import {
@@ -54,14 +54,6 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
 
   const hasNewerBuildAvailable = !!deployment?.build_id && !!latestBuildId && deployment.build_id !== latestBuildId;
 
-  const {
-    data: prefilledTemplate,
-    isLoading: templateLoading,
-    error: templateError,
-  } = usePrefilledDeploymentTemplate(account, deployment?.name ?? "", deploymentId ?? "", {
-    enabled: !!deployment?.name && !!deploymentId,
-  });
-
   if (isLoading || !deployment) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -78,28 +70,6 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
             </Button>
           </>
         )}
-      </div>
-    );
-  }
-
-  if (templateLoading || !prefilledTemplate) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-6">
-        <Loader2 size={24} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (templateError) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-6">
-        <h1 className="text-xl font-semibold mb-3">Failed to load settings</h1>
-        <p className="text-muted-foreground text-sm mb-4">
-          Couldn't load deployment configuration. Please try again.
-        </p>
-        <Button asChild>
-          <Link to={deploymentPath(account, deployment.id)}>Back to agent</Link>
-        </Button>
       </div>
     );
   }
@@ -142,7 +112,6 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
               context={{
                 account,
                 deployment,
-                template: prefilledTemplate,
                 hasNewerBuildAvailable,
                 currentBuildId: deployment.build_id,
                 latestBuildId: latestBuildId ?? undefined,

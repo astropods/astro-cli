@@ -25,12 +25,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     return { agent: null, template: null };
   }
 
-  const [agent, template] = await Promise.all([
+  const [agent, templateResponse] = await Promise.all([
     api.getBlueprint(account, agentSlug).catch(() => null),
-    api.getDeploymentTemplate(account, agentSlug).catch(() => null),
+    api.postDeploymentTemplate(account, agentSlug).catch(() => null),
   ]);
 
-  return { agent, template };
+  return { agent, templateResponse };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
@@ -54,7 +54,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   });
 
   const form = useDeployForm(account ?? "", agentSlug ?? "", {
-    initialTemplate: loaderData?.template ?? undefined,
+    initialTemplateResponse: loaderData?.templateResponse ?? undefined,
   });
 
   const { data: usageData } = useAccountUsage(form.targetAccount);

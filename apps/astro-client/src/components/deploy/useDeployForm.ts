@@ -37,6 +37,9 @@ export interface DeployFormInitialValues {
 }
 
 export interface UseDeployFormOptions {
+  /** SSR-prefetched template response (POST format). */
+  initialTemplateResponse?: TemplateResponse;
+  /** Legacy SSR-prefetched template (GET format). Converted internally. */
   initialTemplate?: DeploymentTemplate;
   /** Pre-fill form state (e.g. from an existing deployment's spec). */
   initialValues?: DeployFormInitialValues;
@@ -219,8 +222,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Fetch template via interactive POST endpoint.
   const templateMutation = usePostDeploymentTemplate(account, name);
-  const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(null);
-  const templateFetchedRef = useRef(false);
+  const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(
+    opts?.initialTemplateResponse ?? null,
+  );
+  const templateFetchedRef = useRef(!!opts?.initialTemplateResponse);
 
   useEffect(() => {
     if (opts?.skipTemplateFetch || templateFetchedRef.current) return;
@@ -239,7 +244,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Derive legacy DeploymentTemplate shape for existing form logic.
   const template: DeploymentTemplate | null = useMemo(() => {
     if (templateResponse) return toDeploymentTemplate(templateResponse);
-    // Fall back to SSR initialTemplate (GET format) when POST hasn't resolved yet.
+    // Fall back to SSR initialTemplate (legacy GET format) when POST hasn't resolved yet.
     return opts?.initialTemplate ?? null;
   }, [templateResponse, opts?.initialTemplate]);
 
