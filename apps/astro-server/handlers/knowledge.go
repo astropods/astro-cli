@@ -75,6 +75,35 @@ type KnowledgeEvent struct {
 	Count   int32  `json:"count"`
 }
 
+// humanizeKnowledgeEvent translates raw K8s event reason+message into
+// user-friendly text. Unknown reasons pass through unchanged.
+func humanizeKnowledgeEvent(reason, message string) (string, string) {
+	switch reason {
+	case "Scheduled":
+		return "Assigning resources", "Infrastructure is being allocated for your store."
+	case "SuccessfulAttachVolume":
+		return "Storage attached", "Persistent storage has been connected."
+	case "Pulling":
+		return "Downloading database engine", "Fetching the database image — this may take a moment."
+	case "Pulled":
+		return "Database engine ready", "The database image is downloaded and ready."
+	case "Created":
+		return "Preparing store", "Your store container has been created."
+	case "Started":
+		return "Store starting up", "Your store is booting and will be ready shortly."
+	case "Unhealthy":
+		return "Health check pending", "The store is still initializing — waiting for it to become healthy."
+	case "BackOff":
+		return "Retrying", "A transient issue occurred and the system is retrying automatically."
+	case "FailedScheduling":
+		return "Waiting for resources", "Waiting for infrastructure capacity to become available."
+	case "FailedMount", "FailedAttachVolume":
+		return "Storage issue", "There was a problem attaching storage — the system will retry."
+	default:
+		return reason, message
+	}
+}
+
 // KnowledgeEndpointResponse is the API representation of a PrivateLink endpoint.
 type KnowledgeEndpointResponse struct {
 	CloudProvider   string  `json:"cloud_provider"`
@@ -539,10 +568,11 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 			})
 			if evts != nil {
 				for _, e := range evts.Items {
+					reason, message := humanizeKnowledgeEvent(e.Reason, e.Message)
 					resp.Events = append(resp.Events, KnowledgeEvent{
 						Type:    e.Type,
-						Reason:  e.Reason,
-						Message: e.Message,
+						Reason:  reason,
+						Message: message,
 						Count:   e.Count,
 					})
 				}
@@ -1018,8 +1048,9 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 							continue
 						}
 						seen[uid] = struct{}{}
+						reason, message := humanizeKnowledgeEvent(evt.Reason, evt.Message)
 						_, _ = fmt.Fprintf(c.Writer, "data: {\"type\":%q,\"reason\":%q,\"message\":%q}\n\n",
-							evt.Type, evt.Reason, evt.Message)
+							evt.Type, reason, message)
 					}
 				}
 				c.Writer.Flush()
