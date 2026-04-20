@@ -1,14 +1,15 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
-import { getVariableDefault, isVariableFilled } from "./VariableField";
+import { isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
-import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
+import { SLACK_CONFIG_KEY, serializeSlackConfig } from "./slackConfig";
+import { computeFormDefaults } from "./computeFormDefaults";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
@@ -282,17 +283,18 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
-  const [deployName, setDeployName] = useState(() => iv?.deployName ?? slugToTitle(name));
-  const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
-  const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
-  const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
-  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(() =>
-    iv?.webAuthEnabled ?? isWebAuthOidc(opts?.initialTemplate?.interfaces as Record<string, unknown> | undefined),
-  );
-  // Track whether webAuthEnabled was seeded from initialValues or the SSR template.
-  // Once seeded, user changes take precedence and we don't overwrite on re-fetch.
-  const webAuthInitRef = useRef(iv?.webAuthEnabled !== undefined || !!opts?.initialTemplate?.interfaces);
-  const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(iv?.ingestionSchedules ?? {});
+  // Compute initial form state synchronously so the form is correct on the
+  // first render. When initialValues are provided (settings page), use those.
+  // Otherwise, derive defaults from the template (fresh deploy page).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
+  const computedDefaults = useMemo(() => iv ?? computeFormDefaults(opts?.initialTemplate, name), []);
+
+  const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
+  const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
+  const [selectedAdapters, setSelectedAdapters] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
+  const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
+  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(computedDefaults.webAuthEnabled ?? false);
+  const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const allFormValues = useMemo(
@@ -309,27 +311,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         : [],
     [template],
   );
-
-  // Initialize ingestion schedule values when template loads
-  useEffect(() => {
-    if (scheduleIngestions.length > 0) {
-      setIngestionSchedules((prev) => {
-        const initial: Record<string, string> = {};
-        for (const name of scheduleIngestions) {
-          initial[name] = prev[name] ?? template?.ingestion?.[name]?.trigger?.schedule ?? "";
-        }
-        return initial;
-      });
-    }
-  }, [scheduleIngestions, template]);
-
-  // Sync webAuthEnabled when the network re-fetches the template (SSR template may be stale).
-  // Skip if already seeded from initialValues or the SSR template.
-  useEffect(() => {
-    if (webAuthInitRef.current || !template?.interfaces) return;
-    setWebAuthEnabled(isWebAuthOidc(template.interfaces as Record<string, unknown>));
-    webAuthInitRef.current = true;
-  }, [template?.interfaces]);
 
   // Derived variable lists (agent/ingestion-targeting variables)
   const variableEntries = useMemo<[string, VariableDisplay][]>(
@@ -426,41 +407,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
     return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
   }, [template]);
-
-  // Initialize variable values when template loads
-  useEffect(() => {
-    if (variableEntries.length > 0) {
-      setVariableValues((prev) => {
-        const initial: Record<string, string> = {};
-        for (const [key, v] of variableEntries) {
-          initial[key] = prev[key] ?? v.defaultValue ?? getVariableDefault(v);
-        }
-        return initial;
-      });
-    }
-  }, [variableEntries]);
-
-  // Seed adapter field defaults from the template so spec-defined values
-  // (e.g. actionable_reactions: [ticket]) appear pre-filled on fresh install.
-  useEffect(() => {
-    const defaults: Record<string, string> = {};
-    for (const defs of Object.values(adapterDisplayFields)) {
-      for (const [key, v] of defs) {
-        if (v.defaultValue) defaults[key] = v.defaultValue;
-      }
-    }
-    // SLACK_CONFIG is a compound field — parse its default into the three virtual fields
-    const slackCfgDefault = template?.variables?.[SLACK_CONFIG_KEY]?.default;
-    if (slackCfgDefault) {
-      const parsed = deserializeSlackConfig(slackCfgDefault);
-      for (const [key, val] of Object.entries(parsed)) {
-        if (val && !defaults[key]) defaults[key] = val;
-      }
-    }
-    if (Object.keys(defaults).length > 0) {
-      setAdapterCredentials((prev) => ({ ...defaults, ...prev }));
-    }
-  }, [adapterDisplayFields, template]);
 
   // Always-on vault ref validation — not gated by submitted so chips turn red
   // immediately when the target account changes, without requiring a submit attempt.
@@ -677,7 +623,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     },
 
     reset(values?: DeployFormInitialValues) {
-      const v = values ?? iv;
+      const v = values ?? iv ?? computedDefaults;
       setDeployName(v?.deployName ?? slugToTitle(name));
       setVariableValues(v?.variableValues ?? {});
       setSelectedAdapters(v?.selectedAdapters ?? ["web"]);
