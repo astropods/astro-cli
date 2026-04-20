@@ -146,15 +146,16 @@ function OverviewTab({ store, account }: { store: KnowledgeStore; account: strin
           </div>
         </div>
 
-        {/* Event log */}
-        <div className="rounded-lg border border-border bg-surface p-5">
-          <h3 className="text-heading-4 text-foreground mb-4">Event log</h3>
-          <EventTimeline store={store} />
+        {/* Right column: Event log + PrivateLink */}
+        <div className="space-y-6">
+          <div className="rounded-lg border border-border bg-surface p-5">
+            <h3 className="text-heading-4 text-foreground mb-4">Event log</h3>
+            <EventTimeline store={store} />
+          </div>
+
+          {store.endpoint && <PrivateLinkSection store={store} />}
         </div>
       </div>
-
-      {/* PrivateLink progress (if applicable) */}
-      {store.endpoint && <PrivateLinkSection store={store} />}
     </div>
   );
 }
