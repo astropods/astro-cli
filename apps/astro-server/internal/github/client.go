@@ -84,8 +84,6 @@ func (c *Client) GetBranchHead(ctx context.Context, repoFullName, branch string)
 	return result.Commit.SHA, nil
 }
 
-// ListReposPaged returns repos the authenticated user has admin access to, one page at a time.
-// page is 1-indexed. perPage is capped at 100 by GitHub.
 // GetLogin returns the GitHub login of the authenticated user.
 func (c *Client) GetLogin(ctx context.Context) (string, error) {
 	var user struct {
