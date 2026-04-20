@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
-import { PlusIcon, BookOpenIcon, EllipsisVerticalIcon, CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { PlusIcon, EllipsisVerticalIcon, CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -76,7 +76,6 @@ function KnowledgeStoresContent() {
           <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" asChild>
               <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
-                <BookOpenIcon className="size-4" />
                 Learn more
               </a>
             </Button>
