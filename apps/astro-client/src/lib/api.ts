@@ -100,6 +100,24 @@ export interface ApiError {
   missing_variables?: string[];
 }
 
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  details?: string;
+  validation_errors?: ValidationError[];
+  missing_variables?: string[];
+
+  constructor(apiError: ApiError, status: number) {
+    super(apiError.error_description || apiError.details || `Request failed with status ${status}`);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.code = apiError.code;
+    this.details = apiError.details;
+    this.validation_errors = apiError.validation_errors;
+    this.missing_variables = apiError.missing_variables;
+  }
+}
+
 
 export interface InviteEntry {
   value: string;
@@ -160,12 +178,11 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
+      const body: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
-      error.status = response.status;
-      throw error;
+      throw new ApiRequestError(body, response.status);
     }
 
     // Handle empty responses (204 No Content, etc.)
@@ -186,12 +203,11 @@ class ApiClient {
       headers: { 'Content-Type': 'application/json', ...this.defaultHeaders, ...options.headers },
     });
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
+      const body: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
-      error.status = response.status;
-      throw error;
+      throw new ApiRequestError(body, response.status);
     }
     return response.json();
   }
@@ -466,12 +482,11 @@ class ApiClient {
       headers: { ...this.defaultHeaders },
     });
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
+      const body: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         details: `Request failed with status ${response.status}`,
       }));
-      error.status = response.status;
-      throw error;
+      throw new ApiRequestError(body, response.status);
     }
     return response.json();
   }
@@ -659,12 +674,11 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
+      const body: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
-      error.status = response.status;
-      throw error;
+      throw new ApiRequestError(body, response.status);
     }
 
     const text = await response.text();
@@ -793,12 +807,11 @@ class ApiClient {
       headers: { ...this.defaultHeaders },
     });
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
+      const body: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         details: `Request failed with status ${response.status}`,
       }));
-      error.status = response.status;
-      throw error;
+      throw new ApiRequestError(body, response.status);
     }
     return response.json();
   }

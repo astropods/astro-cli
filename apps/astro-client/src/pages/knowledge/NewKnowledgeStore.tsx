@@ -738,7 +738,7 @@ function ConfigureForm({
         {/* Error */}
         {mutation.isError && (
           <p className="mt-4 text-xs text-destructive">
-            {mutation.error instanceof Error ? mutation.error.message : "Failed to create store"}
+            {mutation.error instanceof Error ? mutation.error.message : mode === "managed" ? "Failed to create store" : "Failed to connect store"}
           </p>
         )}
 
