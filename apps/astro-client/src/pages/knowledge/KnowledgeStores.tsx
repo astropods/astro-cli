@@ -74,9 +74,11 @@ function KnowledgeStoresContent() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm">
-              <BookOpenIcon className="size-4" />
-              Learn more
+            <Button variant="outline" size="sm" asChild>
+              <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
+                <BookOpenIcon className="size-4" />
+                Learn more
+              </a>
             </Button>
             <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
               <PlusIcon className="size-4" />
