@@ -213,7 +213,7 @@ function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
       <div className="space-y-3">
         {steps.map((step, i) => {
           const isActive = step.key === status;
-          const isDone = !isError && currentIdx > i;
+          const isDone = !isError && (currentIdx > i || (isActive && status === "ready"));
           return (
             <div key={step.key} className="flex items-center gap-3">
               <div className={cn(
