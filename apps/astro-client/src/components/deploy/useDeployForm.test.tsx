@@ -103,7 +103,7 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.selectedAdapters).toEqual(['web', 'slack']);
   });
 
-  it('preserves pre-filled values after variableEntries useEffect runs', async () => {
+  it('preserves pre-filled values across re-renders', async () => {
     const prefilledTemplate: DeploymentTemplate = {
       ...mockTemplate,
       target: { ...mockTemplate.target, display_name: 'My Agent', deployment_id: 'dep-123' },
@@ -130,7 +130,7 @@ describe('useDeployForm with pre-filled template', () => {
       { wrapper },
     );
 
-    // After effects settle, values should still be there
+    // Values should be stable across re-renders
     await act(async () => {});
 
     expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-test-key-123');
@@ -278,6 +278,165 @@ describe('useDeployForm with pre-filled template', () => {
 
     await act(async () => {});
     expect(result.current.trySubmit()).toBe(true);
+  });
+});
+
+describe('useDeployForm fresh deploy (no initialValues)', () => {
+  it('populates select field defaults on first render without effects', () => {
+    const templateWithSelect: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        ENVIRONMENT: {
+          default: 'production',
+          targets: ['agent'],
+          'display-as': 'select',
+          options: ['production', 'staging', 'development'],
+        },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplate: templateWithSelect,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    // First render — no act() needed, defaults are synchronous
+    expect(result.current.variableValues.ENVIRONMENT).toBe('production');
+  });
+
+  it('populates boolean defaults on first render', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        DEBUG: { targets: ['agent'], datatype: 'boolean' },
+        VERBOSE: { default: 'true', targets: ['agent'], datatype: 'boolean' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplate: tpl,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.variableValues.DEBUG).toBe('false');
+    expect(result.current.variableValues.VERBOSE).toBe('true');
+  });
+
+  it('populates ingestion schedule defaults on first render', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+      ingestion: {
+        nightly: {
+          image: 'sync:latest',
+          trigger: { type: 'schedule', schedule: '0 3 * * *' },
+        },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplate: tpl,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.ingestionSchedules).toEqual({ nightly: '0 3 * * *' });
+  });
+
+  it('populates web auth default on first render', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+      interfaces: {
+        auth: { web: { type: 'oidc' } },
+        adapters: ['web'],
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplate: tpl,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.webAuthEnabled).toBe(true);
+  });
+
+  it('handles null template gracefully (loader failure)', () => {
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplate: undefined,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.deployName).toBe('My Agent');
+    expect(result.current.variableValues).toEqual({});
+    expect(result.current.selectedAdapters).toEqual(['web']);
+  });
+
+  it('reset restores computed defaults when no initialValues', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        ENVIRONMENT: {
+          default: 'production',
+          targets: ['agent'],
+          'display-as': 'select',
+          options: ['production', 'staging'],
+        },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplate: tpl,
+          skipTemplateFetch: true,
+        }),
+      { wrapper },
+    );
+
+    // User changes the value
+    act(() => {
+      result.current.setVariableValues({ ENVIRONMENT: 'staging' });
+    });
+    expect(result.current.variableValues.ENVIRONMENT).toBe('staging');
+
+    // Reset restores the computed default
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.variableValues.ENVIRONMENT).toBe('production');
+    expect(result.current.deployName).toBe('Code Reviewer');
   });
 });
 
