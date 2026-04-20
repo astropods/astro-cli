@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Rocket, Play, Check } from "lucide-react";
 import { Cog6ToothIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
-import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { Tag } from "@/components/Tag";
 import type { AgentDeployment } from "@/lib/api";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
@@ -46,16 +45,6 @@ function ConfigurePanelContent({ deployment, account, onClose, onRedeployStart, 
     build: newBuildId,
     revision: revisionNumber,
   });
-
-  // Seed form state from the POST-fetched template once it loads.
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (form.template && !seededRef.current) {
-      seededRef.current = true;
-      form.reset(extractInitialValues(form.template, account));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
-  }, [form.template]);
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);

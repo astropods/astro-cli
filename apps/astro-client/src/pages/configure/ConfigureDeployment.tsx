@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useState, type SyntheticEvent } from "react";
 import { useNavigate, useOutletContext, type MetaFunction } from "react-router";
 import { Play, Check, Loader2 } from "lucide-react";
 import type { ConfigureContext } from "./types";
@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
-import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
@@ -32,12 +31,7 @@ export default function ConfigureDeployment() {
     deploymentId: deployment.id,
   });
 
-  // Capture initial values once when the template first loads — used for change tracking.
-  const initialValuesRef = useRef<ReturnType<typeof extractInitialValues> | null>(null);
-  if (form.template && !initialValuesRef.current) {
-    initialValuesRef.current = extractInitialValues(form.template, account);
-  }
-  const initialValues = initialValuesRef.current;
+  const initialValues = form.initialValues;
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
   const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);

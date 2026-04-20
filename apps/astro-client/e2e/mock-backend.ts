@@ -622,7 +622,7 @@ Bun.serve({
           const tmplVars = flat.variables as Record<string, Record<string, unknown>>;
           for (const [key, input] of Object.entries(reqVars)) {
             if (tmplVars[key]) {
-              if (input.value) { tmplVars[key] = { ...tmplVars[key], value: input.value, ref: undefined }; }
+              if (input.value !== undefined) { tmplVars[key] = { ...tmplVars[key], value: input.value, ref: undefined }; }
               else if (input.ref) { tmplVars[key] = { ...tmplVars[key], ref: input.ref, value: undefined }; }
             }
           }

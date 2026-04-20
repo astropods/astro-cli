@@ -1,14 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
-import { isVariableFilled } from "./VariableField";
+import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
-import { SLACK_CONFIG_KEY, serializeSlackConfig } from "./slackConfig";
+import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
 import { computeFormDefaults } from "./computeFormDefaults";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
@@ -97,6 +97,65 @@ export const adapterFields = (adapterId: string): AdapterFieldDef[] => [
   ...(ADAPTER_SECRETS[adapterId] ?? []),
   ...(ADAPTER_CONFIG[adapterId] ?? []),
 ];
+
+const adapterFieldKeys = new Set(
+  [ADAPTER_SECRETS, ADAPTER_CONFIG].flatMap((map) =>
+    Object.values(map).flatMap((fields) => fields.map((f) => f.key)),
+  ),
+);
+
+/** Compute form-ready initial values from a pre-filled deployment template. */
+export function computeInitialValues(template: DeploymentTemplate, account: string): DeployFormInitialValues {
+  const variableValues: Record<string, string> = {};
+  const adapterCredentials: Record<string, string> = {};
+
+  if (template.variables) {
+    for (const [key, v] of Object.entries(template.variables)) {
+      const val = v.ref
+        ? (v.secret ? `{{secrets.${v.ref}}}` : `{{vars.${v.ref}}}`)
+        : (v.value ?? v.default ?? getVariableDefault({ datatype: v.datatype }));
+      if (key === SLACK_CONFIG_KEY) {
+        const parsed = deserializeSlackConfig(val);
+        for (const [vKey, vVal] of Object.entries(parsed)) {
+          adapterCredentials[vKey] = vVal;
+        }
+        continue;
+      }
+      const isAdapterField =
+        adapterFieldKeys.has(key) ||
+        v.targets?.some((t: string) => t.startsWith("interface."));
+      if (isAdapterField) {
+        adapterCredentials[key] = val;
+      } else {
+        variableValues[key] = val;
+      }
+    }
+  }
+
+  const interfaces = template.interfaces as Record<string, unknown> | undefined;
+  const adapters = interfaces?.adapters;
+  const selectedAdapters: string[] = Array.isArray(adapters) ? adapters : ["web"];
+  const webAuthEnabled = isWebAuthOidc(interfaces);
+
+  const ingestionSchedules: Record<string, string> = {};
+  if (template.ingestion) {
+    for (const [name, ing] of Object.entries(template.ingestion)) {
+      if (ing.trigger?.type === "schedule") {
+        ingestionSchedules[name] = ing.trigger.schedule ?? "";
+      }
+    }
+  }
+
+  return {
+    deployName: template.target.display_name || "",
+    targetAccount: account,
+    variableValues,
+    selectedAdapters,
+    adapterCredentials,
+    ingestionSchedules,
+    webAuthEnabled,
+  };
+}
 
 function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
   return {
@@ -230,6 +289,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (fetchedForRef.current === key) return;
     if (!account || !name) return;
     fetchedForRef.current = key;
+    seededRef.current = false;
     setTemplateResponse(null);
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
@@ -254,6 +314,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Compute initial form state synchronously so the form is correct on the
   // first render. When initialValues are provided (settings page), use those.
   // Otherwise, derive defaults from the template (fresh deploy page).
+  // The POST-based seeding effect will override these once the template loads.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
   const computedDefaults = useMemo(() => iv ?? computeFormDefaults(opts?.initialTemplate, name), []);
 
@@ -265,6 +326,44 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  // Applies a set of form values to all state variables at once.
+  // Used by both the initial seeding effect and `reset()`.
+  const applyValues = (v: DeployFormInitialValues) => {
+    // deployName uses || because "" should fall through to the slugToTitle fallback
+    setDeployName(v.deployName || slugToTitle(name));
+    setVariableValues(v.variableValues ?? {});
+    setSelectedAdapters(v.selectedAdapters ?? ["web"]);
+    setAdapterCredentials(v.adapterCredentials ?? {});
+    setIngestionSchedules(v.ingestionSchedules ?? {});
+    setWebAuthEnabled(v.webAuthEnabled ?? false);
+  };
+
+  // Seed all form state from the template in one pass once it loads.
+  // Uses v.value (existing deployment values) not just v.default, so both
+  // fresh deploys and configure pages work correctly without manual seeding.
+  const initialValuesRef = useRef<DeployFormInitialValues | null>(null);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!template || seededRef.current) return;
+    seededRef.current = true;
+
+    const extracted = computeInitialValues(template, account);
+    const merged: DeployFormInitialValues = {
+      deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
+      targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",
+      variableValues: { ...extracted.variableValues, ...(iv?.variableValues ?? {}) },
+      selectedAdapters: iv?.selectedAdapters ?? extracted.selectedAdapters ?? ["web"],
+      adapterCredentials: { ...extracted.adapterCredentials, ...(iv?.adapterCredentials ?? {}) },
+      ingestionSchedules: { ...extracted.ingestionSchedules, ...(iv?.ingestionSchedules ?? {}) },
+      webAuthEnabled: iv?.webAuthEnabled ?? extracted.webAuthEnabled ?? false,
+    };
+
+    initialValuesRef.current = merged;
+    applyValues(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
+  }, [template]);
+
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
     [variableValues, adapterCredentials],
@@ -557,6 +656,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     templateLoading,
     templateErrorMessage,
     serverValidation: templateResponse?.validation ?? null,
+    initialValues: initialValuesRef.current,
 
     accounts,
     targetAccount,
@@ -642,13 +742,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     },
 
     reset(values?: DeployFormInitialValues) {
-      const v = values ?? iv ?? computedDefaults;
-      setDeployName(v?.deployName ?? slugToTitle(name));
-      setVariableValues(v?.variableValues ?? {});
-      setSelectedAdapters(v?.selectedAdapters ?? ["web"]);
-      setAdapterCredentials(v?.adapterCredentials ?? {});
-      setIngestionSchedules(v?.ingestionSchedules ?? {});
-      setWebAuthEnabled(v?.webAuthEnabled ?? false);
+      applyValues(values ?? initialValuesRef.current ?? iv ?? computedDefaults);
     },
   };
 }
