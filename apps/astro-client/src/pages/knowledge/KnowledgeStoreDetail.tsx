@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
@@ -21,7 +21,7 @@ import { MetricCard } from "@/components/MetricCard";
 import { SidePanel } from "@/components/deployed-agent/detail/SidePanel";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeMetrics } from "@/api/queries/knowledge";
+import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeMetrics, useKnowledgeLogs } from "@/api/queries/knowledge";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import {
@@ -34,6 +34,7 @@ import { getIntegrationIconUrl } from "@/lib/assets";
 import { InformationCircleIcon } from "@heroicons/react/24/outline";
 import type { KnowledgeStore, KnowledgeEvent, KnowledgeProvider } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Store | Astro" }];
 
@@ -188,6 +189,30 @@ function EventTimeline({ store }: { store: KnowledgeStore }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// --- Logs section ---
+
+function LogsSection({ store, account }: { store: KnowledgeStore; account: string }) {
+  const [timeRange, setTimeRange] = useState<LogTimeRange>("1h");
+  const isReady = store.status === "ready";
+  const { data, isLoading, isError } = useKnowledgeLogs(account, store.name, timeRange, { enabled: isReady });
+  const handleTimeRangeChange = useCallback((r: LogTimeRange) => setTimeRange(r), []);
+
+  return (
+    <div className="rounded-lg border border-border bg-white overflow-hidden">
+      <LogViewer
+        logs={data ?? []}
+        isLoading={isLoading}
+        timeRange={timeRange}
+        onTimeRangeChange={handleTimeRangeChange}
+        error={isError ? "Couldn't load logs." : undefined}
+        leading={
+          <h3 className="text-heading-4 text-foreground">Logs</h3>
+        }
+      />
     </div>
   );
 }
@@ -361,6 +386,7 @@ function KnowledgeStoreDetailContent() {
 
   const { data: store, isLoading } = useKnowledgeStore(account, storeName ?? "", isAuthenticated && !!storeName);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tab, setTab] = useState<"overview" | "logs">("overview");
 
   if (isLoading) {
     return (
@@ -442,7 +468,27 @@ function KnowledgeStoreDetailContent() {
             </div>
           </div>
 
-          <OverviewTab store={store} account={account} />
+          {/* Tab bar */}
+          <div className="flex gap-1 mb-6 border-b border-border">
+            {(["overview", "logs"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={cn(
+                  "px-3 py-2 text-body-sm font-medium capitalize transition-colors border-b-2 -mb-px",
+                  tab === t
+                    ? "border-foreground text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" && <OverviewTab store={store} account={account} />}
+          {tab === "logs" && <LogsSection store={store} account={account} />}
         </div>
       </div>
 
