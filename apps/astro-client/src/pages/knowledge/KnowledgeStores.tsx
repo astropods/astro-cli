@@ -65,7 +65,7 @@ function KnowledgeStoresContent() {
   return (
     <div className="flex-1 bg-muted">
       <div className="px-6 py-6">
-        <div className="mb-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-heading-1 text-foreground">Knowledge Stores</h1>
             <p className="mt-1 text-[13px] text-muted-foreground">
@@ -105,12 +105,12 @@ function KnowledgeStoresContent() {
             </TableBody>
           </Table>
         ) : stores.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-            <div className="flex justify-center mb-3 text-muted-foreground">
-              <CircleStackIcon className="size-6" />
+          <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-border">
+              <CircleStackIcon className="size-6 text-muted-foreground" />
             </div>
-            <p className="text-heading-3 text-foreground mb-1.5">No knowledge stores yet</p>
-            <p className="text-body text-muted-foreground mb-4">
+            <p className="text-heading-3 text-foreground mb-2">No knowledge stores yet</p>
+            <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
               Create a store to give your agents a database for memory, vector search, or caching.
             </p>
             <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
