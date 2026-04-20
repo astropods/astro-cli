@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
-import { PlusIcon, BookOpenIcon, EllipsisHorizontalIcon, CircleStackIcon } from "@heroicons/react/24/outline";
+import { PlusIcon, BookOpenIcon, EllipsisVerticalIcon, CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tag } from "@/components/Tag";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
@@ -63,7 +64,7 @@ function KnowledgeStoresContent() {
   const tableHeaders = ["Name", "Status", "Provider", "Mode", "Storage", "Created"];
 
   return (
-    <div className="flex-1 bg-muted">
+    <div className="flex-1 bg-surface">
       <div className="px-6 py-6">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
@@ -135,51 +136,50 @@ function KnowledgeStoresContent() {
                   interactive
                   onClick={() => navigate(knowledgeDetailPath(store.name))}
                 >
-                  <TableCell className="py-5">
+                  <TableCell className="">
                     <span className="font-medium text-foreground">
                       {store.name}
                     </span>
                   </TableCell>
-                  <TableCell className="py-5">
+                  <TableCell className="">
                     <StatusBadge
                       color={statusToColor(store.status)}
-                      indicator
                       spinning={isTransitionalStatus(store.status)}
                     >
                       {statusLabel(store.status)}
                     </StatusBadge>
                   </TableCell>
-                  <TableCell className="py-5 text-muted-foreground">
+                  <TableCell className="text-muted-foreground">
                     <span className="inline-flex items-center gap-2">
                       {PROVIDERS_WITH_ICON.has(store.provider) ? (
                         <img
                           src={getIntegrationIconUrl(store.provider, "light")}
                           alt=""
-                          className="size-5 object-contain"
+                          className="size-4 object-contain"
                           loading="lazy"
                         />
                       ) : (
-                        <CircleStackIcon className="size-5 text-muted-foreground/60" />
+                        <CircleStackIcon className="size-4 text-muted-foreground/60" />
                       )}
                       {PROVIDER_LABELS[store.provider] ?? store.provider}
                     </span>
                   </TableCell>
-                  <TableCell className="py-5">
-                    <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono text-mono-sm text-muted-foreground">
+                  <TableCell className="">
+                    <Tag color={store.mode === "managed" ? "blue" : "default"}>
                       {store.mode === "managed" ? "Managed" : "External"}
-                    </span>
+                    </Tag>
                   </TableCell>
-                  <TableCell className="py-5 text-muted-foreground">
+                  <TableCell className="text-muted-foreground">
                     {store.mode === "managed" ? (store.storage ?? "—") : "—"}
                   </TableCell>
-                  <TableCell className="py-5 text-muted-foreground">
+                  <TableCell className="text-muted-foreground">
                     {formatRelativeTime(store.created_at)}
                   </TableCell>
-                  <TableCell className="py-5" onClick={(e) => e.stopPropagation()}>
+                  <TableCell className="" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="size-7">
-                          <EllipsisHorizontalIcon className="size-4" />
+                          <EllipsisVerticalIcon className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
@@ -187,7 +187,8 @@ function KnowledgeStoresContent() {
                           variant="destructive"
                           onClick={() => setDeleteTarget(store)}
                         >
-                          Delete
+                          <TrashIcon className="size-4" />
+                          Delete store
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

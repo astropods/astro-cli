@@ -11,7 +11,7 @@ function Table({ className, children, ...props }: React.ComponentProps<"table">)
       <div className="relative w-full overflow-auto">
         <table
           data-slot="table"
-          className={cn("w-full border-collapse text-body-sm", className)}
+          className={cn("w-full border-collapse text-body leading-5", className)}
           {...props}
         >
           {children}
@@ -35,7 +35,7 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
   return (
     <tbody
       data-slot="table-body"
-      className={cn("bg-surface", className)}
+      className={cn(className)}
       {...props}
     />
   )
@@ -46,7 +46,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
     <tfoot
       data-slot="table-footer"
       className={cn(
-        "bg-muted border-t border-border font-medium [&>tr]:border-0",
+        "border-t border-border font-medium [&>tr]:border-0",
         className,
       )}
       {...props}
@@ -90,7 +90,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("px-4 py-3 align-middle", className)}
+      className={cn("px-4 py-2 align-middle", className)}
       {...props}
     />
   )

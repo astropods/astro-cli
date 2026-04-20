@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
@@ -18,13 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MetricCard } from "@/components/MetricCard";
-import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 import { SidePanel } from "@/components/deployed-agent/detail/SidePanel";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeLogs, useKnowledgeMetrics } from "@/api/queries/knowledge";
-import { useApiClient } from "@/lib/api-context";
-import type { LogEntry } from "@/lib/log-utils";
+import { useKnowledgeStore, useKnowledgeCredentials, useKnowledgeMetrics } from "@/api/queries/knowledge";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import {
@@ -41,7 +38,6 @@ import { cn } from "@/lib/utils";
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Store | Astro" }];
 
 const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
-type Tab = "overview" | "logs";
 
 // --- Helpers ---
 
@@ -128,7 +124,7 @@ function OverviewTab({ store, account }: { store: KnowledgeStore; account: strin
       {/* Two-column: Agent bindings + Event log */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Agent bindings */}
-        <div className="rounded-lg border border-border bg-surface p-5">
+        <div className="rounded-lg border border-border bg-white p-5">
           <div className="flex items-center gap-2 mb-4">
             <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
             <span className="inline-flex items-center justify-center rounded-full bg-muted px-2 py-0.5 font-mono text-mono-sm text-muted-foreground">
@@ -149,7 +145,7 @@ function OverviewTab({ store, account }: { store: KnowledgeStore; account: strin
         {/* Right column: Event log (managed only) + PrivateLink */}
         <div className="space-y-6">
           {store.mode === "managed" && (
-            <div className="rounded-lg border border-border bg-surface p-5">
+            <div className="rounded-lg border border-border bg-white p-5">
               <h3 className="text-heading-4 text-foreground mb-4">Event log</h3>
               <EventTimeline store={store} />
             </div>
@@ -192,113 +188,6 @@ function EventTimeline({ store }: { store: KnowledgeStore }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// --- Logs tab ---
-
-const MAX_TAIL_LINES = 5000;
-
-function useKnowledgeLogStream(account: string, storeName: string) {
-  const api = useApiClient();
-  const [lines, setLines] = useState<LogEntry[]>([]);
-  const [status, setStatus] = useState<"idle" | "connecting" | "tailing" | "reconnecting">("idle");
-  const [error, setError] = useState<string>();
-  const esRef = useRef<EventSource | null>(null);
-
-  const stop = useCallback(() => {
-    if (esRef.current) {
-      esRef.current.close();
-      esRef.current = null;
-    }
-    setStatus("idle");
-    setLines([]);
-    setError(undefined);
-  }, []);
-
-  const start = useCallback(() => {
-    stop();
-    setStatus("connecting");
-
-    const url = api.getKnowledgeLogsStreamUrl(account, storeName);
-    const es = new EventSource(url);
-    esRef.current = es;
-    let hasBeenLive = false;
-
-    es.onmessage = (e: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(e.data) as { timestamp: string; level: string; message: string };
-        setLines((prev) => {
-          const next = [...prev, { timestamp: parsed.timestamp, level: parsed.level || null, message: parsed.message }];
-          return next.length > MAX_TAIL_LINES ? next.slice(-MAX_TAIL_LINES) : next;
-        });
-      } catch { /* ignore */ }
-    };
-
-    es.addEventListener("ready", () => {
-      hasBeenLive = true;
-      setStatus("tailing");
-    });
-
-    es.addEventListener("error", (e: Event) => {
-      if ("data" in e) {
-        try {
-          const parsed = JSON.parse((e as MessageEvent).data) as { message?: string };
-          setError(parsed.message ?? "Stream error");
-        } catch { /* ignore */ }
-      }
-    });
-
-    es.onerror = () => {
-      if (es.readyState === EventSource.CONNECTING) {
-        if (hasBeenLive) setStatus("reconnecting");
-        else setError("Failed to connect to log stream");
-      } else if (es.readyState === EventSource.CLOSED) {
-        setStatus("idle");
-      }
-    };
-  }, [api, account, storeName, stop]);
-
-  useEffect(() => {
-    return () => { esRef.current?.close(); esRef.current = null; };
-  }, []);
-
-  return { lines, status, error, start, stop };
-}
-
-function LogsTab({ account, storeName }: { account: string; storeName: string }) {
-  const [timeRange, setTimeRange] = useState<LogTimeRange>("1h");
-  const [tailing, setTailing] = useState(false);
-  const { data: historyLogs, isLoading, isError } = useKnowledgeLogs(account, storeName, timeRange, { enabled: !tailing });
-  const stream = useKnowledgeLogStream(account, storeName);
-
-  const handleTailToggle = useCallback(() => {
-    if (tailing) {
-      stream.stop();
-      setTailing(false);
-    } else {
-      stream.start();
-      setTailing(true);
-    }
-  }, [tailing, stream]);
-
-  const logs = tailing ? stream.lines : (historyLogs ?? []);
-  const loading = tailing ? stream.status === "connecting" : isLoading;
-  const errorMsg = tailing ? stream.error : (isError ? "Failed to load logs" : undefined);
-
-  return (
-    <div className="h-[600px]">
-      <LogViewer
-        logs={logs}
-        isLoading={loading}
-        timeRange={timeRange}
-        onTimeRangeChange={setTimeRange}
-        error={errorMsg}
-        isTailing={tailing && stream.status === "tailing"}
-        isReconnecting={stream.status === "reconnecting"}
-        onTailToggle={handleTailToggle}
-      />
     </div>
   );
 }
@@ -471,17 +360,11 @@ function KnowledgeStoreDetailContent() {
   const account = validStoredDefault || personalAccount?.name || "";
 
   const { data: store, isLoading } = useKnowledgeStore(account, storeName ?? "", isAuthenticated && !!storeName);
-  const [tab, setTab] = useState<Tab>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const tabs: { key: Tab; label: string; hidden?: boolean }[] = [
-    { key: "overview", label: "Overview" },
-    { key: "logs", label: "Logs", hidden: store?.mode !== "managed" },
-  ];
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-muted">
+      <div className="flex-1 bg-surface">
         <div className="px-6 py-6 space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-64 w-full rounded-md" />
@@ -492,7 +375,7 @@ function KnowledgeStoreDetailContent() {
 
   if (!store) {
     return (
-      <div className="flex-1 bg-muted">
+      <div className="flex-1 bg-surface">
         <div className="px-6 py-6">
           <p className="text-body-sm text-muted-foreground">Knowledge store not found.</p>
           <Button asChild variant="outline" className="mt-4">
@@ -559,28 +442,7 @@ function KnowledgeStoreDetailContent() {
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="mb-6 flex gap-4 border-b border-border">
-            {tabs.filter((t) => !t.hidden).map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className={cn(
-                  "pb-2 text-body-sm font-medium transition-colors border-b-2",
-                  tab === t.key
-                    ? "border-teal-700 text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab content */}
-          {tab === "overview" && <OverviewTab store={store} account={account} />}
-          {tab === "logs" && store.mode === "managed" && <LogsTab account={account} storeName={store.name} />}
+          <OverviewTab store={store} account={account} />
         </div>
       </div>
 

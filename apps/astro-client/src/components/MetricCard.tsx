@@ -40,7 +40,7 @@ export interface MetricCardProps {
 
 export function MetricCard({ label, value, trend = null, higherIsBetter = true, showTrend = true, loading, trendLoading, className }: MetricCardProps) {
   return (
-    <div className={cn("rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
+    <div className={cn("rounded-[10px] border border-border bg-white p-[12px_14px]", className)}>
       <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend ? "mb-2" : "mb-4")}>
         {label}
       </span>
