@@ -679,12 +679,7 @@ func GetKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store, k8
 			}
 		}
 
-		loc := time.UTC
-		if tz := c.Query("timezone"); tz != "" {
-			if parsed, err := time.LoadLocation(tz); err == nil {
-				loc = parsed
-			}
-		}
+		loc := getTimezoneLocation(c)
 
 		streamLogs(c, log,
 			lokiClient, lokiParams,
@@ -731,12 +726,7 @@ func StreamKnowledgeStoreLogs(log *logger.Logger, ksStore *knowledgestore.Store,
 		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
 		flusher.Flush()
 
-		loc := time.UTC
-		if tz := c.Query("timezone"); tz != "" {
-			if parsed, err := time.LoadLocation(tz); err == nil {
-				loc = parsed
-			}
-		}
+		loc := getTimezoneLocation(c)
 
 		writeEvent := func(ll loki.LogLine) bool {
 			payload, _ := json.Marshal(lokiLineToEntry(ll, loc))

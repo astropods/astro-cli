@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LogViewer, type LogTimeRange } from "@/components/LogViewer";
 import { useDeploymentLogs } from "@/api/queries/deployments";
-import { loadTimezone } from "@/lib/timezone";
+import { useLogTimezone } from "@/lib/timezone";
 import { useLogStream } from "../LogStreamProvider";
 import type { AgentDeployment, WorkloadDetail } from "@/lib/api";
 
@@ -72,7 +72,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
 
   const [{ tabs: openTabs, activeKey }, dispatch] = useReducer(tabReducer, { tabs: [], activeKey: null });
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
-  const timezone = loadTimezone();
+  const { timezone } = useLogTimezone();
   const [isTailing, setIsTailing] = useState(false);
 
   // Pre-load the first container tab and make it active when the deployment changes.

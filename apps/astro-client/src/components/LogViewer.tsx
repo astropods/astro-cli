@@ -65,7 +65,7 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
-  const timezone = loadTimezone();
+  const [timezone] = useState(loadTimezone);
   const [logSearch, setLogSearch] = useState("");
   const deferredSearch = useDeferredValue(logSearch);
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs);

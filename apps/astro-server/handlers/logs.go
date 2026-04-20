@@ -14,6 +14,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+var k8sTimestampRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$`)
+
+func getTimezoneLocation(c *gin.Context) *time.Location {
+	if tz := c.Query("timezone"); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
+
 type logEntry struct {
 	Timestamp string `json:"timestamp"`
 	Level     string `json:"level"`
@@ -76,7 +87,6 @@ func streamLogs(
 		return
 	}
 
-	k8sTS := regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$`)
 	rawLines := strings.Split(strings.TrimRight(string(logBytes), "\n"), "\n")
 	entries := make([]logEntry, 0, len(rawLines))
 	for _, line := range rawLines {
@@ -84,7 +94,7 @@ func streamLogs(
 			continue
 		}
 		entry := logEntry{Message: line}
-		if m := k8sTS.FindStringSubmatch(line); m != nil {
+		if m := k8sTimestampRE.FindStringSubmatch(line); m != nil {
 			if t, err := time.Parse(time.RFC3339Nano, m[1]); err == nil {
 				entry.Timestamp = t.In(loc).Format(time.RFC3339Nano)
 			} else {

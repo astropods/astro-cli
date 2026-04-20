@@ -1875,12 +1875,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		workloadName := c.Query("workload")
 		containerName := c.Query("container")
 
-		loc := time.UTC
-		if tz := c.Query("timezone"); tz != "" {
-			if parsed, err := time.LoadLocation(tz); err == nil {
-				loc = parsed
-			}
-		}
+		loc := getTimezoneLocation(c)
 
 		tailLines := int64(200)
 		if tl := c.Query("tailLines"); tl != "" {
@@ -1996,12 +1991,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		containerName := c.Query("container")
 		podName := c.Query("pod")
 
-		loc := time.UTC
-		if tz := c.Query("timezone"); tz != "" {
-			if parsed, err := time.LoadLocation(tz); err == nil {
-				loc = parsed
-			}
-		}
+		loc := getTimezoneLocation(c)
 
 		backend := "none"
 		if lokiClient != nil {

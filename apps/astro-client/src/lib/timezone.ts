@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 
-export const TIMEZONE_STORAGE_KEY = "astro:log-timezone";
+const TIMEZONE_STORAGE_KEY = "astro:log-timezone";
 
 export function loadTimezone(): string {
   try {
@@ -14,7 +14,7 @@ export function useLogTimezone() {
   const [timezone, setTimezoneState] = useState<string>(loadTimezone);
 
   const setTimezone = useCallback((tz: string) => {
-    try { localStorage.setItem(TIMEZONE_STORAGE_KEY, tz); } catch { /* ignore */ }
+    try { localStorage.setItem(TIMEZONE_STORAGE_KEY, tz); } catch { /* private browsing */ }
     setTimezoneState(tz);
   }, []);
 
