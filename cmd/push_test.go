@@ -246,6 +246,44 @@ func TestStripSecretDefaults(t *testing.T) {
 	}
 }
 
+// TestPush_InvalidSpecFailsBeforeAuth asserts that a spec which fails validation
+// causes push to exit with a validation error, not an authentication error,
+// even when credentials are missing. This locks in the ordering guarantee that
+// validation runs before auth/build/push.
+func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	// No credentials file — if validation weren't first, push would fail with "not authenticated".
+	// Spec is missing required top-level `meta`, so validation must fail first.
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	var err error
+	_ = captureStdout(t, func() {
+		cmd := pushCmd
+		cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
+		err = cmd.Execute()
+	})
+
+	if err == nil {
+		t.Fatal("expected push to fail, got nil")
+	}
+	if !strings.Contains(err.Error(), "validation failed") {
+		t.Errorf("expected validation failure, got: %s", err.Error())
+	}
+	if strings.Contains(err.Error(), "not authenticated") || strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("validation should have failed before auth check, got auth error: %s", err.Error())
+	}
+}
+
 func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
