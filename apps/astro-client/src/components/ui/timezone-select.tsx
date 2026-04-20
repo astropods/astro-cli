@@ -108,7 +108,7 @@ export function TimezoneSelect({ value, onValueChange, className }: TimezoneSele
             "group inline-flex h-9 w-full items-center justify-between gap-1.5 px-3 text-body-sm",
             inputBase,
             inputFocusVisible,
-            "data-[state=open]:border-teal-600 data-[state=open]:ring-[3px] data-[state=open]:ring-[var(--input-focus-ring)]",
+            "data-[state=open]:border-teal-600 data-[state=open]:ring-[3px] data-[state=open]:ring-[var(--input-focus-ring)] dark:data-[state=open]:border-teal-400",
             className,
           )}
         >

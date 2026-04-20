@@ -35,43 +35,22 @@ export function useLogTimezone() {
 export interface TimezoneOption {
   value: string;
   label: string;
-  offsetMinutes: number;
-}
-
-function parseOffsetMinutes(shortOffset: string): number {
-  // shortOffset is like "GMT", "GMT+5", "GMT+5:30", "GMT-7"
-  const m = shortOffset.match(/GMT([+-])(\d+):?(\d+)?/);
-  if (!m) return 0;
-  const sign = m[1] === "+" ? 1 : -1;
-  return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] ?? "0", 10));
-}
-
-function formatOffsetLabel(shortOffset: string): string {
-  // Normalize to "(GMT±HH:MM)" — e.g. "GMT+5:30" -> "(GMT+05:30)"
-  if (shortOffset === "GMT") return "(GMT+00:00)";
-  const m = shortOffset.match(/GMT([+-])(\d+):?(\d+)?/);
-  if (!m) return `(${shortOffset})`;
-  const sign = m[1];
-  const h = m[2].padStart(2, "0");
-  const min = (m[3] ?? "0").padStart(2, "0");
-  return `(GMT${sign}${h}:${min})`;
 }
 
 function buildTimezoneOptions(): TimezoneOption[] {
   const now = new Date();
   const names: string[] = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("timeZone") ?? ["UTC"];
-  const options: TimezoneOption[] = names.map((tz) => {
-    const parts = new Intl.DateTimeFormat("en", {
-      timeZone: tz,
-      timeZoneName: "shortOffset",
-    }).formatToParts(now);
-    const shortOffset = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-    const offsetMinutes = parseOffsetMinutes(shortOffset);
-    const label = `${formatOffsetLabel(shortOffset)} ${tz}`;
-    return { value: tz, label, offsetMinutes };
-  });
-  options.sort((a, b) => a.offsetMinutes - b.offsetMinutes || a.value.localeCompare(b.value));
-  return options;
+  return names
+    .map((tz) => {
+      const parts = new Intl.DateTimeFormat("en", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(now);
+      const offset = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+00:00";
+      const normalized = offset === "GMT" ? "GMT+00:00" : offset;
+      const m = normalized.match(/([+-])(\d{2}):(\d{2})/);
+      const sortKey = m ? (m[1] === "+" ? 1 : -1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10)) : 0;
+      return { value: tz, label: `(${normalized}) ${tz}`, sortKey };
+    })
+    .sort((a, b) => a.sortKey - b.sortKey || a.value.localeCompare(b.value))
+    .map(({ value, label }) => ({ value, label }));
 }
 
 export const TIMEZONE_OPTIONS: TimezoneOption[] = buildTimezoneOptions();
