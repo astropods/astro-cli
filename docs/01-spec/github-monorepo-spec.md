@@ -6,7 +6,7 @@
 
 ## Abstract
 
-This spec adds `sub_path` support to the GitHub connection flow, allowing multiple blueprints to connect to the same GitHub repository at different subdirectories. The `sub_path` controls where `astropods.yml` is looked up and is the root for paths declared within the spec. No two blueprints may connect to the same `(repo, sub_path)` pair within an account. Webhook state is extracted into a dedicated `github_webhooks` table to enforce deduplication at the DB level.
+This spec extends `repo_full_name` in the GitHub connection flow to support an optional subpath, allowing multiple blueprints to connect to the same GitHub repository at different subdirectories. `repo_full_name` stores either `owner/repo` (repository root) or `owner/repo/sub/path` (subdirectory). GitHub repo names are always exactly two path segments, so the boundary is unambiguous. No schema changes are required — the existing `UNIQUE (account_id, repo_full_name)` constraint already enforces the right uniqueness. `webhook_id` and `webhook_secret` stay on `github_connections`; webhook dedup is managed in application code.
 
 ## Conventions
 
@@ -23,95 +23,48 @@ The current GitHub connection model enforces a `UNIQUE (account_id, repo_full_na
 ## 2. Goals
 
 1. **Monorepo support** — multiple blueprints MUST be connectable to the same GitHub repository within an account.
-2. **Subfolder scoping** — each connection MUST declare a `sub_path` specifying the directory containing `astropods.yml`. An empty `sub_path` means the repository root.
-3. **Uniqueness at `(repo, sub_path)`** — no two blueprints within an account MAY share the same `(repo_full_name, sub_path)` pair.
-4. **Webhook deduplication** — a single GitHub webhook MUST serve all blueprints connected to the same repository. Uniqueness is enforced at the DB level.
+2. **Subfolder scoping** — each connection MUST declare where `astropods.yml` lives within the repository. No declaration means the repository root.
+3. **Uniqueness at `(repo, subpath)`** — no two blueprints within an account MAY share the same `(repo_full_name, subpath)` pair.
+4. **Webhook deduplication** — a single GitHub webhook MUST serve all blueprints connected to the same repository. Dedup is managed in application code.
 5. **Independent builds** — each blueprint's build MUST be triggered and tracked independently, even when sharing a repository.
-6. **Backward compatibility** — existing connections (all at `sub_path = ""`) MUST continue to work without migration.
+6. **Backward compatibility** — existing connections (all at the repository root) MUST continue to work without migration.
 
 ## 3. Non-Goals
 
 1. **Frontend changes** — repo selection UI, subfolder input, and connected-repo display are out of scope for this spec.
-2. **Additional watch paths** — configuring extra paths outside `sub_path` to trigger a build (e.g. shared libraries) is out of scope.
+2. **Additional watch paths** — configuring extra paths outside the subpath to trigger a build (e.g. shared libraries) is out of scope.
 
 ---
 
 ## 4. Data Model
 
-### 4.1 New `github_webhooks` table
+### 4.1 `repo_full_name` encoding
 
-Owns the GitHub webhook for a repository. One row per repository, shared across all blueprints connected to that repo.
+`repo_full_name` in `github_connections` now stores one of:
 
-```sql
-CREATE TABLE public.github_webhooks (
-    repo_full_name varchar  NOT NULL,
-    webhook_id     bigint   NOT NULL,
-    webhook_secret varchar  NOT NULL,
-    created_at     timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT github_webhooks_pkey PRIMARY KEY (repo_full_name)
-);
-```
+- `owner/repo` — connection at the repository root (backward-compatible, existing behavior)
+- `owner/repo/sub/path` — connection at a subdirectory
 
-The `PRIMARY KEY (repo_full_name)` enforces at the DB level that only one webhook can exist per repository. Concurrent link requests for the same repo resolve via `INSERT ... ON CONFLICT DO NOTHING` — the first insert wins and subsequent requests reuse the existing row.
+Two derived values are used throughout:
 
-### 4.2 `github_connections` schema changes
+- **`repoBase`** — the first two `/`-joined segments (`owner/repo`). Used for GitHub API calls, git clone, and webhook operations.
+- **`repoSubPath`** — everything after the third `/`, or empty string when connecting at root. Used for file path prefixing.
 
-Add `sub_path`:
-
-```sql
-ALTER TABLE public.github_connections
-  ADD COLUMN sub_path varchar NOT NULL DEFAULT '';
-```
-
-Remove `webhook_id` and `webhook_secret` — these move to `github_webhooks`:
-
-```sql
-ALTER TABLE public.github_connections
-  DROP COLUMN webhook_id,
-  DROP COLUMN webhook_secret;
-```
-
-Drop the existing repo uniqueness index and replace with a composite that includes `sub_path`:
-
-```sql
-DROP INDEX idx_github_connections_account_repo;
-
-CREATE UNIQUE INDEX idx_github_connections_account_repo_subpath
-  ON public.github_connections (account_id, repo_full_name, sub_path);
-```
-
-The existing `UNIQUE (account_id, agent_name)` constraint is unchanged — one blueprint still maps to exactly one `(repo, sub_path)`.
-
-`sub_path` is a relative Unix path (e.g. `services/my-agent`). Empty string means the repository root. Leading and trailing slashes are stripped on write.
-
-### 4.3 Struct changes
-
-`Connection` struct: add `SubPath string` after `Branch`; remove `WebhookID` and `WebhookSecret`.
-
-New `Webhook` struct:
-
-```go
-type Webhook struct {
-    RepoFullName  string
-    WebhookID     int64
-    WebhookSecret string
-    CreatedAt     time.Time
-}
-```
+No schema changes are required. The existing `UNIQUE (account_id, repo_full_name)` constraint enforces uniqueness at the `(repo, subpath)` level, and the existing index on `repo_full_name` supports webhook fan-out lookups.
 
 ---
 
 ## 5. Spec Lookup and Path Resolution
 
-When `sub_path` is non-empty, `astropods.yml` is fetched from `{sub_path}/astropods.yml` and `AGENT.md` is fetched from `{sub_path}/AGENT.md`.
+When `repoSubPath(conn.RepoFullName)` is non-empty, `astropods.yml` is fetched from `{subPath}/astropods.yml` and `AGENT.md` is fetched from `{subPath}/AGENT.md`.
 
-Paths declared within the spec (`build.Context`, `build.Dockerfile`) are treated as relative to `sub_path`. The build system prepends `sub_path` to these values before executing the build:
+Paths declared within the spec (`build.Context`, `build.Dockerfile`) are treated as relative to `subPath`. The build system prepends `subPath` to these values before executing the build:
 
-- `build.Context = "."` → effective context is `{sub_path}`
-- `build.Context = "subdir"` → effective context is `{sub_path}/subdir`
-- `build.Dockerfile = "Dockerfile"` → effective dockerfile is `{sub_path}/Dockerfile`
+- `build.Context = "."` → effective context is `{subPath}`
+- `build.Context = "subdir"` → effective context is `{subPath}/subdir`
+- `build.Dockerfile = "Dockerfile"` → effective dockerfile is `{subPath}/Dockerfile`
 
-When `sub_path` is empty, behavior is unchanged — paths resolve relative to the repository root.
+When `subPath` is empty, behavior is unchanged — paths resolve relative to the repository root.
 
 ---
 
@@ -119,35 +72,28 @@ When `sub_path` is empty, behavior is unchanged — paths resolve relative to th
 
 ### 6.1 Request
 
-`POST /api/v1/agents/:account/:name/github/link` accepts an optional `sub_path` field:
+`POST /api/v1/agents/:account/:name/github/link` accepts `repo_full_name` as either `owner/repo` or `owner/repo/sub/path`:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `repo_full_name` | string | yes | `owner/repo` |
+| `repo_full_name` | string | yes | `owner/repo` or `owner/repo/sub/path` |
 | `branch` | string | no | defaults to `main` |
-| `sub_path` | string | no | defaults to `""` (repo root) |
 
 ### 6.2 Validation
 
-`sub_path` MUST match `^[a-zA-Z0-9._/-]*$` with no leading slash and no `..` path segments. Invalid values return HTTP 400.
+`repo_full_name` MUST have at least two segments. Segments beyond the second MUST each match `^[a-zA-Z0-9._-]+$` with no `..` components. Leading and trailing slashes are stripped on write. Invalid values return HTTP 400.
 
 ### 6.3 Conflict check
 
-Before upserting, the handler MUST check whether any other blueprint in the account already holds `(repo_full_name, sub_path)`. If a conflict exists, it MUST return HTTP 409: `"repo %q path %q already connected to agent %q"`.
+The handler attempts the upsert. If the DB returns a unique constraint violation on `(account_id, repo_full_name)`, the handler MUST query for the existing connection by `(account_id, repo_full_name)` to retrieve the conflicting agent name, then return HTTP 409: `"repo %q already connected to agent %q"`.
 
-### 6.4 Webhook deduplication
+### 6.4 Webhook dedup
 
 The handler MUST use the following sequence:
 
-1. Call `GetWebhook(repo_full_name)`. If a row exists, reuse it — no GitHub API call needed.
-2. If no row exists, generate a `webhook_secret`, call the GitHub API to create the webhook, and receive back a `webhook_id`.
-3. Attempt:
-   ```sql
-   INSERT INTO github_webhooks (repo_full_name, webhook_id, webhook_secret)
-   VALUES ($1, $2, $3)
-   ON CONFLICT (repo_full_name) DO NOTHING
-   ```
-4. If the insert conflicted (a concurrent request won the race), delete the just-created GitHub webhook via the API and call `GetWebhook` to retrieve the winning row.
+1. Call `GetByRepoBase(repoBase(repo_full_name))` to find any existing connection to the same base repository (across all accounts).
+2. If a row exists, copy its `webhook_id` and `webhook_secret` to the new connection. No GitHub API call is needed.
+3. If no row exists, generate a `webhook_secret`, call the GitHub API to create the webhook, and store the returned `webhook_id` and `webhook_secret` on the new connection row.
 
 ---
 
@@ -155,65 +101,69 @@ The handler MUST use the following sequence:
 
 On receiving a push event, the webhook handler MUST:
 
-1. Look up the webhook secret via `github_webhooks WHERE repo_full_name = $1` to verify the HMAC signature.
-2. Query `github_connections WHERE repo_full_name = $1 AND branch = $2` to retrieve all blueprints connected to that repo and branch.
+1. Look up `webhook_secret` via `GetByRepoBase(payload.Repository.FullName)` to verify the HMAC signature.
+2. Query all connections for that repo and branch:
+   ```sql
+   WHERE (repo_full_name = $1 OR repo_full_name LIKE $1 || '/%') AND branch = $2
+   ```
+   where `$1` is `payload.Repository.FullName` (always `owner/repo`).
 3. For each connection, apply path filtering (Section 7.1), then independently: create a build record, cancel superseded builds, and enqueue a River job.
 
 Each blueprint's build is fully independent with its own build record and job.
 
 ### 7.1 Path Filtering
 
-Before enqueuing a build for a connection, the handler MUST check whether the push touched any files under that connection's `sub_path`.
+Before enqueuing a build for a connection, the handler MUST check whether the push touched any files under that connection's `repoSubPath`.
 
-The push payload includes the union of `added`, `removed`, and `modified` file paths across all commits in the push. A connection is eligible for a build if at least one changed file path starts with `{sub_path}/`.
+The push payload includes the union of `added`, `removed`, and `modified` file paths across all commits in the push. A connection is eligible for a build if at least one changed file path starts with `{repoSubPath}/`.
 
-Connections with `sub_path = ""` (repo root) are always eligible — every push to the branch triggers a build.
+Connections where `repoSubPath` is empty (repository root) are always eligible — every push to the branch triggers a build.
 
-If no changed files fall under `sub_path`, the connection is skipped and no build record is created.
+If no changed files fall under `repoSubPath`, the connection is skipped and no build record is created.
 
-Path filtering only applies to webhook-triggered builds. Manual rebuilds bypass path filtering entirely — they always enqueue a build for the specific blueprint the user triggered, regardless of what files changed.
+Path filtering only applies to webhook-triggered builds. Manual rebuilds bypass path filtering entirely.
 
 ---
 
 ## 8. Disconnect
 
-On disconnect, the handler MUST delete the connection row, then call `CountByRepo(repo_full_name)` to check whether any remaining connections exist for that repository across all branches. If the count is zero, delete the `github_webhooks` row and call the GitHub API to remove the webhook.
+On disconnect, the handler MUST delete the connection row, then query whether any other connection to the same `repoBase` remains across all accounts. If none remain, call the GitHub API to delete the webhook.
 
-`CountByRepo` MUST be added to the store: `SELECT COUNT(*) FROM github_connections WHERE repo_full_name = $1`.
+`CountByRepoBase` MUST be added to the store:
+```sql
+SELECT COUNT(*) FROM github_connections
+WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
+```
 
 ---
 
 ## 9. AGENT.md Cache Key
 
-`GitHubStatus` caches the draft `AGENT.md` content in Redis. The cache key MUST include `sub_path` to prevent two blueprints on the same repo and branch at different sub_paths from sharing a cache entry:
+`GitHubStatus` caches the draft `AGENT.md` content in Redis. The cache key uses `repo_full_name` directly — it already encodes the subpath:
 
 ```
-astro:github:agent-md:{repo}:{branch}:{sub_path}
+astro:github:agent-md:{conn.RepoFullName}:{branch}
 ```
 
-When `sub_path` is empty the key is `astro:github:agent-md:{repo}:{branch}:` which is consistent with existing keys for root connections after migration.
+Existing root connections (`owner/repo`) produce keys identical in structure to before.
 
 ---
 
 ## 10. Status Response
 
-`GET /api/v1/agents/:account/:name/github` includes `sub_path` in the response:
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `sub_path` | string | omitted when empty |
+`GET /api/v1/agents/:account/:name/github` returns `repo_full_name` as stored (may include subpath segments). No new fields.
 
 ---
 
 ## 11. Account Connections
 
-`GET /api/v1/accounts/:account/github/connections` includes `sub_path` in each connection entry.
+`GET /api/v1/accounts/:account/github/connections` returns `repo_full_name` as stored for each connection. No new fields.
 
 ---
 
 ## 12. Scan
 
-`GET /api/v1/accounts/:account/github/scan` accepts an optional `sub_path` query parameter. When provided, it scans `{sub_path}/astropods.yml` instead of `astropods.yml`.
+`GET /api/v1/accounts/:account/github/scan` accepts `repo_full_name` as a query parameter. When it contains subpath segments, it scans `{repoSubPath}/astropods.yml` instead of `astropods.yml`.
 
 ---
 
@@ -221,62 +171,18 @@ When `sub_path` is empty the key is `astro:github:agent-md:{repo}:{branch}:` whi
 
 | File | Change |
 |------|--------|
-| `sql/astro-server/schema.sql` | Add `github_webhooks` table; add `sub_path`, drop `webhook_id`/`webhook_secret` from `github_connections`; replace uniqueness index |
-| `apps/astro-server/internal/githubconnection/store.go` | **New** `Webhook` struct + `UpsertWebhook`, `GetWebhook`, `DeleteWebhook`, `CountByRepo` methods; **update** `Upsert`, `Get`, `GetByID`, `ListByAccount` to add `SubPath` and remove `WebhookID`/`WebhookSecret`; **rename** `GetByRepoForAccount` → `GetByRepoAndSubPathForAccount`; **replace** `GetByRepo` → `ListByRepoAndBranch(repoFullName, branch string)` |
-| `apps/astro-server/internal/githubconnection/store_test.go` | Update existing tests for struct changes; add `TestStore_UpsertWebhook`, `TestStore_GetWebhook`, `TestStore_DeleteWebhook`, `TestStore_CountByRepo`, `TestStore_ListByRepoAndBranch`, `TestStore_GetByRepoAndSubPathForAccount` |
-| `apps/astro-server/handlers/github.go` | `sub_path` in link request; updated conflict check; webhook dedup via `INSERT ON CONFLICT`; fan-out with path filtering; `sub_path` in status response; conditional webhook delete on disconnect; `sub_path` in account connections; scan sub_path param |
+| `apps/astro-server/internal/githubconnection/store.go` | Add `GetByRepoBase(repoBase string)` method; add `CountByRepoBase(repoBase string)` method; update `GetByRepo` → `ListByRepoAndBranch(repoFullName, branch string)` using prefix query |
+| `apps/astro-server/internal/githubconnection/store_test.go` | Add `TestStore_GetByRepoBase`, `TestStore_CountByRepoBase`, `TestStore_ListByRepoAndBranch` |
+| `apps/astro-server/handlers/github.go` | Webhook dedup via `GetByRepoBase`; fan-out with prefix query and path filtering; conditional webhook delete via `CountByRepoBase` on disconnect; scan subpath from `repo_full_name` param |
 | `apps/astro-server/handlers/github_test.go` | Tests for all handler behavior changes |
-| `apps/astro-server/internal/githubbuild/fetch.go` | `FetchAstroSpec` accepts `subPath`; prefixes lookup path when non-empty |
+| `apps/astro-server/internal/githubbuild/fetch.go` | `FetchAstroSpec` and `FetchFileContent` split `repoFullName` internally; derive repo for GitHub API URL and subpath for file path prefixing |
 | `apps/astro-server/internal/githubbuild/fetch_test.go` | `TestFetchAstroSpec_SubPath` |
-| `apps/astro-server/internal/githubbuild/builder.go` | `RunJob` accepts `subPath`; prepends it to `build.Context` and `build.Dockerfile` |
+| `apps/astro-server/internal/githubbuild/builder.go` | `RunJob` splits `repoFullName` internally; derives repo for git clone URL and subpath for `build.Context` and `build.Dockerfile` prefixing |
 | `apps/astro-server/internal/githubbuild/builder_test.go` | Tests for context and dockerfile path prefixing |
-| `apps/astro-server/internal/riverqueue/github_build.go` | Pass `conn.SubPath` to `FetchAstroSpec` and `RunJob` |
-| `apps/astro-server/cmd/backfill-github-webhooks/main.go` | **New** — one-off script to copy `webhook_id`/`webhook_secret` from `github_connections` into `github_webhooks`; idempotent; supports `DRY_RUN=true` |
 
 ---
 
-## 14. Migration Plan
+## 14. Migration
 
-Schema changes are applied via the `sql-migrate.yml` GitHub Action (Actions → "SQL Migrate (Prod)" → Run workflow). The workflow shows a diff, requires manual approval via the `gate` environment, applies, then posts to `#astro-ops`.
+No schema changes are required. Existing `repo_full_name` values (`owner/repo`) are valid under the new format and continue to work as root connections. No data migration is needed.
 
-Because this change moves data out of `github_connections` before dropping columns, it MUST be split across two separate schema applies with a data backfill in between.
-
-### Phase 1 — Additive changes only
-
-Update `schema.sql`:
-- Add `github_webhooks` table
-- Add `sub_path varchar NOT NULL DEFAULT ''` to `github_connections`
-- Drop `idx_github_connections_account_repo`, add `idx_github_connections_account_repo_subpath`
-
-Do NOT remove `webhook_id` or `webhook_secret` yet. Trigger `sql-migrate.yml`.
-
-### Phase 2 — Backfill webhook data
-
-Run the one-off backfill script (following the pattern of `apps/astro-server/cmd/backfill-avatars/`):
-
-```
-DATABASE_URL=postgres://... go run ./cmd/backfill-github-webhooks
-```
-
-The script copies `webhook_id` and `webhook_secret` from `github_connections` into `github_webhooks` for all rows where `webhook_id IS NOT NULL`. It is idempotent (`ON CONFLICT DO NOTHING`) and supports `DRY_RUN=true`.
-
-Verify the row count in `github_webhooks` matches the number of distinct repos in `github_connections` before proceeding.
-
-### Phase 3 — Drop migrated columns
-
-Update `schema.sql`:
-- Remove `webhook_id` and `webhook_secret` from `github_connections`
-
-Trigger `sql-migrate.yml`.
-
----
-
-## 15. Implementation Order
-
-1. Phase 1 schema migration — run `sql-migrate.yml`.
-2. Store — `Webhook` struct and methods; `SubPath` on `Connection`; `CountByRepo`; updated queries.
-3. Handlers — link conflict check, webhook dedup, fan-out with path filtering, disconnect guard, status/connections/scan; AGENT.md cache key.
-4. Build — `FetchAstroSpec` sub_path lookup; `RunJob` path prefixing; River worker pass-through.
-5. Deploy code to production.
-6. Phase 2 backfill script — run `cmd/backfill-github-webhooks` against production.
-7. Phase 3 schema migration — run `sql-migrate.yml` to drop `webhook_id`/`webhook_secret`.
