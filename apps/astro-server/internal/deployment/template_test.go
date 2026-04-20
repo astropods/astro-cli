@@ -2121,3 +2121,293 @@ func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
 		}
 	}
 }
+
+// ===== GET vs POST parity =====
+
+// TestGETandPOST_ProduceSameDeploySpec verifies that a template fulfilled
+// client-side (the GET path) produces the same deployment/v1 spec as the
+// POST path via ShapeTemplate. This is the core backward-compat guarantee:
+// switching from GET to POST must not change what gets posted to /deploy.
+func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+	base := mustGenerate(t, input)
+
+	// Simulate user inputs: select slack adapter, fill all required variables.
+	adapterSelection := []string{"slack", "web"}
+	varInputs := map[string]spec.VariableInput{}
+	for key, v := range base.Variables {
+		if !v.Optional {
+			varInputs[key] = spec.VariableInput{Value: "test-value-" + key}
+		}
+	}
+	// Also fill slack tokens (they become required when slack is selected).
+	varInputs["SLACK_BOT_TOKEN"] = spec.VariableInput{Value: "xoxb-test"}
+	varInputs["SLACK_APP_TOKEN"] = spec.VariableInput{Value: "xapp-test"}
+
+	// --- POST path: ShapeTemplate does the fulfillment ---
+	postResp := ShapeTemplate(base, &spec.TemplateRequest{
+		Adapters:  adapterSelection,
+		Variables: varInputs,
+	})
+	postSpec := postResp.Template
+
+	// --- GET path: manual client-side fulfillment ---
+	getSpec := deepCopySpec(base)
+	getSpec.Spec = "deployment/v1"
+	getSpec.Editable = nil
+
+	// Set adapters
+	slackSelected := false
+	if getSpec.Interfaces != nil {
+		getSpec.Interfaces.Adapters = adapterSelection
+		for _, a := range adapterSelection {
+			if a == "slack" {
+				slackSelected = true
+			}
+		}
+	}
+
+	// Fill variable values + strip template-only fields (mimics client fulfillTemplate)
+	for key, v := range getSpec.Variables {
+		if input, ok := varInputs[key]; ok {
+			v.Value = input.Value
+			v.Ref = input.Ref
+		}
+		// Flip slack var optionality (the POST path does this via adapter shaping;
+		// the GET path relied on the deploy handler to validate, which is the gap
+		// the POST endpoint closes).
+		if slackSelected && (key == "SLACK_BOT_TOKEN" || key == "SLACK_APP_TOKEN") {
+			v.Optional = false
+		}
+		// Strip template-only fields
+		v.Description = ""
+		v.Datatype = ""
+		v.DisplayAs = ""
+		v.Options = nil
+		v.Default = ""
+		getSpec.Variables[key] = v
+	}
+
+	// --- Compare ---
+	getJSON, err := json.Marshal(getSpec)
+	if err != nil {
+		t.Fatalf("marshal GET spec: %v", err)
+	}
+	postJSON, err := json.Marshal(&postSpec)
+	if err != nil {
+		t.Fatalf("marshal POST spec: %v", err)
+	}
+
+	if string(getJSON) != string(postJSON) {
+		t.Errorf("GET and POST paths produce different deploy specs.\nGET:  %s\nPOST: %s", getJSON, postJSON)
+	}
+
+	// Sanity: the spec is valid for the deploy endpoint
+	if postSpec.Spec != "deployment/v1" {
+		t.Errorf("POST spec version: expected deployment/v1, got %s", postSpec.Spec)
+	}
+	if postSpec.Editable != nil {
+		t.Errorf("POST spec should not have editable, got %v", postSpec.Editable)
+	}
+}
+
+// ===== ShapeTemplate =====
+
+// baseTemplateForShape builds a minimal template with variables and interfaces
+// suitable for testing ShapeTemplate.
+func baseTemplateForShape(t *testing.T) *spec.AstroDeploymentSpec {
+	t.Helper()
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+	ds := mustGenerate(t, input)
+	// Add a non-optional agent variable for testing required-variable validation.
+	ds.Variables["MY_API_KEY"] = spec.Variable{
+		Description: "API key for external service",
+		Targets:     []string{"agent"},
+		Secret:      true,
+		Optional:    false,
+	}
+	return ds
+}
+
+func TestShapeTemplate_EmptyRequest(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+
+	// Envelope spec
+	if resp.Spec != "deployment-template/v1" {
+		t.Errorf("resp.Spec: expected deployment-template/v1, got %s", resp.Spec)
+	}
+
+	// Template spec is deployment/v1
+	if resp.Template.Spec != "deployment/v1" {
+		t.Errorf("template.Spec: expected deployment/v1, got %s", resp.Template.Spec)
+	}
+
+	// Template should not have editable
+	if resp.Template.Editable != nil {
+		t.Errorf("template.Editable should be nil, got %v", resp.Template.Editable)
+	}
+
+	// Root editable should be populated
+	if len(resp.Editable) == 0 {
+		t.Error("resp.Editable should be non-empty")
+	}
+
+	// Root variables should have schema fields (description)
+	if v, ok := resp.Variables["MY_API_KEY"]; !ok {
+		t.Error("root variables missing MY_API_KEY")
+	} else if v.Description == "" {
+		t.Error("root variables.MY_API_KEY.Description should be populated")
+	}
+
+	// Template variables should have schema fields stripped
+	if v, ok := resp.Template.Variables["MY_API_KEY"]; ok && v.Description != "" {
+		t.Error("template variables.MY_API_KEY.Description should be stripped")
+	}
+
+	// Validation should report missing required vars
+	if resp.Validation.Valid {
+		t.Error("expected valid=false with missing required variables")
+	}
+	found := false
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "variables.MY_API_KEY" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected validation error for variables.MY_API_KEY")
+	}
+}
+
+func TestShapeTemplate_AdapterShaping(t *testing.T) {
+	base := baseTemplateForShape(t)
+
+	// Verify Slack vars start as optional (base template default)
+	if v, ok := base.Variables["SLACK_BOT_TOKEN"]; ok && !v.Optional {
+		t.Fatal("precondition: SLACK_BOT_TOKEN should be optional in base template")
+	}
+
+	// Select slack adapter
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Adapters: []string{"slack"},
+	})
+
+	// Root schema should have slack vars as non-optional
+	if v := resp.Variables["SLACK_BOT_TOKEN"]; v.Optional {
+		t.Error("SLACK_BOT_TOKEN should be non-optional when slack adapter is selected")
+	}
+	if v := resp.Variables["SLACK_APP_TOKEN"]; v.Optional {
+		t.Error("SLACK_APP_TOKEN should be non-optional when slack adapter is selected")
+	}
+
+	// Template interfaces.adapters should be set
+	if resp.Template.Interfaces == nil {
+		t.Fatal("template.Interfaces should not be nil")
+	}
+	if len(resp.Template.Interfaces.Adapters) != 1 || resp.Template.Interfaces.Adapters[0] != "slack" {
+		t.Errorf("template.Interfaces.Adapters: expected [slack], got %v", resp.Template.Interfaces.Adapters)
+	}
+
+	// Validation should error on missing slack tokens
+	hasSlackErr := false
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "variables.SLACK_BOT_TOKEN" && strings.Contains(e.Message, "slack") {
+			hasSlackErr = true
+			break
+		}
+	}
+	if !hasSlackErr {
+		t.Error("expected validation error for SLACK_BOT_TOKEN when slack adapter is selected")
+	}
+}
+
+func TestShapeTemplate_VariableFilling(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Variables: map[string]spec.VariableInput{
+			"MY_API_KEY": {Value: "sk-test-123"},
+		},
+	})
+
+	// Template should have the value filled in
+	if v, ok := resp.Template.Variables["MY_API_KEY"]; !ok {
+		t.Error("template missing MY_API_KEY")
+	} else if v.Value != "sk-test-123" {
+		t.Errorf("template MY_API_KEY.Value: expected sk-test-123, got %s", v.Value)
+	}
+
+	// Root schema should also reflect the value
+	if v := resp.Variables["MY_API_KEY"]; v.Value != "sk-test-123" {
+		t.Errorf("root MY_API_KEY.Value: expected sk-test-123, got %s", v.Value)
+	}
+
+	// MY_API_KEY should not produce a validation error
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "variables.MY_API_KEY" {
+			t.Errorf("unexpected validation error for MY_API_KEY: %s", e.Message)
+		}
+	}
+}
+
+func TestShapeTemplate_VariableRef(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Variables: map[string]spec.VariableInput{
+			"MY_API_KEY": {Ref: "prod-api-key"},
+		},
+	})
+
+	// Template should have the ref set, value cleared
+	v := resp.Template.Variables["MY_API_KEY"]
+	if v.Ref != "prod-api-key" {
+		t.Errorf("template MY_API_KEY.Ref: expected prod-api-key, got %s", v.Ref)
+	}
+	if v.Value != "" {
+		t.Errorf("template MY_API_KEY.Value should be empty when ref is set, got %s", v.Value)
+	}
+}
+
+func TestShapeTemplate_FullyValid(t *testing.T) {
+	base := baseTemplateForShape(t)
+
+	// Fill all required variables
+	vars := make(map[string]spec.VariableInput)
+	for key, v := range base.Variables {
+		if !v.Optional {
+			vars[key] = spec.VariableInput{Value: "filled-" + key}
+		}
+	}
+
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Variables: vars,
+	})
+
+	if !resp.Validation.Valid {
+		errMsgs := make([]string, len(resp.Validation.Errors))
+		for i, e := range resp.Validation.Errors {
+			errMsgs[i] = e.Field + ": " + e.Message
+		}
+		t.Errorf("expected valid=true, got errors: %s", strings.Join(errMsgs, "; "))
+	}
+}
+
+func TestShapeTemplate_DoesNotMutateBase(t *testing.T) {
+	base := baseTemplateForShape(t)
+
+	// Capture original state
+	origJSON, _ := json.Marshal(base)
+
+	ShapeTemplate(base, &spec.TemplateRequest{
+		Adapters:  []string{"slack"},
+		Variables: map[string]spec.VariableInput{"MY_API_KEY": {Value: "mutated"}},
+	})
+
+	afterJSON, _ := json.Marshal(base)
+	if string(origJSON) != string(afterJSON) {
+		t.Error("ShapeTemplate mutated the base template")
+	}
+}

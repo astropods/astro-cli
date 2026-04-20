@@ -2437,54 +2437,165 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			return
 		}
 
-		// Merge stored values into template
-		template.Target.DeploymentID = deploymentID
-		template.Target.DisplayName = existing.DisplayName
-
-		// Resolve account name for target.account
-		acct, err := accountStore.GetByID(existing.AccountID)
-		if err == nil && acct != nil {
-			template.Target.Account = acct.Name
+		// Merge stored values using shared helper
+		prefillExisting := existing
+		// For revision requests, create a temporary existing with the revision's spec JSON
+		// so the helper merges from the revision instead of the current deployment.
+		if revisionRequested && specJSONToMerge != existing.DeploymentSpecJSON {
+			revExisting := *existing
+			revExisting.DeploymentSpecJSON = specJSONToMerge
+			prefillExisting = &revExisting
 		}
+		mergeDeploymentPrefill(template, prefillExisting, storedVars, accountStore)
 
-		// Merge variable values
-		for _, sv := range storedVars {
-			if tv, ok := template.Variables[sv.Name]; ok {
-				if sv.Ref != "" {
-					// Variable was originally set via an account variable reference —
-					// restore the ref so the UI shows which account variable was selected.
-					// Never return the resolved value regardless of whether it's secret.
-					tv.Ref = sv.Ref
-				} else if !sv.Secret {
-					// Non-secret direct value: safe to return as-is.
-					tv.Value = sv.Value
-				}
-				// Secret with no ref: leave value empty — never expose plaintext secrets.
-				template.Variables[sv.Name] = tv
-			}
-		}
-
-		// Merge adapters, ingestion schedules, and (for historical revisions) display name from stored spec
-		if specJSONToMerge != "" {
+		// For historical revisions, also override display name from the stored spec.
+		if revisionRequested && specJSONToMerge != "" {
 			var storedSpec spec.AstroDeploymentSpec
 			if jsonErr := json.Unmarshal([]byte(specJSONToMerge), &storedSpec); jsonErr == nil {
-				if storedSpec.Interfaces != nil && template.Interfaces != nil {
-					template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
-					template.Interfaces.Auth = storedSpec.Interfaces.Auth
-				}
-				for name, storedIng := range storedSpec.Ingestion {
-					if tmplIng, ok := template.Ingestion[name]; ok && storedIng.Trigger.Schedule != "" {
-						tmplIng.Trigger.Schedule = storedIng.Trigger.Schedule
-						template.Ingestion[name] = tmplIng
-					}
-				}
-				if revisionRequested && storedSpec.Target.DisplayName != "" {
+				if storedSpec.Target.DisplayName != "" {
 					template.Target.DisplayName = storedSpec.Target.DisplayName
 				}
 			}
 		}
 
 		respondWithTemplate(c, template)
+	}
+}
+
+// PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
+// POST /api/v1/agents/:account/:name/deployment-template
+func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req spec.TemplateRequest
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+				return
+			}
+		}
+
+		buildIDOverride := req.Build
+
+		// Prefill from existing deployment when deployment_id is provided.
+		if req.DeploymentID != "" {
+			existing, err := deployStore.GetDeploymentByID(req.DeploymentID)
+			if err != nil {
+				log.Error("Failed to get deployment", "error", err, "deployment_id", req.DeploymentID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+				return
+			}
+			if existing == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+				return
+			}
+
+			user, _ := middleware.GetUser(c)
+			if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
+				return
+			}
+
+			// Use deployment's build unless the request overrides it.
+			if buildIDOverride == "" {
+				buildIDOverride = existing.BuildID
+			}
+
+			// Generate base template first, then merge prefill values.
+			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
+			if !ok {
+				return
+			}
+
+			storedVars, err := deployStore.GetDeploymentVariables(req.DeploymentID)
+			if err != nil {
+				log.Error("Failed to get deployment variables", "error", err, "deployment_id", req.DeploymentID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
+				return
+			}
+
+			mergeDeploymentPrefill(template, existing, storedVars, accountStore)
+
+			// Request-level inputs override prefilled values.
+			mergeRequestIntoTemplate(template, &req)
+
+			resp := deployment.ShapeTemplate(template, &req)
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
+		// No deployment_id — fresh template.
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
+		if !ok {
+			return
+		}
+
+		resp := deployment.ShapeTemplate(template, &req)
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// mergeDeploymentPrefill merges stored deployment values into a template.
+// Shared between PostDeploymentTemplate and GetPrefilledDeploymentTemplate.
+func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, storedVars []deploymentstore.Variable, accountStore *account.AccountStore) {
+	template.Target.DeploymentID = existing.ID
+	template.Target.DisplayName = existing.DisplayName
+
+	// Resolve account name for target.account
+	acct, err := accountStore.GetByID(existing.AccountID)
+	if err == nil && acct != nil {
+		template.Target.Account = acct.Name
+	}
+
+	// Merge variable values
+	for _, sv := range storedVars {
+		if tv, ok := template.Variables[sv.Name]; ok {
+			if sv.Ref != "" {
+				tv.Ref = sv.Ref
+			} else if !sv.Secret {
+				tv.Value = sv.Value
+			}
+			template.Variables[sv.Name] = tv
+		}
+	}
+
+	// Merge adapters and ingestion schedules from stored spec
+	if existing.DeploymentSpecJSON != "" {
+		var storedSpec spec.AstroDeploymentSpec
+		if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
+			if storedSpec.Interfaces != nil && template.Interfaces != nil {
+				template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
+				template.Interfaces.Auth = storedSpec.Interfaces.Auth
+			}
+			for name, storedIng := range storedSpec.Ingestion {
+				if tmplIng, ok := template.Ingestion[name]; ok && storedIng.Trigger.Schedule != "" {
+					tmplIng.Trigger.Schedule = storedIng.Trigger.Schedule
+					template.Ingestion[name] = tmplIng
+				}
+			}
+		}
+	}
+}
+
+// mergeRequestIntoTemplate applies request-level adapter and variable inputs
+// onto a template that was already prefilled from a deployment. Request values
+// take precedence over stored values.
+func mergeRequestIntoTemplate(template *spec.AstroDeploymentSpec, req *spec.TemplateRequest) {
+	// Adapters: if the request specifies adapters, override the prefilled ones.
+	if req.Adapters != nil && template.Interfaces != nil {
+		template.Interfaces.Adapters = req.Adapters
+	}
+	// Variables: if the request provides values, override the prefilled ones.
+	for key, input := range req.Variables {
+		if v, ok := template.Variables[key]; ok {
+			if input.Value != "" {
+				v.Value = input.Value
+				v.Ref = ""
+			} else if input.Ref != "" {
+				v.Ref = input.Ref
+				v.Value = ""
+			}
+			template.Variables[key] = v
+		}
 	}
 }
 

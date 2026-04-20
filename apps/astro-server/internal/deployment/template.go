@@ -3,10 +3,13 @@ package deployment
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
+	"github.com/robfig/cron/v3"
 )
 
 // providerEnvKey returns the env-var key for a provider entry.
@@ -353,6 +356,142 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	ds.Editable = defaultEditableFields()
 
 	return ds, nil
+}
+
+// ShapeTemplate applies deploy-time inputs (adapters, variables) to a base template
+// and returns a TemplateResponse with the shaped template, variable schema, and validation.
+func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *spec.TemplateResponse {
+	// Deep-copy via JSON round-trip so mutations don't affect the base.
+	shaped := deepCopySpec(base)
+
+	// --- Adapter shaping ---
+	if req.Adapters != nil && shaped.Interfaces != nil {
+		shaped.Interfaces.Adapters = req.Adapters
+		slackSelected := slices.Contains(req.Adapters, "slack")
+		// When slack is selected, its token variables become required.
+		for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
+			if v, ok := shaped.Variables[key]; ok {
+				v.Optional = !slackSelected
+				shaped.Variables[key] = v
+			}
+		}
+	}
+
+	// --- Variable filling ---
+	for key, input := range req.Variables {
+		if v, ok := shaped.Variables[key]; ok {
+			if input.Value != "" {
+				v.Value = input.Value
+				v.Ref = ""
+			} else if input.Ref != "" {
+				v.Ref = input.Ref
+				v.Value = ""
+			}
+			shaped.Variables[key] = v
+		}
+	}
+
+	// --- Build response ---
+	// Root Variables = full schema (from shaped copy, includes descriptions etc.)
+	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
+	maps.Copy(schemaVars, shaped.Variables)
+
+	// Root Editable = promoted from template
+	editable := shaped.Editable
+
+	// Template = deployment/v1 ready: strip template-only fields
+	shaped.Spec = "deployment/v1"
+	shaped.Editable = nil
+	for key, v := range shaped.Variables {
+		v.Description = ""
+		v.Datatype = ""
+		v.DisplayAs = ""
+		v.Options = nil
+		v.Default = ""
+		shaped.Variables[key] = v
+	}
+
+	// --- Validation ---
+	var errs []spec.ValidationError
+
+	// Required variables
+	for key, v := range schemaVars {
+		if !v.Optional && v.Value == "" && v.Ref == "" {
+			errs = append(errs, spec.ValidationError{
+				Field:   "variables." + key,
+				Message: "required variable is empty",
+			})
+		}
+	}
+
+	// Adapter-required variables
+	if shaped.Interfaces != nil {
+		for _, adapter := range shaped.Interfaces.Adapters {
+			if adapter == "slack" {
+				for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
+					v := schemaVars[key]
+					if v.Value == "" && v.Ref == "" {
+						errs = append(errs, spec.ValidationError{
+							Field:   "variables." + key,
+							Message: "required for slack adapter",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Ingestion cron validation
+	for name, ing := range shaped.Ingestion {
+		if ing.Trigger.Type == "schedule" {
+			if ing.Trigger.Schedule == "" {
+				errs = append(errs, spec.ValidationError{
+					Field:   "ingestion." + name + ".trigger.schedule",
+					Message: "cron expression required for schedule trigger",
+				})
+			} else if !isValidCron(ing.Trigger.Schedule) {
+				errs = append(errs, spec.ValidationError{
+					Field:   "ingestion." + name + ".trigger.schedule",
+					Message: "invalid cron expression",
+				})
+			}
+		}
+	}
+
+	// Sort errors for deterministic output
+	sort.Slice(errs, func(i, j int) bool { return errs[i].Field < errs[j].Field })
+
+	return &spec.TemplateResponse{
+		Spec:      "deployment-template/v1",
+		Template:  *shaped,
+		Variables: schemaVars,
+		Editable:  editable,
+		Validation: spec.TemplateValidation{
+			Valid:  len(errs) == 0,
+			Errors: errs,
+		},
+	}
+}
+
+// deepCopySpec creates a deep copy of an AstroDeploymentSpec via JSON round-trip.
+func deepCopySpec(s *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
+	b, err := json.Marshal(s)
+	if err != nil {
+		// Should never happen with a well-formed spec.
+		panic("deployment: failed to marshal spec for deep copy: " + err.Error())
+	}
+	var copy spec.AstroDeploymentSpec
+	if err := json.Unmarshal(b, &copy); err != nil {
+		panic("deployment: failed to unmarshal spec for deep copy: " + err.Error())
+	}
+	return &copy
+}
+
+// isValidCron checks whether a cron expression parses successfully.
+func isValidCron(expr string) bool {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	_, err := parser.Parse(expr)
+	return err == nil
 }
 
 // portNameToProtocol maps a provider-defined port name to one of the valid spec protocols

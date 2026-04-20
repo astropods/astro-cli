@@ -285,6 +285,42 @@ func ExposedEndpoint(endpoints map[string]Endpoint) *Endpoint {
 	return nil
 }
 
+// TemplateRequest is the input to the interactive POST deployment-template endpoint.
+// All fields are optional — an empty body produces the same result as the legacy GET.
+type TemplateRequest struct {
+	Build        string                   `json:"build,omitempty"`
+	DeploymentID string                   `json:"deployment_id,omitempty"`
+	Adapters     []string                 `json:"adapters,omitempty"`
+	Variables    map[string]VariableInput `json:"variables,omitempty"`
+}
+
+// VariableInput carries a user-supplied value or account-variable ref for a single variable.
+type VariableInput struct {
+	Value string `json:"value,omitempty"`
+	Ref   string `json:"ref,omitempty"`
+}
+
+// TemplateResponse is the response from the interactive POST deployment-template endpoint.
+type TemplateResponse struct {
+	Spec       string              `json:"spec"`                // "deployment-template/v1"
+	Template   AstroDeploymentSpec `json:"template"`            // deployment/v1 — directly postable to /deploy
+	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
+	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
+	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
+}
+
+// TemplateValidation carries the current validity state and any field-level errors.
+type TemplateValidation struct {
+	Valid  bool              `json:"valid"`
+	Errors []ValidationError `json:"errors,omitempty"`
+}
+
+// ValidationError identifies a single field-level problem in the template.
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
 // SingleEndpoint builds an endpoints map with one entry.
 func SingleEndpoint(name string, port int, protocol string) map[string]Endpoint {
 	if port == 0 {

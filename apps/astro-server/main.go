@@ -934,6 +934,16 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, nil),
 			)
 
+			api.POST(protected, "/agents/:account/:name/deployment-template", "Interactive deployment template",
+				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Desc("Accepts deploy-time inputs (adapters, variables), shapes the template, and returns validation. An empty body produces the same template as the GET endpoint."),
+				oapispec.Response(200, nil),
+			)
+
 			// Agent heart toggle (requires auth, no account permission needed)
 			api.POST(protected, "/agents/:account/:name/heart", "Toggle heart on an agent", handlers.ToggleHeart(log, heartStore, accountStore),
 				oapispec.Tags("Agents"),
