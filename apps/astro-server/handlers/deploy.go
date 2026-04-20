@@ -2543,14 +2543,19 @@ func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploy
 		template.Target.Account = acct.Name
 	}
 
-	// Merge variable values
+	// Merge variable values from the stored deployment into the template.
 	for _, sv := range storedVars {
 		if tv, ok := template.Variables[sv.Name]; ok {
 			if sv.Ref != "" {
+				// Variable was originally set via an account variable reference —
+				// restore the ref so the UI shows which account variable was selected.
+				// Never return the resolved value regardless of whether it's secret.
 				tv.Ref = sv.Ref
 			} else if !sv.Secret {
+				// Non-secret direct value: safe to return as-is.
 				tv.Value = sv.Value
 			}
+			// Secret with no ref: leave value empty — never expose plaintext secrets.
 			template.Variables[sv.Name] = tv
 		}
 	}

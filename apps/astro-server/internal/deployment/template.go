@@ -414,30 +414,14 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// --- Validation ---
 	var errs []spec.ValidationError
 
-	// Required variables
+	// Required variables (adapter shaping already flipped optionality,
+	// so slack tokens are caught here when slack is selected).
 	for key, v := range schemaVars {
 		if !v.Optional && v.Value == "" && v.Ref == "" {
 			errs = append(errs, spec.ValidationError{
 				Field:   "variables." + key,
 				Message: "required variable is empty",
 			})
-		}
-	}
-
-	// Adapter-required variables
-	if shaped.Interfaces != nil {
-		for _, adapter := range shaped.Interfaces.Adapters {
-			if adapter == "slack" {
-				for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
-					v := schemaVars[key]
-					if v.Value == "" && v.Ref == "" {
-						errs = append(errs, spec.ValidationError{
-							Field:   "variables." + key,
-							Message: "required for slack adapter",
-						})
-					}
-				}
-			}
 		}
 	}
 

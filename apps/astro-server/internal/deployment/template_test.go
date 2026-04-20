@@ -2312,10 +2312,10 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 		t.Errorf("template.Interfaces.Adapters: expected [slack], got %v", resp.Template.Interfaces.Adapters)
 	}
 
-	// Validation should error on missing slack tokens
+	// Validation should error on missing slack tokens (now non-optional due to adapter shaping)
 	hasSlackErr := false
 	for _, e := range resp.Validation.Errors {
-		if e.Field == "variables.SLACK_BOT_TOKEN" && strings.Contains(e.Message, "slack") {
+		if e.Field == "variables.SLACK_BOT_TOKEN" {
 			hasSlackErr = true
 			break
 		}
