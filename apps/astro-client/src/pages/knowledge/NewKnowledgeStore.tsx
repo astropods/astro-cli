@@ -459,14 +459,12 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
       </div>
 
       {/* Actions */}
-      <div className="flex flex-col items-center gap-2.5">
-        <Button size="lg" className="w-full" asChild>
-          <Link to={knowledgeDetailPath(store.name)}>
-            View store &rarr;
-          </Link>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" className="pl-0" asChild>
+          <Link to={knowledgePath}>&larr; Back to stores</Link>
         </Button>
-        <Button variant="ghost" asChild>
-          <Link to={knowledgePath}>Back to all stores</Link>
+        <Button asChild>
+          <Link to={knowledgeDetailPath(store.name)}>View store &rarr;</Link>
         </Button>
       </div>
     </div>
