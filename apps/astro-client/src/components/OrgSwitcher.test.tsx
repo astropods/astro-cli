@@ -42,8 +42,8 @@ function renderSwitcher({
   return { onChange, onSetDefault };
 }
 
-// The trigger button's accessible name comes from the associated <Label>: "View"
-const triggerName = /view/i;
+// The trigger button is labelled for assistive tech with aria-label="Switch account".
+const triggerName = /switch account/i;
 
 describe('OrgSwitcher', () => {
   describe('trigger', () => {

@@ -10,7 +10,6 @@ export function PageScopeSwitcher() {
 
   return (
     <OrgSwitcher
-      compact
       activeAccount={activeAccount}
       defaultAccount={defaultAccount}
       onChange={setActiveAccount}
