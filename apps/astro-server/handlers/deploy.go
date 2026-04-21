@@ -1203,10 +1203,11 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		}
 
 		wl := WorkloadDetail{
-			Name:      dep.Name,
-			Kind:      "Deployment",
-			Component: component,
-			Age:       formatAge(dep.CreationTimestamp.Time),
+			Name:       dep.Name,
+			Kind:       "Deployment",
+			Component:  component,
+			Age:        formatAge(dep.CreationTimestamp.Time),
+			Containers: containersFromSpec(dep.Spec.Template.Spec.Containers),
 		}
 		if urls, ok := workloadURLs[key+":"+component]; ok {
 			wl.URLs = urls
@@ -1246,10 +1247,11 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		}
 
 		wl := WorkloadDetail{
-			Name:      sts.Name,
-			Kind:      "StatefulSet",
-			Component: component,
-			Age:       formatAge(sts.CreationTimestamp.Time),
+			Name:       sts.Name,
+			Kind:       "StatefulSet",
+			Component:  component,
+			Age:        formatAge(sts.CreationTimestamp.Time),
+			Containers: containersFromSpec(sts.Spec.Template.Spec.Containers),
 		}
 		if urls, ok := workloadURLs[key+":"+component]; ok {
 			wl.URLs = urls
@@ -1352,7 +1354,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			if !ok {
 				continue
 			}
-			wl.Containers = buildContainerStatuses(ctx, clientset, pod)
+			wl.Containers = enrichContainerStatuses(wl.Containers, buildContainerStatuses(ctx, clientset, pod))
 			wl.PodName = pod.Name
 		}
 	}
@@ -1457,6 +1459,37 @@ func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient,
 		result = append(result, *info)
 	}
 	return result, nil
+}
+
+// containersFromSpec returns a ContainerStatus list with only names populated from a pod template spec.
+// Runtime fields (State, Ready, RestartCount) are left zero and enriched later if a pod is found.
+func containersFromSpec(specContainers []corev1.Container) []ContainerStatus {
+	out := make([]ContainerStatus, len(specContainers))
+	for i, c := range specContainers {
+		out[i] = ContainerStatus{Name: c.Name}
+	}
+	return out
+}
+
+// enrichContainerStatuses merges runtime status from a pod into the spec-seeded container list.
+// For each container in base, if a matching runtime status exists it updates the runtime fields
+// (State, Ready, RestartCount, Reason, Message, Env) in-place. Containers present in base but
+// absent from runtime are left with zero runtime fields. Containers present only in runtime are
+// ignored — the spec is the source of truth for which containers exist.
+func enrichContainerStatuses(specContainers, podContainers []ContainerStatus) []ContainerStatus {
+	podStatusByName := make(map[string]ContainerStatus, len(podContainers))
+	for _, podContainer := range podContainers {
+		podStatusByName[podContainer.Name] = podContainer
+	}
+	result := make([]ContainerStatus, len(specContainers))
+	for i, specContainer := range specContainers {
+		if podStatus, ok := podStatusByName[specContainer.Name]; ok {
+			result[i] = podStatus
+		} else {
+			result[i] = specContainer
+		}
+	}
+	return result
 }
 
 // buildContainerStatuses extracts container statuses and env vars from a k8s pod.

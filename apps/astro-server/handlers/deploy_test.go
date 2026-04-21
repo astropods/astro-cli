@@ -530,6 +530,108 @@ func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
 	}
 }
 
+// TestListAstroDeployments_StaleStatefulSetPodVersion verifies that containers from a
+// StatefulSet's pod template spec are always present even when the running pod has a stale
+// version label (e.g. OnDelete StatefulSets that were not recreated after a redeploy).
+func TestListAstroDeployments_StaleStatefulSetPodVersion(t *testing.T) {
+	namespace := "astro-abc123-0"
+	agentKey := "myorg.myagent"
+	currentBuild := "build-2"
+	staleBuild := "build-1"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/deployments") {
+			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/statefulsets") {
+			fmt.Fprintf(w, `{
+				"kind":"StatefulSetList","apiVersion":"apps/v1","items":[{
+					"metadata":{
+						"name":"myagent-knowledge-db","namespace":%q,
+						"creationTimestamp":"2026-01-01T00:00:00Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"knowledge-db"
+						}
+					},
+					"spec":{
+						"replicas":1,
+						"template":{
+							"spec":{
+								"containers":[{"name":"app","image":"postgres:15"}]
+							}
+						}
+					},
+					"status":{"replicas":1}
+				}]
+			}`, namespace, agentKey, currentBuild)
+			return
+		}
+		if strings.Contains(path, "/ingresses") {
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/pods") {
+			// Pod exists but has the old build version label — simulates OnDelete StatefulSet
+			// where the pod was not recreated after a redeploy.
+			fmt.Fprintf(w, `{
+				"kind":"PodList","apiVersion":"v1","items":[{
+					"metadata":{
+						"name":"myagent-knowledge-db-0","namespace":%q,
+						"creationTimestamp":"2026-01-01T00:00:00Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"knowledge-db"
+						}
+					},
+					"status":{
+						"phase":"Running",
+						"containerStatuses":[{
+							"name":"app",
+							"ready":false,
+							"restartCount":6,
+							"state":{"waiting":{"reason":"CrashLoopBackOff"}}
+						}]
+					}
+				}]
+			}`, namespace, agentKey, staleBuild)
+			return
+		}
+		if strings.Contains(path, "/jobs") {
+			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	k8sClient := newMockK8sClient(handler)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+	if len(deps[0].Workloads) != 1 {
+		t.Fatalf("expected 1 workload, got %d", len(deps[0].Workloads))
+	}
+	wl := deps[0].Workloads[0]
+	if len(wl.Containers) == 0 {
+		t.Fatal("containers should be populated from spec even when pod version label is stale")
+	}
+	if wl.Containers[0].Name != "app" {
+		t.Errorf("expected container name %q, got %q", "app", wl.Containers[0].Name)
+	}
+}
+
 func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	// K8s namespace exists but no DB record → deployment should NOT appear
 	router, deployMock, accountMock := setupListDeploymentsTest(t,
