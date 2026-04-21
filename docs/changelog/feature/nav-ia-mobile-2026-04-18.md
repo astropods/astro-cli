@@ -1,58 +1,114 @@
-# Nav IA: global nav redesign, Explore page + Blueprints, mobile responsive header
+# Nav IA: in-page scope, shared page shell, Explore page, mobile header
 
 ## Summary
 
-A full rework of the global navigation information architecture. The desktop header gains a compact scope switcher, centered nav links with count indicators, and updated org management placement. Community blueprint discovery moves to a dedicated Explore page. The Blueprints section simplifies to a single account-scoped view with new empty states for both Agents and Blueprints. The header is made properly responsive on mobile with a two-row layout, scrollable nav tabs, and container-query-based page content.
+Reworks the global navigation so scope (personal vs. organization) is
+chosen per page rather than from the header. Extracts a shared page
+shell used by Blueprints, Agents, and Explore so all three dashboards
+share padding, max-width, and title/description structure. Routes
+`/explore` as a dedicated top-level page, collapses the old
+`/blueprints/*` sub-routing into a single account-scoped Blueprints
+page, and makes the header responsive on mobile.
 
 ## Design
 
-### Desktop header
+### Header
 
-**Scope switcher** — compact pill inline after the logo; username only (no display name), no border, `rounded-sm`. No default fill; `hover:bg-stone-200`. Org avatars resolved via `UserAvatar` (CDN handle lookup) instead of a generic building icon.
+**Desktop** — logo plus the primary nav (`Blueprints`, `Agents`, and
+`Stores` when the `knowledgeStore` experiment is on) sits on the left;
+external links, Feedback, Explore, and the profile dropdown sit on the
+right. No scope switcher and no per-tab count badges.
 
-**Nav links** — centered using absolute positioning. Active state uses medium font weight. Agent and blueprint counts shown as `Tag` components next to each link; hidden when count is zero. Blueprints listed before Agents.
+**Explore button** — outline button in the header's right section,
+using Lucide's `Telescope` icon (`strokeWidth={1.5}`). Replaces the
+earlier globe treatment in the header and in the Agents empty state.
 
-**Create Organization** — moved from the profile dropdown into the scope switcher dropdown as the last item, separated by a divider. Organizations list removed from the profile dropdown entirely.
+**Mobile** — two-row layout below 1024px:
 
-**Explore** — promoted out of the nav tabs to an outline button with a globe icon in the header's right section. It's a global discovery feature, not account-scoped, so it doesn't belong in the tab row.
+- **Row 1** — logo, Explore (icon-only <480px, labelled above), and
+  the hamburger. Profile, Settings, Admin, Sign out, Feedback, Docs,
+  and Blog live inside the Sheet drawer.
+- **Row 2** — horizontally scrollable nav tabs styled to match the
+  agent detail tabs (teal active underline).
 
-### Explore page
+### In-page scope switcher
 
-`/explore` is now its own top-level route with `bg-muted` background, showing all community blueprints. Previously nested under `/blueprints/discover`.
+Each page that is account-scoped (Blueprints, Agents) renders a
+`PageScopeSwitcher` next to its `<h1>`. The switcher is a thin wrapper
+around `OrgSwitcher`, which keeps a single pill-style trigger (avatar +
+handle + chevron, `aria-label="Switch account"`). Dropdown items show
+each account's handle with a star to pin a non-personal default; the
+last item is a `Create organization` link.
 
-### Blueprints page
+State is shared across pages through `ActiveAccountProvider` in
+`Layout.tsx` (localStorage-backed via `astro:default-account`), so
+choosing an org on Blueprints persists on Agents and any other
+consumer of `useActiveAccount`.
 
-Collapses from a layout with sub-routes into a single page scoped to the active account. Blueprint grid expands to 4 columns at `lg`. Empty state uses a rich onboarding panel (mascots, gradient background) with "Create blueprint" and "Start from CLI" CTAs (links to `https://docs.astropods.com/install-cli`), plus a community blueprint grid below.
+### Shared page shell
 
-### Agents empty state
+Two primitives in `components/PageLayout.tsx`:
 
-Simplified to a dashed container with a rocket icon, "No agents deployed yet" heading, and two CTAs: "Create blueprint" and "Explore from community". Dashboard stats are hidden when the list is empty.
+- `PageContainer` — full-bleed `bg-muted` wrapper with an inner
+  `@container max-w-[1500px] mx-auto` content column and unified
+  responsive padding (`px-6 pb-6 pt-6 md:px-8 md:pb-8 md:pt-8`).
+  Accepts an optional `style` passthrough for page-level background
+  treatments (used for the Agents empty-state radial gradient).
+- `PageHeader` — title + optional description, plus slots for an
+  `adornment` (rendered inline next to the title, e.g. the scope
+  switcher) and an `action` (rendered on the right, e.g. a primary
+  CTA).
 
-**CTA copy** — standardized to "Create blueprint" throughout (was "New blueprint" / "Create agent" in some places).
+Blueprints, Agents, and Explore all render through these, so their
+padding, max-width, title sizing, and description styling match.
 
-### Mobile header
+### Routes
 
-Below 1024px, the desktop header switches to a two-row layout:
+- `/explore` — dedicated top-level route using `PageContainer` +
+  `PageHeader`. Previously nested under `/blueprints/discover`.
+- `/blueprints` — single page showing the active account's blueprints;
+  the sub-routes `/discover`, `/personal`, and `/:account` are gone,
+  along with the orphaned `BlueprintsSidebar` and the
+  `blueprintsPaths` helper. Empty state is an onboarding panel
+  (mascots, two CTAs) followed by a community blueprint grid.
+- The blueprint detail breadcrumb now links the account crumb to the
+  account profile (`/:account`) instead of the removed
+  `/blueprints/:account` route.
 
-- **Row 1** — logo, scope switcher (≥380px), Explore button, hamburger
-- **Row 1.5** — scope switcher only, visible below 380px
-- **Row 2** — horizontally scrollable nav tabs (Blueprints, Agents, Stores)
+### Blueprint detail breadcrumb
 
-The breakpoint was raised to 1024px because the centered absolute-positioned desktop nav was colliding with the scope switcher and right-side actions at tablet widths.
+On widths below `sm`, the breadcrumb collapses to a single item
+showing the author's avatar and handle (linking to their profile).
+Desktop keeps the full `Blueprints › account › name` chain. The bar
+uses `min-h` + `flex-wrap` + `break-all` so long names wrap rather
+than overflow.
 
-At widths below 480px the labeled Explore button collapses to an icon-only `size="icon"` variant (globe icon, `aria-label="Explore"`). Above 480px the full labeled button is shown.
+### Agents and Blueprints
 
-Feedback, Docs, and Blog move into the hamburger Sheet on mobile; on desktop they remain as text links in the right-side header. The hamburger content matches the desktop profile dropdown (Profile, Settings, Admin, Sign out, ThemeSwitcher).
+- **Agents empty state** — dashed panel with a rocket icon, a
+  `Create blueprint` CTA, and an `Explore community blueprints` CTA
+  (Telescope icon). Dashboard stats hide when the list is empty; the
+  page picks up a top-anchored radial gradient in that state.
+- **Blueprints empty state** — onboarding panel with `AgentMascots`,
+  `Create blueprint` and `Start from CLI` CTAs, followed by a
+  "Explore community blueprints" grid linking out to `/explore`.
+- **Dashboard grids** now use container queries (`@[540px]`,
+  `@[800px]`, `@[1100px]`, `@[1200px]`) so `DashboardStats`,
+  `DeployedAgentsSection`, `DashboardToolbar`, and `BlueprintListView`
+  reflow based on their container width.
 
-Mobile nav tabs match the agent detail page style: teal active underline (`border-[var(--color-teal-600)]`), `text-heading-4`, `text-faint-foreground` for inactive state.
+### Settings
 
-### Container queries on dashboard grids
+`SettingsLayout` and `OrgSettingsLayout` split the `bg-surface` fill
+out to a full-width wrapper so the lighter surface no longer gets
+clipped to the 1120px content column (leaving the parent `bg-muted`
+showing on the sides).
 
-`DashboardStats`, `DeployedAgentsSection`, and `DashboardToolbar` used viewport-based breakpoints (`sm:`, `md:`, `xl:`). These are replaced with container queries (`@[540px]`, `@[800px]`, `@[1100px]`) so layouts reflow based on their container width. The outer `flex-1` wrapper on `AgentDashboard` is marked `@container`.
+### Layout root
 
-### Background fill
-
-The Layout root div now carries `bg-muted` directly, so there is no gap if `flex-1` on a page's content div doesn't fully expand. `min-h-dvh` is used instead of `min-h-screen` to account for dynamic browser chrome on mobile.
+`Layout.tsx` wrapper is `min-h-dvh` (accounting for mobile browser
+chrome) with `bg-muted` applied directly so there's no visible gap if
+a page's `flex-1` content doesn't fully expand.
 
 ## Migration
 
