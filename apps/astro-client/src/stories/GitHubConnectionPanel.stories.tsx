@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { ConnectedRepoView, type ConnectedRepoViewProps } from "@/components/blueprint-detail/GitHubConnectionPanel";
 import { SidebarSection } from "@/components/blueprint-detail/SidebarSection";
 import { Button } from "@/components/ui/button";
@@ -63,11 +62,9 @@ const meta = {
   title: "Features/GitHub/ConnectionPanel",
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="w-72 border-l border-border bg-background p-4">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="w-72 border-l border-border bg-background p-4">
+        <Story />
+      </div>
     ),
   ],
   parameters: { layout: "centered" },

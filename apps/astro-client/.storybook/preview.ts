@@ -1,5 +1,6 @@
 import type { Preview } from '@storybook/react-vite'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router'
 import React from 'react'
 import { AuthContext } from '../src/lib/auth-context'
 import { mockAuthContext } from '../src/test/test-utils'
@@ -41,7 +42,11 @@ const preview: Preview = {
         React.createElement(
           QueryClientProvider,
           { client: queryClient },
-          Story()
+          React.createElement(
+            MemoryRouter,
+            null,
+            Story()
+          )
         )
       );
     },
