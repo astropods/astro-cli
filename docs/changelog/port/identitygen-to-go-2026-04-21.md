@@ -15,7 +15,7 @@ The Go package is a straight port of the TS `generateIdentity`/`generateCustomId
 - **Exact, bit-for-bit:** `hash()` and the Mulberry32 `rng` sequence. A single-bit drift would change which palette or edge-style the `Math.floor(rng() * n)` picks select, producing a qualitatively different identity.
 - **Tolerant:** Geometric float output (rotation, radius, path coordinates). Absorbs last-ULP drift between `Math.cos/sin` and Go's `math.Cos/Sin`.
 
-Test parity is enforced against 20 seeds captured from the (now-deleted) TS reference: `testdata/hash_rng.json` stores IEEE-754 bit patterns for bit-exact checks; `testdata/choices.json` stores every decision the generator makes per seed, with exact equality on discrete fields and `1e-9` tolerance on floats.
+Test parity is enforced against 5 diverse seeds captured from the (now-deleted) TS reference: `testdata/hash_rng.json` stores IEEE-754 bit patterns for bit-exact checks; `testdata/choices.json` stores every decision the generator makes per seed, with exact equality on discrete fields and `1e-9` tolerance on floats.
 
 ### Rasterization
 
