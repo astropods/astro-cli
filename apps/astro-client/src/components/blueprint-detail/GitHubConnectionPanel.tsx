@@ -213,7 +213,7 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
         <BuildLogsDialog
           account={account}
           name={name}
-          buildId={latestBuild.build_id}
+          build={latestBuild}
           commitSha={latestBuild.commit_sha?.slice(0, 7) ?? "unknown"}
           isActive={latestBuild.status === "pending" || latestBuild.status === "building"}
           open={logsOpen}
@@ -341,7 +341,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
       <BuildLogsDialog
         account={account}
         name={name}
-        buildId={build.build_id}
+        build={build}
         commitSha={build.commit_sha?.slice(0, 7) ?? "unknown"}
         isActive={isActive}
         open={logsOpen}
@@ -377,22 +377,45 @@ function StepPipeline({ currentStep }: { currentStep?: string }) {
   );
 }
 
+function elapsedLabel(from: string, to?: string | null): string {
+  const start = new Date(from).getTime();
+  const end = to ? new Date(to).getTime() : Date.now();
+  const s = Math.floor((end - start) / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
 function BuildLogsDialog({
-  account, name, buildId, commitSha, isActive, open, onOpenChange,
+  account, name, build, commitSha, isActive, open, onOpenChange,
 }: {
-  account: string; name: string; buildId: string; commitSha: string;
+  account: string; name: string; build: GitHubBuild; commitSha: string;
   isActive: boolean; open: boolean; onOpenChange: (v: boolean) => void;
 }) {
-  const { data, isLoading, isError } = useGitHubBuildLogs(account, name, buildId, {
+  const { data, isLoading, isError } = useGitHubBuildLogs(account, name, build.build_id, {
     enabled: open,
     refetchInterval: open && isActive ? 3000 : false,
   });
 
-  const componentLogs = data?.components && data.components.length > 0
+  const rawComponents = data?.components && data.components.length > 0
     ? data.components
     : data?.logs
       ? [{ name: "agent", status: "unknown", logs: data.logs }]
       : [];
+
+  // Merge timestamps from build.components into log components for duration display.
+  const componentLogs = rawComponents.map((c) => {
+    const meta = build.components?.find((bc) => bc.component_name === c.name);
+    const duration = meta?.started_at
+      ? elapsedLabel(meta.started_at, meta.completed_at)
+      : undefined;
+    return { ...c, duration };
+  });
+
+  const totalDuration = build.enqueued_at
+    ? elapsedLabel(build.enqueued_at, (build as any).completed_at)
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -400,7 +423,8 @@ function BuildLogsDialog({
         <div className="overflow-y-auto max-h-[75vh] rounded-lg">
           <BuildLogViewer
             commitSha={commitSha}
-            buildId={buildId}
+            buildId={build.build_id}
+            totalDuration={totalDuration}
             components={componentLogs}
             isLoading={isLoading}
             isError={isError}

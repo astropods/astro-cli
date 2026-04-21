@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Loader2, Github, ArrowRight } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2, Github, ArrowRight, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { AstroIcon } from "@/components/ui/astro-icon";
 import { cn } from "@/lib/utils";
@@ -16,11 +16,13 @@ export interface BuildLogComponentData {
   name: string;
   status: string;
   logs: string;
+  duration?: string;
 }
 
 export interface BuildLogViewerProps {
   commitSha?: string;
   buildId?: string;
+  totalDuration?: string;
   components?: BuildLogComponentData[];
   isLoading?: boolean;
   isError?: boolean;
@@ -30,6 +32,14 @@ interface LogSection {
   name: string;
   content: string;
 }
+
+// Sections to hide entirely.
+const HIDDEN_SECTIONS = new Set(["events", "ecr-login"]);
+
+// Renames applied to section names.
+const SECTION_RENAMES: Record<string, string> = {
+  buildkit: "build",
+};
 
 // ── Log line parsing ──────────────────────────────────────────────────────────
 
@@ -72,21 +82,26 @@ function parseLogSections(raw: string): LogSection[] {
   if (sections.length === 0 && raw.trim()) {
     sections.push({ name: "output", content: raw });
   }
-  return sections;
+
+  return sections
+    .filter((s) => !HIDDEN_SECTIONS.has(s.name))
+    .map((s) => ({ ...s, name: SECTION_RENAMES[s.name] ?? s.name }));
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function statusClass(status: string) {
-  if (status === "succeeded") return "text-green-600 dark:text-green-400";
-  if (status === "failed") return "text-destructive";
-  if (status === "building") return "text-blue-500";
-  return "text-muted-foreground";
+function StatusIcon({ status, size = "md" }: { status: string; size?: "sm" | "md" }) {
+  const sm = size === "sm";
+  const cls = sm ? "h-3 w-3 shrink-0" : "h-3.5 w-3.5 shrink-0";
+  if (status === "succeeded") return <CheckCircle2 className={cn(cls, "text-green-600 dark:text-green-400")} />;
+  if (status === "failed") return <XCircle className={cn(cls, "text-destructive")} />;
+  if (status === "building") return <Loader2 className={cn(cls, "text-blue-500 animate-spin")} />;
+  return <Clock className={cn(cls, "text-muted-foreground")} />;
 }
 
 function LogLines({ entries }: { entries: LogEntry[] }) {
   if (entries.length === 0) {
-    return <p className="font-mono text-mono-sm text-faint-foreground py-2 pl-14">(empty)</p>;
+    return <p className="font-mono text-mono-sm text-faint-foreground py-2 pl-9">(empty)</p>;
   }
   return (
     <>
@@ -96,7 +111,7 @@ function LogLines({ entries }: { entries: LogEntry[] }) {
         return (
           <div
             key={i}
-            className="flex items-baseline gap-x-3 pl-14 pr-4 py-[1px] font-mono text-mono-sm tracking-normal leading-5"
+            className="flex items-baseline gap-x-3 pl-9 pr-4 py-[1px] font-mono text-mono-sm tracking-normal leading-5"
           >
             {entry.timestamp ? (
               <span className="text-faint-foreground shrink-0 w-[24ch]">
@@ -120,19 +135,9 @@ function LogLines({ entries }: { entries: LogEntry[] }) {
 
 // ── BuildLogViewer ────────────────────────────────────────────────────────────
 
-export function BuildLogViewer({ commitSha, buildId, components = [], isLoading, isError }: BuildLogViewerProps) {
-  const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
-    () => new Set(components.length > 0 ? [components[0].name] : [])
-  );
+export function BuildLogViewer({ commitSha, buildId, totalDuration, components = [], isLoading, isError }: BuildLogViewerProps) {
+  const [activeTab, setActiveTab] = useState(() => components[0]?.name ?? "");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-
-  function toggleComponent(name: string) {
-    setExpandedComponents((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  }
 
   function toggleSection(key: string) {
     setExpandedSections((prev) => {
@@ -159,102 +164,116 @@ export function BuildLogViewer({ commitSha, buildId, components = [], isLoading,
     );
   }
 
-  if (components.length === 0) {
-    return (
-      <p className="font-mono text-mono-sm text-faint-foreground p-4">(no output)</p>
-    );
-  }
+  const activeComp = components.find((c) => c.name === activeTab) ?? components[0];
+  const sections = parseLogSections(activeComp?.logs || "");
 
   return (
     <div>
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-border">
         <p className="text-sm font-semibold">Build Logs</p>
-        {(commitSha || buildId) && (
+        {commitSha && (
           <div className="flex items-center gap-2 mt-1">
-            {commitSha && (
-              <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-                <Github className="h-3.5 w-3.5 shrink-0" />
-                {commitSha}
-              </span>
-            )}
-            {commitSha && buildId && (
-              <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-            )}
-            {buildId && (
+            <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+              <Github className="h-3.5 w-3.5 shrink-0" />
+              {commitSha}
+            </span>
+            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+            {buildId ? (
               <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
                 <AstroIcon className="h-3.5 w-3.5" />
                 {buildId}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground/50">
+                <AstroIcon className="h-3.5 w-3.5" />
+                <Loader2 className="h-3 w-3 animate-spin" />
+                pending
+              </span>
+            )}
+            {totalDuration && (
+              <span className="ml-auto font-mono text-xs text-muted-foreground">
+                total duration: {totalDuration}
               </span>
             )}
           </div>
         )}
       </div>
 
-      {/* Accordion */}
-      <div className="divide-y divide-border">
-      {components.map((comp) => {
-        const compOpen = expandedComponents.has(comp.name);
-        const sections = parseLogSections(comp.logs || "");
+      {components.length === 0 ? (
+        <p className="font-mono text-mono-sm text-faint-foreground p-4">(no output)</p>
+      ) : (
+        <>
+          {/* Single component label */}
+          {components.length === 1 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
+              <StatusIcon status={activeComp.status} size="sm" />
+              <span className="text-sm font-medium">{activeComp.name}</span>
+              {activeComp.duration && (
+                <span className="font-mono text-[10px] text-muted-foreground ml-auto">{activeComp.duration}</span>
+              )}
+            </div>
+          )}
 
-        return (
-          <div key={comp.name}>
-            {/* Component row */}
-            <button
-              onClick={() => toggleComponent(comp.name)}
-              className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-muted/40 transition-colors"
-            >
-              {compOpen
-                ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-              <span className="font-mono font-semibold text-sm">{comp.name}</span>
-              <span className={cn("font-mono text-xs", statusClass(comp.status))}>
-                {comp.status === "building" && (
-                  <Loader2 className="inline h-2.5 w-2.5 animate-spin mr-1 -mt-0.5" />
-                )}
-                {comp.status}
-              </span>
-            </button>
+          {/* Tab bar — only shown when there are multiple components */}
+          {components.length > 1 && (
+            <div className="flex border-b border-border overflow-x-auto">
+              {components.map((comp) => (
+                <button
+                  key={comp.name}
+                  onClick={() => setActiveTab(comp.name)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 -mb-px",
+                    activeTab === comp.name
+                      ? "border-foreground text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <StatusIcon status={comp.status} size="sm" />
+                  <span>{comp.name}</span>
+                  {comp.duration && (
+                    <span className="font-mono text-[10px] text-muted-foreground">{comp.duration}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
 
-            {/* Sections */}
-            {compOpen && (
-              <div className="divide-y divide-border border-t border-border">
-                {sections.map((section) => {
-                  const sectionKey = `${comp.name}/${section.name}`;
-                  const sectionOpen = expandedSections.has(sectionKey);
-                  const entries = parseLogLines(section.content);
+          {/* Sections accordion */}
+          <div>
+            {sections.map((section) => {
+              const sectionKey = `${activeComp.name}/${section.name}`;
+              const sectionOpen = expandedSections.has(sectionKey);
+              const entries = parseLogLines(section.content);
 
-                  return (
-                    <div key={sectionKey}>
-                      <button
-                        onClick={() => toggleSection(sectionKey)}
-                        className="w-full flex items-center gap-2 pl-9 pr-4 py-2.5 text-left hover:bg-muted/40 transition-colors"
-                      >
-                        {sectionOpen
-                          ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                          : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-                        <span className="font-mono text-sm">{section.name}</span>
-                        {entries.length > 0 && (
-                          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                            {entries.length} lines
-                          </span>
-                        )}
-                      </button>
+              return (
+                <div key={sectionKey}>
+                  <button
+                    onClick={() => toggleSection(sectionKey)}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/40 transition-colors"
+                  >
+                    {sectionOpen
+                      ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                      : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                    <span className="font-mono text-sm">{section.name}</span>
+                    {entries.length > 0 && (
+                      <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
+                        {entries.length} lines
+                      </span>
+                    )}
+                  </button>
 
-                      {sectionOpen && (
-                        <div className="border-t border-border bg-background py-2 max-h-72 overflow-y-auto">
-                          <LogLines entries={entries} />
-                        </div>
-                      )}
+                  {sectionOpen && (
+                    <div className="border-t border-border bg-background py-2 max-h-72 overflow-y-auto">
+                      <LogLines entries={entries} />
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
-      </div>
+        </>
+      )}
     </div>
   );
 }

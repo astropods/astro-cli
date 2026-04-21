@@ -38,8 +38,14 @@ Login Succeeded
 Successfully built a1b2c3d4e5f6
 Successfully tagged 123456789.dkr.ecr.us-east-1.amazonaws.com/astro/credit-card-agent:bld_abc123`;
 
+const DURATIONS: Record<string, string> = {
+  "agent": "1m 12s",
+  "ingestion-startup": "48s",
+  "ingestion-schedule": "2m 3s",
+};
+
 function makeComp(name: string, status: BuildLogComponentData["status"], logs = SECTIONS): BuildLogComponentData {
-  return { name, status, logs };
+  return { name, status, logs, duration: DURATIONS[name] };
 }
 
 // ── Stories ───────────────────────────────────────────────────────────────────
@@ -53,12 +59,23 @@ export const Error: Story = {
 };
 
 export const NoOutput: Story = {
-  args: { components: [] },
+  args: { commitSha: "a1b2c3d", buildId: "bld_abc123", components: [] },
 };
 
 export const SingleComponentSucceeded: Story = {
   args: {
+    commitSha: "a1b2c3d",
+    buildId: "bld_abc123",
+    totalDuration: "1m 12s",
     components: [makeComp("agent", "succeeded")],
+  },
+};
+
+export const SingleComponentPendingBuild: Story = {
+  args: {
+    commitSha: "a1b2c3d",
+    // no buildId — build number not yet assigned
+    components: [makeComp("agent", "building")],
   },
 };
 
@@ -140,6 +157,7 @@ function DialogStory({ components, isLoading, isError }: {
           <BuildLogViewer
             commitSha="a1b2c3d"
             buildId="bld_abc123"
+            totalDuration="3m 23s"
             components={components}
             isLoading={isLoading}
             isError={isError}
