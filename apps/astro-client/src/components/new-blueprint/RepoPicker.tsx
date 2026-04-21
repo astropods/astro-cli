@@ -63,7 +63,7 @@ export function RepoPicker({
     setQuery(value);
     setRepoOpen(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onSearchChange(value), 300);
+    debounceRef.current = setTimeout(() => onSearchChange(value), 120);
   }
 
   function handleSelectRepo(repo: GitHubRepo) {
@@ -158,11 +158,11 @@ export function RepoPicker({
 
         {/* Repo dropdown — inline so the card grows naturally */}
         <div className={cn(
-          "grid transition-[grid-template-rows] duration-200 ease-out",
+          "grid transition-[grid-template-rows] duration-150 ease-out",
           repoOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}>
           <div className="overflow-hidden">
-            <div className="mt-1.5 max-h-52 overflow-y-auto rounded-sm border border-border bg-background">
+            <div className="mt-1.5 h-48 overflow-y-auto rounded-sm border border-border bg-background">
               {isLoadingRepos ? (
                 <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                   <ArrowPathIcon className="size-4 animate-spin" />
@@ -203,7 +203,7 @@ export function RepoPicker({
 
       {/* Branch selector — slides in when a repo is selected, expands inline */}
       <div className={cn(
-        "grid transition-[grid-template-rows] duration-200 ease-out",
+        "grid transition-[grid-template-rows] duration-150 ease-out",
         selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
       )}>
         <div className="overflow-hidden">
@@ -228,7 +228,7 @@ export function RepoPicker({
 
               {/* Branch list — inline so it pushes the card down */}
               <div className={cn(
-                "grid transition-[grid-template-rows] duration-200 ease-out",
+                "grid transition-[grid-template-rows] duration-150 ease-out",
                 branchOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
               )}>
                 <div className="overflow-hidden">
