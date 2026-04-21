@@ -283,6 +283,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const fetchedForRef = useRef<string | null>(
     opts?.initialTemplateResponse ? `${account}/${name}` : null,
   );
+  const [fetchError, setFetchError] = useState<Error | null>(null);
 
   useEffect(() => {
     const key = `${account}/${name}`;
@@ -291,16 +292,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     fetchedForRef.current = key;
     seededRef.current = false;
     setTemplateResponse(null);
+    setFetchError(null);
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     if (opts?.revision) body.revision = opts.revision;
-    templateMutation.mutate(body, { onSuccess: setTemplateResponse });
+    templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when agent identity changes
   }, [account, name]);
 
-  const templateLoading = templateMutation.isPending && !templateResponse;
-  const templateError = templateMutation.error;
+  const templateLoading = !templateResponse && !fetchError;
+  const templateError = fetchError;
 
   // Derive legacy DeploymentTemplate shape for existing form logic.
   const template: DeploymentTemplate | null = useMemo(() => {
