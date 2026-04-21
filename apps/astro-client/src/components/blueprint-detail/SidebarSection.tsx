@@ -6,6 +6,7 @@ export interface SidebarSectionProps {
   title: string;
   badge?: ReactNode;
   badgeTooltip?: string;
+  trailing?: ReactNode;
   children: ReactNode;
   className?: string;
   headerClassName?: string;
@@ -16,6 +17,7 @@ export function SidebarSection({
   title,
   badge,
   badgeTooltip,
+  trailing,
   children,
   className,
   headerClassName,
@@ -41,6 +43,7 @@ export function SidebarSection({
             </Tooltip>
           </TooltipProvider>
         )}
+        {trailing && <span className="ml-auto">{trailing}</span>}
       </header>
       <div className={cn("px-4 py-3", bodyClassName)}>
         {children}

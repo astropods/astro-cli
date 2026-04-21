@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search, Github, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -92,6 +92,10 @@ export function RepoPicker({
 
       {/* Repo autocomplete */}
       <div>
+        <Label size="md" className="flex items-center gap-1.5 mb-1.5">
+          <Github className="size-3.5" />
+          Repository
+        </Label>
         <div
           className={cn(inputBase, inputFocusWithin, "flex h-9 items-center gap-2 cursor-text px-3")}
           onClick={() => inputRef.current?.focus()}
@@ -204,7 +208,10 @@ export function RepoPicker({
       )}>
         <div className="overflow-hidden">
           <div className="space-y-1.5 pt-0.5">
-            <Label size="md">Branch</Label>
+            <Label size="md" className="flex items-center gap-1.5">
+              <GitBranch className="size-3.5" />
+              Branch
+            </Label>
 
             <div>
               <button

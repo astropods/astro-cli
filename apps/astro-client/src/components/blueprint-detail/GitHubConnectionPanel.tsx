@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SidebarSection } from "./SidebarSection";
 import {
   useGitHubStatus,
@@ -78,9 +79,19 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
     );
   }
 
+  const githubLogin = (status?.connected ? status.repo_full_name : effectiveRepo)?.split("/")[0];
+
   return (
     <>
-      <SidebarSection title="GitHub">
+      <SidebarSection
+        title="GitHub"
+        trailing={githubLogin && (
+          <span className="flex items-center gap-1 font-mono text-[10px] text-foreground">
+            <CheckCircle2 className="size-3 shrink-0 text-green-600 dark:text-green-400" />
+            {githubLogin}
+          </span>
+        )}
+      >
         {status?.connected || effectiveRepo ? (
           <ConnectedRepoView
             account={account}
@@ -124,7 +135,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   );
 }
 
-interface ConnectedRepoViewProps {
+export interface ConnectedRepoViewProps {
   account: string;
   name: string;
   status: { repo_full_name?: string; branch?: string; builds: GitHubBuild[] };
@@ -133,7 +144,10 @@ interface ConnectedRepoViewProps {
   disconnect: { mutate: () => void; isPending: boolean };
 }
 
-function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disconnect }: ConnectedRepoViewProps) {
+export function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disconnect }: ConnectedRepoViewProps) {
+  const [logsOpen, setLogsOpen] = useState(false);
+  const latestBuild = status.builds[0];
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
@@ -145,7 +159,7 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
             className="flex items-center gap-1.5 text-sm font-medium hover:underline truncate"
           >
             <Github className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{status.repo_full_name}</span>
+            <span className="truncate">{status.repo_full_name?.split("/")[1] ?? status.repo_full_name}</span>
             <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
           </a>
           {status.branch && (
@@ -166,6 +180,12 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {latestBuild && (
+              <DropdownMenuItem onClick={() => setLogsOpen(true)}>
+                <ScrollText className="h-3.5 w-3.5" />
+                Build Logs
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onClick={() => rebuild.mutate()}
               disabled={rebuild.isPending}
@@ -184,6 +204,17 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {latestBuild && (
+        <BuildLogsDialog
+          account={account}
+          name={name}
+          buildId={latestBuild.build_id}
+          commitSha={latestBuild.commit_sha?.slice(0, 7) ?? "unknown"}
+          isActive={latestBuild.status === "pending" || latestBuild.status === "building"}
+          open={logsOpen}
+          onOpenChange={setLogsOpen}
+        />
+      )}
 
       {status.builds.length === 0 && statusLoading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -198,7 +229,7 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
           </span>
           <span>
-            Waiting for{" "}
+            Awaiting{" "}
             <span className="font-mono text-foreground">astropods.yml</span>
             {status.branch && (
               <> on <span className="font-mono text-foreground">{status.branch}</span></>
@@ -210,7 +241,7 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
       {status.builds.length > 0 && (
         <div className="space-y-1">
           {status.builds.slice(0, 2).map((build) => (
-            <BuildRow key={build.id} build={build} account={account} name={name} />
+            <BuildRow key={build.id} build={build} />
           ))}
         </div>
       )}
@@ -220,22 +251,11 @@ function ConnectedRepoView({ account, name, status, statusLoading, rebuild, disc
 
 // Build pipeline steps in order.
 const BUILD_STEPS = [
-  { key: "fetching-spec", label: "Fetch spec" },
-  { key: "building",      label: "Build"      },
-  { key: "registering",   label: "Register"   },
+  { key: "fetching-spec", label: "Fetching spec" },
+  { key: "building",      label: "Building" },
+  { key: "registering",   label: "Registering" },
 ] as const;
 
-// Strip repetitive Go/BuildKit error prefixes and truncate to the meaningful part.
-function cleanBuildError(err: string): string {
-  const stripped = err
-    .replace(/^JobCancelError:\s*/i, "")
-    .replace(/^build \w+:\s*/i, "")
-    .replace(/^build job failed:\s*/i, "")
-    .replace(/^error:\s*/i, "")
-    .replace(/^failed to solve:\s*/i, "")
-    .trim();
-  return stripped.length > 120 ? stripped.slice(0, 120) + "…" : stripped;
-}
 
 function elapsedLabel(from: string, to?: string | null): string {
   const start = new Date(from).getTime();
@@ -247,9 +267,7 @@ function elapsedLabel(from: string, to?: string | null): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
-  const shortSha = build.commit_sha?.slice(0, 7) ?? "unknown";
-  const [logsOpen, setLogsOpen] = useState(false);
+function BuildRow({ build }: { build: GitHubBuild }) {
   const isActive = build.status === "pending" || build.status === "building";
 
   const title = build.commit_message
@@ -259,36 +277,45 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
   return (
     <>
       <div className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs">
-        {/* Top row: status icon + title + logs button */}
-        <div className="flex items-start gap-1.5">
-          <BuildStatusIcon status={build.status} className="mt-0.5 shrink-0" />
-          <span className={cn(
-            "flex-1 leading-snug font-medium truncate",
-            build.status === "failed" && "text-destructive",
-          )}>
-            {title}
-          </span>
-          <button
-            onClick={() => setLogsOpen(true)}
-            className="text-muted-foreground hover:text-foreground shrink-0 ml-1"
-            title="View logs"
-          >
-            <ScrollText className="h-3 w-3" />
-          </button>
-        </div>
+        {/* Row 1: title */}
+        <span className={cn(
+          "block leading-snug font-medium truncate",
+          build.status === "failed" && "text-destructive",
+        )}>
+          {title}
+        </span>
 
-        {/* Meta row: sha + author + elapsed */}
-        <div className="flex items-center gap-1.5 text-muted-foreground font-mono pl-5">
-          <span>{shortSha}</span>
-          {build.commit_author && (
-            <><span>·</span><span className="font-sans truncate max-w-[100px]">{build.commit_author}</span></>
-          )}
-          <span className="ml-auto">{elapsedLabel(build.enqueued_at, build.completed_at)}</span>
-        </div>
-
-        {/* Step pipeline — shown for active builds */}
-        {isActive && (
+        {/* Row 2: step pipeline (active) or status icon (inactive) */}
+        {isActive ? (
           <StepPipeline currentStep={build.step} />
+        ) : (
+          <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+            <BuildStatusIcon status={build.status} className="shrink-0" />
+            {build.status === "registered" && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-mono text-green-600 dark:text-green-400 cursor-default">{build.build_id} successful</span>
+                  </TooltipTrigger>
+                  {build.completed_at && (
+                    <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {build.status === "failed" && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-mono text-destructive cursor-default">Error: see logs for more</span>
+                  </TooltipTrigger>
+                  {build.completed_at && (
+                    <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
         )}
 
         {/* Per-component status — shown when components exist */}
@@ -312,21 +339,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
           </div>
         )}
 
-        {/* Error — shown for failed builds */}
-        {build.status === "failed" && build.error && (
-          <p className="text-destructive pl-5 leading-snug break-words">{cleanBuildError(build.error)}</p>
-        )}
       </div>
-
-      <BuildLogsDialog
-        account={account}
-        name={name}
-        buildId={build.build_id}
-        commitSha={shortSha}
-        isActive={isActive}
-        open={logsOpen}
-        onOpenChange={setLogsOpen}
-      />
     </>
   );
 }
@@ -342,33 +355,17 @@ function StepPipeline({ currentStep }: { currentStep?: string }) {
   const currentIdx = BUILD_STEPS.findIndex((s) => currentStep?.startsWith(s.key));
   const buildProgress = parseBuildProgress(currentStep);
 
+  const activeStep = currentIdx >= 0 ? BUILD_STEPS[currentIdx] : null;
+  const stepNum = currentIdx >= 0 ? currentIdx + 1 : 1;
+
   return (
-    <div className="flex items-center gap-0 pl-5">
-      {BUILD_STEPS.map((step, i) => {
-        const isDone = currentIdx > i;
-        const isActive = currentIdx === i;
-        return (
-          <div key={step.key} className="flex items-center">
-            <div className={cn(
-              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              isActive && "text-blue-600 dark:text-blue-400",
-              isDone && "text-green-600 dark:text-green-400",
-              !isActive && !isDone && "text-muted-foreground",
-            )}>
-              {isDone && <CheckCircle2 className="h-2.5 w-2.5" />}
-              {isActive && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-              {!isDone && !isActive && <CircleDot className="h-2.5 w-2.5 opacity-30" />}
-              {step.label}
-              {isActive && buildProgress && (
-                <span className="text-muted-foreground font-normal">{buildProgress}</span>
-              )}
-            </div>
-            {i < BUILD_STEPS.length - 1 && (
-              <span className="text-muted-foreground/40 mx-0.5">›</span>
-            )}
-          </div>
-        );
-      })}
+    <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+      <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+      <span className="font-medium">{activeStep?.label ?? "Building"}</span>
+      {buildProgress && (
+        <span className="text-muted-foreground font-normal">{buildProgress}</span>
+      )}
+      <span className="text-muted-foreground font-mono ml-auto">({stepNum}/{BUILD_STEPS.length})</span>
     </div>
   );
 }
