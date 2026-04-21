@@ -341,10 +341,10 @@ function NewBlueprintContent() {
           ))}
         </div>
 
-        {/* Carousel — sliding flex row, fills remaining height via flex-1 chain */}
-        <div className="overflow-hidden rounded-xl flex flex-1 flex-col">
+        {/* Carousel — sliding flex row, height driven by content */}
+        <div className="overflow-hidden rounded-xl">
           <div
-            className="flex flex-1"
+            className="flex"
             style={{
               width: `${STEPS.length * 100}%`,
               transform: `translateX(-${activeStepIndex * (100 / STEPS.length)}%)`,
