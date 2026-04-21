@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -85,10 +86,21 @@ func keyringForceDisabled() bool {
 }
 
 // isKeyringAvailable tests if the system keyring is accessible.
-// ASTRO_NO_KEYRING=1 disables the probe entirely so CI and integration tests
-// can run the CLI without triggering macOS Keychain prompts for unsigned
-// test binaries. When disabled, credentials fall back to the on-disk store.
+//
+// The probe is skipped (and the caller falls back to the on-disk store) in two
+// cases:
+//
+//  1. Any Go test binary: testing.Testing() is true whenever the current
+//     process was produced by `go test`, which is exactly when the unsigned
+//     test binary would trigger a macOS Keychain permission prompt and block
+//     automated runs. Tests never want to read/write real Keychain entries.
+//  2. ASTRO_NO_KEYRING=1: an escape hatch for integration tests and CI that
+//     drive the real compiled CLI binary as a subprocess, where
+//     testing.Testing() is false but the subprocess is still unsigned.
 func isKeyringAvailable() bool {
+	if testing.Testing() {
+		return false
+	}
 	if keyringForceDisabled() {
 		return false
 	}

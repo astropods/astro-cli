@@ -8,28 +8,26 @@ import (
 	"testing"
 )
 
-/*
-Provenance guard for the keyring escape hatch.
-
-The env var literal "ASTRO_NO_KEYRING" must ONLY appear in files on the
-allowlist below. In particular:
-
-  - It must not be referenced from any production command handler (cmd/).
-  - It must not be set by the CLI itself, only read.
-  - Test-only references live either in this auth package or under e2e/.
-
-If someone later adds an implicit `os.Setenv("ASTRO_NO_KEYRING", "1")` in a
-production path — or reads it from a second place where the strict-match
-rules don't apply — this test fails and forces a deliberate update of the
-allowlist.
-*/
+// Provenance guard for the keyring escape hatch.
+//
+// The env var literal "ASTRO_NO_KEYRING" must ONLY appear in files on the
+// allowlist below. In particular:
+//
+//   - It must not be referenced from any production command handler (cmd/).
+//   - It must not be set by the CLI itself, only read.
+//   - Test-only references live either in this auth package or under e2e/.
+//
+// If someone later adds an implicit `os.Setenv("ASTRO_NO_KEYRING", "1")` in a
+// production path — or reads it from a second place where the strict-match
+// rules don't apply — this test fails and forces a deliberate update of the
+// allowlist.
 
 var allowedEscapeHatchFiles = map[string]struct{}{
-	/* production read site, with strict "1" matching */
+	// production read site, with strict "1" matching
 	"apps/astro-cli/internal/auth/storage.go": {},
-	/* this provenance test itself */
+	// this provenance test itself
 	"apps/astro-cli/internal/auth/keyring_escape_hatch_provenance_test.go": {},
-	/* integration tests that set the hatch when driving the built binary */
+	// integration tests that set the hatch when driving the built binary
 	"apps/astro-cli/e2e/configure_persistence_test.go": {},
 }
 

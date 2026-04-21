@@ -167,8 +167,8 @@ func devStatePath() (string, error) {
 // readDevProjectName returns the compose project name stored in the .running
 // marker file. The returned value is always normalized through
 // composeBuilder.ProjectNameFromSpecName so legacy state files containing
-// scoped spec names (e.g. "@postman/luqa") still map to the live project
-// ("luqa") used by Up — avoiding mismatched Down/Logs/stop calls.
+// scoped spec names (e.g. "@org/my-agent") still map to the live project
+// ("my-agent") used by Up — avoiding mismatched Down/Logs/stop calls.
 // Falls back to spec parsing if the file is empty (older format).
 func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	data, err := os.ReadFile(statePath) //nolint:gosec // path is constructed from os.Getwd() + hardcoded suffix

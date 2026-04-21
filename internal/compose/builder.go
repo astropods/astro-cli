@@ -119,7 +119,7 @@ type BuildOptions struct {
 }
 
 // ProjectName returns the Docker Compose project name used for an agent spec.
-// Scoped spec names like "@postman/luqa" become "luqa"; unscoped names pass through.
+// Scoped spec names like "@org/my-agent" become "my-agent"; unscoped names pass through.
 // This is the single source of truth for the project-name string used by Up,
 // Down, Logs, health checks, and the .running state file.
 func ProjectName(s *spec.AstroSpec) string {
