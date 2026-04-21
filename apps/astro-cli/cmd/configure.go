@@ -533,12 +533,10 @@ func runConfigureSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	/*
-		`set KEY ""` used to clobber the stored value when MergeProjectVars
-		wrote empty strings through. Now that empties are preserved, an empty
-		VALUE is explicitly routed to unset to keep the observable "clear a
-		var" behavior of `set` intact.
-	*/
+	// `set KEY ""` used to clobber the stored value when MergeProjectVars
+	// wrote empty strings through. Now that empties are preserved, an empty
+	// VALUE is explicitly routed to unset to keep the observable "clear a
+	// var" behavior of `set` intact.
 	if value == "" {
 		if err := config.UnsetProjectVars(binaryName, workingDir, []string{key}); err != nil {
 			return fmt.Errorf("failed to unset config: %w", err)
@@ -563,13 +561,11 @@ func runConfigureUnset(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	/*
-		Unset doesn't need the spec to resolve — stored vars are keyed by the
-		project path, not by agent name. Parsing is still useful for nicer
-		error messages if the user runs it in the wrong directory, but we
-		skip it to keep `unset` usable even when the spec is temporarily
-		broken.
-	*/
+	// Unset doesn't need the spec to resolve — stored vars are keyed by the
+	// project path, not by agent name. Parsing is still useful for nicer
+	// error messages if the user runs it in the wrong directory, but we
+	// skip it to keep `unset` usable even when the spec is temporarily
+	// broken.
 	if err := config.UnsetProjectVars(binaryName, workingDir, args); err != nil {
 		return fmt.Errorf("failed to unset config: %w", err)
 	}

@@ -9,14 +9,14 @@ import (
 // TestProjectName_Table locks the single-source-of-truth contract that
 // compose project names are always the bare agent name, regardless of scope.
 // Up/Down/Logs/health/.running must all agree on this name; any divergence
-// reintroduces the "@postman/luqa" warning bug.
+// reintroduces the scoped-name cleanup warning bug.
 func TestProjectName_Table(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"luqa", "luqa"},
-		{"@postman/luqa", "luqa"},
-		{"@my-org/my-agent", "my-agent"},
+		{"my-agent", "my-agent"},
+		{"@org/my-agent", "my-agent"},
+		{"@example/release-note-helper", "release-note-helper"},
 	}
 	for _, c := range cases {
 		got := ProjectNameFromSpecName(c.in)
@@ -34,9 +34,9 @@ func TestProjectName_Table(t *testing.T) {
 // whatever project name BuildProject stamps onto the compose project MUST be
 // exactly what ProjectName returns, because every Down/Logs/health call site
 // now derives the name via ProjectName. A divergence here reintroduces the
-// "No resource found to remove for project @postman/luqa" warning.
+// "No resource found to remove for project @org/my-agent" warning.
 func TestProjectName_MatchesBuildProject(t *testing.T) {
-	for _, raw := range []string{"luqa", "@postman/luqa", "@example/release-note-helper"} {
+	for _, raw := range []string{"my-agent", "@org/my-agent", "@example/release-note-helper"} {
 		s := &spec.AstroSpec{
 			Name:  raw,
 			Agent: spec.Container{Image: "agent:latest"},

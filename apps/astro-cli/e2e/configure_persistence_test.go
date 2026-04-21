@@ -13,26 +13,24 @@ import (
 
 )
 
-/*
-Integration test for the "ast configure not persisting values after upgrade"
-regression. We build the ast binary and drive it as a subprocess so the full
-CLI path (cobra -> runConfigureSet -> MergeProjectVars -> project-configs.json)
-is exercised end-to-end, not just the internal helpers.
-
-Covers four user scenarios tied to the fix:
-
- 1. `ast configure set KEY VALUE` persists the value.
- 2. Re-running `set` on a different key does not clobber the first.
- 3. `ast configure set KEY ""` explicitly clears the value (routed to Unset).
- 4. `ast configure unset KEY` clears the value.
- 5. Running the binary from the same project via both a raw and a
-    symlink-resolved path still resolves to the same store (path-key
-    canonicalization).
-
-Run with:
-
-	go test -tags integration -run TestConfigurePersistence ./e2e/...
-*/
+// Integration test for the "ast configure not persisting values after upgrade"
+// regression. We build the ast binary and drive it as a subprocess so the full
+// CLI path (cobra -> runConfigureSet -> MergeProjectVars -> project-configs.json)
+// is exercised end-to-end, not just the internal helpers.
+//
+// Covers four user scenarios tied to the fix:
+//
+//  1. `ast configure set KEY VALUE` persists the value.
+//  2. Re-running `set` on a different key does not clobber the first.
+//  3. `ast configure set KEY ""` explicitly clears the value (routed to Unset).
+//  4. `ast configure unset KEY` clears the value.
+//  5. Running the binary from the same project via both a raw and a
+//     symlink-resolved path still resolves to the same store (path-key
+//     canonicalization).
+//
+// Run with:
+//
+//	go test -tags integration -run TestConfigurePersistence ./e2e/...
 
 type projectVarsFile struct {
 	Projects map[string]struct {
@@ -41,12 +39,10 @@ type projectVarsFile struct {
 	} `json:"projects"`
 }
 
-/*
-	buildAstBinary compiles the CLI with binaryName=ast-dev. auth.ConfigDir
-	hard-codes the binary→dir mapping (ast-dev → .ast-dev), so any other
-	name would silently fall back to .ast and make the test leak into the
-	developer's real config.
-*/
+// buildAstBinary compiles the CLI with binaryName=ast-dev. auth.ConfigDir
+// hard-codes the binary→dir mapping (ast-dev → .ast-dev), so any other
+// name would silently fall back to .ast and make the test leak into the
+// developer's real config.
 func buildAstBinary(t *testing.T) string {
 	t.Helper()
 	repoRoot := findRepoRoot(t)
@@ -128,11 +124,9 @@ func readProjectConfigs(t *testing.T, tmpHome string) projectVarsFile {
 
 func projectVarsFor(t *testing.T, cfg projectVarsFile, projectDir string) map[string]string {
 	t.Helper()
-	/*
-		Keys are canonical (symlink-resolved) paths. Some temp dir paths are
-		already canonical; on macOS /var/folders resolves to /private/var.
-		Try canonical first, fall back to raw.
-	*/
+	// Keys are canonical (symlink-resolved) paths. Some temp dir paths are
+	// already canonical; on macOS /var/folders resolves to /private/var.
+	// Try canonical first, fall back to raw.
 	resolved, err := filepath.EvalSymlinks(projectDir)
 	if err == nil {
 		if entry, ok := cfg.Projects[resolved]; ok {

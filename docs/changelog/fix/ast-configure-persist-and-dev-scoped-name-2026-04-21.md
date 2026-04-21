@@ -38,9 +38,16 @@ Compose project-name construction is now centralized in `internal/compose`:
 - A second integration test drives the real built CLI as a subprocess against a temporary HOME and exercises `configure set`, `set KEY ""` → unset routing, explicit `unset`, and symlinked-cwd path consistency. It also asserts that `configure set` never echoes secret values to stdout/stderr.
 - The integration suite runs under the `integration` build tag via a new `astro-cli:e2e` Moon task (`runInCI: false`, because it requires a local Docker daemon). A new `astro-cli:test` target covers the always-on unit suite.
 
-### Keyring escape hatch
+### Keyring probe under tests
 
-Running the built CLI as a subprocess on macOS hits a Keychain permission prompt because unsigned test binaries cannot reuse an existing trust entry. The auth layer now honors `ASTRO_NO_KEYRING=1` to skip the keyring probe; the integration tests set this so the subprocess can run non-interactively. A provenance test walks `apps/astro-cli` and fails if the env var literal appears in any file outside an allowlist, so the escape hatch can't accidentally grow new read or write sites.
+`auth.NewStorage` eagerly probes the Keychain on every construction via a `keyring.Set` / `keyring.Delete` round trip. On macOS this triggers a permission prompt any time an unsigned binary calls it, including `go test` binaries, which blocked automated runs as soon as a test exercised a code path that constructed a storage. Two gates now short-circuit the probe before it hits the Keychain:
+
+1. `testing.Testing()` — any binary produced by `go test` skips the probe unconditionally. Tests never want to read or write real Keychain entries, and the standard-library signal means this works for every package's test suite without per-package `TestMain` plumbing. The production `ast` binary built by `go build` is unaffected.
+2. `ASTRO_NO_KEYRING=1` — escape hatch for the integration tests (and CI/ops) that drive the real built CLI as a subprocess, where `testing.Testing()` is false because the subprocess is a `go build` artifact. Only the exact value `"1"` disables the probe; any other value falls through to the live probe so a shell-quoting accident (`ASTRO_NO_KEYRING=true`) can't silently downgrade credential storage to a plaintext file in production. A provenance test walks `apps/astro-cli` and fails if the env var literal appears outside an allowlist, so new read or write sites for the hatch require a deliberate allowlist update.
+
+### Comment-style enforcement
+
+The CLI house style is `//` for both single-line and multi-line comments. `gofmt`, `gofumpt`, `go vet`, `staticcheck`, and the linters currently enabled in `.golangci.yaml` all preserve `/* … */` without complaint, so the rule had no enforcement. A new `internal/lintcheck` package ships a test that AST-walks `apps/astro-cli`, parses every `.go` file with comments, and fails with file:line offenders if any `/* … */` comment is found. Running under the always-on unit suite makes this CI-visible without adding a new tool dependency.
 
 ## Migration
 

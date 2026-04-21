@@ -18,20 +18,18 @@ import (
 	"github.com/docker/compose/v5/pkg/compose"
 )
 
-/*
-These tests guard the fix for the "No resource found to remove for project
-@postman/luqa" bug. They boot a minimal busybox "agent" via the compose Go
-SDK using a scoped spec name and verify:
-
- 1. Up uses the sanitized compose project name (matches composeBuilder.ProjectName).
- 2. Down called with the raw scoped spec name does NOT clean up the project
-    (this reproduces the pre-fix bug).
- 3. Down called via composeBuilder.ProjectName DOES clean up the project.
-
-The tests require a working local Docker daemon. Run with:
-
-	go test -tags integration -run TestDevProjectName ./e2e/...
-*/
+// These tests guard the fix for the "No resource found to remove for project
+// @org/my-agent" bug. They boot a minimal nginx "agent" via the compose Go
+// SDK using a scoped spec name and verify:
+//
+//  1. Up uses the sanitized compose project name (matches composeBuilder.ProjectName).
+//  2. Down called with the raw scoped spec name does NOT clean up the project
+//     (this reproduces the pre-fix bug).
+//  3. Down called via composeBuilder.ProjectName DOES clean up the project.
+//
+// The tests require a working local Docker daemon. Run with:
+//
+//	go test -tags integration -run TestDevProjectName ./e2e/...
 
 const (
 	// nginx:alpine is a small image (~10MB) that stays running on its own,
@@ -86,12 +84,10 @@ func containerIDsForProject(t *testing.T, project string) []string {
 }
 
 func forceDownProject(svc api.Compose, project string) {
-	/*
-		Best-effort cleanup used by t.Cleanup. Ignores errors on purpose:
-		cleanup must never fail the test. We call Down with both the raw and
-		sanitized names so a stuck container from a prior failed run is
-		torn down regardless of which name originally created it.
-	*/
+	// Best-effort cleanup used by t.Cleanup. Ignores errors on purpose:
+	// cleanup must never fail the test. We call Down with both the raw and
+	// sanitized names so a stuck container from a prior failed run is
+	// torn down regardless of which name originally created it.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_ = svc.Down(ctx, project, api.DownOptions{RemoveOrphans: true})
@@ -128,11 +124,9 @@ func TestDevProjectName_DownWithRawNameIsNoOp(t *testing.T) {
 	}
 	t.Cleanup(func() { forceDownProject(svc, sanitizedProject) })
 
-	/*
-		Down with the RAW spec name must NOT clean up anything — this is
-		exactly the scenario that produced the user's warning. We expect
-		containers under the sanitized project to still be present.
-	*/
+	// Down with the RAW spec name must NOT clean up anything — this is
+	// exactly the scenario that produced the user's warning. We expect
+	// containers under the sanitized project to still be present.
 	downCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_ = svc.Down(downCtx, scopedSpecName, api.DownOptions{RemoveOrphans: true})
