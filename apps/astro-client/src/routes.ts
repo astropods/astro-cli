@@ -40,12 +40,14 @@ export default [
           route("secrets", "pages/settings/SecretsSettings.tsx"),
           route("organizations", "pages/settings/OrganizationsSettings.tsx"),
           route("experiments", "pages/settings/ExperimentsSettings.tsx"),
+          route("audit-log", "pages/settings/AuditLogSettings.tsx"),
         ]),
         ...prefix("org/:orgSlug", [
           layout("pages/settings/OrgSettingsLayout.tsx", [
             route("general", "pages/settings/OrgGeneralSettings.tsx"),
             route("members", "pages/settings/OrgMembersSettings.tsx"),
             route("secrets", "pages/settings/OrgSecretsSettings.tsx"),
+            route("audit-log", "pages/settings/OrgAuditLogSettings.tsx"),
           ]),
         ]),
       ]),

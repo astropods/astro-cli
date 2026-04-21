@@ -1,4 +1,4 @@
-export { accountKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys } from './keys';
+export { accountKeys, auditLogKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys } from './keys';
 export { useGitHubStatus, useGitHubRepos, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubAccountScan, useGitHubAccountConnections } from './github';
 export { useBlueprints, useAccountBlueprints, useBlueprint, useDeploymentTemplate, useDeployAgent, useUploadBlueprintAvatar, useCreateBlueprint } from './blueprints';
 export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, useUploadDeploymentAvatar, useDeleteDeploymentAvatar } from './deployments';
@@ -7,4 +7,5 @@ export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
 export { useSubmitFeedback } from './feedback';
 export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';
+export { useAuditLog, useAuditLogFilters } from './auditlog';
 export { useKnowledgeStores, useKnowledgeStore, useKnowledgeLogs, useKnowledgeMetrics, useKnowledgeCredentials, useCreateKnowledgeStore, useConnectKnowledgeStore, useDeleteKnowledgeStore } from './knowledge';

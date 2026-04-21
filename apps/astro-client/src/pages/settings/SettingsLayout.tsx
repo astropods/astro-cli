@@ -1,6 +1,6 @@
 import { Outlet } from "react-router";
 import { UserIcon, ChartBarIcon, BuildingOfficeIcon, KeyIcon } from "@heroicons/react/24/outline";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, ScrollText } from "lucide-react";
 import {
   SidebarLayout,
   SidebarNav,
@@ -35,6 +35,12 @@ function SettingsContent() {
             <span className="flex items-center gap-2">
               <BuildingOfficeIcon className="size-3.5" />
               Organizations
+            </span>
+          </SidebarNavItem>
+          <SidebarNavItem to="/settings/audit-log">
+            <span className="flex items-center gap-2">
+              <ScrollText className="size-3.5" />
+              Audit Log
             </span>
           </SidebarNavItem>
           <SidebarNavItem to="/settings/experiments">

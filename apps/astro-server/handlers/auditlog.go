@@ -40,6 +40,34 @@ type AuditLogListResponse struct {
 	NextBefore string                  `json:"next_before,omitempty"`
 }
 
+// ListAuditLogFilters handles GET /api/v1/accounts/:account/audit-log/filters
+func ListAuditLogFilters(log *logger.Logger, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		opts, err := auditStore.Filters(c.Request.Context(), acct.ID)
+		if err != nil {
+			log.Error("Failed to query audit log filters", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query audit log filters"})
+			return
+		}
+
+		// Return empty arrays instead of null.
+		if opts.ResourceTypes == nil {
+			opts.ResourceTypes = []string{}
+		}
+		if opts.Actions == nil {
+			opts.Actions = []string{}
+		}
+
+		c.JSON(http.StatusOK, opts)
+	}
+}
+
 // ListAuditLog handles GET /api/v1/accounts/:account/audit-log
 func ListAuditLog(log *logger.Logger, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

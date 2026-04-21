@@ -61,6 +61,11 @@ export const deploymentKeys = {
     ['deployments', deploymentId, 'events'] as const,
 };
 
+export const auditLogKeys = {
+  byAccount: (account: string) => ['auditLog', account] as const,
+  filters: (account: string) => ['auditLog', account, 'filters'] as const,
+};
+
 export const knowledgeKeys = {
   all: (account: string) => ['knowledge', account] as const,
   detail: (account: string, name: string) => ['knowledge', account, name] as const,

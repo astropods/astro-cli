@@ -727,6 +727,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 
 				// Audit log
+				api.GET(accountAdmin, "/audit-log/filters", "List audit log filter options", handlers.ListAuditLogFilters(log, auditStore),
+					oapispec.Tags("Audit"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &auditlog.FilterOptions{}),
+				)
 				api.GET(accountAdmin, "/audit-log", "List audit log entries", handlers.ListAuditLog(log, auditStore),
 					oapispec.Tags("Audit"),
 					oapispec.BearerAuth(),

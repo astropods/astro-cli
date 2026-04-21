@@ -1,6 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useRef, useState } from 'react'
-import { KeyRound, ArrowLeft, Settings, Loader2, Users } from 'lucide-react'
+import { KeyRound, ArrowLeft, Settings, Loader2, Users, ScrollText } from 'lucide-react'
 import {
   SidebarLayout,
   SidebarNav,
@@ -125,6 +125,14 @@ function OrgSettingsContent() {
                 <span className="flex items-center gap-2">
                   <KeyRound className="size-3.5" />
                   Secrets & Variables
+                </span>
+              </SidebarNavItem>
+            )}
+            {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/audit-log`}>
+                <span className="flex items-center gap-2">
+                  <ScrollText className="size-3.5" />
+                  Audit Log
                 </span>
               </SidebarNavItem>
             )}

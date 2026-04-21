@@ -625,6 +625,31 @@ class ApiClient {
     });
   }
 
+  // Audit log
+  async listAuditLog(
+    account: string,
+    params?: AuditLogQueryParams,
+  ): Promise<AuditLogListResponse> {
+    const qs = params
+      ? `?${new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v != null && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        )}`
+      : '';
+    return this.request<AuditLogListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log${qs}`
+    );
+  }
+
+  async listAuditLogFilters(
+    account: string,
+  ): Promise<AuditLogFilterOptions> {
+    return this.request<AuditLogFilterOptions>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log/filters`
+    );
+  }
+
   // Account variables / secrets vault
   async listAccountVariables(account: string): Promise<AccountVariablesListResponse> {
     return this.request<AccountVariablesListResponse>(
@@ -1341,6 +1366,47 @@ export interface AccountUsageResponse {
   agent_builds: UsageMeter;
   active_deployments: UsageMeter;
   active_agents: UsageMeter;
+}
+
+// Audit Log types
+export interface AuditLogActor {
+  id: string;
+  type: string;
+}
+
+export interface AuditLogResource {
+  type: string;
+  id: string;
+  name?: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  actor: AuditLogActor;
+  action: string;
+  resource: AuditLogResource;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  entries: AuditLogEntry[];
+  has_more: boolean;
+  next_before?: string;
+}
+
+export interface AuditLogQueryParams {
+  limit?: number;
+  before?: string;
+  actor_id?: string;
+  resource_type?: string;
+  action?: string;
+}
+
+export interface AuditLogFilterOptions {
+  resource_types: string[];
+  actions: string[];
 }
 
 // Knowledge Store types

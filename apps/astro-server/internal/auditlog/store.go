@@ -164,6 +164,49 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 	return entries, nil
 }
 
+// FilterOptions holds the distinct resource types and actions for an account.
+type FilterOptions struct {
+	ResourceTypes []string `json:"resource_types"`
+	Actions       []string `json:"actions"`
+}
+
+// Filters returns the distinct resource types and actions recorded for an account.
+func (s *Store) Filters(ctx context.Context, accountID string) (*FilterOptions, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, val FROM (
+			SELECT 'rt' AS kind, resource_type AS val FROM audit_logs WHERE account_id = $1
+			UNION
+			SELECT 'act', action FROM audit_logs WHERE account_id = $1
+		) t ORDER BY kind, val
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query audit log filters: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var resourceTypes, actions []string
+	for rows.Next() {
+		var kind, val string
+		if err := rows.Scan(&kind, &val); err != nil {
+			return nil, fmt.Errorf("failed to scan audit log filter row: %w", err)
+		}
+		switch kind {
+		case "rt":
+			resourceTypes = append(resourceTypes, val)
+		case "act":
+			actions = append(actions, val)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &FilterOptions{
+		ResourceTypes: resourceTypes,
+		Actions:       actions,
+	}, nil
+}
+
 // ResourceLatest holds the most recent audit log info for a resource.
 type ResourceLatest struct {
 	UpdatedAt time.Time
