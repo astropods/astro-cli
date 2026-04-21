@@ -189,11 +189,44 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
       </div>
 
       {/* Heading */}
-      <div className="flex flex-col items-center text-center mb-8 gap-2.5">
-        <h2 className="text-heading-1 text-foreground">Waiting for your approval</h2>
+      <div className="flex flex-col items-center text-center mb-9 gap-1.5">
+        <h2 className="text-heading-1 text-foreground">Complete your PrivateLink setup</h2>
         <p className="text-body text-muted-foreground max-w-sm">
-          Your store is registered. To complete the Private Link connection, approve the endpoint request in your cloud console.
+          Your store is registered. Follow these steps to finish connecting it.
         </p>
+      </div>
+
+      {/* Store card */}
+      <div className="w-full rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+        <div className="flex items-center gap-3 px-4 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+            <ProviderIcon provider={store.provider} className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="font-medium text-foreground">{store.name}</span>
+            <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[store.provider]}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tag color={store.mode === "managed" ? "blue" : "default"}>
+              {store.mode === "managed" ? "Managed" : "External"}
+            </Tag>
+            <StatusBadge color="warning" indicator spinning>Pending</StatusBadge>
+          </div>
+        </div>
+        {store.endpoint?.region && (
+          <div className="flex flex-wrap gap-x-6 gap-y-1 px-5 py-3.5 border-t border-border/60">
+            <div>
+              <p className="text-body-sm font-medium text-muted-foreground">Region</p>
+              <p className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</p>
+            </div>
+            {store.endpoint.endpoint_id && (
+              <div>
+                <p className="text-body-sm font-medium text-muted-foreground">Endpoint ID</p>
+                <p className="font-mono text-mono-sm text-foreground">{store.endpoint.endpoint_id}</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action required banner */}
@@ -201,7 +234,7 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
         const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
         const url = cloud.url(store.endpoint.region, store.endpoint.endpoint_id);
         return (
-          <div className="w-full mb-4">
+          <div className="w-full mt-4">
             <WarningPanel
               title="Action required in your cloud console"
               buttonLabel={cloud.label}
@@ -212,35 +245,6 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
           </div>
         );
       })()}
-
-      {/* Store card */}
-      <div className="w-full rounded-lg border border-border bg-surface p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-            <ProviderIcon provider={store.provider} className="size-6" />
-          </div>
-          <div className="min-w-0">
-            <span className="font-medium text-foreground">{store.name}</span>
-            <p className="text-body-sm text-muted-foreground">
-              {PROVIDER_LABELS[store.provider]} &middot; {store.mode === "managed" ? "Managed" : "External"}
-            </p>
-          </div>
-        </div>
-        {store.endpoint?.region && (
-          <div className="mt-4 border-t border-border pt-4 flex flex-wrap gap-x-6 gap-y-1">
-            <div>
-              <p className="font-mono text-mono-sm uppercase tracking-wide text-muted-foreground">Region</p>
-              <p className="text-body-sm text-foreground">{store.endpoint.region}</p>
-            </div>
-            {store.endpoint.endpoint_id && (
-              <div>
-                <p className="font-mono text-mono-sm uppercase tracking-wide text-muted-foreground">Endpoint ID</p>
-                <p className="text-body-sm text-foreground">{store.endpoint.endpoint_id}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Live events */}
       {(store.events ?? []).length > 0 && (
@@ -422,7 +426,7 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Tag color={store.mode === "managed" ? "blue" : "default"}>{modeLabel}</Tag>
-              <StatusBadge color="success" indicator>Online</StatusBadge>
+              <StatusBadge color="success" indicator>Ready</StatusBadge>
             </div>
           </div>
         </div>
