@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown, Loader2, Github, ArrowRight } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { AstroIcon } from "@/components/ui/astro-icon";
 import { cn } from "@/lib/utils";
 import {
   normalizeLevel,
@@ -8,8 +9,6 @@ import {
   formatLogTimestamp,
   type LogEntry,
 } from "@/lib/log-utils";
-import astroLogo from "@/assets/astro-logo.svg";
-import astroLogoDark from "@/assets/astro-logo-dark.svg";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -184,8 +183,7 @@ export function BuildLogViewer({ commitSha, buildId, components = [], isLoading,
             )}
             {buildId && (
               <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-                <img src={astroLogo} alt="Astro" className="h-3.5 dark:hidden shrink-0" />
-                <img src={astroLogoDark} alt="Astro" className="h-3.5 hidden dark:block shrink-0" />
+                <AstroIcon className="h-3.5 w-3.5" />
                 {buildId}
               </span>
             )}
