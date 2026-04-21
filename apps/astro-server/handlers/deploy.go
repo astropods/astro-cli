@@ -1315,17 +1315,17 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	}
 
 	// Index pods by agent key + component for matching to workloads.
-	// Key: "agentKey:version:component" → best pod (prefer Running phase, then newest).
-	type podKey struct{ agent, version, component string }
+	// Version is intentionally excluded from the key so that pods with stale version
+	// labels (e.g. OnDelete StatefulSets not yet recycled after a redeploy) are still matched.
+	type podKey struct{ agent, component string }
 	bestPod := make(map[podKey]corev1.Pod)
 	for _, pod := range podList.Items {
 		agentKey := pod.Labels[deployment.LabelKeyAgent]
-		version := pod.Labels["app.kubernetes.io/version"]
 		component := pod.Labels["app.kubernetes.io/component"]
 		if agentKey == "" {
 			continue
 		}
-		pk := podKey{agentKey, version, component}
+		pk := podKey{agentKey, component}
 		existing, ok := bestPod[pk]
 		if !ok {
 			bestPod[pk] = pod
@@ -1343,14 +1343,9 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	for key, info := range agentDeployments {
 		parts := strings.SplitN(key, ":", 2)
 		agentKey := parts[0]
-		version := ""
-		if len(parts) > 1 {
-			version = parts[1]
-		}
 		for i := range info.Workloads {
 			wl := &info.Workloads[i]
-			pk := podKey{agentKey, version, wl.Component}
-			pod, ok := bestPod[pk]
+			pod, ok := bestPod[podKey{agentKey, wl.Component}]
 			if !ok {
 				continue
 			}
