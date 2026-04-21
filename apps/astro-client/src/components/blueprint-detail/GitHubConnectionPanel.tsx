@@ -260,7 +260,6 @@ const BUILD_STEPS = [
   { key: "registering",   label: "Registering" },
 ] as const;
 
-
 function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
   const [logsOpen, setLogsOpen] = useState(false);
   const isActive = build.status === "pending" || build.status === "building";
@@ -584,7 +583,6 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
             selectedBranch={selectedBranch}
             isLoadingRepos={reposLoading}
             repos={reposData?.repos ?? []}
-            connections={undefined}
             onSelectRepo={setSelectedRepo}
             onSelectBranch={setSelectedBranch}
             onSearchChange={setRepoQuery}
