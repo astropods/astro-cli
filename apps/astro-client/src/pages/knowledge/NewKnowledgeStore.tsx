@@ -560,7 +560,7 @@ function ConfigureForm({
                 id="ks-name"
                 placeholder="my-store"
                 value={name}
-                onChange={(e) => { setName(e.target.value); mutation.reset(); }}
+                onChange={(e) => { setName(e.target.value.replace(/ /g, "-")); mutation.reset(); }}
                 autoComplete="off"
                 autoFocus
               />
