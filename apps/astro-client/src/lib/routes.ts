@@ -1,12 +1,6 @@
 export const dashboardPath = "/agents";
 export const explorePath = "/explore";
 
-export const blueprintsPaths = {
-  discover: "/blueprints/discover",
-  personal: "/blueprints/personal",
-  account: (name: string) => `/blueprints/${name}`,
-} as const;
-
 export function accountProfilePath(account: string) {
   return `/${account}`;
 }
