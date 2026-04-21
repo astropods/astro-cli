@@ -48,7 +48,7 @@ function makeComp(name: string, status: BuildLogComponentData["status"], logs = 
   return { name, status, logs, duration: DURATIONS[name] };
 }
 
-// ── Stories ───────────────────────────────────────────────────────────────────
+// ── Edge case stories ─────────────────────────────────────────────────────────
 
 export const Loading: Story = {
   args: { components: [], isLoading: true },
@@ -56,10 +56,6 @@ export const Loading: Story = {
 
 export const Error: Story = {
   args: { components: [], isError: true },
-};
-
-export const NoOutput: Story = {
-  args: { commitSha: "a1b2c3d", buildId: "bld_abc123", components: [] },
 };
 
 export const SingleComponentSucceeded: Story = {
@@ -79,71 +75,7 @@ export const SingleComponentPendingBuild: Story = {
   },
 };
 
-export const SingleComponentBuilding: Story = {
-  args: {
-    components: [makeComp("agent", "building", `=== events ===
-Pulling image "ubuntu:22.04"
-Successfully pulled image "ubuntu:22.04"
-=== git-clone ===
-Cloning into '/workspace'...
-remote: Counting objects: 100% (142/142), done.
-=== ecr-login ===
-Login Succeeded
-=== buildkit ===
-[1/4] FROM docker.io/library/python:3.11-slim
-[2/4] COPY requirements.txt .`)],
-  },
-};
-
-export const ThreeComponentsPending: Story = {
-  args: {
-    components: [
-      makeComp("agent", "pending", ""),
-      makeComp("ingestion-startup", "pending", ""),
-      makeComp("ingestion-schedule", "pending", ""),
-    ],
-  },
-};
-
-export const ThreeComponentsMixed: Story = {
-  args: {
-    components: [
-      makeComp("agent", "succeeded"),
-      makeComp("ingestion-startup", "succeeded"),
-      makeComp("ingestion-schedule", "building", `=== events ===
-Pulling image "ubuntu:22.04"
-Successfully pulled image "ubuntu:22.04"
-=== git-clone ===
-Cloning into '/workspace'...
-remote: Counting objects: 100% (142/142), done.
-=== ecr-login ===
-Login Succeeded
-=== buildkit ===
-[1/4] FROM docker.io/library/python:3.11-slim
-[2/4] COPY requirements.txt .`),
-    ],
-  },
-};
-
-export const BuildFailed: Story = {
-  args: {
-    components: [
-      makeComp("agent", "succeeded"),
-      makeComp("ingestion-startup", "failed", `=== events ===
-Pulling image "ubuntu:22.04"
-=== git-clone ===
-Cloning into '/workspace'...
-=== ecr-login ===
-Login Succeeded
-=== buildkit ===
-[1/4] FROM docker.io/library/python:3.11-slim
-[2/4] COPY requirements.txt .
-ERROR: failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory`),
-    ],
-  },
-};
-
-// ── In-dialog stories (full modal context) ────────────────────────────────────
+// ── In-dialog stories (real context) ─────────────────────────────────────────
 
 function DialogStory({ components, isLoading, isError }: {
   components: BuildLogComponentData[];
