@@ -5,9 +5,9 @@ import {
   ArrowLeftIcon,
   GlobeAltIcon,
   CheckIcon,
-  ClipboardIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
+  ClockIcon,
 } from "@heroicons/react/24/outline";
 import { CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,10 @@ import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeProvider, KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { ErrorPanel } from "@/components/ui/status-panel";
+import { ErrorPanel, WarningPanel } from "@/components/ui/status-panel";
+import { CopyButton } from "@/components/ui/copy-button";
+import { StatusBadge } from "@/components/StatusBadge";
+import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
 
@@ -83,25 +86,6 @@ function ProviderIcon({ provider, className }: { provider: KnowledgeProvider; cl
   return <CircleStackIcon className={cn("text-muted-foreground/60", className)} />;
 }
 
-function CopyButton({ text, className }: { text: string; className?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [text]);
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className={cn("shrink-0 rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors", className)}
-    >
-      {copied ? <CheckIcon className="size-4" /> : <ClipboardIcon className="size-4" />}
-    </button>
-  );
-}
 
 // --- Step 1: Provider selection ---
 
@@ -134,6 +118,157 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+const CLOUD_CONSOLE: Record<string, {
+  label: string;
+  description: string;
+  url: (region: string, endpointId?: string) => string;
+}> = {
+  aws: {
+    label: "Open AWS Console ↗",
+    description: "Open your AWS Console, navigate to VPC → Endpoints, and approve the pending connection request from Astro. The store will activate automatically once accepted.",
+    url: (region, endpointId) =>
+      `https://console.aws.amazon.com/vpc/home?region=${region}#Endpoints:${endpointId ? `endpointId=${endpointId}` : ""}`,
+  },
+  gcp: {
+    label: "Open GCP Console ↗",
+    description: "Open your GCP Console, navigate to Private Service Connect, and approve the pending endpoint request from Astro. The store will activate automatically once accepted.",
+    url: () => "https://console.cloud.google.com/net-services/psc/list/endpoints",
+  },
+  azure: {
+    label: "Open Azure Portal ↗",
+    description: "Open your Azure Portal, navigate to Private Link Center → Pending connections, and approve the request from Astro. The store will activate automatically once accepted.",
+    url: () => "https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.Network%2FprivateEndpoints",
+  },
+};
+
+// --- Pending acceptance stage (PrivateLink) ---
+
+function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
+  return (
+    <div className="mx-auto max-w-lg flex flex-col items-center">
+
+      {/* Stepper */}
+      <div className="flex items-center mb-10">
+        {/* Step 1 — Registered (complete) */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex size-7 items-center justify-center rounded-full bg-teal-600 shrink-0">
+            <CheckIcon className="size-3.5 text-white stroke-[2]" />
+          </div>
+          <span className="text-body-sm font-medium text-teal-600 w-max">Registered</span>
+        </div>
+
+        {/* Connector (complete) */}
+        <div className="w-14 h-px mb-5 shrink-0 bg-teal-600" />
+
+        {/* Step 2 — Awaiting approval (current) */}
+        <div className="flex flex-col items-center gap-2">
+          <div
+            className="flex size-7 items-center justify-center rounded-full border shrink-0"
+            style={{
+              background: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
+              borderColor: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
+            }}
+          >
+            <ClockIcon className="size-3.5 text-yellow-600 stroke-[1.75]" />
+          </div>
+          <span className="text-body-sm font-semibold text-yellow-600 w-max">Awaiting approval</span>
+        </div>
+
+        {/* Connector (pending) */}
+        <div className="w-14 h-px mb-5 shrink-0 bg-border" />
+
+        {/* Step 3 — Connected (pending) */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="size-7 rounded-full border-[1.5px] border-border shrink-0" />
+          <span className="text-body-sm text-muted-foreground w-max">Connected</span>
+        </div>
+      </div>
+
+      {/* Heading */}
+      <div className="flex flex-col items-center text-center mb-8 gap-2.5">
+        <h2 className="text-heading-1 text-foreground">Waiting for your approval</h2>
+        <p className="text-body text-muted-foreground max-w-sm">
+          Your store is registered. To complete the Private Link connection, approve the endpoint request in your cloud console.
+        </p>
+      </div>
+
+      {/* Action required banner */}
+      {store.endpoint && (() => {
+        const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
+        const url = cloud.url(store.endpoint.region, store.endpoint.endpoint_id);
+        return (
+          <div className="w-full mb-4">
+            <WarningPanel
+              title="Action required in your cloud console"
+              buttonLabel={cloud.label}
+              onButton={() => window.open(url, "_blank")}
+            >
+              {cloud.description}
+            </WarningPanel>
+          </div>
+        );
+      })()}
+
+      {/* Store card */}
+      <div className="w-full rounded-lg border border-border bg-surface p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+            <ProviderIcon provider={store.provider} className="size-6" />
+          </div>
+          <div className="min-w-0">
+            <span className="font-medium text-foreground">{store.name}</span>
+            <p className="text-body-sm text-muted-foreground">
+              {PROVIDER_LABELS[store.provider]} &middot; {store.mode === "managed" ? "Managed" : "External"}
+            </p>
+          </div>
+        </div>
+        {store.endpoint?.region && (
+          <div className="mt-4 border-t border-border pt-4 flex flex-wrap gap-x-6 gap-y-1">
+            <div>
+              <p className="font-mono text-mono-sm uppercase tracking-wide text-muted-foreground">Region</p>
+              <p className="text-body-sm text-foreground">{store.endpoint.region}</p>
+            </div>
+            {store.endpoint.endpoint_id && (
+              <div>
+                <p className="font-mono text-mono-sm uppercase tracking-wide text-muted-foreground">Endpoint ID</p>
+                <p className="text-body-sm text-foreground">{store.endpoint.endpoint_id}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Live events */}
+      {(store.events ?? []).length > 0 && (
+        <div className="mt-4 w-full space-y-2">
+          {(store.events ?? []).map((event, i) => {
+            const isWarning = event.type === "Warning";
+            return (
+              <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
+                {isWarning ? (
+                  <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+                ) : (
+                  <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-600" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
+                  <span className="text-body-sm text-muted-foreground">: {event.message}</span>
+                </div>
+                {event.count > 1 && (
+                  <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">
+                    x{event.count}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
     </div>
   );
 }
@@ -172,6 +307,10 @@ function ProvisioningStage({
   const subtitle = mode === "managed"
     ? "Setting up infrastructure. This usually takes a moment."
     : "Verifying connectivity and saving credentials.";
+
+  if (store?.status === "pending-acceptance") {
+    return <PendingAcceptanceStage store={store} />;
+  }
 
   return (
     <div className="mx-auto max-w-lg">
@@ -242,95 +381,91 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
 
   return (
     <div className="mx-auto max-w-lg">
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <LiveRevealConfetti />
+      </div>
       {/* Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className="flex size-12 items-center justify-center rounded-full border-2 border-teal-200 bg-teal-50">
-          <CheckIcon className="size-6 text-teal-600" />
+      <div className="flex flex-col items-center text-center mb-9 gap-3.5">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full border-[1.5px] border-teal-600/25 bg-teal-600/10 [animation:ks-pop_0.5s_cubic-bezier(0.34,1.56,0.64,1)_both]">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path
+              d="M4.5 10.5l4 4 7-8"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              pathLength="1"
+              strokeDasharray="1"
+              className="stroke-teal-700 [stroke-dashoffset:1] [animation:ks-check-draw_0.6s_ease-out_0.3s_both]"
+            />
+          </svg>
         </div>
-        <h2 className="mt-4 text-heading-1 text-foreground">Store added</h2>
-        <p className="mt-1 text-body-sm text-muted-foreground">
-          {store.mode === "managed"
-            ? "Your managed store is ready. Bind it to an agent to start using it."
-            : "Your store is connected. Bind it to an agent to start using it."}
-        </p>
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-heading-1 text-foreground">Store added</h2>
+          <p className="text-body text-muted-foreground">
+            {store.mode === "managed"
+              ? "Your managed store is ready. Bind it to an agent to start using it."
+              : "Your store is connected. Bind it to an agent to start using it."}
+          </p>
+        </div>
       </div>
 
-      {/* Store info card */}
-      <div className="mt-8 space-y-4">
-        <div className="rounded-lg border border-border bg-surface p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-              <ProviderIcon provider={store.provider} className="size-6" />
+      <div className="space-y-3 mb-7">
+        {/* Store info card */}
+        <div className="rounded-lg overflow-hidden border border-border bg-surface">
+          <div className="flex items-center gap-3 px-4 py-4 border-b border-border/60">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <ProviderIcon provider={store.provider} className="size-5" />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-foreground">{store.name}</span>
-                <span className="inline-flex items-center gap-1 text-mono-sm text-teal-700">
-                  <span className="size-1.5 rounded-full bg-teal-600" />
-                  Online
-                </span>
-              </div>
-              <p className="text-body-sm text-muted-foreground">
+            <div className="flex-1 min-w-0">
+              <span className="font-medium text-foreground">{store.name}</span>
+              <p className="mt-0.5 text-body-sm text-muted-foreground">
                 {PROVIDER_LABELS[store.provider]} &middot; {modeLabel}
               </p>
             </div>
+            <StatusBadge color="success" indicator>Online</StatusBadge>
           </div>
-
-          <div className="mt-4 border-t border-border pt-4">
-            <p className="font-mono text-mono-sm uppercase tracking-wide text-muted-foreground">
-              Astro Resource Name
-            </p>
-            <div className="mt-1 flex items-center justify-between gap-2">
-              <code className="text-body-sm text-foreground">{store.arn}</code>
-              <CopyButton text={store.arn} />
-            </div>
-          </div>
-        </div>
-
-        {/* YAML snippet */}
-        <div className="rounded-lg border border-border bg-surface p-5">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-medium text-foreground">Use in your agent</p>
-              <p className="text-body-sm text-muted-foreground">
-                Add this to your astropods.yml to give an agent access.
+          <div className="flex items-center gap-3 px-5 py-3.5">
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <p className="font-mono text-mono-sm uppercase tracking-[0.08em] text-muted-foreground">
+                Astro Resource Name (ARN)
               </p>
+              <code className="font-mono text-body-sm text-foreground">{store.arn}</code>
             </div>
-            <CopyButton text={yamlSnippet} />
+            <CopyButton copyText={store.arn} />
           </div>
-          <pre className="mt-3 whitespace-pre rounded-md bg-muted px-4 py-3 font-mono text-mono-sm text-foreground">
-            {yamlSnippet}
-          </pre>
         </div>
 
-        {/* CLI shortcut */}
-        <div className="rounded-lg border border-border bg-surface p-5">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-medium text-foreground">CLI shortcut</p>
-              <p className="text-body-sm text-muted-foreground">Use in local development</p>
+        {/* YAML + CLI card */}
+        <div className="rounded-lg overflow-hidden border border-border bg-surface">
+          {/* YAML section */}
+          <div className="flex flex-col gap-2.5 px-5 pt-4 pb-3.5 border-b border-border/60">
+            <p className="font-medium text-body text-foreground">Use in your agent</p>
+            <div className="relative rounded-md bg-muted px-3.5 py-3 pr-11">
+              <pre className="whitespace-pre font-mono text-mono-sm text-foreground">{yamlSnippet}</pre>
+              <CopyButton copyText={yamlSnippet} className="absolute top-2 right-2 shrink-0" />
             </div>
-            <CopyButton text={cliCommand} />
           </div>
-          <code className="mt-3 block font-mono text-body-sm text-foreground">{cliCommand}</code>
+          {/* CLI section */}
+          <div className="flex flex-col gap-2.5 px-5 pt-4 pb-3.5">
+            <p className="font-medium text-body text-foreground">CLI shortcut</p>
+            <div className="relative rounded-md bg-muted px-3.5 py-2.5 pr-11">
+              <code className="font-mono text-mono-sm text-foreground">{cliCommand}</code>
+              <CopyButton copyText={cliCommand} className="absolute top-1/2 -translate-y-1/2 right-2 shrink-0" />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="mt-8">
+      <div className="flex flex-col items-center gap-2.5">
         <Button size="lg" className="w-full" asChild>
           <Link to={knowledgeDetailPath(store.name)}>
             View store &rarr;
           </Link>
         </Button>
-        <div className="mt-3 text-center">
-          <Link
-            to={knowledgePath}
-            className="text-body-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Back to Knowledge Stores
-          </Link>
-        </div>
+        <Button variant="ghost" asChild>
+          <Link to={knowledgePath}>Back to Knowledge Stores</Link>
+        </Button>
       </div>
     </div>
   );
