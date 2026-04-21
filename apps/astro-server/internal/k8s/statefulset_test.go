@@ -246,6 +246,28 @@ func TestBuildStatefulSet(t *testing.T) {
 		if container.VolumeMounts[0].MountPath != "/var/lib/postgresql/data" {
 			t.Errorf("expected mount /var/lib/postgresql/data, got %s", container.VolumeMounts[0].MountPath)
 		}
+
+		// Postgres needs /var/run/postgresql as a writable emptyDir for the socket directory.
+		found := false
+		for _, vm := range container.VolumeMounts {
+			if vm.MountPath == "/var/run/postgresql" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("expected volume mount for /var/run/postgresql")
+		}
+		foundVol := false
+		for _, v := range ss.Spec.Template.Spec.Volumes {
+			if v.EmptyDir != nil && v.Name == "extra-0" {
+				foundVol = true
+				break
+			}
+		}
+		if !foundVol {
+			t.Error("expected emptyDir volume extra-0 for postgres socket dir")
+		}
 	})
 
 	t.Run("custom storage 20Gi", func(t *testing.T) {

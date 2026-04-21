@@ -2,7 +2,10 @@ package k8s
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,6 +66,10 @@ func (a *Applier) ApplyDeploymentSpec(
 	if err := a.ensureNamespace(ctx); err != nil {
 		return result, fmt.Errorf("failed to ensure namespace: %w", err)
 	}
+
+	// Phase 0: Ensure knowledge credential Secrets exist.
+	// These are created once and reused across redeployments so passwords stay stable.
+	knowledgeCredSecrets := a.ensureKnowledgeCredentialSecrets(ctx, ds, accountName, agentName, buildID)
 
 	// Phase 1: Create Secret (credentials)
 	if resolved.HasSecretValues() {
@@ -202,10 +209,18 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 
+		// Use knowledge-specific credential secret if available.
+		knowledgeSecretName := knowledgeCredSecretName(agentName, name)
+		ssSecretName := secretName
+		if slices.Contains(knowledgeCredSecrets, knowledgeSecretName) {
+			ssSecretName = knowledgeSecretName
+		}
+
 		ssCfg := StatefulSetConfig{
 			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
+			SecretName:  ssSecretName,
 			StorageSize: storageSize, StorageClass: storageClass, AccessMode: accessMode,
 			Healthcheck: knowledge.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:        int32(knowledge.Replicas), //nolint:gosec
@@ -383,11 +398,19 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 
+		// Use knowledge-specific credential secret if available.
+		knowledgeSecretName := knowledgeCredSecretName(agentName, name)
+		deplSecretName := secretName
+		if slices.Contains(knowledgeCredSecrets, knowledgeSecretName) {
+			deplSecretName = knowledgeSecretName
+		}
+
 		cfg := DeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
-			Provider: knowledge.Provider, ProviderSection: "knowledge",
+			SecretName: deplSecretName,
+			Provider:   knowledge.Provider, ProviderSection: "knowledge",
 			Healthcheck:     knowledge.Healthcheck,
 			ImagePullPolicy: a.imagePullPolicy,
 			Replicas:        int32(knowledge.Replicas), //nolint:gosec
@@ -676,7 +699,8 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
-			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			ExtraSecretNames: knowledgeCredSecrets, // knowledge store credentials (POSTGRES_USER, etc.)
+			Healthcheck:      ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
@@ -1097,4 +1121,74 @@ func buildMessagingOIDCSecret(namespace string, cfg *OIDCAuthConfig) *corev1.Sec
 			"clientSecret": []byte(cfg.ClientSecret),
 		},
 	}
+}
+
+// knowledgeCredSecretName returns the name of the K8s Secret that holds
+// auto-generated credentials for a self-hosted knowledge store.
+func knowledgeCredSecretName(agentName, knowledgeName string) string {
+	return deployment.GenerateResourceName(agentName, "knowledge", knowledgeName) + "-creds"
+}
+
+// generateKnowledgeCredentials returns auto-generated credentials for a provider.
+func generateKnowledgeCredentials(provider string) map[string][]byte {
+	switch provider {
+	case "postgres":
+		return map[string][]byte{
+			"POSTGRES_USER":     []byte("astro"),
+			"POSTGRES_PASSWORD": []byte(randomCredHex(16)),
+		}
+	case "redis":
+		return map[string][]byte{
+			"REDIS_PASSWORD": []byte(randomCredHex(16)),
+		}
+	default:
+		return nil
+	}
+}
+
+func randomCredHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// ensureKnowledgeCredentialSecrets creates credential Secrets for self-hosted
+// knowledge stores that need them (postgres, redis). If the Secret already exists
+// (from a previous deploy), it is left untouched so credentials remain stable.
+// Returns the list of created/existing secret names.
+func (a *Applier) ensureKnowledgeCredentialSecrets(
+	ctx context.Context,
+	ds *spec.AstroDeploymentSpec,
+	accountName, agentName, buildID string,
+) []string {
+	var secretNames []string
+
+	for name, knowledge := range ds.Knowledge {
+		creds := generateKnowledgeCredentials(knowledge.Provider)
+		if len(creds) == 0 {
+			continue
+		}
+
+		secretName := knowledgeCredSecretName(agentName, name)
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: a.namespace,
+				Labels:    deployment.GenerateLabels(accountName, agentName, buildID, "knowledge-creds"),
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: creds,
+		}
+
+		_, err := a.clientset.CoreV1().Secrets(a.namespace).Create(ctx, secret, metav1.CreateOptions{})
+		if err != nil && errors.IsAlreadyExists(err) {
+			// Secret from a previous deploy — reuse it.
+			err = nil
+		}
+		if err == nil {
+			secretNames = append(secretNames, secretName)
+		}
+	}
+
+	return secretNames
 }

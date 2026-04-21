@@ -37,6 +37,7 @@ type DeploymentConfig struct {
 	NodeSelector     map[string]string            // nil means no node selector (unless Container has GPU)
 	Tolerations      []corev1.Toleration          // Tolerations for tainted nodes (e.g., GPU)
 	ExtraEnv         []corev1.EnvVar              // Additional env vars to inject
+	ExtraSecretNames []string                     // Additional Secrets to mount as envFrom (e.g., knowledge credentials)
 	PostStartCommand []string                     // Lifecycle postStart exec command (e.g., model pull)
 	// Sidecar containers colocated in the same pod
 	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
@@ -458,6 +459,15 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 				LocalObjectReference: corev1.LocalObjectReference{
 					Name: cfg.SecretName,
 				},
+			},
+		})
+	}
+
+	// Mount additional secrets (e.g., knowledge store credentials)
+	for _, extraSecret := range cfg.ExtraSecretNames {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: extraSecret},
 			},
 		})
 	}

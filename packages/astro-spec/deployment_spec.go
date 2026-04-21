@@ -43,6 +43,7 @@ type Variable struct {
 	Targets     []string `json:"targets,omitempty" yaml:"targets,omitempty"`
 	Secret      bool     `json:"secret,omitempty" yaml:"secret,omitempty"`
 	Optional    bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Internal    bool     `json:"internal,omitempty" yaml:"internal,omitempty"` // platform-generated, not user-provided; backfilled on redeploy
 	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
 	Datatype    string   `json:"datatype,omitempty" yaml:"datatype,omitempty"`
 	DisplayAs   string   `json:"display-as,omitempty" yaml:"display-as,omitempty"`
