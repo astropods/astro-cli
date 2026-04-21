@@ -9,25 +9,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { SidebarSection } from "./SidebarSection";
 import {
   useGitHubStatus,
-  useGitHubRepos,
+  useGitHubAccountRepos,
   useGitHubAccountConnect,
   useGitHubLink,
   useGitHubDisconnect,
   useGitHubBuildLogs,
   useGitHubRebuild,
 } from "@/api/queries/github";
-import type { GitHubBuild } from "@/lib/api";
+import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
+import type { GitHubBuild, GitHubRepo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface GitHubConnectionPanelProps {
@@ -545,22 +539,21 @@ interface RepoSelectorDialogProps {
 }
 
 function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorDialogProps) {
-  const { data: reposData, isLoading: reposLoading } = useGitHubRepos(account, name, { enabled: open });
+  const [repoQuery, setRepoQuery] = useState("");
+  const { data: reposData, isLoading: reposLoading } = useGitHubAccountRepos(account, { enabled: open, q: repoQuery });
   const link = useGitHubLink(account, name);
-  const [selectedRepo, setSelectedRepo] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [selectedBranch, setSelectedBranch] = useState("main");
-
-  const selectedRepoData = reposData?.repos.find((r) => r.full_name === selectedRepo);
 
   // Default branch to repo default when repo changes.
   useEffect(() => {
-    if (selectedRepoData) setSelectedBranch(selectedRepoData.default_branch);
+    if (selectedRepo) setSelectedBranch(selectedRepo.default_branch);
   }, [selectedRepo]);
 
   function handleLink() {
     if (!selectedRepo) return;
     link.mutate(
-      { repo_full_name: selectedRepo, branch: selectedBranch },
+      { repo_full_name: selectedRepo.full_name, branch: selectedBranch },
       {
         onSuccess: () => {
           onOpenChange(false);
@@ -580,60 +573,21 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          {reposLoading ? (
-            <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground text-sm">
-              <Spinner size={16} />
-              <span>Loading repositories…</span>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Repository</label>
-                <Select value={selectedRepo} onValueChange={setSelectedRepo}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a repository…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {reposData?.repos.map((repo) => (
-                      <SelectItem key={repo.full_name} value={repo.full_name}>
-                        <span className="flex items-center gap-2">
-                          {repo.full_name}
-                          {repo.private && (
-                            <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">private</span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedRepo && (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Branch</label>
-                  <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">main</SelectItem>
-                      <SelectItem value="master">master</SelectItem>
-                      {selectedRepoData?.default_branch &&
-                        !["main", "master"].includes(selectedRepoData.default_branch) && (
-                          <SelectItem value={selectedRepoData.default_branch}>
-                            {selectedRepoData.default_branch}
-                          </SelectItem>
-                        )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </>
-          )}
+        <div className="py-2">
+          <RepoPicker
+            githubLogin={undefined}
+            selectedRepo={selectedRepo}
+            selectedBranch={selectedBranch}
+            isLoadingRepos={reposLoading}
+            repos={reposData?.repos ?? []}
+            connections={undefined}
+            onSelectRepo={setSelectedRepo}
+            onSelectBranch={setSelectedBranch}
+            onSearchChange={setRepoQuery}
+          />
 
           {link.isError && (
-            <p className="text-sm text-destructive">
+            <p className="text-sm text-destructive px-4">
               {link.error instanceof Error ? link.error.message : "Failed to link repository"}
             </p>
           )}
