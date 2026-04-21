@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, ChevronDown, ChevronRight, CircleDot } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, CircleDot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -13,6 +13,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SidebarSection } from "./SidebarSection";
+import { BuildLogViewer } from "./BuildLogViewer";
 import {
   useGitHubStatus,
   useGitHubAccountRepos,
@@ -376,34 +377,6 @@ function StepPipeline({ currentStep }: { currentStep?: string }) {
   );
 }
 
-// Parses "=== container ===\n..." sections from raw log output.
-function parseLogSections(raw: string): { name: string; content: string }[] {
-  const sections: { name: string; content: string }[] = [];
-  const parts = raw.split(/^=== .+? ===$\n?/m);
-  const headers = [...raw.matchAll(/^=== (.+?) ===/gm)].map((m) => m[1]);
-
-  // First part before any header — attach as unnamed if non-empty
-  if (parts[0]?.trim()) {
-    sections.push({ name: "output", content: parts[0] });
-  }
-  headers.forEach((name, i) => {
-    sections.push({ name, content: parts[i + 1] ?? "" });
-  });
-
-  // Fallback: no headers found
-  if (sections.length === 0 && raw.trim()) {
-    sections.push({ name: "output", content: raw });
-  }
-  return sections;
-}
-
-function statusColor(s: string) {
-  if (s === "succeeded") return "text-green-500";
-  if (s === "failed") return "text-red-400";
-  if (s === "building") return "text-blue-400";
-  return "text-zinc-500";
-}
-
 function BuildLogsDialog({
   account, name, buildId, commitSha, isActive, open, onOpenChange,
 }: {
@@ -415,36 +388,11 @@ function BuildLogsDialog({
     refetchInterval: open && isActive ? 3000 : false,
   });
 
-  // Build structured component logs, or fall back to flat logs for old builds.
   const componentLogs = data?.components && data.components.length > 0
     ? data.components
     : data?.logs
       ? [{ name: "agent", status: "unknown", logs: data.logs }]
       : [];
-
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  // Auto-expand all sections when data arrives.
-  useEffect(() => {
-    if (componentLogs.length > 0) {
-      const keys = new Set<string>();
-      for (const comp of componentLogs) {
-        keys.add(comp.name);
-        for (const s of parseLogSections(comp.logs || "")) {
-          keys.add(`${comp.name}/${s.name}`);
-        }
-      }
-      setExpanded(keys);
-    }
-  }, [data]);
-
-  function toggle(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -452,69 +400,21 @@ function BuildLogsDialog({
         <DialogHeader className="px-4 pt-4 pb-3 border-b">
           <DialogTitle className="text-sm font-medium">
             Build logs: <span className="font-mono">{buildId}</span>{" "}
-            <span className="text-muted-foreground font-normal">·{commitSha}</span>
+            <span className="text-muted-foreground font-normal">· {commitSha}</span>
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {componentLogs.length > 1
-              ? `${componentLogs.length} components`
+            {componentLogs.length > 0
+              ? `${componentLogs.length} component${componentLogs.length !== 1 ? "s" : ""}`
               : "Last 500 lines per container"}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto max-h-[65vh] bg-zinc-950 text-zinc-100 rounded-b-lg">
-          {isLoading && (
-            <div className="flex items-center justify-center py-10 gap-2 text-zinc-400 text-sm">
-              <Spinner size={16} /><span>Loading logs…</span>
-            </div>
-          )}
-          {isError && (
-            <p className="text-sm text-red-400 p-4">Logs unavailable. The pod may have been cleaned up.</p>
-          )}
-          {data && componentLogs.length === 0 && (
-            <p className="text-zinc-500 text-xs p-4 font-mono">(no output)</p>
-          )}
-          {componentLogs.map((comp) => {
-            const sections = parseLogSections(comp.logs || "");
-            const compOpen = expanded.has(comp.name);
-            return (
-              <div key={comp.name} className="border-b border-zinc-800 last:border-0">
-                {/* Component header */}
-                <button
-                  onClick={() => toggle(comp.name)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-mono hover:bg-zinc-900 text-left"
-                >
-                  {compOpen
-                    ? <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
-                    : <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />}
-                  <span className="text-zinc-200 font-medium">{comp.name}</span>
-                  <span className={cn("text-[10px]", statusColor(comp.status))}>{comp.status}</span>
-                </button>
-                {/* Container sections within this component */}
-                {compOpen && sections.map((section) => {
-                  const sectionKey = `${comp.name}/${section.name}`;
-                  const sectionOpen = expanded.has(sectionKey);
-                  return (
-                    <div key={sectionKey} className="border-t border-zinc-800/50">
-                      <button
-                        onClick={() => toggle(sectionKey)}
-                        className="w-full flex items-center gap-2 px-5 py-1.5 text-[11px] font-mono text-zinc-400 hover:bg-zinc-900/50 text-left"
-                      >
-                        {sectionOpen
-                          ? <ChevronDown className="h-2.5 w-2.5 text-zinc-600 shrink-0" />
-                          : <ChevronRight className="h-2.5 w-2.5 text-zinc-600 shrink-0" />}
-                        {section.name}
-                      </button>
-                      {sectionOpen && section.content.trim() && (
-                        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all leading-[1.6] px-6 pb-3 pt-1 text-zinc-300">
-                          {section.content}
-                        </pre>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+        <div className="overflow-y-auto max-h-[65vh] rounded-b-lg">
+          <BuildLogViewer
+            components={componentLogs}
+            isLoading={isLoading}
+            isError={isError}
+          />
         </div>
       </DialogContent>
     </Dialog>
