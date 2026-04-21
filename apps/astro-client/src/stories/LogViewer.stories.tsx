@@ -43,10 +43,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange" | "isTailing" | "onTailToggle"> & { withTail?: boolean; startTail?: boolean }) {
+function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRange" | "onTimeRangeChange" | "isTailing" | "onTailToggle"> & { withTail?: boolean; startTail?: boolean; withRefresh?: boolean }) {
   const [timeRange, setTimeRange] = useState<LogTimeRange>("15m");
   const [isTailing, setIsLive] = useState(args.startTail ?? false);
-  const { withTail, startTail, ...rest } = args;
+  const [isRefetching, setIsRefetching] = useState(false);
+  const { withTail, startTail, withRefresh, ...rest } = args;
+
+  function handleRefresh() {
+    setIsRefetching(true);
+    setTimeout(() => setIsRefetching(false), 1500);
+  }
+
   return (
     <LogViewer
       {...rest}
@@ -54,12 +61,30 @@ function Controlled(args: Omit<React.ComponentProps<typeof LogViewer>, "timeRang
       onTimeRangeChange={setTimeRange}
       isTailing={withTail ? isTailing : undefined}
       onTailToggle={withTail ? () => setIsLive((v) => !v) : undefined}
+      onRefresh={withRefresh ? handleRefresh : undefined}
+      isRefetching={withRefresh ? isRefetching : undefined}
     />
   );
 }
 
 export const WithLogs: Story = {
   render: () => <Controlled logs={SAMPLE_LOGS} />,
+};
+
+export const WithRefresh: Story = {
+  render: () => <Controlled logs={SAMPLE_LOGS} withRefresh />,
+};
+
+export const WithRefreshLoading: Story = {
+  render: () => (
+    <LogViewer
+      logs={SAMPLE_LOGS}
+      timeRange="15m"
+      onTimeRangeChange={() => {}}
+      onRefresh={() => {}}
+      isRefetching
+    />
+  ),
 };
 
 export const Empty: Story = {

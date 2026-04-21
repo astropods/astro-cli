@@ -165,6 +165,45 @@ describe("LogViewer", () => {
     renderViewer({ logs: [], error: "Failed to load logs." });
     expect(screen.getByText("Failed to load logs.")).toBeInTheDocument();
   });
+
+  it("does not render refresh button without onRefresh", () => {
+    renderViewer();
+    expect(screen.queryByRole("button", { name: "Refresh logs" })).not.toBeInTheDocument();
+  });
+
+  it("renders refresh button when onRefresh is provided", () => {
+    renderViewer({ onRefresh: vi.fn() });
+    expect(screen.getByRole("button", { name: "Refresh logs" })).toBeInTheDocument();
+  });
+
+  it("calls onRefresh when refresh button is clicked", () => {
+    const onRefresh = vi.fn();
+    renderViewer({ onRefresh });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh logs" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("disables refresh button when isTailing", () => {
+    renderViewer({ onRefresh: vi.fn(), onTailToggle: vi.fn(), isTailing: true });
+    expect(screen.getByRole("button", { name: "Refresh logs" })).toBeDisabled();
+  });
+
+  it("disables refresh button when isRefetching", () => {
+    renderViewer({ onRefresh: vi.fn(), isRefetching: true });
+    expect(screen.getByRole("button", { name: "Refresh logs" })).toBeDisabled();
+  });
+
+  it("spins the refresh icon while isRefetching", () => {
+    renderViewer({ onRefresh: vi.fn(), isRefetching: true });
+    const svg = screen.getByRole("button", { name: "Refresh logs" }).querySelector("svg");
+    expect(svg).toHaveClass("dp-spin");
+  });
+
+  it("does not spin the refresh icon when not refetching", () => {
+    renderViewer({ onRefresh: vi.fn(), isRefetching: false });
+    const svg = screen.getByRole("button", { name: "Refresh logs" }).querySelector("svg");
+    expect(svg).not.toHaveClass("dp-spin");
+  });
 });
 
 describe("LogViewer virtualization", () => {

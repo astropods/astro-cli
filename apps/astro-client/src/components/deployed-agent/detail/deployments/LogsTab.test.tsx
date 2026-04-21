@@ -5,6 +5,17 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: vi.fn() }));
 
+vi.mock("../LogStreamProvider", () => ({
+  LogStreamProvider: ({ children }: { children: React.ReactNode }) => children,
+  useLogStream: () => ({
+    lines: [],
+    status: "idle" as const,
+    error: null as string | null,
+    startStream: vi.fn(),
+    stopStream: vi.fn(),
+  }),
+}));
+
 vi.mocked(useVirtualizer).mockImplementation((opts) => ({
   getVirtualItems: () =>
     Array.from({ length: opts.count }, (_, i) => ({ key: i, index: i, start: i * 28, size: 28 })),
@@ -95,5 +106,41 @@ describe("LogsTab — default state", () => {
   it("shows no services message when deployment has no workloads", () => {
     renderTab({ deployment: { ...mockDeployment, workloads: [] } });
     expect(screen.getByText("No services available.")).toBeInTheDocument();
+  });
+});
+
+describe("LogsTab — refresh button", () => {
+  it("renders a refresh button", async () => {
+    setupLogsHandler();
+    renderTab();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Refresh logs" })).toBeInTheDocument(),
+    );
+  });
+
+  it("clicking refresh triggers another log fetch", async () => {
+    let callCount = 0;
+    server.use(
+      http.get("/api/v1/deployments/:id/logs", () => {
+        callCount++;
+        return HttpResponse.json([
+          { timestamp: "2026-01-01T00:00:01Z", level: "INFO", message: "log line" },
+        ]);
+      }),
+    );
+    renderTab();
+    await waitFor(() => expect(callCount).toBeGreaterThanOrEqual(1));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh logs" }));
+    await waitFor(() => expect(callCount).toBeGreaterThanOrEqual(2));
+  });
+
+  it("refresh button is disabled when live tail is active", async () => {
+    setupLogsHandler();
+    renderTab();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Refresh logs" })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Live tail/i }));
+    expect(screen.getByRole("button", { name: "Refresh logs" })).toBeDisabled();
   });
 });

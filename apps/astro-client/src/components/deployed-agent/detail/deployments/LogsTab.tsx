@@ -110,7 +110,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   const tabEnabled = activeTab !== null;
 
   // Historical (non-live) query — one-shot fetch, no polling.
-  const { data: logsRaw, isLoading: histLoading, isError } = useDeploymentLogs(
+  const { data: logsRaw, isLoading: histLoading, isFetching: histFetching, isError, refetch } = useDeploymentLogs(
     deployment.id,
     activeTab?.workloadName ?? "",
     activeTab?.containerName ?? "",
@@ -122,6 +122,12 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
     },
   );
   const isReconnecting = streamStatus === "reconnecting";
+
+  // Track whether the current fetch was triggered by the user clicking refresh.
+  const [isManualRefetching, setIsManualRefetching] = useState(false);
+  useEffect(() => {
+    if (!histFetching) setIsManualRefetching(false);
+  }, [histFetching]);
 
   // Start/stop the stream when live mode or the active container changes.
   useEffect(() => {
@@ -257,6 +263,8 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
             isTailing={isTailing}
             isReconnecting={isReconnecting}
             onTailToggle={() => setIsTailing((v) => !v)}
+            onRefresh={() => { setIsManualRefetching(true); void refetch(); }}
+            isRefetching={isManualRefetching}
           />
         )}
       </div>

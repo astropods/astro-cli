@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
 import { Link } from "react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
+import { AlertCircle, ArrowDown, Loader2, Pause, Play, RefreshCw, TriangleAlert, X } from "lucide-react";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -62,9 +62,11 @@ interface LogViewerProps {
   isTailing?: boolean;
   isReconnecting?: boolean;
   onTailToggle?: () => void;
+  onRefresh?: () => void;
+  isRefetching?: boolean;
 }
 
-export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
+export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle, onRefresh, isRefetching = false }: LogViewerProps) {
   const { timezone } = useLogTimezone();
   const [logSearch, setLogSearch] = useState("");
   const deferredSearch = useDeferredValue(logSearch);
@@ -258,6 +260,26 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{isTailing ? "Stop live tailing" : "Start live tailing"}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {onRefresh && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Refresh logs"
+                    disabled={isTailing || isRefetching}
+                    onClick={onRefresh}
+                    className="disabled:pointer-events-auto disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={cn("size-3 shrink-0", isRefetching && "dp-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh logs</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
