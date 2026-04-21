@@ -319,13 +319,13 @@ function NewBlueprintContent() {
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] w-full"
+      className="flex flex-1 flex-col overflow-hidden"
       style={{
         background: "radial-gradient(ellipse at 50% 0%, hsla(40, 50%, 90%, 0.8) 0%, hsla(40, 30%, 96%, 0.4) 60%), radial-gradient(ellipse at 80% 100%, hsla(170, 40%, 88%, 0.5) 0%, transparent 60%), hsl(40, 20%, 97%)",
         backgroundRepeat: "no-repeat",
       }}
     >
-      <div className="mx-auto max-w-[640px] px-6 pt-16 pb-40">
+      <div className="mx-auto w-full max-w-[640px] px-6 pt-16 pb-6 flex flex-1 flex-col overflow-hidden">
         <div className="mb-10 text-center">
           <h1 className="text-3xl font-bold tracking-tight">Setup your agent blueprint</h1>
           <p className="mt-2 text-muted-foreground max-w-[540px] mx-auto">A blueprint is your agent's packaged definition. Once it's pushed to the registry, you can deploy it as a running agent.</p>
@@ -341,10 +341,10 @@ function NewBlueprintContent() {
           ))}
         </div>
 
-        {/* Carousel — sliding flex row, height driven by content */}
-        <div className="overflow-hidden rounded-xl">
+        {/* Carousel — sliding flex row, fills remaining height via flex-1 chain */}
+        <div className="overflow-hidden rounded-xl flex flex-1 flex-col">
           <div
-            className="flex"
+            className="flex flex-1"
             style={{
               width: `${STEPS.length * 100}%`,
               transform: `translateX(-${activeStepIndex * (100 / STEPS.length)}%)`,
@@ -355,6 +355,7 @@ function NewBlueprintContent() {
             return (
               <div
                 key={step.id}
+                className="flex flex-col"
                 style={{ width: `${100 / STEPS.length}%` }}
               >
                 <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col" style={{ minHeight: 460 }}>
