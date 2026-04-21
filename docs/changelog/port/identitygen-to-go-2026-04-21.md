@@ -21,7 +21,7 @@ Test parity is enforced against 20 seeds captured from the (now-deleted) TS refe
 
 The server stores JPEG, not SVG. Three reasons: match the account-avatar format already in S3, avoid mis-labelling objects (SVG content under a `.jpg` key is confusing), and get a single cache/transform story at the CDN.
 
-Rasterization literally parses the SVG the generator emits and draws it — the rendering logic is not duplicated on a 2D graphics API. `github.com/srwiley/oksvg` + `rasterx` handle the parse/raster pass in pure Go. One accommodation: pure-Go SVG parsers don't support CSS `oklch()`, so the palette data now carries both OKLCH strings (reference) and sRGB hex strings (for SVG embedding). Hex is derived from OKLCH via inlined conversion math in `gen-theme.ts` — same design-system source, different encoding.
+Rasterization literally parses the SVG the generator emits and draws it — the rendering logic is not duplicated on a 2D graphics API. `github.com/srwiley/oksvg` + `rasterx` handle the parse/raster pass in pure Go. One accommodation: pure-Go SVG parsers don't support CSS `oklch()`, so the palette data carries sRGB hex strings for SVG embedding. Hex is derived from OKLCH via inlined conversion math in `gen-theme.ts` — same design-system source, different encoding.
 
 The rasterizer supersamples 2× and downsamples with Catmull-Rom (same filter `avatar.processImage` uses for user uploads), then JPEG-encodes at quality 92. This gives clean edges on the flat-color geometric shapes.
 
@@ -36,8 +36,6 @@ The rasterizer supersamples 2× and downsamples with Catmull-Rom (same filter `a
 1. Cursor-paginate `agents`, skip if S3 has the avatar, otherwise generate + upload.
 2. Cursor-paginate `deployments`, skip if S3 has the avatar, otherwise copy from the (now-guaranteed) blueprint avatar via `CopyAgentToDeployment`.
 
-A standalone CLI at `cmd/backfill-blueprint-avatars` wraps the same logic with `DRY_RUN` / `BATCH_SIZE` / local-vs-S3 backend flags.
-
 ### Client
 
 `BlueprintIdentity.tsx` collapses from ~60 lines of probe-and-fallback state machine to a single `<img>` with an `onError` fallback to `getFallbackAvatarUrl()` (the static placeholder, same pattern as `UserAvatar.tsx`). The component's public API is unchanged, so the 14 call sites need no edits. `useCardAvatar` was a probe-and-generate-on-404 hook; it's deleted in favor of callers passing `{ url }` directly.
@@ -51,4 +49,4 @@ A standalone CLI at `cmd/backfill-blueprint-avatars` wraps the same logic with `
 - **Deploy order:** server first, then client. The backfill runs on server startup (`RunOnStart: true`), so the vast majority of blueprints have avatars by the time the new client rolls out.
 - **Worst-case race:** new client hits an existing blueprint whose avatar hasn't been backfilled yet → `<img>` 404s → `onError` swaps to the static fallback placeholder. Resolves itself on the next backfill tick.
 - **Uploaded custom avatars:** unchanged. Same `UploadAgent` path, same key, same URL.
-- **Manual backfill:** `go run ./cmd/backfill-blueprint-avatars` with `DATABASE_URL=...` and either `ASSETS_BUCKET=...` (prod) or `ASSETS_LOCAL_DIR=...` (dev). `DRY_RUN=true` to preview.
+- **Manual backfill:** not needed. The River periodic worker handles it automatically on startup and every 24h.

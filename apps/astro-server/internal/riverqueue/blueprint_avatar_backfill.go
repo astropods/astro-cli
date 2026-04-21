@@ -20,8 +20,7 @@ func (BlueprintAvatarBackfillArgs) Kind() string { return "blueprint_avatar.back
 // BlueprintAvatarBackfillWorker ensures every blueprint has a placeholder
 // avatar in storage and every deployment inherits its blueprint's avatar.
 //
-// Runs on startup via periodic scheduling (24h), plus on demand via the
-// standalone CLI in cmd/backfill-blueprint-avatars. Mirrors the shape of
+// Runs on startup via periodic scheduling (24h). Mirrors the shape of
 // AvatarBackfillWorker: cursor-paginate, skip what already exists, log and
 // continue on per-record errors, return nil from Work so transient issues
 // don't wedge the queue.

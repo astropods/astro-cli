@@ -34,27 +34,10 @@ type CustomIdentityOptions struct {
 	EyeSize       float64
 }
 
-// identityChoices is the structured record of every decision generateIdentity
-// makes for a given seed. Used by parity tests.
-type identityChoices struct {
-	Size          int
-	BGPalette     string
-	BGShade       int
-	FGPalette     string
-	FGShade       int
-	EyePalette    string
-	EyeShade      int
-	Sides         int
-	EdgeStyle     EdgeStyle
-	Rotation      float64
-	Radius        float64
-	SpikeDepth    float64
-	CurveAmount   float64
-	LeftEyeStyle  EyeStyle
-	RightEyeStyle EyeStyle
-	EyeSpacing    float64
-	EyeSize       float64
-}
+// identityChoices is an alias for CustomIdentityOptions, used as the return
+// type of generateIdentityWithChoices so parity tests can inspect every
+// decision the generator made for a given seed.
+type identityChoices = CustomIdentityOptions
 
 const minShadeDistance = 3
 

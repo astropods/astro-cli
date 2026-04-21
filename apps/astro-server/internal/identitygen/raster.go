@@ -11,13 +11,14 @@ import (
 
 	"github.com/srwiley/oksvg"
 	"github.com/srwiley/rasterx"
+
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 )
 
-// rasterSize is the pixel dimension of the rasterized JPEG output. Chosen to
-// match avatar.OutputSize (512) so a generated placeholder and a
-// user-uploaded/processed avatar share the same resolution and storage size
-// characteristics.
-const rasterSize = 512
+// rasterSize is the pixel dimension of the rasterized JPEG output. Matches
+// avatar.OutputSize so a generated placeholder and a user-uploaded/processed
+// avatar share the same resolution and storage size characteristics.
+const rasterSize = avatar.OutputSize
 
 // supersampleFactor is how many times larger the intermediate raster buffer is
 // before we downsample to rasterSize. 2× supersampling produces substantially
