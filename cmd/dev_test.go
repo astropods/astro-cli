@@ -35,6 +35,28 @@ func TestReadDevProjectName(t *testing.T) {
 		}
 	})
 
+	/*
+		Regression guard for the "@postman/luqa" issue: older CLIs wrote the
+		raw scoped spec name into .running. The current writer stores the
+		sanitized compose project name, but readDevProjectName must still
+		normalize legacy files so `ast dev logs`/`ast dev stop` can find the
+		actual compose project.
+	*/
+	t.Run("normalizes legacy scoped spec name in state file", func(t *testing.T) {
+		dir := t.TempDir()
+		statePath := filepath.Join(dir, ".running")
+		if err := os.WriteFile(statePath, []byte("@postman/luqa\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		name, err := readDevProjectName(statePath, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if name != "luqa" {
+			t.Errorf("name = %q, want %q (legacy scoped name must be normalized)", name, "luqa")
+		}
+	})
+
 	t.Run("returns error when file does not exist", func(t *testing.T) {
 		dir := t.TempDir()
 		_, err := readDevProjectName(filepath.Join(dir, ".running"), nil)

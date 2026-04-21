@@ -118,6 +118,22 @@ type BuildOptions struct {
 	NativeOllama bool
 }
 
+// ProjectName returns the Docker Compose project name used for an agent spec.
+// Scoped spec names like "@postman/luqa" become "luqa"; unscoped names pass through.
+// This is the single source of truth for the project-name string used by Up,
+// Down, Logs, health checks, and the .running state file.
+func ProjectName(s *spec.AstroSpec) string {
+	return ProjectNameFromSpecName(s.Name)
+}
+
+// ProjectNameFromSpecName returns the compose project name for a raw spec name.
+// Exposed separately so callers that only have the raw string (e.g. a legacy
+// `.running` state file) can normalize it without constructing a full spec.
+func ProjectNameFromSpecName(raw string) string {
+	_, agentName := utils.ParseAgentName(raw)
+	return agentName
+}
+
 // BuildProject converts an AstroSpec to a Docker Compose project.
 // An optional BuildOptions can be passed to customize generation.
 func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string, opts ...BuildOptions) (*types.Project, error) {
@@ -125,7 +141,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	_, agentName := utils.ParseAgentName(s.Name)
+	agentName := ProjectName(s)
 	project := &types.Project{
 		Name:       agentName,
 		WorkingDir: workingDir,

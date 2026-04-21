@@ -46,6 +46,18 @@ tasks:
   unlink:
     command: "rm -f $HOME/go/bin/ast-dev"
 
+  test:
+    command: "go test -v ./cmd/... ./internal/..."
+    options:
+      persistent: false
+      cache: true
+    inputs:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "/packages/astro-spec/**"
+
   e2e:
     command: "go test -tags integration -v ./e2e/..."
     options:
@@ -54,6 +66,8 @@ tasks:
       cache: false
     inputs:
       - "e2e/**/*.go"
+      - "cmd/**/*.go"
       - "internal/**/*.go"
       - "go.mod"
       - "go.sum"
+      - "/packages/astro-spec/**"
