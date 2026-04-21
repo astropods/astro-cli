@@ -12,7 +12,7 @@ export interface BuildLogComponentData {
 }
 
 export interface BuildLogViewerProps {
-  components: BuildLogComponentData[];
+  components?: BuildLogComponentData[];
   isLoading?: boolean;
   isError?: boolean;
 }
@@ -51,7 +51,7 @@ function statusClass(status: string) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function BuildLogViewer({ components, isLoading, isError }: BuildLogViewerProps) {
+export function BuildLogViewer({ components = [], isLoading, isError }: BuildLogViewerProps) {
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
     () => new Set(components.length > 0 ? [components[0].name] : [])
   );
