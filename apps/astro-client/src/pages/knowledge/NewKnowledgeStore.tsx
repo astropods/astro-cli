@@ -338,16 +338,20 @@ function ProvisioningStage({
       </div>
 
       {/* Store card */}
-      <div className="mt-8 rounded-lg border border-border bg-surface p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-            <ProviderIcon provider={provider} className="size-6" />
+      <div className="mt-8 rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+        <div className="flex items-center gap-3 px-4 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+            <ProviderIcon provider={provider} className="size-5" />
           </div>
-          <div className="min-w-0">
-            <span className="font-medium text-foreground">{storeName}</span>
-            <p className="text-body-sm text-muted-foreground">
-              {PROVIDER_LABELS[provider]} &middot; {mode === "managed" ? "Managed" : "External"}
-            </p>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium leading-tight text-foreground">{storeName}</p>
+            <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tag color={mode === "managed" ? "blue" : "default"}>
+              {mode === "managed" ? "Managed" : "External"}
+            </Tag>
+            <StatusBadge color="warning" indicator spinning>Pending</StatusBadge>
           </div>
         </div>
       </div>
