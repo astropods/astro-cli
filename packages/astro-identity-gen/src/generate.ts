@@ -35,6 +35,28 @@ export interface CustomIdentityOptions {
   eyeSize: number;
 }
 
+/** Structured record of every choice `generateIdentity` makes for a given seed.
+ *  Used by the Go port's parity tests to verify identical decisions. */
+export interface IdentityChoices {
+  size: number;
+  bgPalette: PaletteName;
+  bgShade: (typeof shadeKeys)[number];
+  fgPalette: PaletteName;
+  fgShade: (typeof shadeKeys)[number];
+  eyePalette: PaletteName;
+  eyeShade: (typeof shadeKeys)[number];
+  sides: number;
+  edgeStyle: EdgeStyle;
+  rotation: number;
+  radius: number;
+  spikeDepth: number;
+  curveAmount: number;
+  leftEyeStyle: EyeStyle;
+  rightEyeStyle: EyeStyle;
+  eyeSpacing: number;
+  eyeSize: number;
+}
+
 /** Pick a value from an array using the next rng output. */
 function pick<T>(arr: readonly T[], rng: () => number): T {
   return arr[Math.floor(rng() * arr.length)];
@@ -74,9 +96,13 @@ const shadeKeys = [
 ] as const;
 
 /**
- * Generates a deterministic SVG identity from a seed string.
+ * Generates a deterministic SVG identity from a seed string, returning both the
+ * SVG and the structured choices the RNG produced. Shared implementation used
+ * by `generateIdentity` and parity-fixture tooling.
  */
-export function generateIdentity(options: IdentityOptions): string {
+export function generateIdentityWithChoices(
+  options: IdentityOptions,
+): { svg: string; choices: IdentityChoices } {
   const { seed, size = 128 } = options;
   const rng = createRng(hash(seed));
 
@@ -120,21 +146,52 @@ export function generateIdentity(options: IdentityOptions): string {
   const leftEyeStyle = pick(eyeStyles, rng);
   // ~10% chance of mismatched eyes
   const rightEyeStyle = rng() < 0.1 ? pickExcluding(eyeStyles, rng, [leftEyeStyle]) : leftEyeStyle;
+  const eyeSpacing = range(rng, 0.15, 0.35);
+  const eyeSize = range(rng, 0.04, 0.1);
   const eyeParams: EyeParams = {
     leftStyle: leftEyeStyle,
     rightStyle: rightEyeStyle,
-    spacing: range(rng, 0.15, 0.35),
-    eyeSize: range(rng, 0.04, 0.1),
+    spacing: eyeSpacing,
+    eyeSize,
   };
   const eyes = buildEyes(eyeParams, size, eyeColor);
 
-  return [
+  const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`,
     `  <rect width="${size}" height="${size}" fill="${bgColor}" />`,
     `  <path d="${path}" fill="${fgColor}" />`,
     `  ${eyes}`,
     `</svg>`,
   ].join("\n");
+
+  const choices: IdentityChoices = {
+    size,
+    bgPalette: bgPaletteName,
+    bgShade,
+    fgPalette: fgPaletteName,
+    fgShade,
+    eyePalette: eyePaletteName,
+    eyeShade,
+    sides,
+    edgeStyle,
+    rotation,
+    radius,
+    spikeDepth,
+    curveAmount,
+    leftEyeStyle,
+    rightEyeStyle,
+    eyeSpacing,
+    eyeSize,
+  };
+
+  return { svg, choices };
+}
+
+/**
+ * Generates a deterministic SVG identity from a seed string.
+ */
+export function generateIdentity(options: IdentityOptions): string {
+  return generateIdentityWithChoices(options).svg;
 }
 
 /**
