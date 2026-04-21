@@ -1,22 +1,25 @@
 import { useState, useCallback } from "react";
+import { useAuth } from "./auth";
 
-const TIMEZONE_STORAGE_KEY = "astro:log-timezone";
-
-export function loadTimezone(): string {
-  try {
-    return localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? "UTC";
-  } catch {
-    return "UTC";
-  }
+function storageKey(userId: string): string {
+  return `astro:log-timezone:${userId}`;
 }
 
 export function useLogTimezone() {
-  const [timezone, setTimezoneState] = useState<string>(loadTimezone);
+  const { personalAccount } = useAuth();
+  const userId = personalAccount!.id;
+  const [timezone, setTimezoneState] = useState<string>(() => {
+    try {
+      return localStorage.getItem(storageKey(userId)) ?? "UTC";
+    } catch {
+      return "UTC";
+    }
+  });
 
   const setTimezone = useCallback((tz: string) => {
-    try { localStorage.setItem(TIMEZONE_STORAGE_KEY, tz); } catch { /* private browsing */ }
+    try { localStorage.setItem(storageKey(userId), tz); } catch { /* private browsing */ }
     setTimezoneState(tz);
-  }, []);
+  }, [userId]);
 
   return { timezone, setTimezone };
 }

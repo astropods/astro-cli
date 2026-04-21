@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
 import { Link } from "react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatLogTimestamp, levelColorClass, normalizeLevel, type LogEntry } from "@/lib/log-utils";
-import { loadTimezone } from "@/lib/timezone";
+import { useLogTimezone } from "@/lib/timezone";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
 
 function highlightText(text: string, search: string): React.ReactNode {
@@ -65,7 +65,7 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
-  const timezone = useMemo(() => loadTimezone(), []);
+  const { timezone } = useLogTimezone();
   const [logSearch, setLogSearch] = useState("");
   const deferredSearch = useDeferredValue(logSearch);
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs);
