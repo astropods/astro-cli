@@ -94,8 +94,9 @@ function OrgSettingsContent() {
   const isAdmin = role === 'admin' || role === 'owner'
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
-      <SidebarLayout>
+    <div className="flex-1 overflow-y-auto bg-surface">
+      <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
+        <SidebarLayout>
         <div className="flex w-full flex-col md:w-48 md:shrink-0">
           <div className="mb-4">
             <Link
@@ -141,7 +142,8 @@ function OrgSettingsContent() {
         <SidebarBody>
           <Outlet />
         </SidebarBody>
-      </SidebarLayout>
+        </SidebarLayout>
+      </div>
     </div>
   )
 }

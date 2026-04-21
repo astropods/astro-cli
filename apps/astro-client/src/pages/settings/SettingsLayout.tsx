@@ -10,8 +10,9 @@ import {
 
 function SettingsContent() {
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
-      <SidebarLayout>
+    <div className="flex-1 overflow-y-auto bg-surface">
+      <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
+        <SidebarLayout>
         <SidebarNav label="Settings" className="md:w-48">
           <SidebarNavItem to="/settings/account">
             <span className="flex items-center gap-2">
@@ -53,7 +54,8 @@ function SettingsContent() {
         <SidebarBody>
           <Outlet />
         </SidebarBody>
-      </SidebarLayout>
+        </SidebarLayout>
+      </div>
     </div>
   );
 }
