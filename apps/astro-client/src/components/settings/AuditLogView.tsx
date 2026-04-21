@@ -215,13 +215,13 @@ export function AuditLogView({
           value={action || NO_FILTER}
           onValueChange={(val) => setAction(fromSelect(val))}
         >
-          <SelectTrigger className="h-9 w-[210px] text-body-sm font-mono">
+          <SelectTrigger className="h-9 w-[210px] text-body-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NO_FILTER}>All actions</SelectItem>
             {allActions.map((a) => (
-              <SelectItem key={a} value={a} className="font-mono">
+              <SelectItem key={a} value={a}>
                 {a}
               </SelectItem>
             ))}
