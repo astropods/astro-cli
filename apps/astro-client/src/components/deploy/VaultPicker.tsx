@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { X, WandSparkles, CaseSensitive, CaseLower } from 'lucide-react'
 import { MagnifyingGlassIcon, KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { AccountVariable } from '@/lib/api'
 import { NewEntryDialog } from '@/components/settings/secrets/NewEntryDialog'
@@ -21,10 +22,17 @@ interface VaultPickerProps {
   entries?: AccountVariable[]
   accountName?: string
   vaultSettingsUrl?: string
+  bestMatchNames?: string[]
+  possibleMatchNames?: string[]
+  selectedName?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName }: VaultPickerProps) {
-  const [open, setOpen] = useState(false)
+export function VaultPicker({ onSelect, entries = [], accountName, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange }: VaultPickerProps) {
+  const [localOpen, setLocalOpen] = useState(false)
+  const open = controlledOpen ?? localOpen
+  const setOpen = (o: boolean) => { setLocalOpen(o); controlledOnOpenChange?.(o) }
   const [search, setSearch] = useState('')
   const [newVarOpen, setNewVarOpen] = useState(false)
   const createMutation = useCreateAccountVariables(accountName ?? '')
@@ -120,21 +128,51 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
                 {!hasResults ? (
                   <p className="px-3 py-4 text-sm text-center text-muted-foreground">No matches</p>
                 ) : (
-                  filtered.map(entry => (
-                    <button
-                      key={entry.name}
-                      type="button"
-                      onClick={() => handleSelect(entry)}
-                      className="w-full flex items-center px-3 py-2 text-left hover:bg-muted/60 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono text-xs font-medium text-foreground truncate">{entry.name}</p>
-                        {entry.description && (
-                          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
+                  filtered.map(entry => {
+                    const isSelected = entry.name === selectedName
+                    const isExactMatch = bestMatchNames?.includes(entry.name)
+                    const isPossibleMatch = !isExactMatch && possibleMatchNames?.includes(entry.name)
+                    return (
+                      <button
+                        key={entry.name}
+                        type="button"
+                        onClick={() => handleSelect(entry)}
+                        className={cn(
+                          "w-full flex items-center pl-2.5 pr-3 py-2 text-left hover:bg-muted/60 transition-colors border-l-2",
+                          isSelected ? "border-teal-500" : "border-transparent"
                         )}
-                      </div>
-                    </button>
-                  ))
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-mono text-xs font-medium text-foreground truncate flex-1 min-w-0">{entry.name}</p>
+                            {isExactMatch && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="shrink-0 cursor-default" aria-label="Exact match">
+                                    <CaseSensitive className="size-3.5 text-teal-500 dark:text-teal-400" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={4}>Exact match</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {isPossibleMatch && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="shrink-0 cursor-default" aria-label="Case insensitive match">
+                                    <CaseLower className="size-3.5 text-muted-foreground/70" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={4}>Case insensitive match</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                          {entry.description && (
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">{entry.description}</p>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })
                 )}
               </div>
             </>
@@ -158,7 +196,7 @@ export function VaultPicker({ onSelect, entries = [], accountName }: VaultPicker
 
 // Chip shown in the input field when a vault ref is active.
 // invalid=true means the referenced variable doesn't exist in the target account.
-export function VaultRefChip({ token, onClear, invalid }: { token: string; onClear: () => void; invalid?: boolean }) {
+export function VaultRefChip({ token, onClear, invalid, autoFillLabel, onAutoFillClick }: { token: string; onClear: () => void; invalid?: boolean; autoFillLabel?: string; onAutoFillClick?: () => void }) {
   const parsed = parseVaultToken(token)
   if (!parsed) return null
 
@@ -190,6 +228,23 @@ export function VaultRefChip({ token, onClear, invalid }: { token: string; onCle
           <X className={iconClass} />
         </span>
       </button>
+      {autoFillLabel && (
+        onAutoFillClick ? (
+          <button
+            type="button"
+            onClick={onAutoFillClick}
+            className="ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors select-none"
+          >
+            <WandSparkles className="size-3 shrink-0" />
+            {autoFillLabel}
+          </button>
+        ) : (
+          <span className="ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 select-none pointer-events-none">
+            <WandSparkles className="size-3 shrink-0" />
+            {autoFillLabel}
+          </span>
+        )
+      )}
     </div>
   )
 }

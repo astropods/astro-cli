@@ -464,24 +464,7 @@ let accountVariables: Array<{
   description: string;
   created_at: string;
   updated_at: string;
-}> = [
-  {
-    name: "OPENAI_API_KEY",
-    value: "sk-demo-existing",
-    secret: true,
-    description: "Primary OpenAI API key",
-    created_at: nowIso,
-    updated_at: nowIso,
-  },
-  {
-    name: "APP_ENV",
-    value: "development",
-    secret: false,
-    description: "Runtime environment",
-    created_at: nowIso,
-    updated_at: nowIso,
-  },
-];
+}> = [];
 
 const agentFor = (agentName: string) => ({
   name: agentName,
@@ -553,24 +536,7 @@ Bun.serve({
       createdBlueprints = new Set();
       githubAccountConnected = false;
       githubConnections = [];
-      accountVariables = [
-        {
-          name: "OPENAI_API_KEY",
-          value: "sk-demo-existing",
-          secret: true,
-          description: "Primary OpenAI API key",
-          created_at: nowIso,
-          updated_at: nowIso,
-        },
-        {
-          name: "APP_ENV",
-          value: "development",
-          secret: false,
-          description: "Runtime environment",
-          created_at: nowIso,
-          updated_at: nowIso,
-        },
-      ];
+      accountVariables = [];
       return json({ ok: true });
     }
 

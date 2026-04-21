@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,53 @@ export function isVariableFilled(meta: VariableDisplay, value: string | undefine
     default:
       return !!value?.trim();
   }
+}
+
+function findVaultSuggestions(fieldKey: string, entries: import("@/lib/api").AccountVariable[]) {
+  const key = fieldKey.toLowerCase();
+  const exactCase = entries.filter((e) => e.name === fieldKey);
+  const exactCI = entries.filter((e) => e.name !== fieldKey && e.name.toLowerCase() === key);
+  const best = exactCase;
+  const possible = exactCI;
+  return { best, possible, all: [...best, ...possible] };
+}
+
+function makeVaultToken(entry: import("@/lib/api").AccountVariable): string {
+  return entry.secret ? `{{secrets.${entry.name}}}` : `{{vars.${entry.name}}}`;
+}
+
+/** Auto-fills the field with the best vault match once on first render when empty. */
+function useVaultAutoFill(
+  fieldKey: string,
+  value: string,
+  entries: import("@/lib/api").AccountVariable[],
+  onChange: (val: string) => void,
+) {
+  const suggestions = useMemo(() => findVaultSuggestions(fieldKey, entries), [fieldKey, entries]);
+  const didAutoFill = useRef(false);
+  const [autoFilledToken, setAutoFilledToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!didAutoFill.current && value === "" && suggestions.all.length > 0) {
+      const token = makeVaultToken(suggestions.all[0]);
+      didAutoFill.current = true;
+      setAutoFilledToken(token);
+      onChange(token);
+    }
+  }, [suggestions, value, onChange]);
+
+  // Derived: true only while the value still matches what was auto-filled.
+  // Clears automatically when the user picks a different entry or clears the field.
+  const isAutoFilled = !!autoFilledToken && value === autoFilledToken;
+
+  return { isAutoFilled, suggestions };
+}
+
+/** Builds the inline "auto filled" / "auto filled · N others" label. */
+function autoFillLabel(suggestions: import("@/lib/api").AccountVariable[]): string {
+  const others = suggestions.length - 1;
+  if (others <= 0) return "Auto-filled";
+  return `Auto-filled · ${others} other ${others > 1 ? "matches" : "match"}`;
 }
 
 export interface VariableFieldProps {
@@ -187,12 +234,28 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
     return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} />;
   }
 
-  // 7. Default — text input with vault picker
+  // 7. Default — text input
+  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} />;
+}
+
+function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
+  const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], onChange);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const isVaultRef = parseVaultToken(value) !== null;
+  const bestMatchNames = suggestions.best.map((s) => s.name);
+  const possibleMatchNames = suggestions.possible.map((s) => s.name);
+  const selectedName = parseVaultToken(value)?.name;
+
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError || refInvalid} />
+        <VaultRefChip
+          token={value}
+          onClear={() => onChange("")}
+          invalid={hasError || refInvalid}
+          autoFillLabel={isAutoFilled ? autoFillLabel(suggestions.all) : undefined}
+          onAutoFillClick={isAutoFilled && suggestions.all.length > 1 ? () => setPickerOpen(true) : undefined}
+        />
       ) : (
         <Input
           id={fieldKey}
@@ -207,7 +270,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
       </div>
     </div>
   );
@@ -215,12 +278,23 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
 
 function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], onChange);
   const isVaultRef = parseVaultToken(value) !== null;
+  const bestMatchNames = suggestions.best.map((s) => s.name);
+  const possibleMatchNames = suggestions.possible.map((s) => s.name);
+  const selectedName = parseVaultToken(value)?.name;
 
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError || refInvalid} />
+        <VaultRefChip
+          token={value}
+          onClear={() => onChange("")}
+          invalid={hasError || refInvalid}
+          autoFillLabel={isAutoFilled ? autoFillLabel(suggestions.all) : undefined}
+          onAutoFillClick={isAutoFilled && suggestions.all.length > 1 ? () => setPickerOpen(true) : undefined}
+        />
       ) : (
         <Input
           id={fieldKey}
@@ -245,7 +319,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
       </div>
     </div>
   );

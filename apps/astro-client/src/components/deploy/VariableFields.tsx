@@ -1,3 +1,4 @@
+import { useRef, useCallback } from "react";
 import { Info, ExternalLink } from "lucide-react";
 import {
   Tooltip,
@@ -39,6 +40,18 @@ export interface VariableFieldsProps {
 
 export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultSettingsUrl }: VariableFieldsProps) {
   if (variables.length === 0) return null;
+
+  // Keep a ref so per-field onChange callbacks always see the latest values,
+  // preventing stale-closure overwrites when multiple fields auto-fill in the
+  // same effect batch.
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+
+  const handleFieldChange = useCallback((key: string, val: string) => {
+    const updated = { ...valuesRef.current, [key]: val };
+    valuesRef.current = updated;
+    onChange(updated);
+  }, [onChange]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -82,7 +95,7 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
               fieldKey={key}
               meta={v}
               value={values[key] || ""}
-              onChange={(val) => onChange({ ...values, [key]: val })}
+              onChange={(val) => handleFieldChange(key, val)}
               hasError={errorKeys?.includes(key)}
               refInvalid={invalidRefKeys?.includes(key)}
               account={account}
