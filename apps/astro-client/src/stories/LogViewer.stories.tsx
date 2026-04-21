@@ -76,15 +76,11 @@ export const WithRefresh: Story = {
 };
 
 export const WithRefreshLoading: Story = {
-  render: () => (
-    <LogViewer
-      logs={SAMPLE_LOGS}
-      timeRange="15m"
-      onTimeRangeChange={() => {}}
-      onRefresh={() => {}}
-      isRefetching
-    />
-  ),
+  args: {
+    logs: SAMPLE_LOGS,
+    onRefresh: () => {},
+    isRefetching: true,
+  },
 };
 
 export const Empty: Story = {

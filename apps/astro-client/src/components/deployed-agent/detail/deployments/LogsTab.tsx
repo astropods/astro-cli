@@ -123,7 +123,6 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
   );
   const isReconnecting = streamStatus === "reconnecting";
 
-  // Track whether the current fetch was triggered by the user clicking refresh.
   const [isManualRefetching, setIsManualRefetching] = useState(false);
   useEffect(() => {
     if (!histFetching) setIsManualRefetching(false);

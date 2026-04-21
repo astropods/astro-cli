@@ -5,14 +5,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 vi.mock("@tanstack/react-virtual", () => ({ useVirtualizer: vi.fn() }));
 
+const mockStartStream = vi.fn();
+const mockStopStream = vi.fn();
 vi.mock("../LogStreamProvider", () => ({
   LogStreamProvider: ({ children }: { children: React.ReactNode }) => children,
   useLogStream: () => ({
     lines: [],
     status: "idle" as const,
     error: null as string | null,
-    startStream: vi.fn(),
-    stopStream: vi.fn(),
+    startStream: mockStartStream,
+    stopStream: mockStopStream,
   }),
 }));
 
