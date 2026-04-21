@@ -69,12 +69,32 @@ func NewStorage(binaryName string) *Storage {
 	return &Storage{binaryName: binaryName, useKeyring: useKeyring}
 }
 
-// isKeyringAvailable tests if the system keyring is accessible
+// keyringForceDisabledEnv is the env var name that forces useKeyring=false.
+// Exposed as a const (not a magic string) so tests can enumerate the exact
+// trigger without duplicating the literal, and so code review can find every
+// usage with a single symbol search.
+const keyringForceDisabledEnv = "ASTRO_NO_KEYRING"
+
+// keyringForceDisabled reports whether the env var escape hatch is active.
+// Accepts only the strict value "1": any other value (including "true",
+// "yes", "TRUE", "0", or empty) falls through to the live keyring probe, so
+// accidental shell quoting or truthy variants do NOT silently downgrade
+// credential storage from Keychain to plaintext file in production.
+func keyringForceDisabled() bool {
+	return os.Getenv(keyringForceDisabledEnv) == "1"
+}
+
+// isKeyringAvailable tests if the system keyring is accessible.
+// ASTRO_NO_KEYRING=1 disables the probe entirely so CI and integration tests
+// can run the CLI without triggering macOS Keychain prompts for unsigned
+// test binaries. When disabled, credentials fall back to the on-disk store.
 func isKeyringAvailable() bool {
+	if keyringForceDisabled() {
+		return false
+	}
 	testKey := "astro-cli-test"
 	testValue := "test"
 
-	// Try to set and delete a test value
 	err := keyring.Set(KeyringService, testKey, testValue)
 	if err != nil {
 		return false

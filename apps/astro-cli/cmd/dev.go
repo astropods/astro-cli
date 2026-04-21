@@ -164,7 +164,11 @@ func devStatePath() (string, error) {
 	return filepath.Join(workingDir, ".ast", ".running"), nil
 }
 
-// readDevProjectName returns the project name stored in the .running marker file.
+// readDevProjectName returns the compose project name stored in the .running
+// marker file. The returned value is always normalized through
+// composeBuilder.ProjectNameFromSpecName so legacy state files containing
+// scoped spec names (e.g. "@postman/luqa") still map to the live project
+// ("luqa") used by Up — avoiding mismatched Down/Logs/stop calls.
 // Falls back to spec parsing if the file is empty (older format).
 func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	data, err := os.ReadFile(statePath) //nolint:gosec // path is constructed from os.Getwd() + hardcoded suffix
@@ -172,7 +176,7 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 		return "", fmt.Errorf("failed to read dev state: %w", err)
 	}
 	if name := strings.TrimSpace(string(data)); name != "" {
-		return name, nil
+		return composeBuilder.ProjectNameFromSpecName(name), nil
 	}
 	// Fallback: parse spec for the project name
 	workingDir, err := os.Getwd()
@@ -187,7 +191,7 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse spec: %w", err)
 	}
-	return astroSpec.Name, nil
+	return composeBuilder.ProjectName(astroSpec), nil
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
@@ -340,8 +344,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Tear down leftover containers from a previous run (e.g. force-killed with Ctrl+C).
-	// This is fast and idempotent when nothing is running.
-	_ = svc.Down(context.Background(), astroSpec.Name, api.DownOptions{RemoveOrphans: true})
+	// This is fast and idempotent when nothing is running. Must match the
+	// project name produced by BuildProject (via composeBuilder.ProjectName),
+	// otherwise compose finds no resources labelled with the raw spec name
+	// and prints "No resource found to remove" for scoped agents.
+	projectName := composeBuilder.ProjectName(astroSpec)
+	_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 
 	// Start non-profiled services (already built above)
 	upProject := projectForUp(project)
@@ -358,8 +366,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write marker so subcommands (logs, stop, trigger) know dev is running.
-	// The file contains the project name so subcommands can avoid re-parsing the spec.
-	if err := os.WriteFile(filepath.Join(astDir, ".running"), []byte(astroSpec.Name), 0644); err != nil { //nolint:gosec
+	// The file contains the compose project name so subcommands can avoid
+	// re-parsing the spec and match the project used by Up.
+	if err := os.WriteFile(filepath.Join(astDir, ".running"), []byte(projectName), 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
@@ -375,7 +384,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// --local: run agent as local process and block
 	if local {
-		return runLocalAgent(cmd, astroSpec, workingDir, envVars, hasWebInterface)
+		return runLocalAgent(cmd, astroSpec, projectName, workingDir, envVars, hasWebInterface)
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
@@ -386,7 +395,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 }
 
 // runLocalAgent runs the agent as a local bun process and blocks until Ctrl+C.
-func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir string, envVars map[string]string, hasWebInterface bool) error {
+// projectName is the compose project name computed by composeBuilder.ProjectName,
+// used for Logs/health/Down so they match the project name used by Up.
+func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName string, workingDir string, envVars map[string]string, hasWebInterface bool) error {
 	agentCtx, agentCancel := context.WithCancel(context.Background())
 	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
 
@@ -465,7 +476,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	}
 	fmt.Printf("%s→%s Agent running as local process %s(%s)%s\n", colorCyan, colorReset, colorDim, startCommand, colorReset)
 
-	checkComposeHealth(astroSpec.Name)
+	checkComposeHealth(projectName)
 
 	// Stream docker compose logs in the background so service failures are visible
 	logsCtx, logsCancel := context.WithCancel(context.Background())
@@ -476,7 +487,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 		return fmt.Errorf("failed to init compose service for logs: %w", err)
 	}
 	go func() { //nolint:errcheck
-		_ = logsSvc.Logs(logsCtx, astroSpec.Name, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+		_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
 			api.LogOptions{Follow: true})
 	}()
 
@@ -513,7 +524,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	if err := localSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{}); err != nil {
+	if err := localSvc.Down(context.Background(), projectName, api.DownOptions{}); err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 

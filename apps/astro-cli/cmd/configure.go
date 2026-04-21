@@ -36,6 +36,18 @@ var configureSetCmd = &cobra.Command{
 	RunE:  runConfigureSet,
 }
 
+var configureUnsetCmd = &cobra.Command{
+	Use:   "unset <KEY> [KEY...]",
+	Short: "Remove one or more config variables",
+	Long: `Explicitly remove stored values for the given keys.
+
+Use this when you want to clear a value you previously set. Leaving a field
+blank in the interactive form does NOT remove the value — blanks are treated
+as "no change" so existing secrets are preserved across re-runs.`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runConfigureUnset,
+}
+
 var configureTelemetryCmd = &cobra.Command{
 	Use:   "telemetry",
 	Short: "Enable or disable anonymous telemetry",
@@ -49,6 +61,7 @@ You can also set the ASTRO_NO_TELEMETRY environment variable to disable.`,
 func init() {
 	rootCmd.AddCommand(configureCmd)
 	configureCmd.AddCommand(configureSetCmd)
+	configureCmd.AddCommand(configureUnsetCmd)
 	configureCmd.AddCommand(configureTelemetryCmd)
 
 	configureCmd.Long = fmt.Sprintf(`Interactively set credentials and input values for your agent project.
@@ -310,10 +323,17 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		printedLines += 2
 	}
 
-	// Load existing stored values; merge .env under them (stored config wins)
-	existing := config.GetProjectVars(binaryName, workingDir)
-	if existing == nil {
-		existing = make(map[string]string)
+	// Load existing stored values; merge .env under them (stored config wins).
+	// `stored` is the raw view of the project store and is used below to
+	// distinguish "preserved existing stored value" from "genuinely blank"
+	// when reporting the save summary.
+	stored := config.GetProjectVars(binaryName, workingDir)
+	if stored == nil {
+		stored = make(map[string]string)
+	}
+	existing := make(map[string]string, len(stored)+len(dotenvVars))
+	for k, v := range stored {
+		existing[k] = v
 	}
 	for k, v := range dotenvVars {
 		if existing[k] == "" {
@@ -435,12 +455,21 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	set, skipped := 0, 0
+	// MergeProjectVars skips empty values so a blank submission for a
+	// pre-filled secret preserves it. Split the counters to mirror that:
+	//   saved     — non-empty submission, will be written
+	//   preserved — blank submission but an existing stored value survives
+	//   blank     — blank submission with nothing previously stored
+	saved, preserved, blank := 0, 0, 0
 	for _, v := range allVars {
-		if newVars[v.key] != "" {
-			set++
+		if strings.TrimSpace(newVars[v.key]) != "" {
+			saved++
+			continue
+		}
+		if _, ok := stored[v.key]; ok {
+			preserved++
 		} else {
-			skipped++
+			blank++
 		}
 	}
 
@@ -448,11 +477,17 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save project config: %w", err)
 	}
 
-	fmt.Printf("\n✅ Saved %d variable(s)", set)
-	if skipped > 0 {
-		fmt.Printf(", skipped %d (left blank)", skipped)
+	fmt.Printf("\n✅ Saved %d variable(s)", saved)
+	if preserved > 0 {
+		fmt.Printf(", preserved %d existing value(s)", preserved)
+	}
+	if blank > 0 {
+		fmt.Printf(", skipped %d (left blank)", blank)
 	}
 	fmt.Println()
+	if preserved > 0 {
+		fmt.Println("ℹ️  Use `ast configure unset <KEY>` to explicitly clear a stored value.")
+	}
 	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
 
 	// Offer to delete .env if one was found
@@ -498,11 +533,49 @@ func runConfigureSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
+	/*
+		`set KEY ""` used to clobber the stored value when MergeProjectVars
+		wrote empty strings through. Now that empties are preserved, an empty
+		VALUE is explicitly routed to unset to keep the observable "clear a
+		var" behavior of `set` intact.
+	*/
+	if value == "" {
+		if err := config.UnsetProjectVars(binaryName, workingDir, []string{key}); err != nil {
+			return fmt.Errorf("failed to unset config: %w", err)
+		}
+		fmt.Printf("🗑️  Unset %s\n", key)
+		fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
+		return nil
+	}
+
 	if err := config.MergeProjectVars(binaryName, workingDir, astroSpec.Name, map[string]string{key: value}); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	fmt.Printf("✅ Set %s\n", key)
+	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
+	return nil
+}
+
+func runConfigureUnset(cmd *cobra.Command, args []string) error {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	/*
+		Unset doesn't need the spec to resolve — stored vars are keyed by the
+		project path, not by agent name. Parsing is still useful for nicer
+		error messages if the user runs it in the wrong directory, but we
+		skip it to keep `unset` usable even when the spec is temporarily
+		broken.
+	*/
+	if err := config.UnsetProjectVars(binaryName, workingDir, args); err != nil {
+		return fmt.Errorf("failed to unset config: %w", err)
+	}
+	for _, key := range args {
+		fmt.Printf("🗑️  Unset %s\n", key)
+	}
 	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
 	return nil
 }
