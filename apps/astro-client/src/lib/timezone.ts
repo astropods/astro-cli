@@ -30,8 +30,6 @@ export function useLogTimezone() {
   return { timezone, setTimezone };
 }
 
-// ── Timezone option list ───────────────────────────────────────────────────────
-
 export interface TimezoneOption {
   value: string;
   label: string;

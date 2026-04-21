@@ -1,12 +1,8 @@
-// ── Structured log entry ───────────────────────────────────────────────────────
-
 export interface LogEntry {
   timestamp: string | null;
   level: string | null;
   message: string;
 }
-
-// ── Level normalisation ────────────────────────────────────────────────────────
 
 export type LogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL";
 
@@ -36,8 +32,6 @@ export function levelColorClass(level: string | null): string {
   if (normalized === "DEBUG" || normalized === "TRACE") return "text-faint-foreground";
   return "text-foreground";
 }
-
-// ── Timestamp formatting ───────────────────────────────────────────────────────
 
 const FMT_TS_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/;
 

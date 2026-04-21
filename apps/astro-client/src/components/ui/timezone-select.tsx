@@ -6,8 +6,6 @@ import { cn } from "@/lib/utils";
 import { TIMEZONE_OPTIONS, type TimezoneOption } from "@/lib/timezone";
 import { inputBase, inputFocusVisible } from "./input";
 
-// ── Inner list — mounts fresh each time the popover opens ────────────────────
-
 interface TimezoneListProps {
   value: string;
   items: TimezoneOption[];
@@ -35,7 +33,7 @@ function TimezoneList({ value, items, searchRef, onSelect }: TimezoneListProps) 
 
   return (
     <div ref={scrollRef} className="h-[300px] overflow-y-auto">
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((vItem) => {
           const option = items[vItem.index];
           const isSelected = option.value === value;
@@ -44,16 +42,9 @@ function TimezoneList({ value, items, searchRef, onSelect }: TimezoneListProps) 
               key={vItem.key}
               type="button"
               onClick={() => onSelect(option.value)}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: `${vItem.size}px`,
-                transform: `translateY(${vItem.start}px)`,
-              }}
+              style={{ height: `${vItem.size}px`, transform: `translateY(${vItem.start}px)` }}
               className={cn(
-                "flex items-center px-3 text-body-sm text-foreground hover:bg-muted transition-colors text-left",
+                "absolute top-0 left-0 w-full flex items-center px-3 text-body-sm text-foreground hover:bg-muted transition-colors text-left",
                 isSelected && "bg-muted font-medium",
               )}
             >
@@ -65,8 +56,6 @@ function TimezoneList({ value, items, searchRef, onSelect }: TimezoneListProps) 
     </div>
   );
 }
-
-// ── Public component ──────────────────────────────────────────────────────────
 
 interface TimezoneSelectProps {
   value: string;
@@ -139,7 +128,6 @@ export function TimezoneSelect({ value, onValueChange, className }: TimezoneSele
             />
           </div>
 
-          {/* Virtualized list — mounted fresh on each open */}
           <TimezoneList
             value={value}
             items={filtered}
