@@ -176,6 +176,62 @@ func writeRawProjectConfig(binaryName, rawKey, agentName string, vars map[string
 	return SaveProjectConfigs(binaryName, cfg)
 }
 
+// TestCanonicalizeProjectKeys_CanonicalWinsDeterministic pins the contract
+// broken by an earlier implementation that relied on Go's randomized map
+// iteration: when a stored file holds both a legacy raw key and its canonical
+// counterpart for the same project, the canonical entry's values must win
+// every time regardless of iteration order. Ran 50x because the bug only
+// surfaces on specific randomizations.
+func TestCanonicalizeProjectKeys_CanonicalWinsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	if resolved == dir {
+		t.Skip("temp dir is already canonical — cannot exercise legacy/canonical collision")
+	}
+
+	for i := 0; i < 50; i++ {
+		cfg := &ProjectConfigs{Projects: map[string]*ProjectConfig{
+			dir: {Name: "legacy", Vars: map[string]string{
+				"FOO":       "old",
+				"LEGACY":    "kept",
+				"SHARED":    "legacy-version",
+			}},
+			resolved: {Name: "canonical", Vars: map[string]string{
+				"FOO":    "new",
+				"FRESH":  "only-here",
+				"SHARED": "canonical-version",
+			}},
+		}}
+		canonicalizeProjectKeys(cfg)
+
+		proj, ok := cfg.Projects[resolved]
+		if !ok {
+			t.Fatalf("run %d: no canonical entry after canonicalize", i)
+		}
+		if proj.Name != "canonical" {
+			t.Errorf("run %d: Name = %q, want canonical", i, proj.Name)
+		}
+		if proj.Vars["FOO"] != "new" {
+			t.Errorf("run %d: FOO = %q, want new (canonical must win)", i, proj.Vars["FOO"])
+		}
+		if proj.Vars["SHARED"] != "canonical-version" {
+			t.Errorf("run %d: SHARED = %q, want canonical-version", i, proj.Vars["SHARED"])
+		}
+		if proj.Vars["LEGACY"] != "kept" {
+			t.Errorf("run %d: LEGACY = %q, want kept (legacy-only keys must survive)", i, proj.Vars["LEGACY"])
+		}
+		if proj.Vars["FRESH"] != "only-here" {
+			t.Errorf("run %d: FRESH = %q, want only-here", i, proj.Vars["FRESH"])
+		}
+		if _, ok := cfg.Projects[dir]; ok {
+			t.Errorf("run %d: legacy key still present after canonicalize", i)
+		}
+	}
+}
+
 // TestProjectPath_CreateMatchesConfigure exercises the create→configure hand-off:
 // `ast create` stores vars keyed by filepath.Abs(targetDir), `ast configure` later
 // reads/writes them keyed by os.Getwd(). On a real user flow the two must resolve

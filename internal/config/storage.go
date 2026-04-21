@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
@@ -60,20 +61,52 @@ func LoadProjectConfigs(binaryName string) (*ProjectConfigs, error) {
 // canonicalizeProjectKeys rewrites project keys to their symlink-resolved form
 // in-place. Older CLIs stored keys as computed by `filepath.Abs` (which does
 // not resolve symlinks), but the rest of the CLI now looks up with
-// `os.Getwd()`-style canonical paths. Collisions between a raw and canonical
-// key are merged: stored values from the un-canonicalized entry win only for
-// keys missing on the canonical entry, so live configs never get silently
-// overwritten by stale ones.
+// `os.Getwd()`-style canonical paths.
+//
+// When a stored file contains both a legacy raw key (e.g. "/var/.../proj")
+// and its symlink-resolved canonical key (e.g. "/private/var/.../proj"), the
+// canonical entry wins on every field; the legacy entry only fills in keys
+// the canonical entry was missing. This ordering is enforced by walking the
+// map in two deterministic passes rather than relying on Go's randomized
+// map iteration order, which previously made the "canonical wins" rule
+// non-deterministic.
 func canonicalizeProjectKeys(cfg *ProjectConfigs) {
 	if len(cfg.Projects) == 0 {
 		return
 	}
+	paths := make([]string, 0, len(cfg.Projects))
+	for p := range cfg.Projects {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
 	canonical := make(map[string]*ProjectConfig, len(cfg.Projects))
-	for path, proj := range cfg.Projects {
+	// Pass 1: seed the map with entries that are already canonical. These
+	// are authoritative — their Vars and Name values win against any
+	// legacy entry that resolves to the same canonical key.
+	for _, path := range paths {
+		proj := cfg.Projects[path]
+		if proj == nil {
+			continue
+		}
+		if canonicalProjectPath(path) == path {
+			canonical[path] = proj
+		}
+	}
+	// Pass 2: fold in legacy entries (raw key != canonical key). If no
+	// authoritative entry exists the legacy entry is adopted as-is;
+	// otherwise it only fills in vars/metadata the canonical entry lacks,
+	// so a stale legacy value cannot silently overwrite a live canonical
+	// one.
+	for _, path := range paths {
+		proj := cfg.Projects[path]
 		if proj == nil {
 			continue
 		}
 		key := canonicalProjectPath(path)
+		if key == path {
+			continue
+		}
 		existing, ok := canonical[key]
 		if !ok {
 			canonical[key] = proj
