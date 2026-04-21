@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import type { Route } from "./+types/NewKnowledgeStore";
 import {
@@ -153,9 +153,13 @@ const CLOUD_CONSOLE: Record<string, {
 function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
   const cloud = store.endpoint ? (CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws) : null;
   const consoleUrl = cloud && store.endpoint ? cloud.url(store.endpoint.region, store.endpoint.endpoint_id) : "#";
+  const containerRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="mx-auto max-w-lg flex flex-col gap-4">
+    <div ref={containerRef} className="relative mx-auto max-w-lg flex flex-col gap-4">
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+        <LiveRevealConfetti containerRef={containerRef} speed={2} />
+      </div>
 
       {/* Heading */}
       <div className="flex flex-col items-center text-center gap-1.5 mb-2">
@@ -391,11 +395,12 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
   const modeLabel = store.mode === "managed" ? "Managed" : "External";
   const yamlSnippet = `knowledge:\n  - store: ${store.name}\n    as: ${store.name.split("-")[0]}`;
   const cliCommand = `ast dev --source ${store.name}`;
+  const containerRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="mx-auto max-w-lg">
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <LiveRevealConfetti />
+    <div ref={containerRef} className="relative mx-auto max-w-lg">
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+        <LiveRevealConfetti containerRef={containerRef} speed={2} />
       </div>
       {/* Header */}
       <div className="flex flex-col items-center text-center mb-9 gap-3.5">

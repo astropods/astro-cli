@@ -2,9 +2,10 @@ import { useEffect, useRef, type RefObject } from "react";
 
 interface LiveRevealConfettiProps {
   containerRef?: RefObject<HTMLElement | null>;
+  speed?: number;
 }
 
-export function LiveRevealConfetti({ containerRef }: LiveRevealConfettiProps = {}) {
+export function LiveRevealConfetti({ containerRef, speed = 1 }: LiveRevealConfettiProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -45,8 +46,8 @@ export function LiveRevealConfetti({ containerRef }: LiveRevealConfettiProps = {
       pieces.push({
         x: Math.random() * canvas.width,
         y: -10 - Math.random() * 200,
-        vx: (Math.random() - 0.5) * 3.1,
-        vy: 2.1 + Math.random() * 3.6,
+        vx: (Math.random() - 0.5) * 3.1 * speed,
+        vy: (2.1 + Math.random() * 3.6) * speed,
         rot: Math.random() * Math.PI * 2,
         vr: (Math.random() - 0.5) * 0.14,
         w: 6 + Math.random() * 8,
@@ -65,7 +66,7 @@ export function LiveRevealConfetti({ containerRef }: LiveRevealConfettiProps = {
         piece.x += piece.vx;
         piece.y += piece.vy;
         piece.rot += piece.vr;
-        piece.vy += 0.045;
+        piece.vy += 0.045 * speed;
         if (piece.y < canvas.height + 20) alive = true;
 
         ctx.save();
