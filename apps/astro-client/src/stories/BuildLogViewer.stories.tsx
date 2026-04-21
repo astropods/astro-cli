@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { BuildLogViewer, type BuildLogComponentData } from "@/components/blueprint-detail/BuildLogViewer";
 
 const meta = {
@@ -136,19 +136,14 @@ function DialogStory({ components, isLoading, isError }: {
   return (
     <Dialog open>
       <DialogContent className="sm:max-w-3xl gap-0 p-0">
-        <DialogHeader className="px-4 pt-4 pb-3 border-b">
-          <DialogTitle className="text-sm font-medium">
-            Build logs: <span className="font-mono">bld_abc123</span>{" "}
-            <span className="text-muted-foreground font-normal">· a1b2c3d</span>
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {components.length > 0
-              ? `${components.length} component${components.length !== 1 ? "s" : ""}`
-              : "Last 500 lines per container"}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="overflow-y-auto max-h-[65vh] rounded-b-lg">
-          <BuildLogViewer components={components} isLoading={isLoading} isError={isError} />
+        <div className="overflow-y-auto max-h-[75vh] rounded-lg">
+          <BuildLogViewer
+            commitSha="a1b2c3d"
+            buildId="bld_abc123"
+            components={components}
+            isLoading={isLoading}
+            isError={isError}
+          />
         </div>
       </DialogContent>
     </Dialog>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2, Github, ArrowRight } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import {
@@ -8,6 +8,8 @@ import {
   formatLogTimestamp,
   type LogEntry,
 } from "@/lib/log-utils";
+import astroLogo from "@/assets/astro-logo.svg";
+import astroLogoDark from "@/assets/astro-logo-dark.svg";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,8 @@ export interface BuildLogComponentData {
 }
 
 export interface BuildLogViewerProps {
+  commitSha?: string;
+  buildId?: string;
   components?: BuildLogComponentData[];
   isLoading?: boolean;
   isError?: boolean;
@@ -117,7 +121,7 @@ function LogLines({ entries }: { entries: LogEntry[] }) {
 
 // ── BuildLogViewer ────────────────────────────────────────────────────────────
 
-export function BuildLogViewer({ components = [], isLoading, isError }: BuildLogViewerProps) {
+export function BuildLogViewer({ commitSha, buildId, components = [], isLoading, isError }: BuildLogViewerProps) {
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
     () => new Set(components.length > 0 ? [components[0].name] : [])
   );
@@ -163,7 +167,34 @@ export function BuildLogViewer({ components = [], isLoading, isError }: BuildLog
   }
 
   return (
-    <div className="divide-y divide-border">
+    <div>
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 border-b border-border">
+        <p className="text-sm font-semibold">Build Logs</p>
+        {(commitSha || buildId) && (
+          <div className="flex items-center gap-2 mt-1">
+            {commitSha && (
+              <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                <Github className="h-3.5 w-3.5 shrink-0" />
+                {commitSha}
+              </span>
+            )}
+            {commitSha && buildId && (
+              <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+            )}
+            {buildId && (
+              <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                <img src={astroLogo} alt="Astro" className="h-3.5 dark:hidden shrink-0" />
+                <img src={astroLogoDark} alt="Astro" className="h-3.5 hidden dark:block shrink-0" />
+                {buildId}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Accordion */}
+      <div className="divide-y divide-border">
       {components.map((comp) => {
         const compOpen = expandedComponents.has(comp.name);
         const sections = parseLogSections(comp.logs || "");
@@ -225,6 +256,7 @@ export function BuildLogViewer({ components = [], isLoading, isError }: BuildLog
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

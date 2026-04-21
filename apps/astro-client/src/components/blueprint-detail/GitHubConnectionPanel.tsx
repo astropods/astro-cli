@@ -397,20 +397,10 @@ function BuildLogsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl gap-0 p-0">
-        <DialogHeader className="px-4 pt-4 pb-3 border-b">
-          <DialogTitle className="text-sm font-medium">
-            Build logs: <span className="font-mono">{buildId}</span>{" "}
-            <span className="text-muted-foreground font-normal">· {commitSha}</span>
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {componentLogs.length > 0
-              ? `${componentLogs.length} component${componentLogs.length !== 1 ? "s" : ""}`
-              : "Last 500 lines per container"}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="overflow-y-auto max-h-[65vh] rounded-b-lg">
+        <div className="overflow-y-auto max-h-[75vh] rounded-lg">
           <BuildLogViewer
+            commitSha={commitSha}
+            buildId={buildId}
             components={componentLogs}
             isLoading={isLoading}
             isError={isError}
