@@ -3,6 +3,7 @@ import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outlin
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { blueprintsPaths } from "@/lib/routes";
@@ -108,6 +109,17 @@ export function BlueprintDetailBreadcrumb({
         { label: "Blueprints", to: "/blueprints" },
         { label: account, to: blueprintsPaths.account(account) },
         { label: blueprintName },
+      ]}
+      mobileItems={[
+        {
+          label: (
+            <span className="inline-flex items-center gap-2">
+              <UserAvatar handle={account} name={account} className="size-5" />
+              {account}
+            </span>
+          ),
+          to: blueprintsPaths.account(account),
+        },
       ]}
       actions={
         <>

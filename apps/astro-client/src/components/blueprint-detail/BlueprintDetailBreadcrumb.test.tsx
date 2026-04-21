@@ -19,8 +19,10 @@ describe("BlueprintDetailBreadcrumb", () => {
     expect(screen.getByText("Blueprints")).toBeInTheDocument();
     expect(screen.getByText("signal-watcher")).toBeInTheDocument();
 
-    const accountLink = screen.getByRole("link", { name: "acme" });
-    expect(accountLink).toBeInTheDocument();
-    expect(accountLink).toHaveAttribute("href", "/blueprints/acme");
+    const accountLinks = screen.getAllByRole("link", { name: /acme/i });
+    expect(accountLinks.length).toBeGreaterThan(0);
+    for (const link of accountLinks) {
+      expect(link).toHaveAttribute("href", "/blueprints/acme");
+    }
   });
 });
