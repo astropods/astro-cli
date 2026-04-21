@@ -411,46 +411,44 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
 
       <div className="space-y-3 mb-7">
         {/* Store info card */}
-        <div className="rounded-lg overflow-hidden border border-border bg-surface">
-          <div className="flex items-center gap-3 px-4 py-4 border-b border-border/60">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+        <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+          <div className="flex items-center gap-3 px-4 py-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
               <ProviderIcon provider={store.provider} className="size-5" />
             </div>
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground">{store.name}</span>
-              <p className="mt-0.5 text-body-sm text-muted-foreground">
-                {PROVIDER_LABELS[store.provider]} &middot; {modeLabel}
-              </p>
+              <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[store.provider]}</p>
             </div>
-            <StatusBadge color="success" indicator>Online</StatusBadge>
-          </div>
-          <div className="flex items-center gap-3 px-5 py-3.5">
-            <div className="flex-1 min-w-0 flex flex-col gap-1">
-              <p className="font-mono text-mono-sm uppercase tracking-[0.08em] text-muted-foreground">
-                Astro Resource Name (ARN)
-              </p>
-              <code className="font-mono text-body-sm text-foreground">{store.arn}</code>
+            <div className="flex items-center gap-2 shrink-0">
+              <Tag color={store.mode === "managed" ? "blue" : "default"}>{modeLabel}</Tag>
+              <StatusBadge color="success" indicator>Online</StatusBadge>
             </div>
-            <CopyButton copyText={store.arn} />
           </div>
         </div>
 
         {/* YAML + CLI card */}
-        <div className="rounded-lg overflow-hidden border border-border bg-surface">
+        <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
           {/* YAML section */}
           <div className="flex flex-col gap-2.5 px-5 pt-4 pb-3.5 border-b border-border/60">
             <p className="font-medium text-body text-foreground">Use in your agent</p>
-            <div className="relative rounded-md bg-muted px-3.5 py-3 pr-11">
-              <pre className="whitespace-pre font-mono text-mono-sm text-foreground">{yamlSnippet}</pre>
-              <CopyButton copyText={yamlSnippet} className="absolute top-2 right-2 shrink-0" />
+            <div className="flex items-center justify-between gap-3 rounded-sm bg-stone-200 px-4 py-2 font-mono text-mono-sm text-foreground">
+              <div className="flex-1 min-w-0 overflow-x-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.stone.400)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-400">
+                <pre className="whitespace-pre leading-relaxed text-foreground">{yamlSnippet}</pre>
+              </div>
+              <CopyButton copyText={yamlSnippet} className="shrink-0 border-stone-200 bg-stone-200 hover:bg-stone-200 text-stone-500 hover:text-stone-700" />
             </div>
           </div>
           {/* CLI section */}
           <div className="flex flex-col gap-2.5 px-5 pt-4 pb-3.5">
             <p className="font-medium text-body text-foreground">CLI shortcut</p>
-            <div className="relative rounded-md bg-muted px-3.5 py-2.5 pr-11">
-              <code className="font-mono text-mono-sm text-foreground">{cliCommand}</code>
-              <CopyButton copyText={cliCommand} className="absolute top-1/2 -translate-y-1/2 right-2 shrink-0" />
+            <div className="flex items-center justify-between gap-3 rounded-sm bg-stone-200 px-4 py-2 font-mono text-mono-sm text-foreground">
+              <div className="flex-1 min-w-0 overflow-x-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.stone.400)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-stone-400">
+                <code className="whitespace-nowrap text-foreground">
+                  <span className="mr-2 text-muted-foreground">$</span>{cliCommand}
+                </code>
+              </div>
+              <CopyButton copyText={cliCommand} className="shrink-0 border-stone-200 bg-stone-200 hover:bg-stone-200 text-stone-500 hover:text-stone-700" />
             </div>
           </div>
         </div>
@@ -464,7 +462,7 @@ function SuccessStage({ store }: { store: KnowledgeStore }) {
           </Link>
         </Button>
         <Button variant="ghost" asChild>
-          <Link to={knowledgePath}>Back to Knowledge Stores</Link>
+          <Link to={knowledgePath}>Back to all stores</Link>
         </Button>
       </div>
     </div>
