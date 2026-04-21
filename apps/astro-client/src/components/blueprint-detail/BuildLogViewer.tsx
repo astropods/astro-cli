@@ -83,7 +83,7 @@ function statusClass(status: string) {
 
 function LogLines({ entries }: { entries: LogEntry[] }) {
   if (entries.length === 0) {
-    return <p className="font-mono text-mono-sm text-faint-foreground py-2 pl-[18px]">(empty)</p>;
+    return <p className="font-mono text-mono-sm text-faint-foreground py-2 pl-14">(empty)</p>;
   }
   return (
     <>
@@ -93,7 +93,7 @@ function LogLines({ entries }: { entries: LogEntry[] }) {
         return (
           <div
             key={i}
-            className="flex items-baseline gap-x-3 px-[18px] py-[1px] font-mono text-mono-sm tracking-normal leading-5"
+            className="flex items-baseline gap-x-3 pl-14 pr-4 py-[1px] font-mono text-mono-sm tracking-normal leading-5"
           >
             {entry.timestamp ? (
               <span className="text-faint-foreground shrink-0 w-[24ch]">
