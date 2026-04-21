@@ -1207,7 +1207,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Kind:       "Deployment",
 			Component:  component,
 			Age:        formatAge(dep.CreationTimestamp.Time),
-			Containers: containersFromSpec(dep.Spec.Template.Spec.Containers),
+			Containers: containersFromSpec(dep.Spec.Template.Spec),
 		}
 		if urls, ok := workloadURLs[key+":"+component]; ok {
 			wl.URLs = urls
@@ -1251,7 +1251,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Kind:       "StatefulSet",
 			Component:  component,
 			Age:        formatAge(sts.CreationTimestamp.Time),
-			Containers: containersFromSpec(sts.Spec.Template.Spec.Containers),
+			Containers: containersFromSpec(sts.Spec.Template.Spec),
 		}
 		if urls, ok := workloadURLs[key+":"+component]; ok {
 			wl.URLs = urls
@@ -1458,10 +1458,13 @@ func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient,
 
 // containersFromSpec returns a ContainerStatus list with only names populated from a pod template spec.
 // Runtime fields (State, Ready, RestartCount) are left zero and enriched later if a pod is found.
-func containersFromSpec(specContainers []corev1.Container) []ContainerStatus {
-	out := make([]ContainerStatus, len(specContainers))
-	for i, c := range specContainers {
+func containersFromSpec(podSpec corev1.PodSpec) []ContainerStatus {
+	out := make([]ContainerStatus, len(podSpec.Containers)+len(podSpec.InitContainers))
+	for i, c := range podSpec.Containers {
 		out[i] = ContainerStatus{Name: c.Name}
+	}
+	for i, c := range podSpec.InitContainers {
+		out[len(podSpec.Containers)+i] = ContainerStatus{Name: c.Name}
 	}
 	return out
 }
