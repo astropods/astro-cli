@@ -15,7 +15,7 @@ type RepoPickerProps = {
   selectedBranch: string;
   isLoadingRepos: boolean;
   repos: GitHubRepo[];
-  connections: Connection[] | undefined;
+  connections?: Connection[];
   onSelectRepo: (repo: GitHubRepo | null) => void;
   onSelectBranch: (branch: string) => void;
   onSearchChange: (q: string) => void;
