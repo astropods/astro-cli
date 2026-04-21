@@ -182,13 +182,10 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {latestBuild && (
-              <>
-                <DropdownMenuItem onClick={() => setLogsOpen(true)}>
-                  <ScrollText className="h-3.5 w-3.5" />
-                  Build Logs
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
+              <DropdownMenuItem onClick={() => setLogsOpen(true)}>
+                <ScrollText className="h-3.5 w-3.5" />
+                Build Logs
+              </DropdownMenuItem>
             )}
             <DropdownMenuItem
               onClick={() => rebuild.mutate()}
@@ -245,7 +242,7 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
       {status.builds.length > 0 && (
         <div className="space-y-1">
           {status.builds.slice(0, 2).map((build) => (
-            <BuildRow key={build.id} build={build} account={account} name={name} />
+            <BuildRow key={build.id} build={build} />
           ))}
         </div>
       )}
@@ -260,8 +257,18 @@ const BUILD_STEPS = [
   { key: "registering",   label: "Registering" },
 ] as const;
 
-function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
-  const [logsOpen, setLogsOpen] = useState(false);
+
+function elapsedLabel(from: string, to?: string | null): string {
+  const start = new Date(from).getTime();
+  const end = to ? new Date(to).getTime() : Date.now();
+  const s = Math.floor((end - start) / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+function BuildRow({ build }: { build: GitHubBuild }) {
   const isActive = build.status === "pending" || build.status === "building";
 
   const title = build.commit_message
@@ -270,10 +277,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
 
   return (
     <>
-      <div
-        className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs cursor-pointer hover:bg-muted/40 transition-colors"
-        onClick={() => setLogsOpen(true)}
-      >
+      <div className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs">
         {/* Row 1: title */}
         <span className={cn(
           "block leading-snug font-medium truncate",
@@ -337,15 +341,6 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
         )}
 
       </div>
-      <BuildLogsDialog
-        account={account}
-        name={name}
-        buildId={build.build_id}
-        commitSha={build.commit_sha?.slice(0, 7) ?? "unknown"}
-        isActive={isActive}
-        open={logsOpen}
-        onOpenChange={setLogsOpen}
-      />
     </>
   );
 }
