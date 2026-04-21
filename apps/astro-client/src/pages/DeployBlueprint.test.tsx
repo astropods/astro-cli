@@ -232,6 +232,101 @@ describe('DeployBlueprint page', () => {
     });
   });
 
+  // ── Vault Picker in Slack Credentials ────────────────────────────
+
+  describe('vault picker in Slack credentials', () => {
+    async function enableSlack(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+    }
+
+    it('shows vault key buttons on Slack token fields when Slack is enabled', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      // Slack Bot Token + Slack App Token each have a vault key button
+      const keyButtons = screen.getAllByTitle('Insert vault reference');
+      expect(keyButtons.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('shows vault entries in Slack token picker when account has variables', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'MY_SLACK_BOT_TOKEN', description: 'Slack bot token', secret: true },
+              { name: 'MY_SLACK_APP_TOKEN', description: 'Slack app token', secret: true },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      // Slack fields are rendered before the Configuration section, so index 0 is Slack Bot Token
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('MY_SLACK_BOT_TOKEN')).toBeInTheDocument();
+        expect(screen.getByText('MY_SLACK_APP_TOKEN')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('No variables yet')).not.toBeInTheDocument();
+    });
+
+    it('shows empty state in Slack token picker when account has no variables', async () => {
+      // Default handler in handlers.ts returns { variables: [] }
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('No variables yet')).toBeInTheDocument();
+      });
+    });
+
+    it('inserts vault reference into Slack token field on selection', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'MY_BOT_TOKEN', description: 'Bot token', secret: true },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('MY_BOT_TOKEN')).toBeInTheDocument();
+      });
+      await user.click(screen.getByText('MY_BOT_TOKEN'));
+
+      await waitFor(() => {
+        // Input replaced by vault reference chip
+        expect(screen.getByRole('button', { name: 'Clear vault reference' })).toBeInTheDocument();
+      });
+    });
+  });
+
   // ── Credential Fields ─────────────────────────────────────────────
 
   describe('credential fields', () => {
@@ -263,6 +358,88 @@ describe('DeployBlueprint page', () => {
 
       expect(screen.queryByText('Configuration')).not.toBeInTheDocument();
       expect(screen.queryByText('Optional credentials')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── Vault Picker in Credential Fields ────────────────────────────
+
+  describe('vault picker in credential fields', () => {
+    it('shows vault key buttons on regular credential fields', async () => {
+      renderInstall();
+      await waitForForm();
+
+      // OPENAI_API_KEY (secret) and SENTRY_DSN (text) both have a key button
+      const keyButtons = screen.getAllByTitle('Insert vault reference');
+      expect(keyButtons.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('shows vault entries in credential field picker when account has variables', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'OPENAI_KEY', description: 'OpenAI key', secret: true },
+              { name: 'SENTRY_TOKEN', description: 'Sentry token', secret: false },
+            ],
+          }),
+        ),
+      );
+
+      renderInstall();
+      await waitForForm();
+
+      // With Slack disabled, the first key button belongs to OPENAI_API_KEY
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await userEvent.setup().click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('OPENAI_KEY')).toBeInTheDocument();
+        expect(screen.getByText('SENTRY_TOKEN')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('No variables yet')).not.toBeInTheDocument();
+    });
+
+    it('shows empty state in credential field picker when account has no variables', async () => {
+      // Default handler in handlers.ts returns { variables: [] }
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('No variables yet')).toBeInTheDocument();
+      });
+    });
+
+    it('inserts vault reference into credential field on selection', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'MY_OPENAI_KEY', description: 'OpenAI key', secret: true },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('MY_OPENAI_KEY')).toBeInTheDocument();
+      });
+      await user.click(screen.getByText('MY_OPENAI_KEY'));
+
+      await waitFor(() => {
+        // Input replaced by vault reference chip
+        expect(screen.getByRole('button', { name: 'Clear vault reference' })).toBeInTheDocument();
+      });
     });
   });
 

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
+import type { AccountVariable } from "@/lib/api";
 
 /** Brand icons manage their own color; generic icons inherit from parent. */
 const ADAPTER_ICONS: Record<string, { icon: ReactNode; isBrand?: boolean }> = {
@@ -27,6 +28,8 @@ export interface InterfacesPickerProps {
   credentialLayoutByAdapter?: Record<string, "below" | "inline-card">;
   webAuthEnabled?: boolean;
   onWebAuthChange?: (enabled: boolean) => void;
+  vaultEntries?: AccountVariable[];
+  vaultSettingsUrl?: string;
 }
 
 export function InterfacesPicker({
@@ -40,6 +43,8 @@ export function InterfacesPicker({
   credentialLayoutByAdapter,
   webAuthEnabled,
   onWebAuthChange,
+  vaultEntries,
+  vaultSettingsUrl,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
     onChange(selected.includes(id) ? selected.filter((a) => a !== id) : [...selected, id]);
@@ -110,6 +115,8 @@ export function InterfacesPicker({
                     values={adapterCredentials}
                     onChange={onAdapterCredentialsChange}
                     errorKeys={adapterErrorKeys}
+                    vaultEntries={vaultEntries}
+                    vaultSettingsUrl={vaultSettingsUrl}
                   />
                 </div>
               )}
@@ -141,6 +148,8 @@ export function InterfacesPicker({
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
                   errorKeys={adapterErrorKeys}
+                  vaultEntries={vaultEntries}
+                  vaultSettingsUrl={vaultSettingsUrl}
                 />
               </div>
             )}

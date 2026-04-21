@@ -182,6 +182,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
           webAuthEnabled={form.webAuthEnabled}
           onWebAuthChange={form.setWebAuthEnabled}
+          vaultEntries={form.vaultEntries}
+          vaultSettingsUrl={form.vaultSettingsUrl}
         />
       </FormSection>
 
