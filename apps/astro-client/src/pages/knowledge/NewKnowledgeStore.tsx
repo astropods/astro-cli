@@ -7,7 +7,6 @@ import {
   CheckIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
-  ClockIcon,
 } from "@heroicons/react/24/outline";
 import { CircleStackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -39,7 +38,7 @@ import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeProvider, KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { ErrorPanel, WarningPanel } from "@/components/ui/status-panel";
+import { ErrorPanel } from "@/components/ui/status-panel";
 import { CopyButton } from "@/components/ui/copy-button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
@@ -123,24 +122,28 @@ function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }
 }
 
 const CLOUD_CONSOLE: Record<string, {
+  stepTitle: string;
   label: string;
   description: string;
   url: (region: string, endpointId?: string) => string;
 }> = {
   aws: {
+    stepTitle: "Approve the VPC Endpoint request",
     label: "Open AWS Console ↗",
-    description: "Open your AWS Console, navigate to VPC → Endpoints, and approve the pending connection request from Astro. The store will activate automatically once accepted.",
+    description: "In AWS Console, go to VPC → Endpoints and approve the pending connection from Astro.",
     url: (region, endpointId) =>
       `https://console.aws.amazon.com/vpc/home?region=${region}#Endpoints:${endpointId ? `endpointId=${endpointId}` : ""}`,
   },
   gcp: {
+    stepTitle: "Approve the Private Service Connect endpoint",
     label: "Open GCP Console ↗",
-    description: "Open your GCP Console, navigate to Private Service Connect, and approve the pending endpoint request from Astro. The store will activate automatically once accepted.",
+    description: "In GCP Console, go to Private Service Connect and approve the pending endpoint request from Astro.",
     url: () => "https://console.cloud.google.com/net-services/psc/list/endpoints",
   },
   azure: {
+    stepTitle: "Approve the Private Endpoint connection",
     label: "Open Azure Portal ↗",
-    description: "Open your Azure Portal, navigate to Private Link Center → Pending connections, and approve the request from Astro. The store will activate automatically once accepted.",
+    description: "In Azure Portal, go to Private Link Center → Pending connections and approve the request from Astro.",
     url: () => "https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.Network%2FprivateEndpoints",
   },
 };
@@ -148,48 +151,14 @@ const CLOUD_CONSOLE: Record<string, {
 // --- Pending acceptance stage (PrivateLink) ---
 
 function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
+  const cloud = store.endpoint ? (CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws) : null;
+  const consoleUrl = cloud && store.endpoint ? cloud.url(store.endpoint.region, store.endpoint.endpoint_id) : "#";
+
   return (
-    <div className="mx-auto max-w-lg flex flex-col items-center">
-
-      {/* Stepper */}
-      <div className="flex items-center mb-10">
-        {/* Step 1 — Registered (complete) */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-full bg-teal-600 shrink-0">
-            <CheckIcon className="size-3.5 text-white stroke-[2]" />
-          </div>
-          <span className="text-body-sm font-medium text-teal-600 w-max">Registered</span>
-        </div>
-
-        {/* Connector (complete) */}
-        <div className="w-14 h-px mb-5 shrink-0 bg-teal-600" />
-
-        {/* Step 2 — Awaiting approval (current) */}
-        <div className="flex flex-col items-center gap-2">
-          <div
-            className="flex size-7 items-center justify-center rounded-full border shrink-0"
-            style={{
-              background: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
-              borderColor: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
-            }}
-          >
-            <ClockIcon className="size-3.5 text-yellow-600 stroke-[1.75]" />
-          </div>
-          <span className="text-body-sm font-semibold text-yellow-600 w-max">Awaiting approval</span>
-        </div>
-
-        {/* Connector (pending) */}
-        <div className="w-14 h-px mb-5 shrink-0 bg-border" />
-
-        {/* Step 3 — Connected (pending) */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="size-7 rounded-full border-[1.5px] border-border shrink-0" />
-          <span className="text-body-sm text-muted-foreground w-max">Connected</span>
-        </div>
-      </div>
+    <div className="mx-auto max-w-lg flex flex-col gap-4">
 
       {/* Heading */}
-      <div className="flex flex-col items-center text-center mb-9 gap-1.5">
+      <div className="flex flex-col items-center text-center gap-1.5">
         <h2 className="text-heading-1 text-foreground">Complete your PrivateLink setup</h2>
         <p className="text-body text-muted-foreground max-w-sm">
           Your store is registered. Follow these steps to finish connecting it.
@@ -197,13 +166,13 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
       </div>
 
       {/* Store card */}
-      <div className="w-full rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
         <div className="flex items-center gap-3 px-4 py-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
             <ProviderIcon provider={store.provider} className="size-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground">{store.name}</span>
+            <p className="font-medium leading-tight text-foreground">{store.name}</p>
             <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[store.provider]}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -229,26 +198,58 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
         )}
       </div>
 
-      {/* Action required banner */}
-      {store.endpoint && (() => {
-        const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
-        const url = cloud.url(store.endpoint.region, store.endpoint.endpoint_id);
-        return (
-          <div className="w-full mt-4">
-            <WarningPanel
-              title="Action required in your cloud console"
-              buttonLabel={cloud.label}
-              onButton={() => window.open(url, "_blank")}
-            >
-              {cloud.description}
-            </WarningPanel>
+      {/* Steps card */}
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
+
+        {/* Step 1 — Complete */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-600 mt-0.5">
+            <CheckIcon className="size-3.5 text-white stroke-[2]" />
           </div>
-        );
-      })()}
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-body font-medium text-muted-foreground line-through">Store registered in Astro</p>
+            <p className="mt-0.5 text-body-sm text-muted-foreground">Your store and PrivateLink endpoint ID were saved.</p>
+          </div>
+        </div>
+
+        {/* Step 2 — Active */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5"
+            style={{
+              background: "color-mix(in oklch, var(--color-yellow-600) 12%, transparent)",
+              borderColor: "color-mix(in oklch, var(--color-yellow-600) 28%, transparent)",
+            }}
+          >
+            <span className="text-body-sm font-semibold text-yellow-700">2</span>
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-body font-semibold text-foreground">{cloud?.stepTitle ?? "Approve the endpoint request"}</p>
+            <p className="mt-1 text-body-sm text-muted-foreground">{cloud?.description}</p>
+            {cloud && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => window.open(consoleUrl, "_blank")}>
+                {cloud.label}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Step 3 — Locked */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border mt-0.5">
+            <span className="text-body-sm font-medium text-muted-foreground">3</span>
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-body font-medium text-faint-foreground">Astro verifies your connection</p>
+            <p className="mt-0.5 text-body-sm text-faint-foreground">Happens automatically after you approve.</p>
+          </div>
+        </div>
+
+      </div>
 
       {/* Live events */}
       {(store.events ?? []).length > 0 && (
-        <div className="mt-4 w-full space-y-2">
+        <div className="space-y-2">
           {(store.events ?? []).map((event, i) => {
             const isWarning = event.type === "Warning";
             return (
@@ -272,6 +273,16 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
           })}
         </div>
       )}
+
+      {/* Actions */}
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" className="pl-0" asChild>
+          <Link to={knowledgePath}>&larr; Back to stores</Link>
+        </Button>
+        <Button asChild>
+          <Link to={knowledgeDetailPath(store.name)}>View store &rarr;</Link>
+        </Button>
+      </div>
 
     </div>
   );
