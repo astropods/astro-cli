@@ -169,46 +169,49 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
         </p>
       </div>
 
-      {/* Steps card — store header + steps */}
-      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
-
-        {/* Store header */}
-        <div className="flex items-center gap-3 px-4 py-3.5">
+      {/* Store card */}
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+        <div className="flex gap-3 px-4 py-3.5">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
             <ProviderIcon provider={store.provider} className="size-5" />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium leading-tight text-foreground">{store.name}</p>
-            <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[store.provider]}</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Tag color={store.mode === "managed" ? "blue" : "default"}>
-              {store.mode === "managed" ? "Managed" : "External"}
-            </Tag>
-            <StatusBadge color="warning" indicator spinning>Pending</StatusBadge>
+          <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-medium leading-tight text-foreground truncate">{store.name}</p>
+              <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[store.provider]}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Tag color={store.mode === "managed" ? "blue" : "default"}>
+                {store.mode === "managed" ? "Managed" : "External"}
+              </Tag>
+              <StatusBadge color="warning" indicator spinning>Pending</StatusBadge>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Steps card */}
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
 
         {/* Step 1 — Complete */}
         <div className="flex items-start gap-4 px-5 py-4">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-600 mt-0.5">
-            <CheckIcon className="size-3.5 text-white stroke-[2]" />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-teal-600/30 bg-teal-600/10 mt-0.5">
+            <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
           </div>
           <div className="flex-1 min-w-0 pt-0.5">
             <p className="text-body font-medium text-foreground">Store registered in Astro</p>
-            <p className="mt-0.5 text-body-sm text-muted-foreground">Your store and PrivateLink endpoint ID were saved.</p>
             {store.endpoint?.region && (
-              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
-                <div>
-                  <p className="text-body-sm font-medium text-muted-foreground">Region</p>
-                  <p className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</p>
-                </div>
+              <div className="mt-2 flex items-start gap-1.5 flex-wrap overflow-hidden">
                 {store.endpoint.endpoint_id && (
-                  <div>
-                    <p className="text-body-sm font-medium text-muted-foreground">Endpoint ID</p>
-                    <p className="font-mono text-mono-sm text-foreground">{store.endpoint.endpoint_id}</p>
-                  </div>
+                  <span className="flex items-center gap-1.5 min-w-0 rounded-sm bg-stone-100 dark:bg-muted px-2 py-0.5">
+                    <span className="shrink-0 text-body-sm text-muted-foreground">Endpoint</span>
+                    <span className="font-mono text-mono-sm text-foreground break-all">{store.endpoint.endpoint_id}</span>
+                  </span>
                 )}
+                <span className="inline-flex items-center gap-1.5 rounded-sm bg-stone-100 dark:bg-muted px-2 py-0.5">
+                  <span className="text-body-sm text-muted-foreground">Region</span>
+                  <span className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</span>
+                </span>
               </div>
             )}
           </div>
@@ -226,7 +229,7 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
             <span className="text-body-sm font-semibold text-yellow-700">2</span>
           </div>
           <div className="flex-1 min-w-0 pt-0.5">
-            <p className="text-body font-semibold text-foreground">{cloud?.stepTitle ?? "Approve the endpoint request"}</p>
+            <p className="text-body font-medium text-foreground">{cloud?.stepTitle ?? "Approve the endpoint request"}</p>
             <p className="mt-1 text-body-sm text-muted-foreground">{cloud?.description}</p>
             {cloud && (
               <Button variant="outline" size="sm" className="mt-3" onClick={() => window.open(consoleUrl, "_blank")}>
