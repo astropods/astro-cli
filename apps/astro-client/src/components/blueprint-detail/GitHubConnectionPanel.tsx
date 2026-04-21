@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal, CircleDot } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -313,27 +313,6 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
                 </Tooltip>
               </TooltipProvider>
             )}
-          </div>
-        )}
-
-        {/* Per-component status — shown when components exist */}
-        {build.components && build.components.length > 0 && (
-          <div className="flex items-center gap-1 pl-5 flex-wrap">
-            {build.components.map((comp) => (
-              <span key={comp.component_name} className={cn(
-                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border",
-                comp.status === "succeeded" && "text-green-600 dark:text-green-400 border-green-600/20 bg-green-600/5",
-                comp.status === "failed" && "text-destructive border-destructive/20 bg-destructive/5",
-                comp.status === "building" && "text-blue-600 dark:text-blue-400 border-blue-600/20 bg-blue-600/5",
-                comp.status === "pending" && "text-muted-foreground border-border",
-              )}>
-                {comp.status === "succeeded" && <CheckCircle2 className="h-2.5 w-2.5" />}
-                {comp.status === "failed" && <XCircle className="h-2.5 w-2.5" />}
-                {comp.status === "building" && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-                {comp.status === "pending" && <CircleDot className="h-2.5 w-2.5 opacity-40" />}
-                {comp.component_name}
-              </span>
-            ))}
           </div>
         )}
 
