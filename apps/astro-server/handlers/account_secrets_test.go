@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -14,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 func setupVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
@@ -224,6 +226,78 @@ func TestCreateAccountVariable_DBError(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet mock expectations: %s", err)
 	}
+}
+
+func setupGetVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := accountvars.NewStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testacct"})
+		c.Next()
+	})
+	router.GET("/variables/:varName", GetAccountVariable(log, store))
+	return router, mock
+}
+
+func getVariable(router *gin.Engine, name string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/variables/"+name, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestGetAccountVariable_Plain(t *testing.T) {
+	router, mock := setupGetVarRouter()
+	now := time.Now()
+
+	rows := sqlmock.NewRows([]string{"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at"}).
+		AddRow("acct-1", "DB_URL", "postgres://localhost/db", false, nil, "database url", now, now)
+	mock.ExpectQuery("SELECT.*account_variables").
+		WithArgs("acct-1", "DB_URL").
+		WillReturnRows(rows)
+
+	rec := getVariable(router, "DB_URL")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var meta accountvars.VariableMetadata
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &meta))
+	require.False(t, meta.Secret)
+	require.NotNil(t, meta.Value)
+	require.Equal(t, "postgres://localhost/db", *meta.Value)
+}
+
+func TestGetAccountVariable_Secret(t *testing.T) {
+	router, mock := setupGetVarRouter()
+	now := time.Now()
+
+	rows := sqlmock.NewRows([]string{"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at"}).
+		AddRow("acct-1", "API_KEY", "ciphertext", true, []byte("nonce12bytes"), "", now, now)
+	mock.ExpectQuery("SELECT.*account_variables").
+		WithArgs("acct-1", "API_KEY").
+		WillReturnRows(rows)
+
+	rec := getVariable(router, "API_KEY")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var meta accountvars.VariableMetadata
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &meta))
+	require.True(t, meta.Secret)
+	require.Nil(t, meta.Value)
+}
+
+func TestGetAccountVariable_NotFound(t *testing.T) {
+	router, mock := setupGetVarRouter()
+
+	mock.ExpectQuery("SELECT.*account_variables").
+		WithArgs("acct-1", "MISSING").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at"}))
+
+	rec := getVariable(router, "MISSING")
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestValidVarName(t *testing.T) {

@@ -710,6 +710,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.CreateAccountVariablesRequest{}),
 					oapispec.Response(200, &handlers.CreateAccountVariablesResponse{}),
 				)
+				api.GET(accountAdmin, "/variables/:varName", "Get account variable", handlers.GetAccountVariable(log, accountVarsStore),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("varName", "Variable name"),
+					oapispec.Response(200, &accountvars.VariableMetadata{}),
+				)
 				api.PUT(accountAdmin, "/variables/:varName", "Update account variable", handlers.UpdateAccountVariable(log, accountVarsStore, cfg),
 					oapispec.Tags("Variables"),
 					oapispec.BearerAuth(),

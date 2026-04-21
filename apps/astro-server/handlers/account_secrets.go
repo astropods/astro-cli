@@ -169,6 +169,42 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 	}
 }
 
+// GetAccountVariable returns metadata for a single variable.
+// For plaintext variables the value is included; for secrets it is omitted.
+// GET /api/v1/accounts/:account/variables/:varName
+func GetAccountVariable(log *logger.Logger, store *accountvars.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		v, err := store.Get(acct.ID, c.Param("varName"))
+		if err != nil {
+			log.Error("Failed to get account variable", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get variable"})
+			return
+		}
+		if v == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "variable not found"})
+			return
+		}
+
+		meta := accountvars.VariableMetadata{
+			Name:        v.Name,
+			Secret:      v.Secret,
+			Description: v.Description,
+			CreatedAt:   v.CreatedAt,
+			UpdatedAt:   v.UpdatedAt,
+		}
+		if !v.Secret {
+			meta.Value = &v.Value
+		}
+		c.JSON(http.StatusOK, meta)
+	}
+}
+
 // UpdateAccountVariable updates an existing account variable.
 // PUT /api/v1/accounts/:account/variables/:varName
 func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *config.Config) gin.HandlerFunc {
