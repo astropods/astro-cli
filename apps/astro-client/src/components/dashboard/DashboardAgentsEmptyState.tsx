@@ -1,5 +1,6 @@
 import { Link } from "react-router";
-import { PlusIcon, GlobeAltIcon, RocketLaunchIcon } from "@heroicons/react/24/outline";
+import { PlusIcon, RocketLaunchIcon } from "@heroicons/react/24/outline";
+import { Telescope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { explorePath } from "@/lib/routes";
 
@@ -22,7 +23,7 @@ export function DashboardAgentsEmptyState() {
         </Button>
         <Button variant="outline" asChild>
           <Link to={explorePath}>
-            <GlobeAltIcon className="size-4" />
+            <Telescope className="size-4" strokeWidth={1.5} />
             Explore community blueprints
           </Link>
         </Button>

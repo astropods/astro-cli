@@ -3,6 +3,8 @@ import { PlusIcon } from "@heroicons/react/24/outline";
 import { useAccountBlueprints } from "@/api/queries";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
+import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -20,22 +22,22 @@ export default function Blueprints() {
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <div className="flex-1 bg-muted">
-    <div className="@container w-full px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-heading-1 text-foreground">Blueprints</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Agent configurations available to deploy in your account.</p>
-        </div>
-        {isAuthenticated && (
-          <Button asChild size="sm">
-            <Link to="/new/custom">
-              <PlusIcon className="size-4" />
-              Create blueprint
-            </Link>
-          </Button>
-        )}
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Blueprints"
+        description="Agent configurations available to deploy in your account."
+        adornment={<PageScopeSwitcher />}
+        action={
+          isAuthenticated && (
+            <Button asChild size="sm">
+              <Link to="/new/custom">
+                <PlusIcon className="size-4" />
+                Create blueprint
+              </Link>
+            </Button>
+          )
+        }
+      />
       <BlueprintListView
         blueprints={data?.agents ?? []}
         isLoading={isLoading}
@@ -45,7 +47,6 @@ export default function Blueprints() {
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
       />
-    </div>
-    </div>
+    </PageContainer>
   );
 }

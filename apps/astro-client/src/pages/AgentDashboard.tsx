@@ -4,6 +4,8 @@ import type { Route } from "./+types/AgentDashboard";
 import { createServerApi } from "@/lib/api.server";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
+import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
@@ -82,22 +84,22 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const isAgentsEmpty = !isLoading && deployments.length === 0;
 
   return (
-    <div
-      className="@container flex-1 bg-muted"
-      style={
-        isAgentsEmpty
-          ? {
-              backgroundImage:
-                "radial-gradient(ellipse 100% 55% at 50% 0%, color-mix(in oklch, var(--muted) 65%, transparent) 0%, transparent 50%)",
-            }
-          : undefined
-      }
-    >
-      <div className="px-6 py-6">
-        <div className="mb-6">
-          <h1 className="text-heading-1 text-foreground">Agents</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Deployed agents running in your account.</p>
-        </div>
+    <>
+      <PageContainer
+        style={
+          isAgentsEmpty
+            ? {
+                backgroundImage:
+                  "radial-gradient(ellipse 100% 55% at 50% 0%, color-mix(in oklch, var(--muted) 65%, transparent) 0%, transparent 50%)",
+              }
+            : undefined
+        }
+      >
+        <PageHeader
+          title="Agents"
+          description="Deployed agents running in your account."
+          adornment={<PageScopeSwitcher />}
+        />
 
         {!isAgentsEmpty && <DashboardStats account={userAccount} isLoading={isLoading} />}
 
@@ -109,7 +111,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           skeletonDeploymentId={showReveal ? revealDeploymentId : null}
           skeletonCount={skeletonCount}
         />
-      </div>
+      </PageContainer>
 
       {showReveal && revealDeployment && (
         <LiveRevealOverlay
@@ -127,7 +129,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 

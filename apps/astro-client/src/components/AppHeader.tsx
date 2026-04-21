@@ -6,11 +6,11 @@ import {
   ArrowRightStartOnRectangleIcon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
-  GlobeAltIcon,
   SunIcon,
   MoonIcon,
   ComputerDesktopIcon,
 } from "@heroicons/react/24/outline";
+import { Telescope } from "lucide-react";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
@@ -19,11 +19,6 @@ import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { FeedbackModal } from "@/components/FeedbackModal";
-import { OrgSwitcher } from "@/components/OrgSwitcher";
-import { useActiveAccount } from "@/hooks/use-active-account";
-import { useDeployments } from "@/api/queries/deployments";
-import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { Tag } from "@/components/Tag";
 import { useTheme, type Theme } from "@/lib/theme";
 import {
   Tooltip,
@@ -125,12 +120,6 @@ export function AppHeader() {
   const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const { activeAccount, defaultAccount, setActiveAccount, toggleDefault } = useActiveAccount();
-  const { data: deploymentsData } = useDeployments(activeAccount, isAuthenticated);
-  const { data: blueprintsData } = useAccountBlueprints(activeAccount, { enabled: isAuthenticated });
-  const agentCount = deploymentsData?.count;
-  const blueprintCount = blueprintsData?.count;
-
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
 
   // Close sheet on navigation
@@ -149,24 +138,12 @@ export function AppHeader() {
   if (isMobile) {
     return (
       <header className="border-b border-border bg-surface">
-        {/* Row 1: logo + scope switcher (≥380px) | explore | hamburger */}
+        {/* Row 1: logo | explore | hamburger */}
         <div className="flex h-14 items-center gap-2 px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <Link to="/" className="flex shrink-0 items-center">
               <Logo />
             </Link>
-            {isAuthenticated && (
-              <div className="hidden min-[380px]:contents">
-                <div className="h-4 w-px bg-border" />
-                <OrgSwitcher
-                  compact
-                  activeAccount={activeAccount}
-                  defaultAccount={defaultAccount}
-                  onChange={setActiveAccount}
-                  onSetDefault={toggleDefault}
-                />
-              </div>
-            )}
           </div>
 
           <div className="ml-auto flex items-center gap-2">
@@ -175,12 +152,12 @@ export function AppHeader() {
             )}
             <Button variant="outline" size="icon" className="min-[480px]:hidden" aria-label="Explore" asChild>
               <Link to={explorePath}>
-                <GlobeAltIcon className="size-4" />
+                <Telescope className="size-4" strokeWidth={1.5} />
               </Link>
             </Button>
             <Button variant="outline" size="sm" className="hidden min-[480px]:flex gap-1.5 text-[13px] font-normal" asChild>
               <Link to={explorePath}>
-                <GlobeAltIcon className="size-4" />
+                <Telescope className="size-4" strokeWidth={1.5} />
                 Explore
               </Link>
             </Button>
@@ -273,19 +250,6 @@ export function AppHeader() {
           </Sheet>
         </div>
 
-        {/* Row 1.5: scope switcher on very narrow screens */}
-        {isAuthenticated && (
-          <div className="flex min-[380px]:hidden items-center px-4 pb-1">
-            <OrgSwitcher
-              compact
-              activeAccount={activeAccount}
-              defaultAccount={defaultAccount}
-              onChange={setActiveAccount}
-              onSetDefault={toggleDefault}
-            />
-          </div>
-        )}
-
         {/* Row 2: nav tabs */}
         <nav className="flex items-center overflow-x-auto px-4 scrollbar-none">
           {navItems.map((item) => (
@@ -303,12 +267,6 @@ export function AppHeader() {
               }
             >
               {item.label}
-              {item.to === dashboardPath && !!agentCount && (
-                <Tag className="ml-1.5 size-5 px-0">{agentCount}</Tag>
-              )}
-              {item.to === "/blueprints" && !!blueprintCount && (
-                <Tag className="ml-1.5 size-5 px-0">{blueprintCount}</Tag>
-              )}
             </ExternalOrNavLink>
           ))}
         </nav>
@@ -317,52 +275,32 @@ export function AppHeader() {
   }
 
   return (
-    <header className="relative flex h-14 items-center border-b border-border bg-surface px-6">
-      {/* Left: logo + scope switcher */}
-      <div className="flex items-center gap-2.5">
+    <header className="flex h-14 items-center border-b border-border bg-surface px-6">
+      {/* Left: logo + nav links */}
+      <div className="flex items-center gap-6">
         <Link to="/" className="flex shrink-0 items-center">
           <Logo />
         </Link>
-        {isAuthenticated && (
-          <>
-            <div className="h-4 w-px bg-border" />
-            <OrgSwitcher
-              compact
-              activeAccount={activeAccount}
-              defaultAccount={defaultAccount}
-              onChange={setActiveAccount}
-              onSetDefault={toggleDefault}
-            />
-          </>
-        )}
+        <nav className="flex items-center gap-6">
+          {navItems.map((item) => (
+            <ExternalOrNavLink
+              key={item.to}
+              to={item.to}
+              external={item.external}
+              className={({ isActive }) =>
+                cn(
+                  "whitespace-nowrap text-[13px] transition-colors",
+                  !item.external && isActive
+                    ? "font-medium text-foreground"
+                    : "font-normal text-muted-foreground hover:text-foreground",
+                )
+              }
+            >
+              {item.label}
+            </ExternalOrNavLink>
+          ))}
+        </nav>
       </div>
-
-      {/* Center: nav links */}
-      <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-6">
-        {navItems.map((item) => (
-          <ExternalOrNavLink
-            key={item.to}
-            to={item.to}
-            external={item.external}
-            className={({ isActive }) =>
-              cn(
-                "whitespace-nowrap text-[13px] transition-colors",
-                !item.external && isActive
-                  ? "font-medium text-foreground"
-                  : "font-normal text-muted-foreground hover:text-foreground",
-              )
-            }
-          >
-            {item.label}
-            {item.to === dashboardPath && !!agentCount && (
-              <Tag className="ml-1.5 size-5 px-0">{agentCount}</Tag>
-            )}
-            {item.to === "/blueprints" && !!blueprintCount && (
-              <Tag className="ml-1.5 size-5 px-0">{blueprintCount}</Tag>
-            )}
-          </ExternalOrNavLink>
-        ))}
-      </nav>
 
       {/* Right: external nav + auth */}
       <div className="ml-auto flex items-center gap-4">
@@ -393,7 +331,7 @@ export function AppHeader() {
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" asChild className="gap-1.5 mr-2 text-[13px] font-normal">
             <Link to={explorePath}>
-              <GlobeAltIcon className="size-4" />
+              <Telescope className="size-4" strokeWidth={1.5} />
               Explore
             </Link>
           </Button>
