@@ -1,6 +1,7 @@
 import { useBlueprints } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
+import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useAuth } from "@/lib/auth";
 
 export async function loader({ request }: { request: Request }) {
@@ -26,8 +27,8 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-muted px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
-      <h1 className="mb-6 text-heading-1 text-foreground">Explore community blueprints</h1>
+    <PageContainer>
+      <PageHeader title="Explore community blueprints" />
       <BlueprintListView
         blueprints={data?.agents ?? []}
         isLoading={isLoading}
@@ -38,6 +39,6 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
         emptyDescription="There are no blueprints in the registry yet."
         ownerAccounts={ownerAccounts}
       />
-    </div>
+    </PageContainer>
   );
 }
