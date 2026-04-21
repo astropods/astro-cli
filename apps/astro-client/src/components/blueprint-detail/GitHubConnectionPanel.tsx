@@ -583,6 +583,7 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
             selectedBranch={selectedBranch}
             isLoadingRepos={reposLoading}
             repos={reposData?.repos ?? []}
+            connections={undefined}
             onSelectRepo={setSelectedRepo}
             onSelectBranch={setSelectedBranch}
             onSearchChange={setRepoQuery}
