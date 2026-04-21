@@ -158,16 +158,18 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
     <div className="mx-auto max-w-lg flex flex-col gap-4">
 
       {/* Heading */}
-      <div className="flex flex-col items-center text-center gap-1.5">
+      <div className="flex flex-col items-center text-center gap-1.5 mb-2">
         <h2 className="text-heading-1 text-foreground">Complete your PrivateLink setup</h2>
         <p className="text-body text-muted-foreground max-w-sm">
           Your store is registered. Follow these steps to finish connecting it.
         </p>
       </div>
 
-      {/* Store card */}
-      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
-        <div className="flex items-center gap-3 px-4 py-4">
+      {/* Steps card — store header + steps */}
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
+
+        {/* Store header */}
+        <div className="flex items-center gap-3 px-4 py-3.5">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
             <ProviderIcon provider={store.provider} className="size-5" />
           </div>
@@ -182,24 +184,6 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
             <StatusBadge color="warning" indicator spinning>Pending</StatusBadge>
           </div>
         </div>
-        {store.endpoint?.region && (
-          <div className="flex flex-wrap gap-x-6 gap-y-1 px-5 py-3.5 border-t border-border/60">
-            <div>
-              <p className="text-body-sm font-medium text-muted-foreground">Region</p>
-              <p className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</p>
-            </div>
-            {store.endpoint.endpoint_id && (
-              <div>
-                <p className="text-body-sm font-medium text-muted-foreground">Endpoint ID</p>
-                <p className="font-mono text-mono-sm text-foreground">{store.endpoint.endpoint_id}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Steps card */}
-      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
 
         {/* Step 1 — Complete */}
         <div className="flex items-start gap-4 px-5 py-4">
@@ -207,8 +191,22 @@ function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
             <CheckIcon className="size-3.5 text-white stroke-[2]" />
           </div>
           <div className="flex-1 min-w-0 pt-0.5">
-            <p className="text-body font-medium text-muted-foreground line-through">Store registered in Astro</p>
+            <p className="text-body font-medium text-foreground">Store registered in Astro</p>
             <p className="mt-0.5 text-body-sm text-muted-foreground">Your store and PrivateLink endpoint ID were saved.</p>
+            {store.endpoint?.region && (
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
+                <div>
+                  <p className="text-body-sm font-medium text-muted-foreground">Region</p>
+                  <p className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</p>
+                </div>
+                {store.endpoint.endpoint_id && (
+                  <div>
+                    <p className="text-body-sm font-medium text-muted-foreground">Endpoint ID</p>
+                    <p className="font-mono text-mono-sm text-foreground">{store.endpoint.endpoint_id}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
