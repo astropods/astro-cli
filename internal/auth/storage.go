@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,40 +71,16 @@ func NewStorage(binaryName string) *Storage {
 	return &Storage{binaryName: binaryName, useKeyring: useKeyring}
 }
 
-// keyringForceDisabledEnv is the env var name that forces useKeyring=false.
-// Exposed as a const (not a magic string) so tests can enumerate the exact
-// trigger without duplicating the literal, and so code review can find every
-// usage with a single symbol search.
-const keyringForceDisabledEnv = "ASTRO_NO_KEYRING"
-
-// keyringForceDisabled reports whether the env var escape hatch is active.
-// Accepts only the strict value "1": any other value (including "true",
-// "yes", "TRUE", "0", or empty) falls through to the live keyring probe, so
-// accidental shell quoting or truthy variants do NOT silently downgrade
-// credential storage from Keychain to plaintext file in production.
-func keyringForceDisabled() bool {
-	return os.Getenv(keyringForceDisabledEnv) == "1"
-}
-
 // isKeyringAvailable tests if the system keyring is accessible.
-//
-// The probe is skipped (and the caller falls back to the on-disk store) in two
-// cases:
-//
-//  1. Any Go test binary: testing.Testing() is true whenever the current
-//     process was produced by `go test`, which is exactly when the unsigned
-//     test binary would trigger a macOS Keychain permission prompt and block
-//     automated runs. Tests never want to read/write real Keychain entries.
-//  2. ASTRO_NO_KEYRING=1: an escape hatch for integration tests and CI that
-//     drive the real compiled CLI binary as a subprocess, where
-//     testing.Testing() is false but the subprocess is still unsigned.
+// The probe is skipped when running under `go test` (testing.Testing()) or
+// when HOME is inside the system temp directory — the latter covers e2e tests
+// that set HOME=t.TempDir(), which causes macOS to show a "Keychain Not Found"
+// dialog because ~/Library/Keychains/login.keychain-db does not exist there.
 func isKeyringAvailable() bool {
-	if testing.Testing() {
+	if testing.Testing() || isHomeTempDir() {
 		return false
 	}
-	if keyringForceDisabled() {
-		return false
-	}
+
 	testKey := "astro-cli-test"
 	testValue := "test"
 
@@ -114,6 +91,28 @@ func isKeyringAvailable() bool {
 
 	_ = keyring.Delete(KeyringService, testKey)
 	return true
+}
+
+// isHomeTempDir returns true when the effective HOME directory lives inside
+// the system temp directory. Both paths are symlink-resolved before comparison
+// to handle macOS /var → /private/var aliases.
+func isHomeTempDir() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		home = resolved
+	}
+
+	tmp := os.TempDir()
+	if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = resolved
+	}
+
+	// Append separator so /tmp does not match /tmp_other.
+	tmp = filepath.Clean(tmp) + string(filepath.Separator)
+	return strings.HasPrefix(filepath.Clean(home)+string(filepath.Separator), tmp)
 }
 
 // LoadCredentials loads credentials from storage

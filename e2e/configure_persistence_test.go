@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
 )
 
 // Integration test for the "ast configure not persisting values after upgrade"
@@ -89,17 +88,12 @@ agent:
 
 // runAst runs the built binary from projectDir with HOME set to tmpHome and
 // returns combined stdout/stderr. Fails the test if the command exits non-zero.
-//
-// ASTRO_NO_KEYRING=1 stops the auth storage from probing the macOS Keychain,
-// which would otherwise pop a blocking permission dialog for the freshly
-// built (unsigned) test binary.
 func runAst(t *testing.T, binPath, projectDir, tmpHome string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command(binPath, args...)
 	cmd.Dir = projectDir
 	cmd.Env = append(os.Environ(),
 		"HOME="+tmpHome,
-		"ASTRO_NO_KEYRING=1",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -254,4 +248,3 @@ func TestConfigurePersistence_SymlinkPathConsistency(t *testing.T) {
 		t.Errorf("EXTRA = %q, want added-via-symlink (symlinked path must resolve to same store entry)", vars["EXTRA"])
 	}
 }
-
