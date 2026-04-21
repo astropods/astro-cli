@@ -38,10 +38,10 @@ describe("extractInitialValues", () => {
     expect(result.adapterCredentials).toEqual({});
   });
 
-  it("routes adapter credentials (by key) to adapterCredentials", () => {
+  it("routes adapter credentials (by target) to adapterCredentials", () => {
     const tpl = makeTemplate({
       variables: {
-        SLACK_BOT_TOKEN: { value: "xoxb-test", default: "", targets: ["agent"], secret: true, optional: false, description: "slack" },
+        SLACK_BOT_TOKEN: { value: "xoxb-test", default: "", targets: ["interface.slack"], secret: true, optional: false, description: "slack" },
       },
     });
     const result = extractInitialValues(tpl, "acme");
@@ -155,7 +155,7 @@ describe("extractInitialValues", () => {
     const tpl = makeTemplate({
       variables: {
         OPENAI_API_KEY: { value: "sk-123", default: "", targets: ["agent"], secret: true, optional: false, description: "key" },
-        SLACK_BOT_TOKEN: { value: "xoxb-abc", default: "", targets: ["agent"], secret: true, optional: false, description: "slack" },
+        SLACK_BOT_TOKEN: { value: "xoxb-abc", default: "", targets: ["interface.slack"], secret: true, optional: false, description: "slack" },
         SENTRY_DSN: { value: "https://sentry.io/1", default: "", targets: ["agent"], secret: false, optional: true, description: "sentry" },
       },
       interfaces: { adapters: ["web", "slack"] },

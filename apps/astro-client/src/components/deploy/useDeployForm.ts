@@ -65,44 +65,9 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "web", label: "Web", description: "Browser-based chat interface" },
 ];
 
-export interface AdapterFieldDef {
-  key: string;
-  label: string;
-  description: string;
-  icon?: string;
-  datatype?: string;
-  defaultValue?: string;
-  secret?: boolean;
-  optional?: boolean;
-  placeholder?: string;
-  helpUrl?: string;
-}
-
-export const ADAPTER_SECRETS: Record<string, AdapterFieldDef[]> = {
-  slack: [
-    { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", description: "Slack bot token for messaging", secret: true, placeholder: "your-slack-bot-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
-    { key: "SLACK_APP_TOKEN", label: "Slack App Token", description: "Slack app token for socket mode", secret: true, placeholder: "your-slack-app-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
-  ],
-};
-
-export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
-  slack: [
-    { key: "SLACK_ACTIONABLE_REACTIONS", label: "Actionable Reactions", description: "Emoji names the bot acts on (comma-separated)", optional: true, placeholder: "ticket, bug" },
-    { key: "SLACK_ALLOWED_CHANNEL_IDS", label: "Allowed Channel IDs", description: "Restrict access to specific Slack channel IDs (comma-separated)", optional: true, placeholder: "C12345, C67890" },
-    { key: "SLACK_ALLOWED_USER_IDS", label: "Allowed User IDs", description: "Restrict access to specific Slack user IDs (comma-separated)", optional: true, placeholder: "U12345, U67890" },
-  ],
-};
-
-export const adapterFields = (adapterId: string): AdapterFieldDef[] => [
-  ...(ADAPTER_SECRETS[adapterId] ?? []),
-  ...(ADAPTER_CONFIG[adapterId] ?? []),
-];
-
-const adapterFieldKeys = new Set(
-  [ADAPTER_SECRETS, ADAPTER_CONFIG].flatMap((map) =>
-    Object.values(map).flatMap((fields) => fields.map((f) => f.key)),
-  ),
-);
+// Virtual Slack config field keys — these are UI-only fields parsed from the
+// compound SLACK_CONFIG JSON variable for individual editing.
+const SLACK_VIRTUAL_FIELDS = ["SLACK_ACTIONABLE_REACTIONS", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_ALLOWED_USER_IDS"] as const;
 
 /** Compute form-ready initial values from a pre-filled deployment template. */
 export function computeInitialValues(template: DeploymentTemplate, account: string): DeployFormInitialValues {
@@ -121,10 +86,7 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
         }
         continue;
       }
-      const isAdapterField =
-        adapterFieldKeys.has(key) ||
-        v.targets?.some((t: string) => t.startsWith("interface."));
-      if (isAdapterField) {
+      if (v.targets?.some((t: string) => t.startsWith("interface."))) {
         adapterCredentials[key] = val;
       } else {
         variableValues[key] = val;
@@ -134,7 +96,7 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
 
   const interfaces = template.interfaces as Record<string, unknown> | undefined;
   const adapters = interfaces?.adapters;
-  const selectedAdapters: string[] = Array.isArray(adapters) ? adapters : ["web"];
+  const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
   const webAuthEnabled = isWebAuthOidc(interfaces);
 
   const ingestionSchedules: Record<string, string> = {};
@@ -163,6 +125,8 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
     optional: v.optional,
     secret: v.secret,
     label: v.label,
+    placeholder: v.placeholder,
+    helpUrl: v.help_url,
     icon: v.icon,
     datatype: v.datatype,
     displayAs: v['display-as'],
@@ -418,80 +382,62 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     [variableEntries],
   );
 
-  // Two views of adapter fields: one for submission (real template variables only),
-  // one for UI rendering (includes virtual Slack config fields).
+  // Derive adapter fields from the server template — grouped by interface target.
+  // Two views: varDefs for submission (real template variables), displayDefs for
+  // UI rendering (includes virtual Slack config fields parsed from SLACK_CONFIG).
   const { adapterVariableDefs, adapterDisplayFields } = useMemo(() => {
     const varDefs: Record<string, [string, VariableDisplay][]> = {};
     const displayDefs: Record<string, [string, VariableDisplay][]> = {};
 
-    for (const adapter of AVAILABLE_ADAPTERS) {
-      const hardcoded = adapterFields(adapter.id);
-      if (template?.variables) {
-        const derived = Object.entries(template.variables).filter(([, v]) =>
-          v.targets.some((t) => t === `interface.${adapter.id}`),
-        );
-        if (derived.length > 0) {
-          if (adapter.id === "slack" && derived.some(([key]) => key === SLACK_CONFIG_KEY)) {
-            const enriched = derived
-              .filter(([key]) => key !== SLACK_CONFIG_KEY)
-              .map(([key, v]) => {
-                const meta = hardcoded.find((c) => c.key === key);
-                const display = toVariableDisplay(v);
-                return [key, {
-                  ...display,
-                  description: meta?.description ?? display.description,
-                  secret: display.secret ?? meta?.secret,
-                  label: meta?.label,
-                  icon: meta?.icon,
-                  placeholder: meta?.placeholder,
-                  helpUrl: meta?.helpUrl,
-                }] as [string, VariableDisplay];
-              });
-            const virtualConfig: [string, VariableDisplay][] = (ADAPTER_CONFIG.slack ?? []).map((c) => [
-              c.key,
-              { description: c.description, optional: true, secret: false, label: c.label, placeholder: c.placeholder },
-            ]);
-            varDefs[adapter.id] = enriched;
-            displayDefs[adapter.id] = [...enriched, ...virtualConfig];
-            continue;
-          }
+    if (!template?.variables) return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
 
-          const entries: [string, VariableDisplay][] = derived.map(([key, v]) => {
-            const meta = hardcoded.find((c) => c.key === key);
-            const display = toVariableDisplay(v);
-            return [key, {
-              ...display,
-              description: meta?.description ?? display.description,
-              defaultValue: display.defaultValue ?? meta?.defaultValue,
-              datatype: meta?.datatype ?? display.datatype,
-              secret: display.secret ?? meta?.secret,
-              label: meta?.label,
-              icon: meta?.icon,
-              placeholder: meta?.placeholder,
-              helpUrl: meta?.helpUrl,
-            }];
-          });
-          varDefs[adapter.id] = entries;
-          displayDefs[adapter.id] = entries;
-          continue;
+    // Group variables by adapter target (extract adapter name from "interface.{name}")
+    const byAdapter = new Map<string, [string, DeploymentVariable][]>();
+    for (const [key, v] of Object.entries(template.variables)) {
+      for (const t of v.targets ?? []) {
+        const match = t.match(/^interface\.(.+)$/);
+        if (match) {
+          const adapterId = match[1];
+          if (!byAdapter.has(adapterId)) byAdapter.set(adapterId, []);
+          byAdapter.get(adapterId)!.push([key, v]);
         }
       }
-      const fallback: [string, VariableDisplay][] = hardcoded.map((c) => [c.key, {
-        description: c.description,
-        defaultValue: c.defaultValue,
-        datatype: c.datatype,
-        optional: c.optional ?? false,
-        secret: c.secret,
-        label: c.label,
-        icon: c.icon,
-        placeholder: c.placeholder,
-        helpUrl: c.helpUrl,
-      }]);
-      varDefs[adapter.id] = fallback;
-      displayDefs[adapter.id] = fallback;
     }
+
+    for (const [adapterId, vars] of byAdapter) {
+      const isSelected = selectedAdapters.includes(adapterId);
+      const hasSlackConfig = adapterId === "slack" && vars.some(([key]) => key === SLACK_CONFIG_KEY);
+
+      // Build real adapter fields (exclude SLACK_CONFIG — it's expanded into virtual fields).
+      // When the adapter is selected, secret token variables become required immediately
+      // (optimistic — confirmed by the server reshape response).
+      const realFields: [string, VariableDisplay][] = vars
+        .filter(([key]) => key !== SLACK_CONFIG_KEY)
+        .map(([key, v]) => {
+          const display = toVariableDisplay(v);
+          if (isSelected && display.secret) display.optional = false;
+          return [key, display];
+        });
+
+      varDefs[adapterId] = realFields;
+
+      if (hasSlackConfig) {
+        // Expand SLACK_CONFIG compound JSON into three virtual config fields for display.
+        // These are UI-only — they don't exist as separate server variables.
+        const virtualConfig: [string, VariableDisplay][] = SLACK_VIRTUAL_FIELDS.map((key) => [key, {
+          description: slugToTitle(key),
+          label: slugToTitle(key),
+          optional: true,
+          secret: false,
+        }]);
+        displayDefs[adapterId] = [...realFields, ...virtualConfig];
+      } else {
+        displayDefs[adapterId] = realFields;
+      }
+    }
+
     return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
-  }, [template]);
+  }, [template, selectedAdapters]);
 
   // Always-on vault ref validation — not gated by submitted so chips turn red
   // immediately when the target account changes, without requiring a submit attempt.

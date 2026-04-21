@@ -2,36 +2,28 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { InterfacesPicker, type InterfacesPickerProps } from "@/components/deploy/InterfacesPicker";
-import { AVAILABLE_ADAPTERS, adapterFields } from "@/components/deploy/useDeployForm";
+import { AVAILABLE_ADAPTERS } from "@/components/deploy/useDeployForm";
 import type { VariableDisplay } from "@/components/deploy/VariableFields";
 
-const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = Object.fromEntries(
-  AVAILABLE_ADAPTERS.map((a) => [
-    a.id,
-    adapterFields(a.id).map((f) => [f.key, {
-      description: f.description,
+const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = {
+  slack: [
+    ["SLACK_BOT_TOKEN", { label: "Slack Bot Token", description: "Slack bot token for API access", secret: true, placeholder: "xoxb-..." }],
+    ["SLACK_APP_TOKEN", { label: "Slack App Token", description: "Slack app token for socket mode", secret: true, placeholder: "xapp-..." }],
+    ["SLACK_ACTIONABLE_REACTIONS", { label: "Actionable Reactions", description: "Emoji names the bot acts on", optional: true, placeholder: "ticket, bug" }],
+    ["SLACK_ALLOWED_CHANNEL_IDS", { label: "Allowed Channel IDs", description: "Restrict to specific channels", optional: true, placeholder: "C12345, C67890" }],
+    ["SLACK_ALLOWED_USER_IDS", { label: "Allowed User IDs", description: "Restrict to specific users", optional: true, placeholder: "U12345, U67890" }],
+  ],
+  web: [[
+    "WEB_REQUIRE_AUTH",
+    {
+      label: "Require authentication",
+      description: "Restrict access to signed-in users only",
+      icon: "shield",
+      datatype: "boolean",
       optional: false,
-      secret: f.secret,
-      label: f.label,
-      icon: f.icon,
-      defaultValue: f.defaultValue,
-      placeholder: f.placeholder,
-      helpUrl: f.helpUrl,
-      datatype: f.datatype,
-    }]),
-  ]),
-);
-
-defaultAdapterFieldDefs.web = [[
-  "WEB_REQUIRE_AUTH",
-  {
-    label: "Require authentication",
-    description: "Restrict access to signed-in users only",
-    icon: "shield",
-    datatype: "boolean",
-    optional: false,
-  },
-]];
+    },
+  ]],
+};
 
 function InterfacesPickerStateful(props: InterfacesPickerProps) {
   const [selected, setSelected] = useState<string[]>(props.selected);

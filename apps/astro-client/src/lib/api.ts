@@ -1028,6 +1028,8 @@ export interface DeploymentVariable {
   default?: string;
   description?: string;
   label?: string;
+  placeholder?: string;
+  help_url?: string;
   icon?: string;
   datatype?: string;
   'display-as'?: string;

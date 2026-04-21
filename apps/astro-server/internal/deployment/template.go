@@ -322,26 +322,41 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		if ds.Variables == nil {
 			ds.Variables = make(map[string]spec.Variable)
 		}
-		mergeSlackVar := func(key, description string) {
+		mergeSlackVar := func(key string, v spec.Variable) {
 			if existing, ok := ds.Variables[key]; ok {
-				existing.Targets = []string{"interface.slack"}
-				existing.Description = description
+				existing.Targets = v.Targets
+				existing.Description = v.Description
+				existing.Label = v.Label
+				existing.Placeholder = v.Placeholder
+				existing.HelpURL = v.HelpURL
 				ds.Variables[key] = existing
 			} else {
-				ds.Variables[key] = spec.Variable{
-					Description: description,
-					Optional:    true,
-					Secret:      true,
-					Targets:     []string{"interface.slack"},
-				}
+				ds.Variables[key] = v
 			}
 		}
-		mergeSlackVar("SLACK_BOT_TOKEN", "Slack bot token for API access and messaging")
-		mergeSlackVar("SLACK_APP_TOKEN", "Slack app-level token for socket mode connections")
+		mergeSlackVar("SLACK_BOT_TOKEN", spec.Variable{
+			Description: "Slack bot token for API access and messaging",
+			Label:       "Slack Bot Token",
+			Placeholder: "xoxb-...",
+			HelpURL:     "https://docs.slack.dev/authentication/tokens/",
+			Optional:    true,
+			Secret:      true,
+			Targets:     []string{"interface.slack"},
+		})
+		mergeSlackVar("SLACK_APP_TOKEN", spec.Variable{
+			Description: "Slack app-level token for socket mode connections",
+			Label:       "Slack App Token",
+			Placeholder: "xapp-...",
+			HelpURL:     "https://docs.slack.dev/authentication/tokens/",
+			Optional:    true,
+			Secret:      true,
+			Targets:     []string{"interface.slack"},
+		})
 
 		slackCfgDefault := slackConfigDefault(astroSpec)
 		ds.Variables["SLACK_CONFIG"] = spec.Variable{
 			Description: "Slack adapter configuration as JSON (actionable_reactions, allowed_channel_ids, allowed_user_ids, socket_mode, auto_thread)",
+			Label:       "Slack Configuration",
 			Optional:    true,
 			Secret:      false,
 			Targets:     []string{"interface.slack"},
@@ -414,6 +429,9 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	shaped.Editable = nil
 	for key, v := range shaped.Variables {
 		v.Description = ""
+		v.Label = ""
+		v.Placeholder = ""
+		v.HelpURL = ""
 		v.Datatype = ""
 		v.DisplayAs = ""
 		v.Options = nil

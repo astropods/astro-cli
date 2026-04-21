@@ -135,9 +135,13 @@ export const mockTemplate: DeploymentTemplate = {
   source: { account: 'testuser', name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
   target: { runtime: 'kubernetes' },
   agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
+  interfaces: { adapters: [], endpoints: { grpc: { port: 9090, protocol: 'grpc' }, http: { port: 8080, protocol: 'http' } }, auth: { web: { type: 'oidc' } } },
   variables: {
     OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key for the model provider' },
     SENTRY_DSN: { default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN for error tracking' },
+    SLACK_BOT_TOKEN: { default: '', targets: ['interface.slack'], secret: true, optional: true, description: 'Slack bot token', label: 'Slack Bot Token', placeholder: 'xoxb-...' },
+    SLACK_APP_TOKEN: { default: '', targets: ['interface.slack'], secret: true, optional: true, description: 'Slack app token', label: 'Slack App Token', placeholder: 'xapp-...' },
+    SLACK_CONFIG: { default: '', targets: ['interface.slack'], secret: false, optional: true, description: 'Slack adapter configuration' },
   },
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
@@ -160,16 +164,18 @@ export function wrapTemplateResponse(
   reqBody?: { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> },
 ): TemplateResponse {
   const { editable, variables, spec: _spec, ...rest } = tmpl;
+  const slackSelected = reqBody?.adapters?.includes('slack') ?? false;
   const templateVars: Record<string, { value?: string; ref?: string; targets: string[]; secret?: boolean; optional?: boolean }> = {};
   if (variables) {
     for (const [k, v] of Object.entries(variables)) {
       const override = reqBody?.variables?.[k];
+      const isSlackToken = k === 'SLACK_BOT_TOKEN' || k === 'SLACK_APP_TOKEN';
       templateVars[k] = {
         value: override?.value ?? v.value,
         ref: override?.ref ?? v.ref,
         targets: v.targets,
         secret: v.secret,
-        optional: v.optional,
+        optional: isSlackToken ? !slackSelected : v.optional,
       };
     }
   }
@@ -179,13 +185,22 @@ export function wrapTemplateResponse(
     ? { ...rest, interfaces: { ...interfaces, adapters: reqBody.adapters } }
     : rest;
 
+  // Build schema variables (mirrors server's schemaVars) with shaped optionality
+  const schemaVars: Record<string, DeploymentVariable> = {};
+  if (variables) {
+    for (const [k, v] of Object.entries(variables)) {
+      const isSlackToken = k === 'SLACK_BOT_TOKEN' || k === 'SLACK_APP_TOKEN';
+      schemaVars[k] = { ...v, optional: isSlackToken ? !slackSelected : v.optional };
+    }
+  }
+
   const errors = Object.entries(templateVars)
     .filter(([, v]) => !v.optional && !v.value && !v.ref)
     .map(([key]) => ({ field: `variables.${key}`, message: 'required variable is empty' }));
   return {
     spec: 'deployment-template/v1',
     template: { ...shapedRest, spec: 'deployment/v1', variables: templateVars } as DeploymentSpec,
-    variables: variables ?? {},
+    variables: schemaVars,
     editable: editable ?? [],
     validation: { valid: errors.length === 0, errors },
   };

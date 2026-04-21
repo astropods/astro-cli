@@ -305,7 +305,7 @@ describe("computeFormDefaults", () => {
   });
 
   it("returns false for web auth when no interfaces", () => {
-    const tpl = makeTemplate({ variables: {} });
+    const tpl = makeTemplate({ variables: {}, interfaces: undefined });
     const result = computeFormDefaults(tpl, "my-agent");
     expect(result.webAuthEnabled).toBe(false);
   });

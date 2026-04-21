@@ -34,8 +34,8 @@ type EndpointExpose struct {
 }
 
 // Variable represents a user-fillable or provider-credential variable.
-// Template fields (Default, Description, Datatype, DisplayAs, Options) are only
-// present in deployment-template/v1 and must be stripped before deployment/v1.
+// Template fields (Default, Description, Label, Placeholder, HelpURL, Datatype, DisplayAs, Options)
+// are only present in deployment-template/v1 and must be stripped before deployment/v1.
 type Variable struct {
 	Value       string   `json:"value,omitempty" yaml:"value,omitempty"`
 	Ref         string   `json:"ref,omitempty" yaml:"ref,omitempty"` // reference to an account variable by name (deploy-time only)
@@ -44,6 +44,9 @@ type Variable struct {
 	Secret      bool     `json:"secret,omitempty" yaml:"secret,omitempty"`
 	Optional    bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
 	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Label       string   `json:"label,omitempty" yaml:"label,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty" yaml:"placeholder,omitempty"`
+	HelpURL     string   `json:"help_url,omitempty" yaml:"help_url,omitempty"`
 	Datatype    string   `json:"datatype,omitempty" yaml:"datatype,omitempty"`
 	DisplayAs   string   `json:"display-as,omitempty" yaml:"display-as,omitempty"`
 	Options     []string `json:"options,omitempty" yaml:"options,omitempty"`
