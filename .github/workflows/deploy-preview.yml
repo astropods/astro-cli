@@ -40,7 +40,7 @@ jobs:
           if echo "$changed" | grep -qE '^(apps/astro-server|deployment/Dockerfile\.astro-server|packages/astro-spec|sql)/'; then
             services=$(echo "$services" | jq -c '. + ["astro-server"]')
           fi
-          if echo "$changed" | grep -qE '^(apps/astro-client|deployment/Dockerfile\.astro-client|packages/astro-identity-gen)/'; then
+          if echo "$changed" | grep -qE '^(apps/astro-client|deployment/Dockerfile\.astro-client)/'; then
             services=$(echo "$services" | jq -c '. + ["astro-client"]')
           fi
           if echo "$changed" | grep -qE '^(apps/astro-registry|deployment/Dockerfile\.astro-registry)/'; then

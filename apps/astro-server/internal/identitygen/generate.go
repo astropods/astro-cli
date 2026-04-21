@@ -71,9 +71,9 @@ func GenerateCustomIdentity(opts CustomIdentityOptions) string {
 		size = 128
 	}
 
-	bgColor := palettes[opts.BGPalette][opts.BGShade]
-	fgColor := palettes[opts.FGPalette][opts.FGShade]
-	eyeColor := palettes[opts.EyePalette][opts.EyeShade]
+	bgColor := palettesHex[opts.BGPalette][opts.BGShade]
+	fgColor := palettesHex[opts.FGPalette][opts.FGShade]
+	eyeColor := palettesHex[opts.EyePalette][opts.EyeShade]
 
 	path := buildPolygonPath(PolygonParams{
 		Sides:       opts.Sides,
@@ -107,7 +107,7 @@ func generateIdentityWithChoices(opts IdentityOptions) (string, identityChoices)
 
 	bgPalette := pick(paletteNames, rng)
 	bgShade := pick(shadeKeys, rng)
-	bgColor := palettes[bgPalette][bgShade]
+	bgColor := palettesHex[bgPalette][bgShade]
 
 	fgPalette := pick(paletteNames, rng)
 	fgPool := shadesWithContrast([]int{bgShade}, minShadeDistance)
@@ -117,7 +117,7 @@ func generateIdentityWithChoices(opts IdentityOptions) (string, identityChoices)
 	} else {
 		fgShade = pickExcluding(shadeKeys, rng, []int{bgShade})
 	}
-	fgColor := palettes[fgPalette][fgShade]
+	fgColor := palettesHex[fgPalette][fgShade]
 
 	sides := int(math.Floor(rangeFloat(rng, 3, 9))) // 3–8
 	edgeStyle := pick(edgeStyles, rng)
@@ -143,7 +143,7 @@ func generateIdentityWithChoices(opts IdentityOptions) (string, identityChoices)
 	} else {
 		eyeShade = pickExcluding(shadeKeys, rng, []int{bgShade, fgShade})
 	}
-	eyeColor := palettes[eyePalette][eyeShade]
+	eyeColor := palettesHex[eyePalette][eyeShade]
 
 	leftEyeStyle := pick(eyeStyles, rng)
 	// ~10% chance of mismatched eyes; the rng() call happens unconditionally here.

@@ -77,9 +77,20 @@ func buildEye(style EyeStyle, ex, ey, r float64, color string) string {
 			f(ex-r), f(ey-r), f(r*2), f(r*2), color,
 		)
 	case EyeSemicircles:
+		// Build the top half of a circle as two cubic Béziers instead of an SVG
+		// arc (A command). Pure-Go SVG rasterizers (oksvg) mis-render arcs with
+		// matched rx/ry, stretching them across the canvas. Cubic Béziers are
+		// universally well-supported.
+		// K is the standard magic number for a quarter-circle cubic-Bézier
+		// approximation: 4*(sqrt(2)-1)/3.
+		const k = 0.5522847498307935
+		kr := k * r
 		return fmt.Sprintf(
-			`<path class="dp-eye" d="M %s %s A %s %s 0 0 1 %s %s" fill="%s" />`,
-			f(ex-r), f(ey), f(r), f(r), f(ex+r), f(ey), color,
+			`<path class="dp-eye" d="M %s %s C %s %s %s %s %s %s C %s %s %s %s %s %s Z" fill="%s" />`,
+			f(ex-r), f(ey),
+			f(ex-r), f(ey-kr), f(ex-kr), f(ey-r), f(ex), f(ey-r),
+			f(ex+kr), f(ey-r), f(ex+r), f(ey-kr), f(ex+r), f(ey),
+			color,
 		)
 	case EyeDiamonds:
 		d := r

@@ -975,7 +975,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			createBlueprintRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(createBlueprintRoutes, "", "Create a blueprint",
-					ent.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore), "agents"),
+					ent.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore), "agents"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

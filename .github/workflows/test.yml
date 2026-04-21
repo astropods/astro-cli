@@ -26,7 +26,6 @@ jobs:
           filters: |
             bun:
               - 'apps/astro-client/**'
-              - 'packages/astro-identity-gen/**'
               - 'packages/astro-theme/**'
               - 'packages/astro-trading-card/**'
               - 'packages/astro-proto/**'
@@ -52,7 +51,6 @@ jobs:
             docker-client:
               - 'deployment/Dockerfile.astro-client'
               - 'apps/astro-client/package.json'
-              - 'packages/astro-identity-gen/package.json'
               - 'packages/astro-theme/package.json'
               - 'packages/astro-trading-card/package.json'
               - 'bun.lock'

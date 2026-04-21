@@ -124,7 +124,7 @@ func TestGenerateIdentitySVGStructure(t *testing.T) {
 			}
 
 			// Background fill matches chosen palette/shade.
-			wantBG := palettes[choices.BGPalette][choices.BGShade]
+			wantBG := palettesHex[choices.BGPalette][choices.BGShade]
 			if !strings.Contains(svg, fmt.Sprintf(`<rect width="128" height="128" fill="%s"`, wantBG)) {
 				t.Errorf("expected bg fill %q in svg", wantBG)
 			}
@@ -135,7 +135,7 @@ func TestGenerateIdentitySVGStructure(t *testing.T) {
 			}
 
 			// Polygon path with the chosen fg color is present.
-			wantFG := palettes[choices.FGPalette][choices.FGShade]
+			wantFG := palettesHex[choices.FGPalette][choices.FGShade]
 			if !strings.Contains(svg, fmt.Sprintf(`fill="%s"`, wantFG)) {
 				t.Errorf("expected polygon fill %q in svg", wantFG)
 			}

@@ -50,7 +50,6 @@ The pre-commit hook runs `gofmt` on staged Go files.
 │   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
 ├── packages/
 │   ├── astro-collector/    # OpenTelemetry Collector distribution
-│   ├── astro-identity-gen/ # Procedural SVG avatar generator
 │   ├── astro-proto/        # Protobuf definitions and generated gRPC code
 │   ├── astro-spec/         # YAML spec parser and types for astropods.yml
 │   └── astro-theme/        # Shared UI theme

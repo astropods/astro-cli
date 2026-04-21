@@ -11,8 +11,6 @@ if (import.meta.hot) {
 }
 import { generateCard, DEFAULT_COLORS } from "./src/index";
 import { downloadSvg, downloadPng, extractColorsFromImage, svgToImageSource, setupHolo } from "./src/browser";
-import { generateIdentity } from "identity-gen";
-import { stripSvgWrapper } from "./src/svg";
 import type { CardAvatar, CardColors, CardData } from "./src/types";
 
 // --- Sample data ---
@@ -52,23 +50,23 @@ interface CardSample {
   overrides?: Partial<Omit<CardData, "avatar" | "colors">>;
 }
 
-function identityAvatar(seed: string, label: string, overrides?: CardSample["overrides"]): CardSample {
-  const svg = generateIdentity({ seed, size: 128 });
-  const inner = stripSvgWrapper(svg);
+// Synthesizes a simple SVG avatar for the dev harness without depending on the
+// procedural identity generator (which lives in the Go server now).
+function staticAvatar(bg: string, fg: string, label: string): CardSample {
+  const inner = `<rect width="128" height="128" fill="${bg}"/><circle cx="64" cy="64" r="36" fill="${fg}"/>`;
   const thumbSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 128 128">${inner}</svg>`;
   return {
     label,
     avatar: { svg: inner },
     thumb: thumbSvg,
     source: svgToImageSource(inner),
-    overrides,
   };
 }
 
 const samples: CardSample[] = [
-  identityAvatar("astro/zenith", "Zenith"),
-  identityAvatar("nova/pulse", "Pulse"),
-  identityAvatar("arc/bloom", "Bloom"),
+  staticAvatar("#14827e", "#ccefee", "Zenith"),
+  staticAvatar("#a20053", "#f6c6d8", "Pulse"),
+  staticAvatar("#37508a", "#cdd6e9", "Bloom"),
   {
     label: "Photo: robot",
     avatar: { url: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=256&h=256&fit=crop" },

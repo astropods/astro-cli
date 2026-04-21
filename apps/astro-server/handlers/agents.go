@@ -20,6 +20,7 @@ import (
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
+	"github.com/astropods/astro/apps/astro-server/internal/identitygen"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -629,7 +630,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -674,6 +675,20 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {
 				log.Warn("Failed to set visibility on new blueprint", "error", err)
+			}
+		}
+
+		// Generate and upload the placeholder avatar. Failures are non-fatal —
+		// the blueprint is already created in the DB, and the periodic backfill
+		// job will retry missing avatars. Don't block blueprint creation on an
+		// S3 glitch.
+		if avatarStore != nil {
+			if jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
+				Seed: accountName + "/" + req.Name,
+			}); err != nil {
+				log.Warn("Failed to generate blueprint avatar", "account", accountName, "name", req.Name, "error", err)
+			} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, req.Name, jpegBytes); err != nil {
+				log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", req.Name, "error", err)
 			}
 		}
 

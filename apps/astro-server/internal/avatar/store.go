@@ -206,6 +206,15 @@ func (s *Store) UploadAgent(ctx context.Context, account, name string, imageByte
 	return s.uploadToKey(ctx, agentAvatarKey(account, name), imageBytes)
 }
 
+// WriteAgentAvatarJPEG writes pre-encoded JPEG bytes for a blueprint avatar
+// directly, without re-processing. Used by the server-side identity generator
+// (which produces its own JPEG at the right dimensions and quality) and the
+// periodic backfill — both bypass the decode/resize/re-encode pipeline that
+// UploadAgent applies to user-provided images.
+func (s *Store) WriteAgentAvatarJPEG(ctx context.Context, account, name string, jpegBytes []byte) error {
+	return s.backend.Write(ctx, agentAvatarKey(account, name), jpegBytes, "image/jpeg")
+}
+
 // DeleteAgent removes an agent blueprint's avatar.
 func (s *Store) DeleteAgent(ctx context.Context, account, name string) error {
 	return s.backend.Delete(ctx, agentAvatarKey(account, name))

@@ -417,7 +417,7 @@ func TestCreateBlueprint_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO agents").
@@ -459,7 +459,7 @@ func TestCreateBlueprint_ConflictReturns409(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
 
 	// Active agent: INSERT returns 0 rows affected → ErrAlreadyExists
 	mock.ExpectBegin()
@@ -497,7 +497,7 @@ func TestCreateBlueprint_InvalidNameReturns400(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
 
 	body := `{"name": "INVALID NAME!!!"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
@@ -515,7 +515,7 @@ func TestCreateBlueprint_DBErrorReturns500(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
 
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
 

@@ -6,7 +6,6 @@ import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
-import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Button } from "@/components/ui/button";
@@ -58,20 +57,20 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deploymentId), account, deploymentName);
+  const deploymentAvatarUrl = getDeploymentAvatarUrl(deploymentId);
 
   const cardData = useMemo<CardData>(() => ({
     name: deploymentName,
     displayName,
     account,
-    avatar: cardAvatar ?? undefined,
+    avatar: { url: deploymentAvatarUrl },
     stats: [
       { label: "Deployed", value: installedAt ?? "" },
       { label: "From", value: `${account}/${deploymentName}` },
     ],
     barcodeId: deploymentId,
     qrUrl: `${window.location.origin}/${account}/${deploymentName}`,
-  }), [deploymentName, displayName, account, cardAvatar, installedAt, deploymentId]);
+  }), [deploymentName, displayName, account, deploymentAvatarUrl, installedAt, deploymentId]);
 
   useEffect(() => {
     if (!open) { return; }

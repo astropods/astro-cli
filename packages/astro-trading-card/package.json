@@ -33,7 +33,6 @@
     "registry": "https://npm.pkg.github.com"
   },
   "devDependencies": {
-    "identity-gen": "workspace:*",
     "typescript": "^5.3.0"
   },
   "dependencies": {

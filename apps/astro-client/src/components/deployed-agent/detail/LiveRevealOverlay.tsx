@@ -17,7 +17,6 @@ import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevea
 import { useExtractedColors, useResolvedIntegrations } from "@/components/deployed-agent/detail/liveRevealCardHooks";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
-import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 
 export function LiveRevealOverlay({
@@ -43,16 +42,15 @@ export function LiveRevealOverlay({
     return () => window.cancelAnimationFrame(raf);
   }, []);
 
-  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deployment.id), account, deployment.name);
+  const avatarUrl = getDeploymentAvatarUrl(deployment.id);
 
-  const baseCardData = useMemo<CardData | null>(() => {
-    if (!cardAvatar) return null;
+  const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return {
       name: deployment.name,
       displayName: deployment.display_name,
       account,
-      avatar: cardAvatar,
+      avatar: { url: avatarUrl },
       stats: [
         { label: "Deployed", value: formatDate(deployment.created_at) },
         { label: "From", value: `${account}/${deployment.name}` },
@@ -60,21 +58,21 @@ export function LiveRevealOverlay({
       barcodeId: deployment.id,
       qrUrl: `${origin}/${account}/${deployment.name}`,
     };
-  }, [account, cardAvatar, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
+  }, [account, avatarUrl, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
 
-  const { colors, ready: colorsReady } = useExtractedColors(baseCardData?.avatar, true);
+  const { colors, ready: colorsReady } = useExtractedColors(baseCardData.avatar, true);
   const cardIntegrations = useResolvedIntegrations(integrations, true);
 
-  const revealCardData = useMemo<CardData | null>(
-    () => baseCardData ? ({
+  const revealCardData = useMemo<CardData>(
+    () => ({
       ...baseCardData,
       colors,
       ...(cardIntegrations.length > 0 ? { integrations: cardIntegrations } : {}),
-    }) : null,
+    }),
     [baseCardData, cardIntegrations, colors],
   );
 
-  const revealCardSvg = useMemo(() => revealCardData ? generateCard(revealCardData) : "", [revealCardData]);
+  const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
   const blueprintUrl = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return `${origin}/${account}/${deployment.name}`;

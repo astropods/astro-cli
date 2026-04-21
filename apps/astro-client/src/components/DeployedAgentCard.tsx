@@ -19,7 +19,6 @@ import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { useCardAvatar } from "@/hooks/use-agent-card-avatar";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 
 export type DeployedAgentStatus = "active" | "inactive" | "deploying" | "undeploying" | "error" | "restarting" | "pausing" | "resuming";
@@ -89,20 +88,20 @@ export function DeployedAgentCard({
   const { data: agent } = useBlueprint(account, name, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const cardAvatar = useCardAvatar(getDeploymentAvatarUrl(deploymentId), account, name);
+  const deploymentAvatarUrl = getDeploymentAvatarUrl(deploymentId);
 
   const cardData = useMemo<CardData>(() => ({
     name,
     displayName,
     account,
-    avatar: cardAvatar ?? undefined,
+    avatar: { url: deploymentAvatarUrl },
     stats: [
       { label: "Deployed", value: formatDateTime(installedAt) },
       { label: "From", value: `${account}/${name}` },
     ],
     barcodeId: deploymentId,
     qrUrl: `${window.location.origin}/${account}/${name}`,
-  }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
+  }), [name, displayName, account, deploymentAvatarUrl, installedAt, deploymentId]);
 
   const cardClassName = cn(
     "group relative flex flex-col gap-3 rounded-md border border-stone-400 dark:border-teal-800 bg-white dark:bg-teal-900/30 px-4 py-3 transition-all duration-150",
