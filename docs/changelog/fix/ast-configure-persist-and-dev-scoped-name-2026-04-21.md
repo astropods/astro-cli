@@ -5,7 +5,7 @@
 Two reported regressions in the CLI:
 
 1. `ast configure` stopped persisting values across runs after a recent upgrade. Re-running the interactive form silently overwrote previously stored secrets with the empty strings the form submits for untouched fields, and in some cases `ast configure` could not see values written by `ast create` at all.
-2. `ast dev` printed `WARN[0001] Warning: No resource found to remove for project "@postman/luqa"` for specs with scoped names. The tear-down/logs/health paths were calling Docker Compose with the raw spec name (`@postman/luqa`), while `BuildProject` had sanitized it to `luqa`, so every cleanup call targeted a project that didn't exist.
+2. `ast dev` printed `WARN[0001] Warning: No resource found to remove for project "@org/name"` for specs with scoped names. The tear-down/logs/health paths were calling Docker Compose with the raw spec name (`@org/name`), while `BuildProject` had sanitized it to `name`, so every cleanup call targeted a project that didn't exist.
 
 Both fixes ship with unit and integration coverage so the regressions can't come back silently.
 
