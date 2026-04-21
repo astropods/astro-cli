@@ -33,6 +33,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
+	"sync"
+
 	"golang.org/x/sync/errgroup"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +42,38 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
+
+// templateCache caches generated base templates (after generateTemplate + mergeDeploymentPrefill)
+// so that adapter re-triggers in the POST template endpoint only run ShapeTemplate.
+type templateCache struct {
+	m   sync.Map
+	ttl time.Duration
+}
+
+type templateCacheEntry struct {
+	template  *spec.AstroDeploymentSpec
+	expiresAt time.Time
+}
+
+func (tc *templateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
+	val, ok := tc.m.Load(key)
+	if !ok {
+		return nil, false
+	}
+	entry := val.(*templateCacheEntry)
+	if time.Now().After(entry.expiresAt) {
+		tc.m.Delete(key)
+		return nil, false
+	}
+	return entry.template, true
+}
+
+func (tc *templateCache) set(key string, tmpl *spec.AstroDeploymentSpec) {
+	tc.m.Store(key, &templateCacheEntry{
+		template:  tmpl,
+		expiresAt: time.Now().Add(tc.ttl),
+	})
+}
 
 // isAccountMember checks whether the user is a member of the account.
 func isAccountMember(_ *gin.Context, accountStore *account.AccountStore, acctID, userID string) bool {
@@ -2504,6 +2538,8 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
 // POST /api/v1/agents/:account/:name/deployment-template
 func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	cache := &templateCache{ttl: 5 * time.Minute}
+
 	return func(c *gin.Context) {
 		var req spec.TemplateRequest
 		if c.Request.Body != nil && c.Request.ContentLength != 0 {
@@ -2513,6 +2549,8 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			}
 		}
 
+		accountName := c.Param("account")
+		agentName := c.Param("name")
 		buildIDOverride := req.Build
 
 		// Prefill from existing deployment when deployment_id is provided.
@@ -2528,6 +2566,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
+			// Auth check always runs — never skipped by cache.
 			user, _ := middleware.GetUser(c)
 			if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
@@ -2560,7 +2599,15 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				prefillExisting = &revExisting
 			}
 
-			// Generate base template first, then merge prefill values.
+			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
+			cacheKey := accountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
+			if base, ok := cache.get(cacheKey); ok {
+				resp := deployment.ShapeTemplate(base, &req)
+				c.JSON(http.StatusOK, resp)
+				return
+			}
+
+			// Cache miss — full generation pipeline.
 			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
 			if !ok {
 				return
@@ -2585,17 +2632,26 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				}
 			}
 
+			cache.set(cacheKey, template)
 			resp := deployment.ShapeTemplate(template, &req)
 			c.JSON(http.StatusOK, resp)
 			return
 		}
 
 		// No deployment_id — fresh template.
+		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
+		if base, ok := cache.get(cacheKey); ok {
+			resp := deployment.ShapeTemplate(base, &req)
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
 		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
 		if !ok {
 			return
 		}
 
+		cache.set(cacheKey, template)
 		resp := deployment.ShapeTemplate(template, &req)
 		c.JSON(http.StatusOK, resp)
 	}

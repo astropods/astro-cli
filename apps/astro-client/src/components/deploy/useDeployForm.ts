@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
@@ -322,7 +322,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
-  const [selectedAdapters, setSelectedAdapters] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
+  const [selectedAdapters, setSelectedAdaptersRaw] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
   const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(computedDefaults.webAuthEnabled ?? false);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
@@ -335,7 +335,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     // deployName uses || because "" should fall through to the slugToTitle fallback
     setDeployName(v.deployName || slugToTitle(name));
     setVariableValues(v.variableValues ?? {});
-    setSelectedAdapters(v.selectedAdapters ?? ["web"]);
+    setSelectedAdaptersRaw(v.selectedAdapters ?? ["web"]);
     setAdapterCredentials(v.adapterCredentials ?? {});
     setIngestionSchedules(v.ingestionSchedules ?? {});
     setWebAuthEnabled(v.webAuthEnabled ?? false);
@@ -365,6 +365,22 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     applyValues(merged);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
   }, [template]);
+
+  // Re-POST template with new inputs to reshape variable optionality etc.
+  // Does NOT reset form values — only updates the template schema.
+  const reshapeTemplate = useCallback((body: TemplateRequest) => {
+    if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
+    if (opts?.build) body.build = opts.build;
+    templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
+  }, [opts?.deploymentId, opts?.build]);
+
+  // Exposed adapter setter: updates local state AND re-triggers template shaping
+  // so the server can flip variable optionality (e.g. Slack tokens become required).
+  const setSelectedAdapters = useCallback((adapters: string[]) => {
+    setSelectedAdaptersRaw(adapters);
+    reshapeTemplate({ adapters });
+  }, [reshapeTemplate]);
 
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
