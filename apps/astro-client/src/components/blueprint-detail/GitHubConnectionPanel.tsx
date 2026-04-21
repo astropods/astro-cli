@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -181,10 +182,13 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {latestBuild && (
-              <DropdownMenuItem onClick={() => setLogsOpen(true)}>
-                <ScrollText className="h-3.5 w-3.5" />
-                Build Logs
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem onClick={() => setLogsOpen(true)}>
+                  <ScrollText className="h-3.5 w-3.5" />
+                  Build Logs
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
             )}
             <DropdownMenuItem
               onClick={() => rebuild.mutate()}
@@ -241,7 +245,7 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
       {status.builds.length > 0 && (
         <div className="space-y-1">
           {status.builds.slice(0, 2).map((build) => (
-            <BuildRow key={build.id} build={build} />
+            <BuildRow key={build.id} build={build} account={account} name={name} />
           ))}
         </div>
       )}
@@ -257,17 +261,8 @@ const BUILD_STEPS = [
 ] as const;
 
 
-function elapsedLabel(from: string, to?: string | null): string {
-  const start = new Date(from).getTime();
-  const end = to ? new Date(to).getTime() : Date.now();
-  const s = Math.floor((end - start) / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
-}
-
-function BuildRow({ build }: { build: GitHubBuild }) {
+function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
+  const [logsOpen, setLogsOpen] = useState(false);
   const isActive = build.status === "pending" || build.status === "building";
 
   const title = build.commit_message
@@ -276,7 +271,10 @@ function BuildRow({ build }: { build: GitHubBuild }) {
 
   return (
     <>
-      <div className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs">
+      <div
+        className="rounded border border-border bg-muted/20 px-2.5 py-2 space-y-1.5 text-xs cursor-pointer hover:bg-muted/40 transition-colors"
+        onClick={() => setLogsOpen(true)}
+      >
         {/* Row 1: title */}
         <span className={cn(
           "block leading-snug font-medium truncate",
@@ -340,6 +338,15 @@ function BuildRow({ build }: { build: GitHubBuild }) {
         )}
 
       </div>
+      <BuildLogsDialog
+        account={account}
+        name={name}
+        buildId={build.build_id}
+        commitSha={build.commit_sha?.slice(0, 7) ?? "unknown"}
+        isActive={isActive}
+        open={logsOpen}
+        onOpenChange={setLogsOpen}
+      />
     </>
   );
 }
