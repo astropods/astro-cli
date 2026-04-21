@@ -2,6 +2,12 @@ import { useState } from "react";
 import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import {
+  normalizeLevel,
+  levelColorClass,
+  formatLogTimestamp,
+  type LogEntry,
+} from "@/lib/log-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +28,31 @@ interface LogSection {
   content: string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Log line parsing ──────────────────────────────────────────────────────────
+
+// Matches: "2024-01-15T10:30:00Z INFO message" or "2024-01-15 10:30:00 INFO message"
+const TS_LEVEL_RE = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)\s+(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|ERR|FATAL|CRIT|CRITICAL)\s+(.*)/i;
+// Matches: "ERROR: message", "WARN message"
+const LEVEL_RE = /^(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|ERR|FATAL|CRIT|CRITICAL)[:\s]\s*(.*)/i;
+
+function parseLogLine(line: string): LogEntry {
+  const tsMatch = line.match(TS_LEVEL_RE);
+  if (tsMatch) return { timestamp: tsMatch[1], level: tsMatch[2], message: tsMatch[3] };
+
+  const lvlMatch = line.match(LEVEL_RE);
+  if (lvlMatch) return { timestamp: null, level: lvlMatch[1], message: lvlMatch[2] };
+
+  return { timestamp: null, level: null, message: line };
+}
+
+function parseLogLines(raw: string): LogEntry[] {
+  return raw
+    .split("\n")
+    .filter((l) => l.trim())
+    .map(parseLogLine);
+}
+
+// ── Section parsing ───────────────────────────────────────────────────────────
 
 function parseLogSections(raw: string): LogSection[] {
   const sections: LogSection[] = [];
@@ -42,6 +72,8 @@ function parseLogSections(raw: string): LogSection[] {
   return sections;
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
+
 function statusClass(status: string) {
   if (status === "succeeded") return "text-green-600 dark:text-green-400";
   if (status === "failed") return "text-destructive";
@@ -49,7 +81,41 @@ function statusClass(status: string) {
   return "text-muted-foreground";
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function LogLines({ entries }: { entries: LogEntry[] }) {
+  if (entries.length === 0) {
+    return <p className="font-mono text-mono-sm text-faint-foreground py-2 pl-[18px]">(empty)</p>;
+  }
+  return (
+    <>
+      {entries.map((entry, i) => {
+        const level = normalizeLevel(entry.level);
+        const lvlClass = levelColorClass(entry.level);
+        return (
+          <div
+            key={i}
+            className="flex items-baseline gap-x-3 px-[18px] py-[1px] font-mono text-mono-sm tracking-normal leading-5"
+          >
+            {entry.timestamp ? (
+              <span className="text-faint-foreground shrink-0 w-[24ch]">
+                {formatLogTimestamp(entry.timestamp)}
+              </span>
+            ) : null}
+            {entry.level ? (
+              <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
+                {level}
+              </span>
+            ) : null}
+            <span className="text-foreground whitespace-pre-wrap break-all">
+              {entry.message}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// ── BuildLogViewer ────────────────────────────────────────────────────────────
 
 export function BuildLogViewer({ components = [], isLoading, isError }: BuildLogViewerProps) {
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(
@@ -92,7 +158,7 @@ export function BuildLogViewer({ components = [], isLoading, isError }: BuildLog
 
   if (components.length === 0) {
     return (
-      <p className="font-mono text-xs text-muted-foreground p-4">(no output)</p>
+      <p className="font-mono text-mono-sm text-faint-foreground p-4">(no output)</p>
     );
   }
 
@@ -127,7 +193,7 @@ export function BuildLogViewer({ components = [], isLoading, isError }: BuildLog
                 {sections.map((section) => {
                   const sectionKey = `${comp.name}/${section.name}`;
                   const sectionOpen = expandedSections.has(sectionKey);
-                  const lines = section.content.split("\n").filter((l) => l.trim()).length;
+                  const entries = parseLogLines(section.content);
 
                   return (
                     <div key={sectionKey}>
@@ -139,18 +205,16 @@ export function BuildLogViewer({ components = [], isLoading, isError }: BuildLog
                           ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
                           : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
                         <span className="font-mono text-sm">{section.name}</span>
-                        {lines > 0 && (
+                        {entries.length > 0 && (
                           <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                            {lines} lines
+                            {entries.length} lines
                           </span>
                         )}
                       </button>
 
                       {sectionOpen && (
-                        <div className="border-t border-border bg-muted/30">
-                          <pre className="pl-14 pr-4 py-3 font-mono text-[11px] whitespace-pre-wrap break-all leading-[1.7] text-foreground max-h-72 overflow-y-auto">
-                            {section.content.trim() || "(empty)"}
-                          </pre>
+                        <div className="border-t border-border bg-background py-2 max-h-72 overflow-y-auto">
+                          <LogLines entries={entries} />
                         </div>
                       )}
                     </div>
