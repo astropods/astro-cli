@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
+import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from "react";
 import { Link } from "react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ArrowDown, Loader2, Pause, Play, TriangleAlert, X } from "lucide-react";
@@ -65,7 +65,7 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, isLoading = false, isCompact = false, timeRange, onTimeRangeChange, leading, error, isTailing = false, isReconnecting = false, onTailToggle }: LogViewerProps) {
-  const [timezone] = useState(loadTimezone);
+  const timezone = useMemo(() => loadTimezone(), []);
   const [logSearch, setLogSearch] = useState("");
   const deferredSearch = useDeferredValue(logSearch);
   const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs);
