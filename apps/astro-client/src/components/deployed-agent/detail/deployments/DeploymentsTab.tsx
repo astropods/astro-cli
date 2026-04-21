@@ -61,7 +61,7 @@ export function DeploymentsTab({
             source: e.from ?? "static",
             secret: isSensitiveEnvVar(e.name, val, e.from ?? "static"),
           };
-        }),
+        }).sort((a, b) => a.key.localeCompare(b.key)),
       }));
       const readyCount = mappedContainers.filter((c) => c.ready).length;
       const url = primaryUrl && wl.component === "agent" ? primaryUrl : undefined;
