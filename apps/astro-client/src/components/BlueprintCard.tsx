@@ -301,7 +301,7 @@ export function BlueprintCard({
         {!isDraft && (
           <div
             className="pointer-events-none absolute inset-0 z-0"
-            style={{ background: "linear-gradient(to bottom, rgb(255 255 255 / 0.22) 0%, transparent 100%)" }}
+            style={{ background: "linear-gradient(120deg, transparent 0%, rgb(255 255 255 / 0.75) 100%)" }}
           />
         )}
         {onArchive && (
@@ -362,7 +362,7 @@ export function BlueprintCard({
         </div>
         {!isDraft && <div className="relative z-[1] mx-[5px] h-px bg-white" />}
         <div
-          className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5", isDraft && "border-t border-dashed border-border")}
+          className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5", isDraft ? "border-t border-dashed border-border" : "pb-3.5")}
           style={accent && !isDraft ? { color: `color-mix(in srgb, ${accent.base} 70%, black)` } : undefined}
         >
           <span className={cn("text-mono-sm font-mono", accent && !isDraft ? "text-[inherit]" : "text-faint-foreground")}>
