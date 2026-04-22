@@ -279,7 +279,7 @@ describe('reveal overlay after deploy', () => {
     });
   });
 
-  it('uses real deployment display_name when deployment is in the list', async () => {
+  it('keeps location state display_name even after deployment query loads', async () => {
     server.use(
       http.get('/api/v1/deployments', () =>
         HttpResponse.json({
@@ -311,7 +311,7 @@ describe('reveal overlay after deploy', () => {
 
     await waitFor(() => {
       const overlay = screen.getByTestId('live-reveal-overlay');
-      expect(within(overlay).getByText('Real Display Name')).toBeInTheDocument();
+      expect(within(overlay).getByText('State Display Name')).toBeInTheDocument();
     });
   });
 

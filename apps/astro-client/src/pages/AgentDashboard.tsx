@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
 import { createServerApi } from "@/lib/api.server";
@@ -36,12 +36,24 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
-  const revealDeploymentId = revealState?.revealDeploymentId ?? null;
-  const revealAgentName = revealState?.revealAgentName ?? null;
-  const revealDisplayName = revealState?.revealDisplayName ?? null;
-  const revealAvatarUrl = revealState?.revealAvatarUrl ?? null;
-  const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
+  const [revealDeployment] = useState<AgentDeployment | null>(() => {
+    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
+    if (!rs?.revealDeploymentId || !rs.revealAgentName) return null;
+    return {
+      id: rs.revealDeploymentId,
+      name: rs.revealAgentName,
+      display_name: rs.revealDisplayName ?? rs.revealAgentName,
+      avatar_url: rs.revealAvatarUrl ?? undefined,
+      build_id: "",
+      namespace: "",
+      status: "pending",
+      replicas: 1,
+      ready: 0,
+      created_at: new Date().toISOString(),
+      components: [],
+    } satisfies AgentDeployment;
+  });
+  const [showReveal, setShowReveal] = useState(!!revealDeployment);
 
 
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
@@ -52,30 +64,6 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const deployments = data?.deployments ?? [];
   const blueprintAgents = accountBlueprints?.agents ?? [];
 
-  const revealDeployment = useMemo<AgentDeployment | null>(() => {
-    if (!revealDeploymentId) return null;
-    const existing = deployments.find((d) => d.id === revealDeploymentId);
-    if (existing) {
-      return {
-        ...existing,
-        ...(!existing.display_name && revealDisplayName ? { display_name: revealDisplayName } : {}),
-        ...(!existing.avatar_url && revealAvatarUrl ? { avatar_url: revealAvatarUrl } : {}),
-      };
-    }
-    if (!revealAgentName) return null;
-    return {
-      id: revealDeploymentId,
-      name: revealAgentName,
-      display_name: revealDisplayName ?? revealAgentName,
-      build_id: "",
-      namespace: "",
-      status: "pending",
-      replicas: 1,
-      ready: 0,
-      created_at: new Date().toISOString(),
-      components: [],
-    } satisfies AgentDeployment;
-  }, [deployments, revealAgentName, revealAvatarUrl, revealDeploymentId, revealDisplayName]);
 
   const clearRevealState = () => {
     navigate(location.pathname + location.search, { replace: true, state: {} });
@@ -108,7 +96,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           account={userAccount}
           isLoading={isLoading}
           blueprintAgents={blueprintAgents}
-          skeletonDeploymentId={showReveal ? revealDeploymentId : null}
+          skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
           skeletonCount={skeletonCount}
         />
       </PageContainer>
