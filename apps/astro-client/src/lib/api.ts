@@ -927,6 +927,13 @@ class ApiClient {
     );
   }
 
+  async gitHubListAccountDirs(account: string, repo: string, ref: string): Promise<{ dirs: string[] }> {
+    const params = new URLSearchParams({ repo, ref });
+    return this.request<{ dirs: string[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/dirs?${params}`
+    );
+  }
+
   async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }> {
     return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }>(
       `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`

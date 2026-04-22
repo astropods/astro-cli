@@ -129,6 +129,14 @@ export function useGitHubAccountScan(account: string) {
   });
 }
 
+export function useGitHubAccountDirs(account: string, repo: string, ref: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: githubKeys.accountDirs(account, repo, ref),
+    queryFn: () => api.gitHubListAccountDirs(account, repo, ref),
+    enabled: (opts?.enabled ?? true) && !!account && !!repo && !!ref,
+  });
+}
+
 export function useGitHubAccountConnections(account: string, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: githubKeys.accountConnections(account),
