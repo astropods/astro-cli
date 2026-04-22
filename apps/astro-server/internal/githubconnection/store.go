@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -147,15 +148,34 @@ func (s *Store) GetByRepoForAccount(ctx context.Context, accountID, repoFullName
 	return &c, nil
 }
 
-// GetByRepo returns the connection for a given repo full name (used by webhook handler).
-func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection, error) {
+// RepoBase returns the first two slash-separated segments of repoFullName (owner/repo).
+func RepoBase(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 2 {
+		return repoFullName
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+// RepoSubPath returns everything after the second slash, or "" for root connections.
+func RepoSubPath(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
+}
+
+// GetByRepoBase returns any connection whose repo_full_name equals repoBase or starts
+// with repoBase+"/". Used to retrieve the shared webhook secret for HMAC verification.
+func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
-		WHERE repo_full_name = $1
+		WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
 		LIMIT 1
-	`, repoFullName)
+	`, repoBase)
 
 	var c Connection
 	if err := row.Scan(
@@ -168,7 +188,47 @@ func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection
 	return &c, nil
 }
 
-// ListByAccount returns all connections for an account.
+// CountByRepoBase counts all connections whose repo_full_name equals repoBase or starts
+// with repoBase+"/". Used to decide whether to delete the shared webhook on disconnect.
+func (s *Store) CountByRepoBase(ctx context.Context, repoBase string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM github_connections
+		WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
+	`, repoBase).Scan(&n)
+	return n, err
+}
+
+// ListByRepoAndBranch returns all connections whose repo_full_name equals repoFullName
+// or starts with repoFullName+"/", filtered by branch. Used for webhook fan-out.
+func (s *Store) ListByRepoAndBranch(ctx context.Context, repoFullName, branch string) ([]*Connection, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
+		       webhook_id, webhook_secret, created_at, updated_at
+		FROM github_connections
+		WHERE (repo_full_name = $1 OR repo_full_name LIKE $1 || '/%') AND branch = $2
+	`, repoFullName, branch)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var conns []*Connection
+	for rows.Next() {
+		var c Connection
+		if err := rows.Scan(
+			&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
+			&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+			&c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("githubconnection: scan connection: %w", err)
+		}
+		conns = append(conns, &c)
+	}
+	return conns, rows.Err()
+}
+
+// ListByAccount returns all connections for an account (agent_name + repo_full_name only).
 func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connection, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT agent_name, repo_full_name, webhook_id, created_at

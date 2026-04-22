@@ -654,7 +654,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 			return
 		}
 
-		conn, err := ghStore.GetByRepo(c.Request.Context(), payload.Repository.FullName)
+		conn, err := ghStore.GetByRepoBase(c.Request.Context(), payload.Repository.FullName)
 		if errors.Is(err, sql.ErrNoRows) {
 			// No connection for this repo — not an error, just ignore.
 			c.Status(http.StatusOK)
