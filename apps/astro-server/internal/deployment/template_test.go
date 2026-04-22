@@ -2662,9 +2662,9 @@ func TestShapeTemplate_ScheduleFromPrefill(t *testing.T) {
 // template endpoint stripped non-selected adapter variables (SLACK_*) from the
 // response, but the deploy handler regenerated a fresh template with ALL
 // variables and EnforceEditable rejected the submission for "removing" them.
-// The fix: the deploy handler applies StripNonSelectedAdapterVars to the
+// The fix: the deploy handler applies ApplyAdapterShaping to the
 // regenerated template before validation, matching what the client received.
-func TestStripNonSelectedAdapterVars_DeployRoundTrip(t *testing.T) {
+func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 
@@ -2693,7 +2693,7 @@ func TestStripNonSelectedAdapterVars_DeployRoundTrip(t *testing.T) {
 
 	// Without the fix this would fail:
 	// "variables.SLACK_BOT_TOKEN: cannot remove variable from template"
-	StripNonSelectedAdapterVars(freshTemplate, submittedSpec.Interfaces.Adapters)
+	ApplyAdapterShaping(freshTemplate, submittedSpec.Interfaces.Adapters)
 
 	// Sync target fields the same way the deploy handler does.
 	freshTemplate.Target.Account = submittedSpec.Target.Account
@@ -2721,7 +2721,7 @@ func TestStripNonSelectedAdapterVars_DeployRoundTrip(t *testing.T) {
 // Regression: stripping adapter variables must also remove corresponding
 // ${variables.KEY} references from interfaces.environment, otherwise
 // ValidateReferences rejects the spec with "variable X not declared".
-func TestStripNonSelectedAdapterVars_CleansEnvironmentRefs(t *testing.T) {
+func TestApplyAdapterShaping_CleansEnvironmentRefs(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 	input.Spec.Dev = &spec.Dev{
@@ -2744,7 +2744,7 @@ func TestStripNonSelectedAdapterVars_CleansEnvironmentRefs(t *testing.T) {
 	}
 
 	// Strip with web-only — slack vars should be removed.
-	StripNonSelectedAdapterVars(ds, []string{"web"})
+	ApplyAdapterShaping(ds, []string{"web"})
 
 	if _, ok := ds.Variables["SLACK_CONFIG"]; ok {
 		t.Error("SLACK_CONFIG variable should be stripped when slack is not selected")
@@ -2754,9 +2754,9 @@ func TestStripNonSelectedAdapterVars_CleansEnvironmentRefs(t *testing.T) {
 	}
 }
 
-// Verify StripNonSelectedAdapterVars keeps variables for selected adapters and
+// Verify ApplyAdapterShaping keeps variables for selected adapters and
 // variables that target non-interface components.
-func TestStripNonSelectedAdapterVars_KeepsSelectedAndNonInterface(t *testing.T) {
+func TestApplyAdapterShaping_KeepsSelectedAndNonInterface(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 
@@ -2767,7 +2767,7 @@ func TestStripNonSelectedAdapterVars_KeepsSelectedAndNonInterface(t *testing.T) 
 		Value:   "hello",
 	}
 
-	StripNonSelectedAdapterVars(ds, []string{"slack"})
+	ApplyAdapterShaping(ds, []string{"slack"})
 
 	// Slack variables should be kept.
 	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
@@ -2782,8 +2782,62 @@ func TestStripNonSelectedAdapterVars_KeepsSelectedAndNonInterface(t *testing.T) 
 	}
 }
 
-// Verify StripNonSelectedAdapterVars is a no-op when spec has no interfaces.
-func TestStripNonSelectedAdapterVars_NilInterfaces(t *testing.T) {
+// Verify ApplyAdapterShaping flips slack token optionality.
+// Without this, deploying WITH slack selected would fail:
+// "variables.SLACK_BOT_TOKEN.optional: server-owned field cannot be changed"
+func TestApplyAdapterShaping_SlackOptionalityFlipped(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+	ds := mustGenerate(t, input)
+
+	// Precondition: tokens are optional by default (slack not selected).
+	if !ds.Variables["SLACK_BOT_TOKEN"].Optional {
+		t.Fatal("precondition: SLACK_BOT_TOKEN should be optional by default")
+	}
+
+	ApplyAdapterShaping(ds, []string{"slack"})
+
+	if ds.Variables["SLACK_BOT_TOKEN"].Optional {
+		t.Error("SLACK_BOT_TOKEN should be required when slack is selected")
+	}
+	if ds.Variables["SLACK_APP_TOKEN"].Optional {
+		t.Error("SLACK_APP_TOKEN should be required when slack is selected")
+	}
+}
+
+// Regression: deploy with slack selected must pass EnforceEditable. The shaped
+// template flips SLACK_BOT_TOKEN.optional to false; the deploy handler must do
+// the same on the regenerated template or EnforceEditable rejects it.
+func TestApplyAdapterShaping_DeployRoundTripSlackSelected(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+
+	canonical := mustGenerate(t, input)
+
+	shaped := ShapeTemplate(canonical, &spec.TemplateRequest{
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
+		Variables: map[string]spec.VariableInput{
+			"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
+			"SLACK_APP_TOKEN": {Value: "xapp-test"},
+		},
+	})
+	submittedSpec := &shaped.Template
+
+	freshTemplate := mustGenerate(t, input)
+	ApplyAdapterShaping(freshTemplate, submittedSpec.Interfaces.Adapters)
+
+	freshTemplate.Target.Account = submittedSpec.Target.Account
+	freshTemplate.Target.DisplayName = submittedSpec.Target.DisplayName
+	freshTemplate.Target.DeploymentID = submittedSpec.Target.DeploymentID
+
+	errs := spec.EnforceEditable(freshTemplate, submittedSpec)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors deploying with slack selected, got: %v", errs)
+	}
+}
+
+// Verify ApplyAdapterShaping is a no-op when spec has no interfaces.
+func TestApplyAdapterShaping_NilInterfaces(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Variables: map[string]spec.Variable{
 			"AGENT_VAR":       {Targets: []string{"agent"}, Value: "v"},
@@ -2791,7 +2845,7 @@ func TestStripNonSelectedAdapterVars_NilInterfaces(t *testing.T) {
 		},
 	}
 
-	StripNonSelectedAdapterVars(ds, nil)
+	ApplyAdapterShaping(ds, nil)
 
 	// No interfaces on the spec → nothing should be stripped.
 	if len(ds.Variables) != 2 {

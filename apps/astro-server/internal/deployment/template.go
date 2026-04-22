@@ -409,15 +409,8 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		if req.Interfaces.Auth != nil {
 			shaped.Interfaces.Auth = req.Interfaces.Auth
 		}
-		slackSelected := slices.Contains(req.Interfaces.Adapters, "slack")
-		// When slack is selected, its token variables become required.
-		for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
-			if v, ok := shaped.Variables[key]; ok {
-				v.Optional = !slackSelected
-				shaped.Variables[key] = v
-			}
-		}
 		// When web is selected, expose the HTTP endpoint for ingress.
+		// (expose is editable, so this doesn't need to live in ApplyAdapterShaping)
 		if slices.Contains(req.Interfaces.Adapters, "web") {
 			if ep, ok := shaped.Interfaces.Endpoints["http"]; ok {
 				if ep.Expose == nil {
@@ -429,10 +422,10 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		}
 	}
 
-	// Strip variables that belong exclusively to non-selected adapters.
-	// They'll reappear if the user toggles that adapter on (reshape POST).
+	// Apply all adapter-dependent mutations that touch server-owned fields.
+	// Shared with the deploy handler so the two endpoints can't diverge.
 	if req.Interfaces != nil {
-		StripNonSelectedAdapterVars(shaped, req.Interfaces.Adapters)
+		ApplyAdapterShaping(shaped, req.Interfaces.Adapters)
 	}
 
 	// --- Variable filling ---
@@ -599,11 +592,17 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 	return "http"
 }
 
-// StripNonSelectedAdapterVars removes variables from ds that belong exclusively
-// to adapters not present in selectedAdapters.  This keeps the template's variable
-// set consistent with the adapter selection so that EnforceEditable doesn't reject
-// variables the user was never shown.
-func StripNonSelectedAdapterVars(ds *spec.AstroDeploymentSpec, selectedAdapters []string) {
+// ApplyAdapterShaping normalises a deployment spec for the given adapter selection.
+// It must be the single source of truth for every adapter-dependent mutation that
+// touches server-owned fields, so that the POST template endpoint and the deploy
+// handler stay in sync.  Both call sites pass the same adapter list and get the
+// same result — no field-by-field patching in the deploy handler.
+//
+// Mutations applied:
+//  1. Strip variables that belong exclusively to non-selected adapters, plus their
+//     ${variables.KEY} references in interfaces.environment.
+//  2. Flip slack token optionality based on whether "slack" is selected.
+func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string) {
 	if ds.Interfaces == nil {
 		return
 	}
@@ -611,6 +610,8 @@ func StripNonSelectedAdapterVars(ds *spec.AstroDeploymentSpec, selectedAdapters 
 	for _, a := range selectedAdapters {
 		selectedSet[a] = true
 	}
+
+	// 1. Strip variables belonging exclusively to non-selected adapters.
 	for key, v := range ds.Variables {
 		if len(v.Targets) == 0 {
 			continue
@@ -631,9 +632,16 @@ func StripNonSelectedAdapterVars(ds *spec.AstroDeploymentSpec, selectedAdapters 
 			delete(ds.Variables, key)
 			// Also remove the corresponding ${variables.KEY} reference from
 			// interfaces.environment so it doesn't fail reference validation.
-			if ds.Interfaces != nil {
-				delete(ds.Interfaces.Environment, key)
-			}
+			delete(ds.Interfaces.Environment, key)
+		}
+	}
+
+	// 2. Slack token optionality: required when slack is selected, optional otherwise.
+	slackSelected := selectedSet["slack"]
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
+		if v, ok := ds.Variables[key]; ok {
+			v.Optional = !slackSelected
+			ds.Variables[key] = v
 		}
 	}
 }
