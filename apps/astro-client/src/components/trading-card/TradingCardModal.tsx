@@ -7,18 +7,7 @@ import { HoloCard } from "./HoloCard";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
 import type { AvatarColors, ResolvedIntegration } from "@/lib/api";
-import { useCardColors } from "@/components/deployed-agent/detail/liveRevealCardHooks";
-import { resolveCardIntegrations } from "@/lib/integrationIcons";
-
-function useResolvedIntegrations(
-  integrations: ResolvedIntegration[] | undefined,
-  open: boolean,
-) {
-  return useMemo(
-    () => (open && integrations?.length ? resolveCardIntegrations(integrations) : []),
-    [integrations, open],
-  );
-}
+import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
 
 interface TradingCardModalProps {
   open: boolean;

@@ -2,31 +2,31 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import type { AvatarColors } from "@/lib/api";
 
-// Test color palettes for different avatar hues.
-const warmColors: AvatarColors = {
-  base: "#5a3d2a", vibrant: "#8b4513", vibrant_light: "#d2a679",
-  accent: "#a0522d", accent_light: "#deb887", background: "#1a0e06",
-  foreground: "#f5f0eb", glow: "#e8c9a0",
+// Extracted from actual avatar images via colorextract.ExtractFromJPEG.
+const chrisbotColors: AvatarColors = {
+  base: "#271414", vibrant: "#862d2f", vibrant_light: "#e08587",
+  accent: "#300a0b", accent_light: "#dfc3a0",
+  background: "#220b0c", foreground: "#f6f4f4", glow: "#edabac",
 };
-const coolColors: AvatarColors = {
-  base: "#2a3d5a", vibrant: "#1e5a8b", vibrant_light: "#79a6d2",
-  accent: "#2d6fa0", accent_light: "#87b8de", background: "#060e1a",
-  foreground: "#ebf0f5", glow: "#a0c9e8",
+const slackBotColors: AvatarColors = {
+  base: "#3f223e", vibrant: "#862d83", vibrant_light: "#df86dc",
+  accent: "#4d144b", accent_light: "#dbb9a4",
+  background: "#220b22", foreground: "#f6f4f6", glow: "#eaaee8",
 };
-const redColors: AvatarColors = {
-  base: "#5a2a2a", vibrant: "#8b1313", vibrant_light: "#d27979",
-  accent: "#a02d2d", accent_light: "#de8787", background: "#1a0606",
-  foreground: "#f5ebeb", glow: "#e8a0a0",
+const deployTestColors: AvatarColors = {
+  base: "#af4f59", vibrant: "#862d36", vibrant_light: "#e0858f",
+  accent: "#df1f34", accent_light: "#dea0b2",
+  background: "#220b0e", foreground: "#f6f4f4", glow: "#f3a5ae",
 };
-const purpleColors: AvatarColors = {
-  base: "#3d2a5a", vibrant: "#5a1e8b", vibrant_light: "#a679d2",
-  accent: "#6f2da0", accent_light: "#b887de", background: "#0e061a",
-  foreground: "#f0ebf5", glow: "#c9a0e8",
+const directivesTestColors: AvatarColors = {
+  base: "#416eb3", vibrant: "#2d5086", vibrant_light: "#85a9e0",
+  accent: "#0862ec", accent_light: "#e699c1",
+  background: "#0b1522", foreground: "#f4f5f6", glow: "#9ec2fa",
 };
-const tealColors: AvatarColors = {
-  base: "#2a5a4d", vibrant: "#1e8b6f", vibrant_light: "#79d2b8",
-  accent: "#2da07f", accent_light: "#87deb8", background: "#061a14",
-  foreground: "#ebf5f0", glow: "#a0e8d2",
+const directivesTestPmColors: AvatarColors = {
+  base: "#775a29", vibrant: "#86652d", vibrant_light: "#e0bf85",
+  accent: "#9f6501", accent_light: "#e6a899",
+  background: "#221a0b", foreground: "#f6f5f4", glow: "#fad89e",
 };
 
 const meta = {
@@ -43,6 +43,10 @@ const singleCardDecorator = (Story: React.ComponentType) => (
   </div>
 );
 
+// ---------------------------------------------------------------------------
+// Default variant
+// ---------------------------------------------------------------------------
+
 export const Default: Story = {
   decorators: [singleCardDecorator],
   args: {
@@ -54,6 +58,20 @@ export const Default: Story = {
   },
 };
 
+export const WithAvatar: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "acme/customer-insight-engine",
+    account: "acme",
+    name: "Customer Insight Engine",
+    description:
+      "Analyzes customer feedback to surface actionable insights and trends.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg",
+    avatarColors: chrisbotColors,
+    deployCount: 842,
+  },
+};
+
 export const LongDescription: Story = {
   decorators: [singleCardDecorator],
   args: {
@@ -62,10 +80,12 @@ export const LongDescription: Story = {
     name: "Personalized Support Responses",
     description:
       "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history, previous interactions, and the specific context of their issue. Agents can review and send with a single click.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/slack-bot.jpg",
+    avatarColors: slackBotColors,
   },
 };
 
-export const ShortDescription: Story = {
+export const Private: Story = {
   decorators: [singleCardDecorator],
   args: {
     slug: "acme/security-monitor",
@@ -73,21 +93,13 @@ export const ShortDescription: Story = {
     name: "Security Monitor",
     description:
       "Continuously scans for vulnerabilities and alerts your security team.",
+    visibility: "private",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg",
+    avatarColors: deployTestColors,
   },
 };
 
-export const DifferentAccount: Story = {
-  decorators: [singleCardDecorator],
-  args: {
-    slug: "postman/product-research-intel",
-    account: "postman",
-    name: "Product Research Intel",
-    description:
-      "Aggregates product research and competitive intelligence from multiple sources.",
-  },
-};
-
-export const IsMember: Story = {
+export const PrivateWithArchive: Story = {
   decorators: [singleCardDecorator],
   args: {
     slug: "acme/customer-insight-engine",
@@ -96,28 +108,175 @@ export const IsMember: Story = {
     description:
       "Analyzes customer feedback to surface actionable insights and trends.",
     visibility: "private",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg",
+    avatarColors: chrisbotColors,
     onArchive: () => {},
   },
 };
 
+export const WithDeployCount: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "postman/api-test-agent",
+    account: "postman",
+    name: "API Test Agent",
+    description:
+      "Automatically generates and runs API tests based on your OpenAPI specs.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/directives-test.jpg",
+    avatarColors: directivesTestColors,
+    deployCount: 12450,
+  },
+};
+
+export const SingleDeploy: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "atlas/deploy-bot",
+    account: "atlas",
+    name: "Deploy Bot",
+    description: "Manages zero-downtime deployments across multiple environments.",
+    avatarUrl: "/assets/avatars/agents/chrispattypm/directives-test.jpg",
+    avatarColors: directivesTestPmColors,
+    deployCount: 1,
+  },
+};
+
+export const Draft: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "acme/new-agent",
+    account: "acme",
+    name: "New Agent",
+    description: "An agent that is still being set up.",
+    isDraft: true,
+  },
+};
+
+export const DraftWithArchive: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "acme/abandoned-experiment",
+    account: "acme",
+    name: "Abandoned Experiment",
+    description: "A draft that the owner might want to clean up.",
+    isDraft: true,
+    onArchive: () => {},
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Often-used-together variant (compact)
+// ---------------------------------------------------------------------------
+
 export const OftenUsedTogether: Story = {
   decorators: [singleCardDecorator],
   args: {
-    slug: "steve_jobs/alert-router",
-    account: "steve_jobs",
-    name: "alert-router",
-    description: "Routes alerts to the correct responders.",
+    slug: "acme/customer-insight-engine",
+    account: "acme",
+    name: "Customer Insight Engine",
+    description: "Analyzes customer feedback to surface actionable insights and trends.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg",
+    avatarColors: chrisbotColors,
     variant: "oftenUsedTogether",
     deployCount: 1203,
   },
 };
 
+// ---------------------------------------------------------------------------
+// List variant
+// ---------------------------------------------------------------------------
+
+const listDecorator = (Story: React.ComponentType) => (
+  <div className="max-w-2xl">
+    <Story />
+  </div>
+);
+
+export const List: Story = {
+  decorators: [listDecorator],
+  args: {
+    slug: "acme/customer-insight-engine",
+    account: "acme",
+    name: "Customer Insight Engine",
+    description:
+      "Analyzes customer feedback to surface actionable insights and trends.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg",
+    avatarColors: chrisbotColors,
+    variant: "list",
+    deployCount: 842,
+    heartCount: 56,
+  },
+};
+
+export const ListPrivate: Story = {
+  decorators: [listDecorator],
+  args: {
+    slug: "acme/security-monitor",
+    account: "acme",
+    name: "Security Monitor",
+    description:
+      "Continuously scans for vulnerabilities and alerts your security team.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg",
+    avatarColors: deployTestColors,
+    variant: "list",
+    visibility: "private",
+    deployCount: 310,
+    heartCount: 12,
+  },
+};
+
+export const ListWithArchive: Story = {
+  decorators: [listDecorator],
+  args: {
+    slug: "acme/customer-insight-engine",
+    account: "acme",
+    name: "Customer Insight Engine",
+    description:
+      "Analyzes customer feedback to surface actionable insights and trends.",
+    avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg",
+    avatarColors: chrisbotColors,
+    variant: "list",
+    deployCount: 842,
+    heartCount: 56,
+    onArchive: () => {},
+  },
+};
+
+export const ListDraft: Story = {
+  decorators: [listDecorator],
+  args: {
+    slug: "acme/new-agent",
+    account: "acme",
+    name: "New Agent",
+    description: "An agent that is still being configured.",
+    variant: "list",
+    isDraft: true,
+  },
+};
+
+export const ListDraftWithArchive: Story = {
+  decorators: [listDecorator],
+  args: {
+    slug: "acme/abandoned-experiment",
+    account: "acme",
+    name: "Abandoned Experiment",
+    description: "A draft that the owner might want to clean up.",
+    variant: "list",
+    isDraft: true,
+    onArchive: () => {},
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Grid composition
+// ---------------------------------------------------------------------------
+
 const gridCards = [
-  { slug: "acme/customer-insight-engine", account: "acme", name: "Customer Insight Engine", description: "Analyzes customer feedback to surface actionable insights and trends.", avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg", avatarColors: warmColors },
-  { slug: "acme/personalized-support-responses", account: "acme", name: "Personalized Support Responses", description: "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history and context.", avatarUrl: "/assets/avatars/agents/chrisjpatty/slack-bot.jpg", avatarColors: purpleColors },
-  { slug: "acme/security-monitor", account: "acme", name: "Security Monitor", description: "Continuously scans for vulnerabilities and alerts your security team.", avatarUrl: "/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg", avatarColors: redColors },
-  { slug: "postman/api-test-agent", account: "postman", name: "API Test Agent", description: "Automatically generates and runs API tests based on your OpenAPI specs.", avatarUrl: "/assets/avatars/agents/chrisjpatty/directives-test.jpg", avatarColors: coolColors },
-  { slug: "atlas/deploy-bot", account: "atlas", name: "Deploy Bot", description: "Manages zero-downtime deployments across multiple environments with rollback support.", avatarUrl: "/assets/avatars/agents/chrispattypm/directives-test.jpg", avatarColors: tealColors },
+  { slug: "acme/customer-insight-engine", account: "acme", name: "Customer Insight Engine", description: "Analyzes customer feedback to surface actionable insights and trends.", avatarUrl: "/assets/avatars/agents/chrisjpatty/chrisbot.jpg", avatarColors: chrisbotColors },
+  { slug: "acme/personalized-support-responses", account: "acme", name: "Personalized Support Responses", description: "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history and context.", avatarUrl: "/assets/avatars/agents/chrisjpatty/slack-bot.jpg", avatarColors: slackBotColors },
+  { slug: "acme/security-monitor", account: "acme", name: "Security Monitor", description: "Continuously scans for vulnerabilities and alerts your security team.", avatarUrl: "/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg", avatarColors: deployTestColors },
+  { slug: "postman/api-test-agent", account: "postman", name: "API Test Agent", description: "Automatically generates and runs API tests based on your OpenAPI specs.", avatarUrl: "/assets/avatars/agents/chrisjpatty/directives-test.jpg", avatarColors: directivesTestColors },
+  { slug: "atlas/deploy-bot", account: "atlas", name: "Deploy Bot", description: "Manages zero-downtime deployments across multiple environments with rollback support.", avatarUrl: "/assets/avatars/agents/chrispattypm/directives-test.jpg", avatarColors: directivesTestPmColors },
 ];
 
 export const Grid: StoryObj = {
@@ -127,6 +286,21 @@ export const Grid: StoryObj = {
         {gridCards.map((card) => (
           <BlueprintCard key={card.slug} {...card} />
         ))}
+      </div>
+    </div>
+  ),
+};
+
+export const GridMixed: StoryObj = {
+  render: () => (
+    <div className="w-full bg-surface p-6">
+      <div className="grid w-full grid-cols-3 gap-3">
+        <BlueprintCard slug="acme/customer-insight-engine" account="acme" name="Customer Insight Engine" description="Analyzes customer feedback to surface actionable insights and trends." avatarUrl="/assets/avatars/agents/chrisjpatty/chrisbot.jpg" avatarColors={chrisbotColors} deployCount={842} />
+        <BlueprintCard slug="acme/new-agent" account="acme" name="New Agent" description="An agent that is still being set up." isDraft />
+        <BlueprintCard slug="acme/security-monitor" account="acme" name="Security Monitor" description="Continuously scans for vulnerabilities and alerts your security team." avatarUrl="/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg" avatarColors={deployTestColors} visibility="private" onArchive={() => {}} />
+        <BlueprintCard slug="postman/api-test-agent" account="postman" name="API Test Agent" description="Automatically generates and runs API tests based on your OpenAPI specs." avatarUrl="/assets/avatars/agents/chrisjpatty/directives-test.jpg" avatarColors={directivesTestColors} deployCount={12450} />
+        <BlueprintCard slug="acme/abandoned-experiment" account="acme" name="Abandoned Experiment" description="A draft the owner might want to clean up." isDraft onArchive={() => {}} />
+        <BlueprintCard slug="atlas/deploy-bot" account="atlas" name="Deploy Bot" description="Manages zero-downtime deployments." avatarUrl="/assets/avatars/agents/chrispattypm/directives-test.jpg" avatarColors={directivesTestPmColors} deployCount={1} />
       </div>
     </div>
   ),

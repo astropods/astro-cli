@@ -17,7 +17,7 @@ export function PrivacyBadge({ className, onClick }: PrivacyBadgeProps) {
     <TooltipProvider delayDuration={500}>
       <Tooltip>
         <TooltipTrigger asChild onClick={onClick}>
-          <Tag className={cn("cursor-default", className)}>Private</Tag>
+          <Tag color="accent" className={cn("cursor-default", className)}>Private</Tag>
         </TooltipTrigger>
         <TooltipContent>Only visible to members with access</TooltipContent>
       </Tooltip>

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HoloCard } from "@/components/trading-card/HoloCard";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
-import { useCardColors, useResolvedIntegrations } from "@/components/deployed-agent/detail/liveRevealCardHooks";
+import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
 import { getDeploymentAvatarUrl } from "@/lib/assets";

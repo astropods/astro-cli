@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-export type TagColor = 'default' | 'teal' | 'blue' | 'yellow' | 'coral';
+export type TagColor = 'default' | 'teal' | 'blue' | 'yellow' | 'coral' | 'accent';
 
 const COLOR: Record<TagColor, { bg: string; fg: string }> = {
   default: { bg: 'color-mix(in oklch, var(--color-stone-500) 10%, transparent)',  fg: 'var(--muted-foreground)'  },
@@ -8,6 +8,7 @@ const COLOR: Record<TagColor, { bg: string; fg: string }> = {
   blue:    { bg: 'color-mix(in oklch, var(--color-blue-600) 10%, transparent)',   fg: 'var(--color-blue-600)'    },
   yellow:  { bg: 'color-mix(in oklch, var(--color-yellow-500) 10%, transparent)', fg: 'var(--color-yellow-700)'  },
   coral:   { bg: 'color-mix(in oklch, var(--color-coral-600) 10%, transparent)',  fg: 'var(--color-coral-600)'   },
+  accent:  { bg: 'color-mix(in oklch, var(--card-accent, var(--color-stone-500)) 14%, transparent)', fg: 'var(--card-muted, var(--muted-foreground))' },
 };
 
 export interface TagProps {
