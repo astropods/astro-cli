@@ -3030,3 +3030,47 @@ func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
 		t.Errorf("expected 1 editable field, got %d", len(template.Editable))
 	}
 }
+
+// Reproduce the user's scenario: two postgres knowledge entries ("postgres" and
+// "users") plus a redis "cache". Verify that credential variables (POSTGRES_USER,
+// POSTGRES_PASSWORD) are generated for both postgres entries.
+func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
+	input := baseInput()
+	input.AgentName = "sasbot"
+	input.Spec.Name = "sasbot"
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"postgres": {Provider: "postgres", Persistent: true},
+		"users":    {Provider: "postgres", Persistent: true},
+		"cache":    {Provider: "redis"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Log all variables for debugging.
+	t.Log("=== Variables ===")
+	for name, v := range ds.Variables {
+		t.Logf("  %s  targets=%v  secret=%v", name, v.Targets, v.Secret)
+	}
+
+	// Log agent environment.
+	t.Log("=== Agent Environment ===")
+	for k, v := range ds.Agent.Environment {
+		t.Logf("  %s = %s", k, v)
+	}
+
+	// The "postgres" entry name matches the provider name → gets bare keys.
+	if _, ok := ds.Variables["POSTGRES_USER"]; !ok {
+		t.Error("expected POSTGRES_USER variable (bare key for 'postgres' entry)")
+	}
+	if _, ok := ds.Variables["POSTGRES_PASSWORD"]; !ok {
+		t.Error("expected POSTGRES_PASSWORD variable (bare key for 'postgres' entry)")
+	}
+
+	// The "users" entry has a different name → gets suffixed keys.
+	if _, ok := ds.Variables["POSTGRES_USERS_USER"]; !ok {
+		t.Error("expected POSTGRES_USERS_USER variable (suffixed key for 'users' entry)")
+	}
+	if _, ok := ds.Variables["POSTGRES_USERS_PASSWORD"]; !ok {
+		t.Error("expected POSTGRES_USERS_PASSWORD variable (suffixed key for 'users' entry)")
+	}
+}

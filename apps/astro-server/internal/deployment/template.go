@@ -150,6 +150,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	}
 
 	// Process knowledge
+	type knowledgeCredVar struct{ key, target string }
+	var knowledgeCredVars []knowledgeCredVar
 	if len(astroSpec.Knowledge) > 0 {
 		// Count provider occurrences among self-hosted knowledge stores
 		knowledgeProviderCount := make(map[string]int)
@@ -209,6 +211,16 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 							agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.url}", name, primaryEp)
 						}
 					}
+
+					// Collect credential variables for self-hosted providers
+					// (injected into the variables map after it's created below).
+					for _, cred := range prov.BindCredentials {
+						for _, key := range providerEnvKeys(prov.EnvPrefix, name, strings.ToUpper(cred.Attr), isDup, isFirst) {
+							knowledgeCredVars = append(knowledgeCredVars, knowledgeCredVar{
+								key: key, target: "knowledge." + name,
+							})
+						}
+					}
 				} else {
 					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", spec.SanitizeEnvName(name))
 					agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
@@ -258,6 +270,14 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 		// Wire credential references into agent environment
 		agentEnv[ci.Key] = fmt.Sprintf("${variables.%s}", ci.Key)
+	}
+
+	// Inject self-hosted provider credentials collected during the knowledge loop.
+	for _, cv := range knowledgeCredVars {
+		variables[cv.key] = spec.Variable{
+			Secret:  true,
+			Targets: []string{cv.target},
+		}
 	}
 
 	// Collect inputs from all sources into variables map
@@ -456,8 +476,12 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 			boundNames := make(map[string]bool, len(resolved))
 			for name, rb := range resolved {
 				boundNames[name] = true
-				// Zero the knowledge entry and set binding ARN.
-				shaped.Knowledge[name] = spec.DeploymentKnowledge{Binding: rb.ARN}
+				// Zero container fields but preserve binding ARN and provider
+				// so reference resolution can look up provider endpoints.
+				shaped.Knowledge[name] = spec.DeploymentKnowledge{
+					Binding:  rb.ARN,
+					Provider: shaped.Knowledge[name].Provider,
+				}
 				resolvedBindings.Knowledge[name] = spec.KnowledgeBindingInfo{
 					ARN: rb.ARN, Name: rb.Name, Provider: rb.Provider, Status: rb.Status,
 				}
@@ -721,8 +745,11 @@ func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.Ast
 	for name, k := range submitted.Knowledge {
 		if k.IsBound() {
 			boundNames[name] = true
-			// Zero the template entry to match what ShapeTemplate produced.
-			template.Knowledge[name] = spec.DeploymentKnowledge{Binding: k.Binding}
+			// Zero container fields but preserve binding + provider.
+			template.Knowledge[name] = spec.DeploymentKnowledge{
+				Binding:  k.Binding,
+				Provider: template.Knowledge[name].Provider,
+			}
 		}
 	}
 	if len(boundNames) == 0 {
