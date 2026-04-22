@@ -2676,7 +2676,9 @@ func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploy
 				// Variable was originally set via an account variable reference —
 				// restore the ref so the UI shows which account variable was selected.
 				tv.Ref = sv.Ref
-			} else {
+			} else if !sv.Secret {
+				// Only expose plaintext values for non-secret variables.
+				// Secret values without refs are encrypted blobs — not useful to the UI.
 				tv.Value = sv.Value
 			}
 			template.Variables[sv.Name] = tv
