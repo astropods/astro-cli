@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown } from "lucide-react";
-import { StarIcon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   DropdownMenu,
@@ -13,18 +12,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
 import type { Account } from "@/lib/api";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface OrgSwitcherProps {
   activeAccount: string;
-  defaultAccount?: string;
   onChange: (account: string) => void;
-  onSetDefault: (account: string) => void;
 }
 
 function AccountIcon({ account }: { account: Account }) {
@@ -39,9 +30,7 @@ function AccountIcon({ account }: { account: Account }) {
 
 export function OrgSwitcher({
   activeAccount,
-  defaultAccount,
   onChange,
-  onSetDefault,
 }: OrgSwitcherProps) {
   const { accounts } = useAuth();
 
@@ -82,11 +71,10 @@ export function OrgSwitcher({
       <DropdownMenuContent align="end" className="w-56">
         {sorted.map((a) => {
           const isActive = a.name === activeAccount;
-          const isDefault = a.name === defaultAccount;
           return (
             <DropdownMenuItem
               key={a.id}
-              className="group relative cursor-pointer pl-8 pr-0"
+              className="relative cursor-pointer pl-8"
               onSelect={(e) => e.preventDefault()}
               onClick={() => { onChange(a.name); setOpen(false); }}
             >
@@ -95,40 +83,6 @@ export function OrgSwitcher({
               </span>
               <AccountIcon account={a} />
               <span className="truncate">{a.name}</span>
-              {isDefault ? (
-                <button
-                  type="button"
-                  aria-label="Default view"
-                  className="ml-auto mr-2 hidden shrink-0 cursor-pointer opacity-100 sm:block"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSetDefault(a.name);
-                  }}
-                >
-                  <StarIcon className="size-3.5 fill-current text-primary" />
-                </button>
-              ) : (
-                <TooltipProvider delayDuration={500}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Set as default view"
-                        className="ml-auto mr-2 hidden shrink-0 cursor-pointer opacity-0 transition-opacity group-data-[highlighted]:opacity-100 sm:block"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSetDefault(a.name);
-                        }}
-                      >
-                        <StarIcon className="size-3.5 text-muted-foreground" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      Set as default view
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
             </DropdownMenuItem>
           );
         })}
