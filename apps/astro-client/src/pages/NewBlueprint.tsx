@@ -29,6 +29,7 @@ import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
+import { SubpathPicker } from "@/components/new-blueprint/SubpathPicker";
 import { LinkConfirmDialog } from "@/components/new-blueprint/LinkConfirmDialog";
 
 export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
@@ -174,6 +175,8 @@ function NewBlueprintContent() {
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
 
+  const [subpath, setSubpath] = useState("");
+
   // Clean up OAuth callback state: remove sessionStorage entry and strip the
   // github_connected params from the URL so a refresh doesn't re-trigger.
   useEffect(() => {
@@ -244,6 +247,7 @@ function NewBlueprintContent() {
 
   const handleSelectRepo = useCallback((repo: GitHubRepo | null) => {
     dispatch({ type: "SELECT_REPO", repo });
+    setSubpath("");
   }, []);
 
   const handleSelectBranch = useCallback((branch: string) => {
@@ -288,17 +292,22 @@ function NewBlueprintContent() {
       ]);
 
       if (sourcePath === "import" && selectedRepo) {
+        const cleanedSubpath = subpath.trim().replace(/^\/+|\/+$/g, "");
+        const repoFullName = cleanedSubpath
+          ? `${selectedRepo.full_name}/${cleanedSubpath}`
+          : selectedRepo.full_name;
+
         // 2. Scan first — lightweight read, no connection needed.
         dispatch({ type: "SET_SCAN_RESULT", result: "scanning" });
         let found = false;
         try {
-          const scan = await accountScan.mutateAsync({ repo: selectedRepo.full_name, branch: selectedBranch, agentName: slug });
+          const scan = await accountScan.mutateAsync({ repo: repoFullName, branch: selectedBranch, agentName: slug });
           found = scan.found;
         } catch { /* treat scan errors as not-found */ }
 
         // 3. Link (always — installs webhook for future pushes).
         await githubLink.mutateAsync({
-          repo_full_name: selectedRepo.full_name,
+          repo_full_name: repoFullName,
           branch: selectedBranch,
         }).catch(() => {});
 
@@ -316,7 +325,7 @@ function NewBlueprintContent() {
     } catch {
       // error state shown in publishing card
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, githubLink, accountScan, rebuild]);
+  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, subpath, githubLink, accountScan, rebuild]);
 
   const handleCreateOrConfirm = useCallback(() => {
     if (sourcePath === "import" && selectedRepo) {
@@ -463,6 +472,25 @@ function NewBlueprintContent() {
                                               onSelectBranch={handleSelectBranch}
                                               onSearchChange={setRepoQuery}
                                             />
+
+                                            {/* Subdirectory picker — slides in when a repo is selected */}
+                                            <div className={cn(
+                                              "grid transition-[grid-template-rows] duration-150 ease-out",
+                                              selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                                            )}>
+                                              <div className="overflow-hidden">
+                                                <div className="px-4 pb-3">
+                                                  <SubpathPicker
+                                                    account={selectedOrg}
+                                                    repo={selectedRepo?.full_name ?? ""}
+                                                    branch={selectedBranch}
+                                                    value={subpath}
+                                                    onChange={setSubpath}
+                                                    enabled={!!selectedRepo && githubConnected}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
                                           </>
                                       </div>
                                     </div>
@@ -528,6 +556,7 @@ function NewBlueprintContent() {
                         selectedOrg={selectedOrg}
                         selectedRepo={selectedRepo}
                         selectedBranch={selectedBranch}
+                        subpath={subpath.trim().replace(/^\/+|\/+$/g, "")}
                         visibility={visibility}
                         isCreatingBlueprint={isCreatingBlueprint}
                         onConfirm={handleConfirmAndPublish}

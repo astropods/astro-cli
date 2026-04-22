@@ -22,6 +22,7 @@ type LinkConfirmDialogProps = {
   selectedOrg: string;
   selectedRepo: GitHubRepo | null;
   selectedBranch: string;
+  subpath?: string;
   visibility: "public" | "private";
   isCreatingBlueprint: boolean;
   onConfirm: () => void;
@@ -36,6 +37,7 @@ export function LinkConfirmDialog({
   selectedOrg,
   selectedRepo,
   selectedBranch,
+  subpath,
   visibility,
   isCreatingBlueprint,
   onConfirm,
@@ -104,6 +106,12 @@ export function LinkConfirmDialog({
             <span className="text-muted-foreground text-xs">Branch</span>
             <span className="text-xs font-medium text-foreground font-mono">{selectedBranch}</span>
           </div>
+          {subpath && (
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-muted-foreground text-xs">Subdirectory</span>
+              <span className="text-xs font-medium text-foreground font-mono">{subpath}</span>
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed">
