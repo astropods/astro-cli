@@ -24,7 +24,7 @@ const WOS_ORG_ID = "wos-org-1";
 const nowIso = new Date().toISOString();
 const latestBuildByAgent: Record<string, string> = {
   [AGENT_APP_TOKEN_ONLY]: "build-123",
-  [AGENT_SLACK_FULL]: "build-124",
+  [AGENT_SLACK_FULL]: "build-123",
   [AGENT_SLACK_OVERLAP]: "build-123",
   [AGENT_CROSS_ACCOUNT]: "build-cross-1",
   [AGENT_INGESTION_SCHEDULE]: "build-125",
