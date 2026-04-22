@@ -421,9 +421,9 @@ function CredentialsCard({ account, storeName }: { account: string; storeName: s
         <div className="relative flex items-center">
           <Input value={revealed[key] ? value : "••••••••••••"} readOnly className="pr-16 font-mono cursor-default bg-stone-100 focus-visible:ring-0 focus-visible:border-border" />
           <div className="absolute right-2 flex items-center gap-1">
-            <button type="button" className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors p-1" onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}>
+            <Button type="button" variant="ghost" size="icon" className="size-6 text-muted-foreground hover:text-foreground" onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}>
               {revealed[key] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
+            </Button>
             <SharedCopyButton copyText={value} className="size-6 p-0 shrink-0" iconClassName="size-3.5" />
           </div>
         </div>
