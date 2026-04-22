@@ -958,7 +958,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 			// Deployment template generation
 			api.POST(protected, "/agents/:account/:name/deployment-template", "Interactive deployment template",
-				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore),
+				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore, ksStore),
 				oapispec.Tags("Agents"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1064,7 +1064,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),

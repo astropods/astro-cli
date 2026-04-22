@@ -282,6 +282,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
   const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(computedDefaults.webAuthEnabled ?? false);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
+  const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>({});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
@@ -305,6 +306,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     seededRef.current = true;
 
     const extracted = computeInitialValues(template, account, templateResponse?.interfaces, templateResponse?.schedules);
+
+    // Seed knowledge bindings from prefilled template response.
+    if (templateResponse?.bindings?.knowledge) {
+      const prefilled: Record<string, string> = {};
+      for (const [entryName, info] of Object.entries(templateResponse.bindings.knowledge)) {
+        prefilled[entryName] = info.arn;
+      }
+      setKnowledgeBindingsRaw(prefilled);
+    }
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
       targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",
@@ -340,8 +350,21 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
-    reshapeTemplate({ interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined } });
-  }, [reshapeTemplate, webAuthEnabled]);
+    reshapeTemplate({
+      interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined },
+      bindings: Object.keys(knowledgeBindings).length > 0 ? { knowledge: knowledgeBindings } : undefined,
+    });
+  }, [reshapeTemplate, webAuthEnabled, knowledgeBindings]);
+
+  // Exposed binding setter: updates state and re-POSTs to reshape the template.
+  // Binding selection is a structural change (removes/adds knowledge entries, variables, editable fields).
+  const setKnowledgeBindings = useCallback((bindings: Record<string, string>) => {
+    setKnowledgeBindingsRaw(bindings);
+    reshapeTemplate({
+      interfaces: buildInterfaces(),
+      bindings: { knowledge: bindings },
+    });
+  }, [reshapeTemplate, buildInterfaces]);
 
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
@@ -553,6 +576,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       interfaces: buildInterfaces(),
       variables: variableInputs,
       schedules: ingestionSchedules,
+      bindings: Object.keys(knowledgeBindings).length > 0 ? { knowledge: knowledgeBindings } : undefined,
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
@@ -638,6 +662,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     scheduleIngestions,
     ingestionSchedules,
     setIngestionSchedules,
+
+    knowledgeBindings,
+    setKnowledgeBindings,
+    resolvedBindings: templateResponse?.bindings?.knowledge ?? {},
+    knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
 
     vaultEntries: accountVarsData?.variables ?? [],
     vaultSettingsUrl: (() => {

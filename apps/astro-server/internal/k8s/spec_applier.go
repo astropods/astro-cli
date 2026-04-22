@@ -38,10 +38,12 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Resolve all ${} references and build ConfigMap/Secret data
 	rctx := deployment.ResolveContext{
-		Namespace:  a.namespace,
-		AgentName:  agentName,
-		BuildID:    buildID,
-		SecretName: deployment.GenerateSecretName(agentName, buildID),
+		Namespace:        a.namespace,
+		AgentName:        agentName,
+		BuildID:          buildID,
+		SecretName:       deployment.GenerateSecretName(agentName, buildID),
+		BoundKnowledge:   a.boundKnowledge,
+		BoundCredentials: a.boundCredentials,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -113,6 +115,9 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Knowledge services
 	for name, knowledge := range ds.Knowledge {
+		if knowledge.IsBound() {
+			continue
+		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
 		svc := a.buildKnowledgeService(resourceName, accountName, agentName, buildID, name, knowledge.Endpoints)
 		a.applyServiceAndRecord(ctx, svc, result)
@@ -180,7 +185,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Phase 4: Create StatefulSets for persistent knowledge
 	for name, knowledge := range ds.Knowledge {
-		if !knowledge.Persistent {
+		if knowledge.IsBound() || !knowledge.Persistent {
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
@@ -382,7 +387,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Non-persistent knowledge as Deployments
 	for name, knowledge := range ds.Knowledge {
-		if knowledge.Persistent {
+		if knowledge.IsBound() || knowledge.Persistent {
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
@@ -1164,6 +1169,9 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 	var secretNames []string
 
 	for name, knowledge := range ds.Knowledge {
+		if knowledge.IsBound() {
+			continue
+		}
 		creds := generateKnowledgeCredentials(knowledge.Provider)
 		if len(creds) == 0 {
 			continue

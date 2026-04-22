@@ -41,11 +41,12 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	var dep *deployer.Deployer
 	if cfg.K8sClient != nil && cfg.ServerConfig != nil {
 		dep = &deployer.Deployer{
-			K8sClient:    cfg.K8sClient,
-			AccountStore: cfg.AccountStore,
-			Cfg:          cfg.ServerConfig,
-			Store:        store,
-			Log:          cfg.Logger,
+			K8sClient:      cfg.K8sClient,
+			AccountStore:   cfg.AccountStore,
+			Cfg:            cfg.ServerConfig,
+			Store:          store,
+			Log:            cfg.Logger,
+			KnowledgeStore: knowledgestore.NewStore(cfg.DB),
 		}
 
 		// Initialize Langfuse per-account provisioning if configured
@@ -66,7 +67,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 
 	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "DeployWorker")
-	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
+	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, ksStore: knowledgestore.NewStore(cfg.DB), log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")

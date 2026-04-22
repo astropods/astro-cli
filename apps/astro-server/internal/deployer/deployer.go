@@ -11,9 +11,11 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -35,6 +37,8 @@ type Deployer struct {
 	// Langfuse per-account project provisioning (optional)
 	LangfuseStore       *langfuse.Store
 	LangfuseProvisioner *langfuse.Provisioner
+	// KnowledgeStore for resolving bound knowledge entries (optional)
+	KnowledgeStore *knowledgestore.Store
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -91,6 +95,9 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		d.Log.Info("Messaging OIDC configured", "issuer", oidcAuth.Issuer)
 	}
 
+	// Resolve bound knowledge entries: look up store info and decrypt credentials.
+	boundKnowledge, boundCredentials := d.resolveBoundKnowledge(ctx, &ds)
+
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
 		Namespace:              dep.Namespace,
 		RegistryURL:            d.Cfg.Deployment.RegistryURL,
@@ -111,6 +118,8 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
 		MessagingOIDCAuth:      oidcAuth,
+		BoundKnowledge:         boundKnowledge,
+		BoundCredentials:       boundCredentials,
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,
@@ -123,6 +132,79 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	})
 
 	return applier.ApplyDeploymentSpec(ctx, &ds)
+}
+
+// resolveBoundKnowledge looks up store info and decrypts credentials for all bound
+// knowledge entries in the deployment spec.
+func (d *Deployer) resolveBoundKnowledge(
+	ctx context.Context, ds *spec.AstroDeploymentSpec,
+) (map[string]deployment.BoundKnowledgeInfo, map[string]string) {
+	if d.KnowledgeStore == nil {
+		return nil, nil
+	}
+
+	var boundKnowledge map[string]deployment.BoundKnowledgeInfo
+	var boundCredentials map[string]string
+
+	for name, k := range ds.Knowledge {
+		if !k.IsBound() {
+			continue
+		}
+		store, err := d.KnowledgeStore.GetByARN(k.Binding)
+		if err != nil || store == nil {
+			d.Log.Warn("Failed to resolve bound knowledge store", "error", err, "arn", k.Binding, "entry", name)
+			continue
+		}
+		if boundKnowledge == nil {
+			boundKnowledge = make(map[string]deployment.BoundKnowledgeInfo)
+			boundCredentials = make(map[string]string)
+		}
+		boundKnowledge[name] = deployment.BoundKnowledgeInfo{
+			StoreID:   store.ID,
+			AccountID: store.AccountID,
+			Namespace: k8s.KnowledgeNamespace(store.AccountID),
+			Provider:  store.Provider,
+		}
+
+		// Decrypt store credentials and map to "name.key" format.
+		creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
+		if credErr != nil {
+			d.Log.Warn("Failed to get store credentials", "error", credErr, "store_id", store.ID)
+			continue
+		}
+		if len(creds) > 0 && len(store.EncryptedDataKey) > 0 {
+			kmsClient := d.kmsClient(ctx)
+			if kmsClient != nil {
+				plainCreds, decErr := knowledgestore.DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, creds)
+				if decErr != nil {
+					d.Log.Warn("Failed to decrypt store credentials", "error", decErr, "store_id", store.ID)
+					continue
+				}
+				// Map storage keys to reference attributes using the provider's credential schema.
+				storageKeyMap := spec.CredentialStorageKeyMap(store.Provider)
+				for storageKey, val := range plainCreds {
+					if attr, ok := storageKeyMap[storageKey]; ok {
+						boundCredentials[name+"."+attr] = val
+					}
+				}
+			}
+		}
+	}
+
+	return boundKnowledge, boundCredentials
+}
+
+// kmsClient returns the deployer's KMS client, or creates one from the default AWS config.
+func (d *Deployer) kmsClient(ctx context.Context) envelope.KMSClient {
+	if d.KMSClient != nil {
+		return d.KMSClient
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		d.Log.Warn("Failed to load AWS config for KMS", "error", err)
+		return nil
+	}
+	return kms.NewFromConfig(awsCfg)
 }
 
 // Teardown deletes the K8s namespace for a deployment, cascading to all resources.
@@ -152,16 +234,7 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 	// Build a decryptor if the deployment has KMS-encrypted secrets
 	var dec *envelope.Decryptor
 	if len(dep.EncryptedDataKey) > 0 && d.Cfg.Deployment.KMSKeyARN != "" {
-		kmsClient := d.KMSClient
-		if kmsClient == nil {
-			awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
-			if awsErr != nil {
-				d.Log.Warn("Failed to load AWS config for secret decryption", "error", awsErr, "deployment_id", dep.ID)
-			} else {
-				kmsClient = kms.NewFromConfig(awsCfg)
-			}
-		}
-		if kmsClient != nil {
+		if kmsClient := d.kmsClient(ctx); kmsClient != nil {
 			dec, err = envelope.NewDecryptor(ctx, kmsClient, dep.EncryptedDataKey)
 			if err != nil {
 				d.Log.Warn("Failed to create KMS decryptor", "error", err, "deployment_id", dep.ID)

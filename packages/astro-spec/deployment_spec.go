@@ -107,20 +107,25 @@ type DeploymentModel struct {
 	Provider   string `json:"provider,omitempty" yaml:"provider,omitempty"`
 }
 
-// DeploymentKnowledge describes a knowledge store container.
+// DeploymentKnowledge describes a knowledge store container or a binding to a managed store.
+// When Binding is set, all container fields are zero-valued — the managed store provides everything.
 type DeploymentKnowledge struct {
-	Image       string              `json:"image" yaml:"image"`
+	Image       string              `json:"image,omitempty" yaml:"image,omitempty"`
 	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
-	Replicas    int                 `json:"replicas" yaml:"replicas"`
+	Replicas    int                 `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 	Resources   DeploymentResources `json:"resources" yaml:"resources"`
-	Persistent  bool                `json:"persistent" yaml:"persistent"`
+	Persistent  bool                `json:"persistent,omitempty" yaml:"persistent,omitempty"`
 	Volume      string              `json:"volume,omitempty" yaml:"volume,omitempty"` // mount path for persistent storage
 	Storage     *StorageConfig      `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Update      UpdateStrategy      `json:"update" yaml:"update"`
 	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"` // implementation-internal
+	Binding     string              `json:"binding,omitempty" yaml:"binding,omitempty"`   // managed store ARN; when set, container fields are zero
 }
+
+// IsBound returns true if this knowledge entry is bound to a managed store.
+func (dk DeploymentKnowledge) IsBound() bool { return dk.Binding != "" }
 
 // DeploymentIntegration describes an integration sidecar container.
 type DeploymentIntegration struct {
@@ -308,6 +313,7 @@ type TemplateRequest struct {
 	Interfaces   *TemplateInterfaces      `json:"interfaces,omitempty"`
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
 	Schedules    map[string]string        `json:"schedules,omitempty"` // ingestion name → cron expression
+	Bindings     *TemplateBindings        `json:"bindings,omitempty"`
 }
 
 // VariableInput carries a user-supplied value or account-variable ref for a single variable.
@@ -324,6 +330,7 @@ type TemplateResponse struct {
 	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
 	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth)
 	Schedules  map[string]string   `json:"schedules"`           // ingestion name → cron expression
+	Bindings   *ResolvedBindings   `json:"bindings,omitempty"`  // resolved binding metadata for the UI
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
 }
 
@@ -333,6 +340,24 @@ type TemplateResponse struct {
 type TemplateInterfaces struct {
 	Adapters []string                  `json:"adapters"` // selected adapters (always present, may be empty)
 	Auth     *DeploymentInterfacesAuth `json:"auth,omitempty"`
+}
+
+// TemplateBindings carries binding inputs from the client (entry name → store ARN).
+type TemplateBindings struct {
+	Knowledge map[string]string `json:"knowledge,omitempty"` // knowledge entry name → store ARN
+}
+
+// KnowledgeBindingInfo describes a resolved knowledge store binding in the template response.
+type KnowledgeBindingInfo struct {
+	ARN      string `json:"arn"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Status   string `json:"status"`
+}
+
+// ResolvedBindings carries resolved binding metadata in the template response.
+type ResolvedBindings struct {
+	Knowledge map[string]KnowledgeBindingInfo `json:"knowledge,omitempty"`
 }
 
 // TemplateValidation carries the current validity state and any field-level errors.

@@ -83,6 +83,9 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		}
 	}
 	for name, k := range submitted.Knowledge {
+		if k.IsBound() {
+			continue // bound entries have no container config — validated at deploy time
+		}
 		if k.Image == "" {
 			errs = append(errs, fmt.Sprintf("knowledge.%s.image: required", name))
 		}

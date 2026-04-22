@@ -26,6 +26,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -459,7 +460,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -474,6 +475,28 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
 		if !ok {
 			return
+		}
+
+		// Validate knowledge store bindings authoritatively.
+		var resolvedBindings map[string]deployment.ResolvedBinding
+		if ksStore != nil {
+			requested := make(map[string]string)
+			for name, k := range submittedSpec.Knowledge {
+				if k.IsBound() {
+					requested[name] = k.Binding
+				}
+			}
+			if len(requested) > 0 {
+				var bindingErrs []spec.ValidationError
+				resolvedBindings, bindingErrs = deployment.ResolveBindings(c.Request.Context(), ksStore, dctx.acct.ID, submittedSpec.Knowledge, requested)
+				if len(bindingErrs) > 0 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":             "binding validation failed",
+						"validation_errors": bindingErrs,
+					})
+					return
+				}
+			}
 		}
 
 		// Check entitlements for deploy (account resolved from spec, not middleware)
@@ -538,6 +561,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			params.KMSKeyARN = enc.KMSKeyARN
 		}
 
+		// Collect binding store IDs for persistence from already-resolved bindings.
+		var bindingStoreIDs map[string]string
+		if len(resolvedBindings) > 0 {
+			bindingStoreIDs = make(map[string]string, len(resolvedBindings))
+			for name, rb := range resolvedBindings {
+				bindingStoreIDs[name] = rb.Store.ID
+			}
+		}
+
 		// Save deployment as pending with normalized spec in same transaction
 		txFn := func(tx *sql.Tx, deploymentID string) error {
 			nsCfg := &deploymentstore.NormalizedSpecConfig{
@@ -546,7 +578,13 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
 				VarRefs:                dctx.varRefs,
 			}
-			return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg)
+			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg); err != nil {
+				return err
+			}
+			if len(bindingStoreIDs) > 0 {
+				return ksStore.SaveBindings(c.Request.Context(), tx, deploymentID, bindingStoreIDs)
+			}
+			return nil
 		}
 		var storeErr error
 		if dctx.isUpdate {
@@ -2527,7 +2565,7 @@ func generateTemplate(
 
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
 // POST /api/v1/agents/:account/:name/deployment-template
-func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store) gin.HandlerFunc {
 	cache := &templateCache{ttl: 5 * time.Minute}
 
 	return func(c *gin.Context) {
@@ -2542,6 +2580,18 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		accountName := c.Param("account")
 		agentName := c.Param("name")
 		buildIDOverride := req.Build
+
+		// Build shape options for binding resolution.
+		var shapeOpts *deployment.ShapeOptions
+		if ksStore != nil {
+			acct, acctErr := accountStore.GetByName(accountName)
+			if acctErr == nil && acct != nil {
+				shapeOpts = &deployment.ShapeOptions{
+					KnowledgeStore: ksStore,
+					AccountID:      acct.ID,
+				}
+			}
+		}
 
 		// Prefill from existing deployment when deployment_id is provided.
 		if req.DeploymentID != "" {
@@ -2605,7 +2655,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
-				resp := deployment.ShapeTemplate(base, &req)
+				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
 				c.JSON(http.StatusOK, resp)
 				return
 			}
@@ -2644,7 +2694,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			}
 
 			cache.set(cacheKey, template)
-			resp := deployment.ShapeTemplate(template, &req)
+			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -2652,7 +2702,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		// No deployment_id — fresh template.
 		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
 		if base, ok := cache.get(cacheKey); ok {
-			resp := deployment.ShapeTemplate(base, &req)
+			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -2672,7 +2722,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		}
 
 		cache.set(cacheKey, template)
-		resp := deployment.ShapeTemplate(template, &req)
+		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
 		c.JSON(http.StatusOK, resp)
 	}
 }

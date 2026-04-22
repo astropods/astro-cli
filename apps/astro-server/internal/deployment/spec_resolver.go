@@ -7,13 +7,23 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
+// BoundKnowledgeInfo holds resolved info about a knowledge entry bound to a managed store.
+type BoundKnowledgeInfo struct {
+	StoreID   string
+	AccountID string
+	Namespace string // knowledge namespace, e.g. "knlg0-{short-account-id}"
+	Provider  string
+}
+
 // ResolveContext provides the runtime context needed to resolve ${} references
 // in a deployment spec's environment maps into concrete values.
 type ResolveContext struct {
-	Namespace  string
-	AgentName  string
-	BuildID    string
-	SecretName string
+	Namespace        string
+	AgentName        string
+	BuildID          string
+	SecretName       string
+	BoundKnowledge   map[string]BoundKnowledgeInfo // knowledge entry name → store info
+	BoundCredentials map[string]string             // "name.key" → credential value
 }
 
 // ResolvedEnv holds the resolved environment: plain key-value pairs go into the
@@ -133,6 +143,26 @@ func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map
 	}
 
 	for name, knowledge := range ds.Knowledge {
+		if knowledge.IsBound() {
+			// Bound entry: resolve to managed store's service DNS and provider registry endpoints.
+			if info, ok := rctx.BoundKnowledge[name]; ok {
+				host := GenerateServiceDNS(info.StoreID, info.Namespace)
+				prov := spec.GetProvider(info.Provider)
+				urlScheme := "http"
+				if prov.URLScheme != "" {
+					urlScheme = prov.URLScheme
+				}
+				eps := make(map[string]componentEndpointInfo)
+				if prov.DefaultPort > 0 {
+					eps["http"] = componentEndpointInfo{Port: prov.DefaultPort, Protocol: "http"}
+				}
+				for _, ep := range prov.ExtraPorts {
+					eps[ep.Name] = componentEndpointInfo{Port: ep.Port, Protocol: ep.Name}
+				}
+				lookup["knowledge."+name] = componentInfo{Host: host, Endpoints: eps, URLScheme: urlScheme}
+			}
+			continue
+		}
 		resourceName := GenerateResourceName(ds.Source.Name, "knowledge", name)
 		host := GenerateServiceDNS(resourceName, rctx.Namespace)
 		urlScheme := "http"
@@ -185,9 +215,9 @@ func resolveEnvMap(
 }
 
 // referencesSecret returns true if the value contains any ${variables.*}
-// reference to a variable marked as secret (regardless of whether the
-// value is populated). This ensures correct routing for both fresh deploys
-// and backfill/repair with stripped specs.
+// reference to a variable marked as secret, or any ${knowledge.*.credentials.*}
+// reference (credentials are always secret). This ensures correct routing for
+// both fresh deploys and backfill/repair with stripped specs.
 func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
 	refs := spec.ParseReferences(value)
 	for _, ref := range refs {
@@ -195,6 +225,9 @@ func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
 			if v, ok := ds.Variables[ref.Name]; ok && v.Secret {
 				return true
 			}
+		}
+		if ref.Kind == spec.RefKnowledge && ref.Endpoint == "credentials" {
+			return true
 		}
 	}
 	return false
@@ -234,41 +267,50 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 
 		switch ref.Kind {
 		case spec.RefModel, spec.RefKnowledge, spec.RefIntegration:
-			prefix := string(ref.Kind) // "models", "knowledge", "integrations"
-			key := prefix + "." + ref.Name
-			info, ok := lookup[key]
-			if !ok {
-				continue
-			}
-			if ref.Attribute == "host" {
-				// 3-part host ref
-				replacement = info.Host
-				shouldReplace = true
-			} else if ref.Endpoint != "" {
-				// 4-part endpoint ref: section.name.endpoint.attr
-				ep, epOK := info.Endpoints[ref.Endpoint]
-				if !epOK {
+			// Handle credential references for bound knowledge entries.
+			if ref.Kind == spec.RefKnowledge && ref.Endpoint == "credentials" {
+				credKey := ref.Name + "." + ref.Attribute
+				if val, ok := rctx.BoundCredentials[credKey]; ok {
+					replacement = val
+					shouldReplace = true
+				}
+			} else {
+				prefix := string(ref.Kind) // "models", "knowledge", "integrations"
+				key := prefix + "." + ref.Name
+				info, ok := lookup[key]
+				if !ok {
 					continue
 				}
-				switch ref.Attribute {
-				case "port":
-					replacement = fmt.Sprintf("%d", ep.Port)
+				if ref.Attribute == "host" {
+					// 3-part host ref
+					replacement = info.Host
 					shouldReplace = true
-				case "url":
-					scheme := ep.Protocol
-					if scheme == "" || scheme == "tcp" || scheme == "grpc" {
-						// Use provider URL scheme for non-HTTP protocols
+				} else if ref.Endpoint != "" {
+					// 4-part endpoint ref: section.name.endpoint.attr
+					ep, epOK := info.Endpoints[ref.Endpoint]
+					if !epOK {
+						continue
+					}
+					switch ref.Attribute {
+					case "port":
+						replacement = fmt.Sprintf("%d", ep.Port)
+						shouldReplace = true
+					case "url":
+						scheme := ep.Protocol
+						if scheme == "" || scheme == "tcp" || scheme == "grpc" {
+							// Use provider URL scheme for non-HTTP protocols
+							if info.URLScheme != "" && info.URLScheme != "http" {
+								scheme = info.URLScheme
+							} else {
+								scheme = "http"
+							}
+						}
 						if info.URLScheme != "" && info.URLScheme != "http" {
 							scheme = info.URLScheme
-						} else {
-							scheme = "http"
 						}
+						replacement = fmt.Sprintf("%s://%s:%d", scheme, info.Host, ep.Port)
+						shouldReplace = true
 					}
-					if info.URLScheme != "" && info.URLScheme != "http" {
-						scheme = info.URLScheme
-					}
-					replacement = fmt.Sprintf("%s://%s:%d", scheme, info.Host, ep.Port)
-					shouldReplace = true
 				}
 			}
 

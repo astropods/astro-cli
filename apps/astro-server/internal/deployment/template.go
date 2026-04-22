@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -10,6 +11,8 @@ import (
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/robfig/cron/v3"
+
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 )
 
 // providerEnvKey returns the env-var key for a provider entry.
@@ -397,9 +400,16 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	return ds, nil
 }
 
-// ShapeTemplate applies deploy-time inputs (adapters, variables) to a base template
+// ShapeOptions carries optional dependencies for binding resolution in ShapeTemplate.
+// nil is safe — binding shaping is simply skipped.
+type ShapeOptions struct {
+	KnowledgeStore *knowledgestore.Store
+	AccountID      string
+}
+
+// ShapeTemplate applies deploy-time inputs (adapters, variables, bindings) to a base template
 // and returns a TemplateResponse with the shaped template, variable schema, and validation.
-func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *spec.TemplateResponse {
+func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spec.TemplateRequest, opts *ShapeOptions) *spec.TemplateResponse {
 	// Deep-copy via JSON round-trip so mutations don't affect the base.
 	shaped := deepCopySpec(base)
 
@@ -426,6 +436,62 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// Shared with the deploy handler so the two endpoints can't diverge.
 	if req.Interfaces != nil {
 		ApplyAdapterShaping(shaped, req.Interfaces.Adapters)
+	}
+
+	// --- Binding shaping ---
+	var errs []spec.ValidationError
+	var resolvedBindings *spec.ResolvedBindings
+	if opts != nil && opts.KnowledgeStore != nil && req.Bindings != nil && len(req.Bindings.Knowledge) > 0 {
+		resolved, bindingErrs := ResolveBindings(
+			ctx, opts.KnowledgeStore, opts.AccountID,
+			shaped.Knowledge, req.Bindings.Knowledge,
+		)
+		errs = append(errs, bindingErrs...)
+
+		if len(resolved) > 0 {
+			resolvedBindings = &spec.ResolvedBindings{
+				Knowledge: make(map[string]spec.KnowledgeBindingInfo, len(resolved)),
+			}
+			// Build set of bound entry names for variable/editable filtering.
+			boundNames := make(map[string]bool, len(resolved))
+			for name, rb := range resolved {
+				boundNames[name] = true
+				// Zero the knowledge entry and set binding ARN.
+				shaped.Knowledge[name] = spec.DeploymentKnowledge{Binding: rb.ARN}
+				resolvedBindings.Knowledge[name] = spec.KnowledgeBindingInfo{
+					ARN: rb.ARN, Name: rb.Name, Provider: rb.Provider, Status: rb.Status,
+				}
+			}
+
+			// Remove credential variables targeting bound entries.
+			for key, v := range shaped.Variables {
+				for _, t := range v.Targets {
+					if strings.HasPrefix(t, "knowledge.") {
+						entryName := strings.TrimPrefix(t, "knowledge.")
+						if boundNames[entryName] {
+							delete(shaped.Variables, key)
+							break
+						}
+					}
+				}
+			}
+
+			// Remove editable fields for bound entries.
+			filtered := shaped.Editable[:0]
+			for _, field := range shaped.Editable {
+				exclude := false
+				for name := range boundNames {
+					if strings.HasPrefix(field, "knowledge."+name+".") {
+						exclude = true
+						break
+					}
+				}
+				if !exclude {
+					filtered = append(filtered, field)
+				}
+			}
+			shaped.Editable = filtered
+		}
 	}
 
 	// --- Variable filling ---
@@ -477,8 +543,6 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	}
 
 	// --- Validation ---
-	var errs []spec.ValidationError
-
 	// Required variables (adapter shaping already flipped optionality,
 	// so slack tokens are caught here when slack is selected).
 	for key, v := range schemaVars {
@@ -534,6 +598,7 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		Editable:   editable,
 		Interfaces: respInterfaces,
 		Schedules:  respSchedules,
+		Bindings:   resolvedBindings,
 		Validation: spec.TemplateValidation{
 			Valid:  len(errs) == 0,
 			Errors: errs,

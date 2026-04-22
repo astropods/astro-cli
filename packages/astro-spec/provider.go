@@ -15,6 +15,13 @@ type PortDef struct {
 	Port int
 }
 
+// BindCredentialDef maps a reference attribute name (used in ${knowledge.*.credentials.<attr>})
+// to the exact key stored in knowledge_store_credentials.
+type BindCredentialDef struct {
+	Attr       string // reference attribute (e.g. "user", "password")
+	StorageKey string // exact key in credentials store (e.g. "POSTGRES_USER")
+}
+
 // Toleration mirrors corev1.Toleration for use outside k8s packages.
 type Toleration struct {
 	Key      string
@@ -52,6 +59,11 @@ type BuiltinProvider struct {
 	ExtraEmptyDirs []string // extra paths that need writable emptyDir mounts (e.g. "/qdrant/snapshots")
 	FsGroup        int64    // non-zero → pod runs as this uid/gid (overrides hardened default of 1000)
 	InitSQL        string   // optional SQL run via /docker-entrypoint-initdb.d/ on first boot (postgres-compatible images only)
+
+	// BindCredentials defines the credential schema for knowledge store bindings.
+	// Each entry maps a reference attribute (e.g. "user") to its storage key (e.g. "USERNAME").
+	// Used by ${knowledge.*.credentials.<attr>} reference validation and deploy-time resolution.
+	BindCredentials []BindCredentialDef
 }
 
 // builtinProviders is the single authoritative list of all platform-known providers.
@@ -104,12 +116,18 @@ var builtinProviders = []BuiltinProvider{
 		HealthPath:     "/healthz",
 		WritableRootFS: true,
 		ExtraEmptyDirs: []string{"/qdrant/snapshots"},
+		BindCredentials: []BindCredentialDef{
+			{Attr: "api_key", StorageKey: "QDRANT__SERVICE__API_KEY"},
+		},
 	},
 	{
 		Name: "redis", Section: "knowledge",
 		Image: "redis:7-alpine", DefaultPort: 6379,
 		MountPath: "/data", EnvPrefix: "REDIS", URLScheme: "redis",
 		HealthCheck: []string{"redis-cli", "ping"},
+		BindCredentials: []BindCredentialDef{
+			{Attr: "password", StorageKey: "REDIS_PASSWORD"},
+		},
 	},
 	{
 		Name: "postgres", Section: "knowledge",
@@ -120,6 +138,11 @@ var builtinProviders = []BuiltinProvider{
 		FsGroup:        999,                             // postgres uid/gid — entrypoint skips chown when running as non-root
 		ExtraEmptyDirs: []string{"/var/run/postgresql"}, // socket dir must be writable; emptyDir avoids chmod under dropped caps
 		InitSQL:        "CREATE EXTENSION IF NOT EXISTS vector;",
+		BindCredentials: []BindCredentialDef{
+			{Attr: "user", StorageKey: "POSTGRES_USER"},
+			{Attr: "password", StorageKey: "POSTGRES_PASSWORD"},
+			{Attr: "database", StorageKey: "POSTGRES_DB"},
+		},
 	},
 	{
 		Name: "neo4j", Section: "knowledge",
@@ -128,6 +151,9 @@ var builtinProviders = []BuiltinProvider{
 		MountPath:  "/data", EnvPrefix: "NEO4J", URLScheme: "bolt",
 		HealthPath: "/",
 		DefaultEnv: map[string]string{"NEO4J_AUTH": "none"},
+		BindCredentials: []BindCredentialDef{
+			{Attr: "auth", StorageKey: "NEO4J_AUTH"},
+		},
 	},
 
 	// ── Knowledge: cloud ─────────────────────────────────────────────────────
@@ -223,6 +249,52 @@ func GetProvider(name string) BuiltinProvider {
 		return BuiltinProvider{}
 	}
 	return p
+}
+
+// CredentialKeys returns the credential attribute names valid for
+// ${knowledge.*.credentials.<attr>} references for the given provider.
+// Derived from the provider registry's BindCredentials field.
+func CredentialKeys(provider string) []string {
+	p, ok := LookupBuiltin("knowledge", provider)
+	if !ok {
+		return nil
+	}
+	keys := make([]string, len(p.BindCredentials))
+	for i, c := range p.BindCredentials {
+		keys[i] = c.Attr
+	}
+	return keys
+}
+
+// CredentialStorageKeyMap returns a map of storage key → reference attribute for a provider.
+// Used at deploy time to map decrypted credential keys to reference attributes.
+func CredentialStorageKeyMap(provider string) map[string]string {
+	p, ok := LookupBuiltin("knowledge", provider)
+	if !ok {
+		return nil
+	}
+	m := make(map[string]string, len(p.BindCredentials))
+	for _, c := range p.BindCredentials {
+		m[c.StorageKey] = c.Attr
+	}
+	return m
+}
+
+// ProviderEndpoints returns the default endpoints for a self-hosted knowledge provider,
+// derived from the provider registry. Used by reference validation for bound entries
+// (whose Endpoints map is empty).
+func ProviderEndpoints(provider string) map[string]Endpoint {
+	p := GetProvider(provider)
+	if p.Name == "" {
+		return nil
+	}
+	eps := map[string]Endpoint{
+		"http": {Port: p.DefaultPort, Protocol: "http"},
+	}
+	for _, ep := range p.ExtraPorts {
+		eps[ep.Name] = Endpoint{Port: ep.Port, Protocol: ep.Name}
+	}
+	return eps
 }
 
 // GetModelProvider returns self-hosted configuration for a model provider.

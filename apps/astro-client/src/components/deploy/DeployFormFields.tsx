@@ -11,8 +11,10 @@ import { FormSection } from "./FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
+import { KnowledgeBindingPicker } from "./KnowledgeBindingPicker";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
+import { useKnowledgeStores } from "@/api/queries/knowledge";
 import type { useDeployForm } from "./useDeployForm";
 import { slugToTitle } from "./useDeployForm";
 
@@ -43,6 +45,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const { data: usageData } = useAccountUsage(form.targetAccount);
+  const hasKnowledgeEntries = form.knowledgeEntries && Object.keys(form.knowledgeEntries).length > 0;
+  const { data: knowledgeStores } = useKnowledgeStores(form.targetAccount, hasKnowledgeEntries);
   const computeMeter = usageData?.compute_unit_hours ?? { usage: 0, quota: undefined };
   const isAtComputeLimit = computeMeter.quota != null && computeMeter.usage >= computeMeter.quota;
   const showComputeLimit = isAtComputeLimit || (!!form.deployError && /compute limit/i.test(form.deployError.message));
@@ -187,6 +191,19 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           vaultSettingsUrl={form.vaultSettingsUrl}
         />
       </FormSection>
+
+      {/* Knowledge bindings */}
+      {hasKnowledgeEntries && (
+        <FormSection title="Knowledge" description="Choose how knowledge stores are provisioned.">
+          <KnowledgeBindingPicker
+            entries={form.knowledgeEntries!}
+            bindings={form.knowledgeBindings}
+            resolvedBindings={form.resolvedBindings}
+            onChange={form.setKnowledgeBindings}
+            stores={knowledgeStores ?? []}
+          />
+        </FormSection>
+      )}
 
       {/* Required variables */}
       {form.requiredVariables.length > 0 && (

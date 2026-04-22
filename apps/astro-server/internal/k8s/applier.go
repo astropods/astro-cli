@@ -58,6 +58,9 @@ type ApplierConfig struct {
 	// When non-nil, a K8s secret is created in the agent namespace and auth
 	// annotations are added to the messaging ingress.
 	MessagingOIDCAuth *OIDCAuthConfig
+	// Bound knowledge store resolution info (populated by deployer for specs with bindings)
+	BoundKnowledge   map[string]deployment.BoundKnowledgeInfo
+	BoundCredentials map[string]string // "name.key" → credential value
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -89,6 +92,8 @@ type Applier struct {
 	localMode              bool
 	managedAnthropicAPIKey string
 	messagingOIDCAuth      *OIDCAuthConfig
+	boundKnowledge         map[string]deployment.BoundKnowledgeInfo
+	boundCredentials       map[string]string
 }
 
 // NewApplier creates a new applier
@@ -119,6 +124,8 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		localMode:              cfg.LocalMode,
 		managedAnthropicAPIKey: cfg.ManagedAnthropicAPIKey,
 		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
+		boundKnowledge:         cfg.BoundKnowledge,
+		boundCredentials:       cfg.BoundCredentials,
 	}
 }
 

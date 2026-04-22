@@ -9,6 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -31,6 +32,7 @@ type UndeployWorker struct {
 	river.WorkerDefaults[UndeployArgs]
 	deployer *deployer.Deployer
 	store    *deploymentstore.Store
+	ksStore  *knowledgestore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
 }
@@ -49,6 +51,13 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 			"status", statusOrNil(dep),
 		)
 		return nil
+	}
+
+	// Clean up knowledge store bindings before teardown.
+	if w.ksStore != nil {
+		if err := w.ksStore.DeleteBindingsForDeployment(ctx, dep.ID); err != nil {
+			w.log.Warn("Failed to delete knowledge store bindings", "error", err, "deployment_id", dep.ID)
+		}
 	}
 
 	if err := w.deployer.Teardown(ctx, dep); err != nil {

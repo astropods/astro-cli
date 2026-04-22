@@ -3,6 +3,7 @@ package spec
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -96,8 +97,23 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 				if ref.Attribute != "host" {
 					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
 				}
+			} else if ref.Endpoint == "credentials" {
+				// Credential references: only valid for bound entries.
+				if !k.IsBound() {
+					errs = append(errs, fmt.Sprintf("%s: credentials references are only valid for bound knowledge entries", ref.Raw))
+				} else {
+					validKeys := CredentialKeys(k.Provider)
+					if !slices.Contains(validKeys, ref.Attribute) {
+						errs = append(errs, fmt.Sprintf("%s: invalid credential %q for provider %q", ref.Raw, ref.Attribute, k.Provider))
+					}
+				}
 			} else {
-				if _, epOK := k.Endpoints[ref.Endpoint]; !epOK {
+				// Endpoint reference: for bound entries, look up from provider registry.
+				endpoints := k.Endpoints
+				if k.IsBound() {
+					endpoints = ProviderEndpoints(k.Provider)
+				}
+				if _, epOK := endpoints[ref.Endpoint]; !epOK {
 					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on knowledge %q", ref.Raw, ref.Endpoint, ref.Name))
 				} else if !isValidEndpointAttr(ref.Attribute) {
 					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected port or url)", ref.Raw, ref.Attribute))

@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -2146,10 +2147,10 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 	varInputs["SLACK_APP_TOKEN"] = spec.VariableInput{Value: "xapp-test"}
 
 	// --- POST path: ShapeTemplate does the fulfillment ---
-	postResp := ShapeTemplate(base, &spec.TemplateRequest{
+	postResp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: adapterSelection},
 		Variables:  varInputs,
-	})
+	}, nil)
 	postSpec := postResp.Template
 
 	// --- GET path: manual client-side fulfillment ---
@@ -2252,7 +2253,7 @@ func baseTemplateForShape(t *testing.T) *spec.AstroDeploymentSpec {
 
 func TestShapeTemplate_EmptyRequest(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
 
 	// Envelope spec
 	if resp.Spec != "deployment-template/v1" {
@@ -2322,9 +2323,9 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	}
 
 	// Select slack adapter
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
-	})
+	}, nil)
 
 	// Root schema should have slack vars as non-optional
 	if v := resp.Variables["SLACK_BOT_TOKEN"]; v.Optional {
@@ -2362,11 +2363,11 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 
 func TestShapeTemplate_VariableFilling(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Variables: map[string]spec.VariableInput{
 			"MY_API_KEY": {Value: "sk-test-123"},
 		},
-	})
+	}, nil)
 
 	// Template should have the value filled in
 	if v, ok := resp.Template.Variables["MY_API_KEY"]; !ok {
@@ -2390,11 +2391,11 @@ func TestShapeTemplate_VariableFilling(t *testing.T) {
 
 func TestShapeTemplate_VariableRef(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Variables: map[string]spec.VariableInput{
 			"MY_API_KEY": {Ref: "prod-api-key"},
 		},
-	})
+	}, nil)
 
 	// Template should have the ref set, value cleared
 	v := resp.Template.Variables["MY_API_KEY"]
@@ -2417,9 +2418,9 @@ func TestShapeTemplate_FullyValid(t *testing.T) {
 		}
 	}
 
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Variables: vars,
-	})
+	}, nil)
 
 	if !resp.Validation.Valid {
 		errMsgs := make([]string, len(resp.Validation.Errors))
@@ -2436,10 +2437,10 @@ func TestShapeTemplate_DoesNotMutateBase(t *testing.T) {
 	// Capture original state
 	origJSON, _ := json.Marshal(base)
 
-	ShapeTemplate(base, &spec.TemplateRequest{
+	ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
 		Variables:  map[string]spec.VariableInput{"MY_API_KEY": {Value: "mutated"}},
-	})
+	}, nil)
 
 	afterJSON, _ := json.Marshal(base)
 	if string(origJSON) != string(afterJSON) {
@@ -2453,7 +2454,7 @@ func TestShapeTemplate_AdaptersFromPrefill(t *testing.T) {
 	base.Interfaces.Adapters = []string{"web", "slack"}
 
 	// Initial POST with no adapters in request — response should reflect the stored adapters.
-	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
 	if len(resp.Interfaces.Adapters) != 2 {
 		t.Fatalf("resp.Interfaces.Adapters: expected [web slack], got %v", resp.Interfaces.Adapters)
 	}
@@ -2468,17 +2469,17 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 	base.Interfaces.Adapters = []string{"web", "slack"}
 
 	// Reshape: user deselects web — response should reflect only slack.
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
-	})
+	}, nil)
 	if len(resp.Interfaces.Adapters) != 1 || resp.Interfaces.Adapters[0] != "slack" {
 		t.Errorf("resp.Interfaces.Adapters after reshape: expected [slack], got %v", resp.Interfaces.Adapters)
 	}
 
 	// Reshape: user deselects all — response should be empty slice.
-	resp = ShapeTemplate(base, &spec.TemplateRequest{
+	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{}},
-	})
+	}, nil)
 	if resp.Interfaces.Adapters == nil {
 		t.Error("resp.Interfaces.Adapters should be non-nil (empty slice, not null)")
 	}
@@ -2496,9 +2497,9 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 	}
 
 	// Request with auth nil — preserves base auth
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"web"}},
-	})
+	}, nil)
 	if resp.Interfaces.Auth == nil || resp.Interfaces.Auth.Web == nil || resp.Interfaces.Auth.Web.Type != "oidc" {
 		t.Error("expected auth preserved when request auth is nil")
 	}
@@ -2507,12 +2508,12 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 	}
 
 	// Request explicitly sets auth — overrides base
-	resp = ShapeTemplate(base, &spec.TemplateRequest{
+	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{
 			Adapters: []string{"web"},
 			Auth:     &spec.DeploymentInterfacesAuth{},
 		},
-	})
+	}, nil)
 	if resp.Interfaces.Auth == nil {
 		t.Fatal("expected auth to be non-nil (empty struct)")
 	}
@@ -2526,7 +2527,7 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 
 func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -2562,9 +2563,9 @@ func baseTemplateWithIngestion(t *testing.T) *spec.AstroDeploymentSpec {
 
 func TestShapeTemplate_ScheduleShaping(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "0 3 * * *"},
-	})
+	}, nil)
 
 	// Template should have the schedule applied
 	if ing, ok := resp.Template.Ingestion["nightly_sync"]; !ok {
@@ -2595,9 +2596,9 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
 
 	// Invalid cron should produce a validation error
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "not-a-cron"},
-	})
+	}, nil)
 	found := false
 	for _, e := range resp.Validation.Errors {
 		if e.Field == "ingestion.nightly_sync.trigger.schedule" && strings.Contains(e.Message, "invalid") {
@@ -2609,7 +2610,7 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 	}
 
 	// Empty schedule should produce a required error
-	resp = ShapeTemplate(base, &spec.TemplateRequest{})
+	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
 	found = false
 	for _, e := range resp.Validation.Errors {
 		if e.Field == "ingestion.nightly_sync.trigger.schedule" && strings.Contains(e.Message, "required") {
@@ -2623,9 +2624,9 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 
 func TestShapeTemplate_ScheduleIgnoredForNonScheduleTrigger(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
-	resp := ShapeTemplate(base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Schedules: map[string]string{"on_demand": "0 3 * * *"},
-	})
+	}, nil)
 
 	// Should not apply schedule to a manual trigger
 	if ing, ok := resp.Template.Ingestion["on_demand"]; ok {
@@ -2644,15 +2645,15 @@ func TestShapeTemplate_ScheduleFromPrefill(t *testing.T) {
 	}
 
 	// Initial POST with no schedules in request — should reflect the stored schedule
-	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
 	if resp.Schedules["nightly_sync"] != "0 2 * * *" {
 		t.Errorf("resp.Schedules[nightly_sync]: expected '0 2 * * *', got '%s'", resp.Schedules["nightly_sync"])
 	}
 
 	// Reshape with new schedule — should override
-	resp = ShapeTemplate(base, &spec.TemplateRequest{
+	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "0 4 * * *"},
-	})
+	}, nil)
 	if resp.Schedules["nightly_sync"] != "0 4 * * *" {
 		t.Errorf("resp.Schedules[nightly_sync] after reshape: expected '0 4 * * *', got '%s'", resp.Schedules["nightly_sync"])
 	}

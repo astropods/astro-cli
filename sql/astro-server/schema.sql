@@ -544,3 +544,15 @@ CREATE TABLE public.knowledge_store_endpoints (
 );
 
 CREATE INDEX idx_knowledge_store_endpoints_status ON public.knowledge_store_endpoints(status);
+
+CREATE TABLE public.knowledge_store_bindings (
+    deployment_id      varchar(11)  NOT NULL,
+    knowledge_name     varchar      NOT NULL,
+    knowledge_store_id varchar(11)  NOT NULL,
+    created_at         timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT knowledge_store_bindings_pkey PRIMARY KEY (deployment_id, knowledge_name),
+    CONSTRAINT knowledge_store_bindings_deployment_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT knowledge_store_bindings_store_fkey FOREIGN KEY (knowledge_store_id) REFERENCES public.knowledge_stores(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_knowledge_store_bindings_store ON public.knowledge_store_bindings(knowledge_store_id);

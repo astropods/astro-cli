@@ -1133,6 +1133,16 @@ export interface TemplateRequest {
   interfaces?: TemplateInterfaces;
   variables?: Record<string, { value?: string; ref?: string }>;
   schedules?: Record<string, string>;
+  bindings?: {
+    knowledge?: Record<string, string>; // entry name → store ARN
+  };
+}
+
+export interface KnowledgeBindingInfo {
+  arn: string;
+  name: string;
+  provider: string;
+  status: string;
 }
 
 export interface TemplateResponse {
@@ -1142,6 +1152,9 @@ export interface TemplateResponse {
   editable: string[];
   interfaces: TemplateInterfaces;
   schedules: Record<string, string>;
+  bindings?: {
+    knowledge?: Record<string, KnowledgeBindingInfo>;
+  };
   validation: TemplateValidation;
 }
 
