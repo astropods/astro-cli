@@ -155,7 +155,7 @@ export function LiveRevealOverlay({
           >
             <HoloCard>
               <div
-                className="w-full overflow-hidden rounded-2xl [&>svg]:h-auto [&>svg]:w-full"
+                style={{ borderRadius: 16, overflow: "hidden" }}
                 dangerouslySetInnerHTML={{ __html: revealCardSvg }}
               />
             </HoloCard>

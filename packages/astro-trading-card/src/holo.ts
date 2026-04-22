@@ -35,6 +35,11 @@ export function computeHoloVars(
 
 /** Reset CSS custom properties when the pointer leaves the card. */
 export const HOLO_RESET_VARS: Record<string, string> = {
+  "--px": "50%",
+  "--py": "50%",
+  "--fl": "0.5",
+  "--ft": "0.5",
+  "--fc": "0",
   "--o": "0",
   "--rx": "0deg",
   "--ry": "0deg",
