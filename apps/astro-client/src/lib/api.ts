@@ -1467,6 +1467,7 @@ export interface KnowledgeEvent {
   reason: string;
   message: string;
   count: number;
+  timestamp?: string;
 }
 
 export interface KnowledgeStore {
@@ -1484,6 +1485,7 @@ export interface KnowledgeStore {
   created_at: string;
   updated_at: string;
   events?: KnowledgeEvent[];
+  bound_agents?: string[];
 }
 
 export type KnowledgeStoreListResponse = KnowledgeStore[];
