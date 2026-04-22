@@ -887,11 +887,10 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			}
 		}
 
-		// Resolve avatar URLs for deployments that have their own custom avatar.
+		// Resolve avatar URLs for each deployment.
 		if avatarStore != nil {
-			dbDepByID := make(map[string]*deploymentstore.Deployment, len(dbDeps))
-			for _, d := range dbDeps {
-				dbDepByID[d.ID] = d
+			for i, d := range allDeployments {
+				allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
 			}
 		}
 
@@ -942,6 +941,10 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 				result.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
 				result.UpdatedBy = latest.ActorID
 			}
+		}
+
+		if avatarStore != nil {
+			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
 		}
 
 		// Check if the messaging ClusterIP service exists in K8s.

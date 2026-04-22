@@ -104,6 +104,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
                 <BlueprintIdentity
                   account={avatar.account}
                   name={avatar.blueprintName}
+                  url={avatar.url}
                   size={68}
                   className="size-[68px] rounded-sm overflow-hidden"
                 />
