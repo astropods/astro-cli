@@ -155,17 +155,6 @@ export const mockTemplate: DeploymentTemplate = {
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
-export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
-  spec: 'deployment-template/v1',
-  source: { account: 'testuser', name: 'data-analyst', build: 'c3d4e5f6a7b8', registry: 'registry.example.com' },
-  target: { runtime: 'kubernetes', display_name: 'Cross-Account Analyst' },
-  agent: { image: 'registry.example.com/testuser/data-analyst:c3d4e5f6a7b8', endpoints: { http: { port: 8080 } } },
-  variables: {
-    OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key', value: 'sk-cross-value' },
-  },
-  editable: ['variables.*.value', 'interfaces.adapters'],
-};
-
 /** Wraps a legacy DeploymentTemplate into a TemplateResponse envelope for the POST endpoint.
  *  Optionally merges request inputs (interfaces, variables) to simulate server-side shaping. */
 export function wrapTemplateResponse(
@@ -273,23 +262,6 @@ export const handlers = [
       agents: mockBlueprints,
       count: mockBlueprints.length,
     });
-  }),
-
-  // GET /api/v1/agents/:account/:name/deployment-template/:deploymentId
-  http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', ({ params }) => {
-    if (params.deploymentId === 'dep-cross-account' && params.name === 'data-analyst') {
-      return HttpResponse.json(mockCrossAccountPrefilledTemplate);
-    }
-    return HttpResponse.json({ error: 'not_found' }, { status: 404 });
-  }),
-
-  // GET /api/v1/agents/:account/:name/deployment-template
-  http.get('/api/v1/agents/:account/:name/deployment-template', ({ params }) => {
-    const agent = mockBlueprints.find((a) => a.account === params.account && a.name === params.name);
-    if (!agent) {
-      return HttpResponse.json({ error: 'not_found' }, { status: 404 });
-    }
-    return HttpResponse.json(mockTemplate);
   }),
 
   // POST /api/v1/agents/:account/:name/deployment-template (interactive POST)

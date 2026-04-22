@@ -38,8 +38,6 @@ export interface DeployFormInitialValues {
 export interface UseDeployFormOptions {
   /** SSR-prefetched template response (POST format). */
   initialTemplateResponse?: TemplateResponse;
-  /** Pre-fetched template (GET format) used as fallback while POST loads. */
-  initialTemplate?: DeploymentTemplate;
   /** Pre-fill form state (e.g. from an existing deployment's spec). */
   initialValues?: DeployFormInitialValues;
   /** Existing deployment ID for prefill (redeploy/configure). */
@@ -249,9 +247,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Derive legacy DeploymentTemplate shape for existing form logic.
   const template: DeploymentTemplate | null = useMemo(() => {
     if (templateResponse) return toDeploymentTemplate(templateResponse);
-    // Fall back to SSR initialTemplate (legacy GET format) when POST hasn't resolved yet.
-    return opts?.initialTemplate ?? null;
-  }, [templateResponse, opts?.initialTemplate]);
+    return null;
+  }, [templateResponse]);
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
@@ -260,7 +257,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Otherwise, derive defaults from the template (fresh deploy page).
   // The POST-based seeding effect will override these once the template loads.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
-  const computedDefaults = useMemo(() => iv ?? computeFormDefaults(opts?.initialTemplate, name), []);
+  const computedDefaults = useMemo(() => iv ?? computeFormDefaults(null, name), []);
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});

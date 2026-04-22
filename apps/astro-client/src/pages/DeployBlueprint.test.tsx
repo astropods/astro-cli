@@ -90,9 +90,6 @@ describe('DeployBlueprint page', () => {
   describe('template error', () => {
     it('shows error panel when template fails to load', async () => {
       server.use(
-        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
-          HttpResponse.json({ error: 'internal_error', error_description: 'Template service unavailable' }, { status: 500 }),
-        ),
         http.post('/api/v1/agents/:account/:name/deployment-template', () =>
           HttpResponse.json({ error: 'internal_error', error_description: 'Template service unavailable' }, { status: 500 }),
         ),
@@ -352,12 +349,9 @@ describe('DeployBlueprint page', () => {
     it('hides sections when template has no credentials', async () => {
       const noVarsTemplate = { ...mockTemplate, variables: {} };
       server.use(
-        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
-          HttpResponse.json(noVarsTemplate),
-        ),
         http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
           const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-          return HttpResponse.json(wrapTemplateResponse(noVarsTemplate, body as { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> }));
+          return HttpResponse.json(wrapTemplateResponse(noVarsTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> }));
         }),
       );
 
@@ -688,12 +682,9 @@ describe('DeployBlueprint page', () => {
       };
 
       server.use(
-        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
-          HttpResponse.json(slackTemplate),
-        ),
         http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
           const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-          return HttpResponse.json(wrapTemplateResponse(slackTemplate, body as { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> }));
+          return HttpResponse.json(wrapTemplateResponse(slackTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> }));
         }),
         http.post('/api/v1/deploy', async ({ request }) => {
           capturedRequests.push(await request.json());

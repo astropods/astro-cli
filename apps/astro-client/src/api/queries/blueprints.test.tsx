@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useBlueprints, useBlueprint, useDeployAgent, usePrefilledDeploymentTemplate, useArchiveBlueprint, useCreateBlueprint } from './blueprints';
+import { useBlueprints, useBlueprint, useDeployAgent, useArchiveBlueprint, useCreateBlueprint } from './blueprints';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { blueprintKeys, deploymentKeys } from './keys';
@@ -82,37 +82,6 @@ describe('useBlueprint', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.error).toMatchObject({ code: 'not_found' });
-  });
-});
-
-// The configure page calls usePrefilledDeploymentTemplate(account, deployment.name, deploymentId).
-// The server resolves the template by matching all three params. If deployment.name is
-// account-qualified (the bug), the server can't find the template and returns 404.
-describe('usePrefilledDeploymentTemplate', () => {
-  // Happy path: plain name resolves to the correct prefilled template.
-  it('fetches prefilled template for a cross-account deployment using plain agent name', async () => {
-    const { wrapper } = createHookWrapper();
-    const { result } = renderHook(
-      () => usePrefilledDeploymentTemplate(testAccount, 'data-analyst', 'dep-cross-account'),
-      { wrapper },
-    );
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data?.source.name).toBe('data-analyst');
-    expect(result.current.data?.variables?.OPENAI_API_KEY?.value).toBe('sk-cross-value');
-  });
-
-  // Negative: dotted name doesn't match any template route, proving the failure mode.
-  it('returns 404 when account-qualified name is used instead of plain name', async () => {
-    const { wrapper } = createHookWrapper();
-    const { result } = renderHook(
-      () => usePrefilledDeploymentTemplate(testAccount, 'otheruser.data-analyst', 'dep-cross-account'),
-      { wrapper },
-    );
-
-    await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toMatchObject({ code: 'not_found' });
   });
 });

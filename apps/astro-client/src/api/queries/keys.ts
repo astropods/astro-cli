@@ -15,10 +15,6 @@ export const blueprintKeys = {
   all: ['agents'] as const,
   byAccount: (account: string) => ['agents', 'account', account] as const,
   detail: (account: string, name: string) => ['agents', account, name] as const,
-  template: (account: string, name: string) =>
-    ['agents', account, name, 'template'] as const,
-  prefilledTemplate: (account: string, name: string, deploymentId: string, revision?: number, build?: string) =>
-    ['agents', account, name, 'template', deploymentId, revision ?? null, build ?? null] as const,
 };
 
 export const observabilityKeys = {

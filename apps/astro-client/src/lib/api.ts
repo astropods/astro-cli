@@ -412,13 +412,6 @@ class ApiClient {
     });
   }
 
-  // Get deployment template for an agent (resolves latest build server-side)
-  async getDeploymentTemplate(account: string, name: string): Promise<DeploymentTemplate> {
-    return this.request<DeploymentTemplate>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template?format=json`
-    );
-  }
-
   // Interactive POST deployment template: accepts deploy-time inputs, shapes template, returns validation.
   async postDeploymentTemplate(account: string, name: string, body: TemplateRequest = {}): Promise<TemplateResponse> {
     return this.request<TemplateResponse>(
@@ -427,16 +420,6 @@ class ApiClient {
     );
   }
 
-  // Get deployment template pre-filled with values from an existing deployment.
-  // Pass revision to prefill from a specific historical revision's spec.
-  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, revision?: number, build?: string): Promise<DeploymentTemplate> {
-    const params = new URLSearchParams({ format: "json" });
-    if (revision != null) params.set("revision", String(revision));
-    if (build != null) params.set("build", build);
-    return this.request<DeploymentTemplate>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template/${encodeURIComponent(deploymentId)}?${params}`
-    );
-  }
 
   // List current deployments for an account
   async countDeployments(account: string): Promise<{ count: number }> {

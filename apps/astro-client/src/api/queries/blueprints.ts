@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
-import { api, type BlueprintsListResponse, type Blueprint, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
+import { api, type BlueprintsListResponse, type Blueprint, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
 import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
 
@@ -40,26 +40,6 @@ export function useBlueprint(account: string, name: string, opts?: BlueprintQuer
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
     ...(opts?.retry !== undefined && { retry: opts.retry }),
     refetchInterval: opts?.refetchInterval,
-  });
-}
-
-export function useDeploymentTemplate(account: string, name: string, opts?: { initialData?: DeploymentTemplate; enabled?: boolean }) {
-  return useQuery({
-    queryKey: blueprintKeys.template(account, name),
-    queryFn: () => api.getDeploymentTemplate(account, name),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
-  });
-}
-
-export function usePrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, opts?: { enabled?: boolean; revision?: number; build?: string }) {
-  const revision = opts?.revision;
-  const build = opts?.build;
-  return useQuery({
-    queryKey: blueprintKeys.prefilledTemplate(account, name, deploymentId, revision, build),
-    queryFn: () => api.getPrefilledDeploymentTemplate(account, name, deploymentId, revision, build),
-    enabled: (opts?.enabled ?? true) && !!account && !!name && !!deploymentId,
   });
 }
 
@@ -130,7 +110,6 @@ export function useDeployAgent(account: string, agentName: string) {
         queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(data.deployment_id) });
       }
 
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.template(account, agentName) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, agentName) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
       queryClient.invalidateQueries({ queryKey: deploymentKeys.history(account, agentName) });
