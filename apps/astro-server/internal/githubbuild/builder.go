@@ -66,6 +66,44 @@ func (b *Builder) ECRImagePath(accountID, imageName, buildID string) string {
 	)
 }
 
+// repoBase returns the first two slash-separated segments of repoFullName ("owner/repo").
+func repoBase(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 2 {
+		return repoFullName
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+// repoSubPath returns everything after the second slash, or "" for root connections.
+func repoSubPath(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
+}
+
+// effectivePaths resolves the BuildKit context directory and dockerfile path
+// given an optional subpath within the cloned workspace.
+func effectivePaths(subPath, buildContext, dockerfile string) (contextDir, effectiveDockerfile string) {
+	base := "/workspace"
+	if subPath != "" {
+		base = "/workspace/" + subPath
+	}
+	if buildContext == "." {
+		contextDir = base
+	} else {
+		contextDir = base + "/" + buildContext
+	}
+	if subPath != "" {
+		effectiveDockerfile = subPath + "/" + dockerfile
+	} else {
+		effectiveDockerfile = dockerfile
+	}
+	return contextDir, effectiveDockerfile
+}
+
 // ecrRepoName extracts the ECR repository name from a full image destination.
 // E.g. "123456.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-abc/myapp:build123"
 // → "prod-tenant-abc/myapp"
@@ -181,6 +219,11 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		dockerfile = "Dockerfile"
 	}
 
+	// Split repoFullName into base repo (for clone URL) and subpath (for file paths).
+	base := repoBase(repoFullName)
+	subPath := repoSubPath(repoFullName)
+	contextDir, effectiveDockerfile := effectivePaths(subPath, buildContext, dockerfile)
+
 	// Create an ephemeral Secret for the GitHub token so it is not visible in Job args.
 	tokenSecretName := fmt.Sprintf("build-gh-%s", jobName)
 	tokenSecret := &corev1.Secret{
@@ -196,21 +239,17 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	// safe.directory bypasses Git's ownership check on the emptyDir volume (owned by root).
 	cloneCmd := fmt.Sprintf(
 		"HOME=/tmp git config --global --add safe.directory /workspace && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git -c advice.detachedHead=false checkout %s",
-		repoFullName, commitSHA, commitSHA,
+		base, commitSHA, commitSHA,
 	)
 
 	// buildctl args: always use --local so BuildKit reads from the workspace volume.
-	contextDir := "/workspace"
-	if buildContext != "." {
-		contextDir = "/workspace/" + buildContext
-	}
-	// dockerfile dir is always /workspace; filename is relative to repo root.
+	// dockerfile dir is always /workspace; filename is relative to workspace root.
 	buildctlArgs := []string{
 		"build",
 		"--frontend", "dockerfile.v0",
 		"--local", "context=" + contextDir,
 		"--local", "dockerfile=/workspace",
-		"--opt", "filename=" + dockerfile,
+		"--opt", "filename=" + effectiveDockerfile,
 	}
 	if build.Target != "" {
 		buildctlArgs = append(buildctlArgs, "--opt", "target="+build.Target)

@@ -44,6 +44,35 @@ func testBuilder(mock *mockECR) *Builder {
 	}
 }
 
+// --- effectivePaths tests ---
+
+func TestEffectivePaths(t *testing.T) {
+	tests := []struct {
+		subPath        string
+		buildContext   string
+		dockerfile     string
+		wantContextDir string
+		wantDockerfile string
+	}{
+		{"", ".", "Dockerfile", "/workspace", "Dockerfile"},
+		{"", "subdir", "Dockerfile", "/workspace/subdir", "Dockerfile"},
+		{"svc/a", ".", "Dockerfile", "/workspace/svc/a", "svc/a/Dockerfile"},
+		{"svc/a", "subdir", "Dockerfile", "/workspace/svc/a/subdir", "svc/a/Dockerfile"},
+		{"svc/a", ".", "docker/Dockerfile.prod", "/workspace/svc/a", "svc/a/docker/Dockerfile.prod"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("sub=%q ctx=%q df=%q", tt.subPath, tt.buildContext, tt.dockerfile), func(t *testing.T) {
+			gotCtx, gotDF := effectivePaths(tt.subPath, tt.buildContext, tt.dockerfile)
+			if gotCtx != tt.wantContextDir {
+				t.Errorf("contextDir = %q, want %q", gotCtx, tt.wantContextDir)
+			}
+			if gotDF != tt.wantDockerfile {
+				t.Errorf("dockerfile = %q, want %q", gotDF, tt.wantDockerfile)
+			}
+		})
+	}
+}
+
 // --- ecrRepoName tests ---
 
 func TestEcrRepoName(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -88,24 +87,6 @@ func FetchAstroSpec(ctx context.Context, token, repoFullName, commitSHA string) 
 		return nil, "", fmt.Errorf("parse astropods.yml: %w", err)
 	}
 	return &s, content, nil
-}
-
-// repoBase returns the first two slash-separated segments of repoFullName ("owner/repo").
-func repoBase(repoFullName string) string {
-	parts := strings.SplitN(repoFullName, "/", 3)
-	if len(parts) < 2 {
-		return repoFullName
-	}
-	return parts[0] + "/" + parts[1]
-}
-
-// repoSubPath returns everything after the second slash, or "" for root connections.
-func repoSubPath(repoFullName string) string {
-	parts := strings.SplitN(repoFullName, "/", 3)
-	if len(parts) < 3 {
-		return ""
-	}
-	return parts[2]
 }
 
 // FetchFileContent fetches a file's raw content from GitHub at a specific ref.
