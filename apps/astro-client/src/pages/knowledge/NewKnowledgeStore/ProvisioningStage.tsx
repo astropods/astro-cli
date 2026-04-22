@@ -5,7 +5,7 @@ import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import { useKnowledgeStore } from "@/api/queries/knowledge";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
-import { ProviderIcon } from "./ProviderIcon";
+import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
 export function ProvisioningStage({
   account,

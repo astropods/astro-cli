@@ -5,7 +5,7 @@ import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import type { KnowledgeStore } from "@/lib/api";
 import { CopyButton } from "@/components/ui/copy-button";
-import { ProviderIcon } from "./ProviderIcon";
+import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
 export function SuccessStage({ store }: { store: KnowledgeStore }) {
   const modeLabel = store.mode === "managed" ? "Managed" : "External";

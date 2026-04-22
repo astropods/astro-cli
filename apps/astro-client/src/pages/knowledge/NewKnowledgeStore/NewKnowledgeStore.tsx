@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Route } from "./+types/index";
+import type { Route } from "./+types/NewKnowledgeStore";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";

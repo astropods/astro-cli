@@ -1,8 +1,6 @@
 import type { KnowledgeProvider } from "@/lib/api";
 import { MANAGED_PROVIDERS } from "@/components/knowledge/knowledge-utils";
 
-export const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
-
 export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
   postgres: "Relational",
   qdrant: "Vector search",

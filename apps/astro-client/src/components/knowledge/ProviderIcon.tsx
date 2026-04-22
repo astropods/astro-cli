@@ -2,7 +2,8 @@ import { CircleStackIcon } from "@heroicons/react/24/outline";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { KnowledgeProvider } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { PROVIDERS_WITH_ICON } from "./constants";
+
+const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
 
 export function ProviderIcon({ provider, className }: { provider: KnowledgeProvider; className?: string }) {
   if (PROVIDERS_WITH_ICON.has(provider)) {
