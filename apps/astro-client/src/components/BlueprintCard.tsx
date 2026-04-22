@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "./BlueprintIdentity";
@@ -234,6 +234,37 @@ export function BlueprintCard({
 
   const cardHref = `/${slug}`;
 
+  // Derive stable fold lines from the slug — 1 or 2 folds, non-overlapping
+  const folds = useMemo(() => {
+    // Simple seeded PRNG from the slug
+    let s = 1;
+    for (let i = 0; i < slug.length; i++) s = ((s << 5) - s + slug.charCodeAt(i)) | 0;
+    s = Math.abs(s) || 1;
+    const rand = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+
+    const count = rand() > 0.5 ? 2 : 1;
+    const result: { position: number; rotation: number }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      rand(); // consume to keep sequence stable
+      const rotation = rand() * 10 - 5; // -5 to 5 degrees
+
+      // Place folds in non-overlapping zones: split the card into thirds
+      // First fold goes in the first 2/3, second fold in the last 2/3
+      let position: number;
+      if (count === 1) {
+        position = 25 + rand() * 50; // 25%-75%
+      } else {
+        position = i === 0
+          ? 20 + rand() * 25  // 20%-45%
+          : 55 + rand() * 25; // 55%-80%
+      }
+
+      result.push({ position, rotation });
+    }
+    return result;
+  }, [slug]);
+
   return (
     <>
       <Link
@@ -249,6 +280,30 @@ export function BlueprintCard({
           '--card-accent': accent.vibrant,
         } as React.CSSProperties : undefined}
       >
+        {!isDraft && folds.map((fold, i) => {
+          const grad = accent
+            ? `linear-gradient(to right, transparent, color-mix(in srgb, ${accent.base} 3.4%, transparent) 45%, color-mix(in srgb, ${accent.base} 6%, transparent) 50%, transparent 50.5%, transparent)`
+            : "linear-gradient(to right, transparent, rgb(0 0 0 / 0.025) 45%, rgb(0 0 0 / 0.05) 50%, transparent 50.5%, transparent)";
+          return (
+            <div
+              key={i}
+              className="pointer-events-none absolute z-0"
+              style={{
+                top: 0, bottom: 0,
+                left: `${fold.position - 25}%`,
+                width: "50%",
+                background: grad,
+                transform: `rotate(${fold.rotation}deg)`,
+              }}
+            />
+          );
+        })}
+        {!isDraft && (
+          <div
+            className="pointer-events-none absolute inset-0 z-0"
+            style={{ background: "linear-gradient(to bottom, rgb(255 255 255 / 0.22) 0%, transparent 100%)" }}
+          />
+        )}
         {onArchive && (
           <div
             className="absolute top-3 right-3"
@@ -280,7 +335,7 @@ export function BlueprintCard({
             </DropdownMenu>
           </div>
         )}
-        <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3">
+        <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3" style={{ textShadow: "0 0 5px rgb(255 255 255 / 0.8), 0 0 10px rgb(255 255 255 / 0.8), 0 0 16px rgb(255 255 255 / 0.8)" }}>
           <BlueprintIdentity
             account={account}
             name={name}
@@ -300,7 +355,7 @@ export function BlueprintCard({
                 : visibility === "private" && <PrivacyBadge onClick={(e) => e.preventDefault()} />
               }
             </h3>
-            <p className="line-clamp-3 text-body-sm text-muted-foreground">
+            <p className="line-clamp-3 text-body-sm text-foreground/70">
               {description}
             </p>
           </div>
