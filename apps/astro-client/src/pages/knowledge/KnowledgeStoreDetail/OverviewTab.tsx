@@ -31,9 +31,9 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
       {store.status !== "pending-acceptance" && <>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} sparkline={metrics?.cpu_cores != null ? [0.08,0.11,0.09,0.14,0.12,0.10,0.13,0.12,0.15,0.12] : undefined} />
-          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} sparkline={metrics?.memory_bytes != null ? [110,118,125,122,130,128,134,132,134,134] : undefined} />
-          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} sparkline={metrics?.storage_used != null ? [30,35,38,40,44,46,48,50,52,52] : undefined} />
+          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} />
+          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} />
+          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} />
           <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading}
             description={metrics?.uptime_seconds != null ? <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground"><CheckCircleIcon className="size-3.5 shrink-0 text-teal-600" />No restarts detected</span> : undefined}
           />

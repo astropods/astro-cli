@@ -102,8 +102,8 @@ export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
             {isPending && (
               <>
                 <p className="mt-1 text-body-sm text-muted-foreground">{cloud.description}</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => window.open(consoleUrl, "_blank")}>
-                  {cloud.label}
+                <Button variant="outline" size="sm" className="mt-3" asChild>
+                  <a href={consoleUrl} target="_blank" rel="noreferrer">{cloud.label}</a>
                 </Button>
               </>
             )}
