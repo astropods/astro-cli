@@ -24,7 +24,7 @@ export default [
       route("agents", "pages/AgentDashboard.tsx"),
       route("knowledge", "pages/knowledge/KnowledgeStores.tsx"),
       route("knowledge/new", "pages/knowledge/NewKnowledgeStore/NewKnowledgeStore.tsx"),
-      route("knowledge/:storeName", "pages/knowledge/KnowledgeStoreDetail.tsx"),
+      route("knowledge/:storeName", "pages/knowledge/KnowledgeStoreDetail/KnowledgeStoreDetail.tsx"),
       route("admin", "pages/Admin.tsx"),
       ...prefix("settings", [
         layout("pages/settings/SettingsLayout.tsx", [
