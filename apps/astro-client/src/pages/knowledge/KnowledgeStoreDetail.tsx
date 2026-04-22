@@ -396,6 +396,14 @@ function SettingsPanel({ store, account }: { store: KnowledgeStore; account: str
   );
 }
 
+const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
+  host: "The hostname or IP address of the store.",
+  port: "The port number to connect on.",
+  database: "The database name within the store.",
+  api_key: "Secret key for authenticating API requests.",
+  url: "The full connection URL including credentials.",
+};
+
 function CredentialsCard({ account, storeName }: { account: string; storeName: string }) {
   const [enabled, setEnabled] = useState(false);
   const { data, isLoading, isError, error } = useKnowledgeCredentials(account, storeName, enabled);
@@ -408,13 +416,6 @@ function CredentialsCard({ account, storeName }: { account: string; storeName: s
     if (isLoading) return <div className="px-5 py-4"><Skeleton className="h-24 w-full rounded-sm" /></div>;
     if (is404) return <div className="px-5 py-4"><p className="text-body-sm text-muted-foreground">Not available — KMS was not configured when this store was created.</p></div>;
     if (isError || !data || Object.keys(data).length === 0) return <div className="px-5 py-4"><p className="text-body-sm text-muted-foreground">{isError ? "Failed to load credentials." : "No credentials found."}</p></div>;
-    const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
-      host: "The hostname or IP address of the store.",
-      port: "The port number to connect on.",
-      database: "The database name within the store.",
-      api_key: "Secret key for authenticating API requests.",
-      url: "The full connection URL including credentials.",
-    };
     return Object.entries(data).map(([key, value]) => (
       <SettingRow key={key} label={key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")} description={CREDENTIAL_DESCRIPTIONS[key]}>
         <div className="relative flex items-center">
