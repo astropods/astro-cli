@@ -67,8 +67,9 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
 // compound SLACK_CONFIG JSON variable for individual editing.
 const SLACK_VIRTUAL_FIELDS = ["SLACK_ACTIONABLE_REACTIONS", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_ALLOWED_USER_IDS"] as const;
 
-/** Compute form-ready initial values from a pre-filled deployment template. */
-export function computeInitialValues(template: DeploymentTemplate, account: string): DeployFormInitialValues {
+/** Compute form-ready initial values from a pre-filled deployment template.
+ *  @param responseAdapters — top-level `adapters` from TemplateResponse (prefilled from existing deployment) */
+export function computeInitialValues(template: DeploymentTemplate, account: string, responseAdapters?: string[]): DeployFormInitialValues {
   const variableValues: Record<string, string> = {};
   const adapterCredentials: Record<string, string> = {};
 
@@ -92,9 +93,12 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     }
   }
 
-  const interfaces = template.interfaces as Record<string, unknown> | undefined;
-  const adapters = interfaces?.adapters;
+  // Prefer top-level response adapters (prefilled from existing deployment),
+  // fall back to template.interfaces.adapters for backward compat.
+  const adapters = responseAdapters
+    ?? (template.interfaces as Record<string, unknown> | undefined)?.adapters as string[] | undefined;
   const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
+  const interfaces = template.interfaces as Record<string, unknown> | undefined;
   const webAuthEnabled = isWebAuthOidc(interfaces);
 
   const ingestionSchedules: Record<string, string> = {};
@@ -288,7 +292,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (!template || seededRef.current) return;
     seededRef.current = true;
 
-    const extracted = computeInitialValues(template, account);
+    const extracted = computeInitialValues(template, account, templateResponse?.adapters);
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
       targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",

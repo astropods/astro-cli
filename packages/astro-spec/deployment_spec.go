@@ -310,6 +310,7 @@ type TemplateResponse struct {
 	Template   AstroDeploymentSpec `json:"template"`            // deployment/v1 — directly postable to /deploy
 	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
 	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
+	Adapters   []string            `json:"adapters"`            // current adapter selection (always present, may be empty)
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
 }
 

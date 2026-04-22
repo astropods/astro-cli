@@ -2197,6 +2197,9 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 		}
 		// Strip template-only fields
 		v.Description = ""
+		v.Label = ""
+		v.Placeholder = ""
+		v.HelpURL = ""
 		v.Datatype = ""
 		v.DisplayAs = ""
 		v.Options = nil
@@ -2270,6 +2273,14 @@ func TestShapeTemplate_EmptyRequest(t *testing.T) {
 		t.Error("resp.Editable should be non-empty")
 	}
 
+	// Root adapters should be empty (base template has no adapter selection)
+	if resp.Adapters == nil {
+		t.Error("resp.Adapters should be non-nil (empty slice, not null)")
+	}
+	if len(resp.Adapters) != 0 {
+		t.Errorf("resp.Adapters: expected empty, got %v", resp.Adapters)
+	}
+
 	// Root variables should have schema fields (description)
 	if v, ok := resp.Variables["MY_API_KEY"]; !ok {
 		t.Error("root variables missing MY_API_KEY")
@@ -2325,6 +2336,11 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	}
 	if len(resp.Template.Interfaces.Adapters) != 1 || resp.Template.Interfaces.Adapters[0] != "slack" {
 		t.Errorf("template.Interfaces.Adapters: expected [slack], got %v", resp.Template.Interfaces.Adapters)
+	}
+
+	// Root adapters should match the request selection
+	if len(resp.Adapters) != 1 || resp.Adapters[0] != "slack" {
+		t.Errorf("resp.Adapters: expected [slack], got %v", resp.Adapters)
 	}
 
 	// Validation should error on missing slack tokens (now non-optional due to adapter shaping)
@@ -2424,5 +2440,58 @@ func TestShapeTemplate_DoesNotMutateBase(t *testing.T) {
 	afterJSON, _ := json.Marshal(base)
 	if string(origJSON) != string(afterJSON) {
 		t.Error("ShapeTemplate mutated the base template")
+	}
+}
+
+func TestShapeTemplate_AdaptersFromPrefill(t *testing.T) {
+	base := baseTemplateForShape(t)
+	// Simulate mergeDeploymentPrefill: the stored deployment had ["web", "slack"].
+	base.Interfaces.Adapters = []string{"web", "slack"}
+
+	// Initial POST with no adapters in request — response should reflect the stored adapters.
+	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	if len(resp.Adapters) != 2 {
+		t.Fatalf("resp.Adapters: expected [web slack], got %v", resp.Adapters)
+	}
+	if resp.Adapters[0] != "web" || resp.Adapters[1] != "slack" {
+		t.Errorf("resp.Adapters: expected [web slack], got %v", resp.Adapters)
+	}
+}
+
+func TestShapeTemplate_AdaptersReshape(t *testing.T) {
+	base := baseTemplateForShape(t)
+	// Simulate mergeDeploymentPrefill: the stored deployment had ["web", "slack"].
+	base.Interfaces.Adapters = []string{"web", "slack"}
+
+	// Reshape: user deselects web — response should reflect only slack.
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Adapters: []string{"slack"},
+	})
+	if len(resp.Adapters) != 1 || resp.Adapters[0] != "slack" {
+		t.Errorf("resp.Adapters after reshape: expected [slack], got %v", resp.Adapters)
+	}
+
+	// Reshape: user deselects all — response should be empty slice.
+	resp = ShapeTemplate(base, &spec.TemplateRequest{
+		Adapters: []string{},
+	})
+	if resp.Adapters == nil {
+		t.Error("resp.Adapters should be non-nil (empty slice, not null)")
+	}
+	if len(resp.Adapters) != 0 {
+		t.Errorf("resp.Adapters after clearing: expected empty, got %v", resp.Adapters)
+	}
+}
+
+func TestShapeTemplate_AdaptersJSONNeverNull(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"adapters":[]`) {
+		t.Errorf("expected JSON to contain \"adapters\":[], got: %s", string(b))
 	}
 }

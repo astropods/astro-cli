@@ -4,6 +4,7 @@ import type {
   Blueprint,
   DeploymentTemplate,
   DeploymentSpec,
+  DeploymentVariable,
   TemplateResponse,
   DeploymentsListResponse,
   DeployResponse,
@@ -179,8 +180,9 @@ export function wrapTemplateResponse(
       };
     }
   }
-  // Merge adapters
+  // Shape adapters — mirrors server: response root reflects current selection
   const interfaces = rest.interfaces as Record<string, unknown> | undefined;
+  const shapedAdapters = (reqBody?.adapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
   const shapedRest = reqBody?.adapters && interfaces
     ? { ...rest, interfaces: { ...interfaces, adapters: reqBody.adapters } }
     : rest;
@@ -202,6 +204,7 @@ export function wrapTemplateResponse(
     template: { ...shapedRest, spec: 'deployment/v1', variables: templateVars } as DeploymentSpec,
     variables: schemaVars,
     editable: editable ?? [],
+    adapters: shapedAdapters,
     validation: { valid: errors.length === 0, errors },
   };
 }

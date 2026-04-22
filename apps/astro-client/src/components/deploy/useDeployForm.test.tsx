@@ -503,6 +503,24 @@ describe('computeInitialValues', () => {
     expect(result.selectedAdapters).toEqual(['web', 'slack']);
   });
 
+  it('prefers responseAdapters over template.interfaces.adapters', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: ['web'] } });
+    const result = computeInitialValues(tpl, 'acme', ['web', 'slack']);
+    expect(result.selectedAdapters).toEqual(['web', 'slack']);
+  });
+
+  it('falls back to template.interfaces.adapters when responseAdapters is undefined', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: ['slack'] } });
+    const result = computeInitialValues(tpl, 'acme', undefined);
+    expect(result.selectedAdapters).toEqual(['slack']);
+  });
+
+  it('defaults to ["web"] when responseAdapters is empty', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: [] } });
+    const result = computeInitialValues(tpl, 'acme', []);
+    expect(result.selectedAdapters).toEqual(['web']);
+  });
+
   it('decomposes SLACK_CONFIG into virtual adapter credential fields', () => {
     const tpl = makeTemplate({
       variables: {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { InterfacesPicker, type InterfacesPickerProps } from "@/components/deploy/InterfacesPicker";
-import { AVAILABLE_ADAPTERS } from "@/components/deploy/useDeployForm";
+
 import type { VariableDisplay } from "@/components/deploy/VariableFields";
 
 const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = {

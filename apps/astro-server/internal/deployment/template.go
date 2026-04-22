@@ -502,11 +502,20 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// Sort errors for deterministic output
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Field < errs[j].Field })
 
+	// Promote adapters from the shaped template to the response root.
+	// On initial POST (no adapters in request), this reflects the stored deployment's adapters.
+	// On reshape, this reflects the user's current selection.
+	respAdapters := []string{}
+	if shaped.Interfaces != nil && len(shaped.Interfaces.Adapters) > 0 {
+		respAdapters = shaped.Interfaces.Adapters
+	}
+
 	return &spec.TemplateResponse{
 		Spec:      "deployment-template/v1",
 		Template:  *shaped,
 		Variables: schemaVars,
 		Editable:  editable,
+		Adapters:  respAdapters,
 		Validation: spec.TemplateValidation{
 			Valid:  len(errs) == 0,
 			Errors: errs,
