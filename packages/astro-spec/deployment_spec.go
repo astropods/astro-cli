@@ -113,13 +113,13 @@ type DeploymentKnowledge struct {
 	Image       string              `json:"image,omitempty" yaml:"image,omitempty"`
 	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
 	Replicas    int                 `json:"replicas,omitempty" yaml:"replicas,omitempty"`
-	Resources   DeploymentResources `json:"resources" yaml:"resources"`
+	Resources   DeploymentResources `json:"resources,omitzero" yaml:"resources"`
 	Persistent  bool                `json:"persistent,omitempty" yaml:"persistent,omitempty"`
 	Volume      string              `json:"volume,omitempty" yaml:"volume,omitempty"` // mount path for persistent storage
 	Storage     *StorageConfig      `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
-	Update      UpdateStrategy      `json:"update" yaml:"update"`
+	Update      UpdateStrategy      `json:"update,omitzero" yaml:"update"`
 	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"` // implementation-internal
 	Binding     string              `json:"binding,omitempty" yaml:"binding,omitempty"`   // managed store ARN; when set, container fields are zero
 }
