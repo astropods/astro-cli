@@ -25,6 +25,7 @@ import { LogsTab } from "./deployments/LogsTab";
 import { LogStreamProvider } from "./LogStreamProvider";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 import { ActionPanel } from "@/components/ui/status-panel";
+import { useLogTimezone } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 
 // ─── main component ───────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ export function ActiveDetailView({
   const [isPodLevelRestarting, setIsPodLevelRestarting] = useState(false)
   const isRestarting = isGloballyRestarting || isPodLevelRestarting
   const { data: accountAgents } = useAccountBlueprints(account);
+  const { timezone } = useLogTimezone();
   const pauseMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
   const restartAllMutation = useRestartDeployment(account);
@@ -318,7 +320,7 @@ export function ActiveDetailView({
                   <div className="mb-4">
                     <ActionPanel
                       tone="warning"
-                      title={<>A new build (<span className="font-mono">{latestBuildId?.slice(0, 8)}</span>) for this agent was released on {formatDateLong(latestVersion?.published_at ?? "")}.</>}
+                      title={<>A new build (<span className="font-mono">{latestBuildId?.slice(0, 8)}</span>) for this agent was released on {formatDateLong(latestVersion?.published_at ?? "", timezone)}.</>}
                       primaryLabel="Redeploy →"
                       onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
                       confirmTitle="Are you sure?"

@@ -187,7 +187,7 @@ export const ActionPanelStory: Story = {
       />
       <ActionPanel
         tone="warning"
-        title={<>A new build (<span className="font-mono">d4763698</span>) for this agent was released on April 22nd, 2026.</>}
+        title={<>A new build (<span className="font-mono">d4763698</span>) for this agent was released on April 22nd, 2026 at 14:30:00.</>}
         primaryLabel="Redeploy →"
         onPrimary={() => {}}
         confirmTitle="Redeploying may be destructive"

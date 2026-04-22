@@ -80,15 +80,21 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-/** Formats a date as "April 22nd, 2026" — full month, ordinal day, full year. */
-export function formatDateLong(dateStr: string): string {
+/** Formats a date as "April 22nd, 2026 at 14:30:45" in the given timezone (defaults to browser local). */
+export function formatDateLong(dateStr: string, timezone?: string): string {
+  if (!dateStr) return '';
   const date = new Date(dateStr);
-  const day = date.getDate();
-  const v = day % 100;
+  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const fmt = (opts: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, ...opts }).format(date);
+  const dayNum = parseInt(fmt({ day: 'numeric' }), 10);
+  const v = dayNum % 100;
   const suffixes = ['th', 'st', 'nd', 'rd'];
   const suffix = suffixes[(v - 20) % 10] ?? suffixes[v] ?? 'th';
-  const month = date.toLocaleDateString("en-US", { month: "long" });
-  return `${month} ${day}${suffix}, ${date.getFullYear()}`;
+  const month = fmt({ month: 'long' });
+  const year = fmt({ year: 'numeric' });
+  const time = fmt({ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return `${month} ${dayNum}${suffix}, ${year} at ${time}`;
 }
 
 export function formatDaysActive(isoString: string): string {
