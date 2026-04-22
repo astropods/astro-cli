@@ -19,6 +19,7 @@ import { extractPalette, pickCardColors, parseHex } from "astro-trading-card";
 interface CardAccent {
   base: string;
   vibrant: string;
+  vibrantLight: string;
 }
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -65,11 +66,12 @@ function extractAccentFromImg(img: HTMLImageElement): CardAccent | null {
     const colors = pickCardColors(palette);
     if (!colors) return null;
     const rgb = parseHex(colors.accent);
-    if (!rgb) return { base: colors.accent, vibrant: colors.accent };
+    if (!rgb) return { base: colors.accent, vibrant: colors.accent, vibrantLight: colors.accent };
     const [h, s] = rgbToHsl(rgb.r, rgb.g, rgb.b);
     return {
       base: hslToHex(h, s * 0.5, rgbToHsl(rgb.r, rgb.g, rgb.b)[2]),
       vibrant: hslToHex(h, Math.min(s, 0.5), 0.35),
+      vibrantLight: hslToHex(h, Math.min(s, 0.6), 0.7),
     };
   } catch {
     return null;
@@ -273,11 +275,12 @@ export function BlueprintCard({
           "group relative flex flex-col overflow-hidden shadow-sm transition-all duration-150 hover:shadow-md",
           isDraft
             ? "border-[6px] border-dashed border-stone-400 dark:border-teal-800 bg-transparent"
-            : "[--mix:18%] hover:[--mix:14%] border-[0.5px] border-white transition-[background-color] duration-150 dark:bg-teal-900/30 before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,rgb(255_255_255/0.5)_0.5px,transparent_0.5px),linear-gradient(to_bottom,rgb(255_255_255/0.5)_0.5px,transparent_0.5px)] after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-white dark:after:border-teal-800"
+            : "[--mix:18%] hover:[--mix:14%] [--card-neutral:white] dark:[--card-neutral:#0a1614] [--card-contrast:black] dark:[--card-contrast:white] [--card-grid:rgb(255_255_255/0.5)] dark:[--card-grid:rgb(255_255_255/0.07)] border-[0.5px] border-white dark:border-white/10 transition-[background-color] duration-150 before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,var(--card-grid)_0.5px,transparent_0.5px),linear-gradient(to_bottom,var(--card-grid)_0.5px,transparent_0.5px)] after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-white dark:after:border-white/10"
         )}
         style={accent && !isDraft ? {
-          backgroundColor: `color-mix(in srgb, ${accent.base} var(--mix), white)`,
+          backgroundColor: `color-mix(in srgb, ${accent.base} var(--mix), var(--card-neutral))`,
           '--card-accent': accent.vibrant,
+          '--card-accent-light': accent.vibrantLight,
         } as React.CSSProperties : undefined}
       >
         {!isDraft && folds.map((fold, i) => {
@@ -301,7 +304,7 @@ export function BlueprintCard({
         {!isDraft && (
           <div
             className="pointer-events-none absolute inset-0 z-0"
-            style={{ background: "linear-gradient(120deg, transparent 0%, rgb(255 255 255 / 0.75) 100%)" }}
+            style={{ background: "linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--card-neutral) 75%, transparent) 100%)" }}
           />
         )}
         {onArchive && (
@@ -335,19 +338,19 @@ export function BlueprintCard({
             </DropdownMenu>
           </div>
         )}
-        <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3" style={{ textShadow: "0 0 5px rgb(255 255 255 / 0.8), 0 0 10px rgb(255 255 255 / 0.8), 0 0 16px rgb(255 255 255 / 0.8)" }}>
+        <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3" style={{ textShadow: "0 0 5px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 10px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 16px color-mix(in srgb, var(--card-neutral) 80%, transparent)" }}>
           <BlueprintIdentity
             account={account}
             name={name}
             size={36}
             url={avatarUrl}
-            className="size-9 shrink-0 overflow-hidden border-[0.5px] border-white rounded-[3px]"
+            className="size-9 shrink-0 overflow-hidden border-[0.5px] border-white dark:border-white/20 rounded-[3px]"
             onLoad={handleAvatarLoad}
           />
           <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
             <h3 className={cn(
               "flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors",
-              accent ? "group-hover:[color:var(--card-accent)]" : "group-hover:text-teal-500 dark:group-hover:text-teal-400"
+              accent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-teal-500 dark:group-hover:text-teal-400"
             )}>
               <span className="truncate">{name}</span>
               {isDraft
@@ -360,10 +363,10 @@ export function BlueprintCard({
             </p>
           </div>
         </div>
-        {!isDraft && <div className="relative z-[1] mx-[5px] h-px bg-white" />}
+        {!isDraft && <div className="relative z-[1] mx-[5px] h-px bg-white dark:bg-white/10" />}
         <div
           className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5", isDraft ? "border-t border-dashed border-border" : "pb-3.5")}
-          style={accent && !isDraft ? { color: `color-mix(in srgb, ${accent.base} 70%, black)` } : undefined}
+          style={accent && !isDraft ? { color: `color-mix(in srgb, ${accent.base} 70%, var(--card-contrast))` } : undefined}
         >
           <span className={cn("text-mono-sm font-mono", accent && !isDraft ? "text-[inherit]" : "text-faint-foreground")}>
             {formattedDeploys} {deployLabel}
