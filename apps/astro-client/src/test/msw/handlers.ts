@@ -159,13 +159,14 @@ export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
 };
 
 /** Wraps a legacy DeploymentTemplate into a TemplateResponse envelope for the POST endpoint.
- *  Optionally merges request inputs (adapters, variables) to simulate server-side shaping. */
+ *  Optionally merges request inputs (interfaces, variables) to simulate server-side shaping. */
 export function wrapTemplateResponse(
   tmpl: DeploymentTemplate,
-  reqBody?: { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> },
+  reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> },
 ): TemplateResponse {
   const { editable, variables, spec: _spec, ...rest } = tmpl;
-  const slackSelected = reqBody?.adapters?.includes('slack') ?? false;
+  const reqAdapters = reqBody?.interfaces?.adapters;
+  const slackSelected = reqAdapters?.includes('slack') ?? false;
   const templateVars: Record<string, { value?: string; ref?: string; targets: string[]; secret?: boolean; optional?: boolean }> = {};
   if (variables) {
     for (const [k, v] of Object.entries(variables)) {
@@ -182,10 +183,10 @@ export function wrapTemplateResponse(
   }
   // Shape interfaces — mirrors server: promote user-editable fields to response root
   const interfaces = rest.interfaces as Record<string, unknown> | undefined;
-  const shapedAdapters = (reqBody?.adapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
+  const shapedAdapters = (reqAdapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
   const shapedAuth = interfaces?.auth as { web?: { type?: string } } | undefined;
-  const shapedRest = reqBody?.adapters && interfaces
-    ? { ...rest, interfaces: { ...interfaces, adapters: reqBody.adapters } }
+  const shapedRest = reqAdapters && interfaces
+    ? { ...rest, interfaces: { ...interfaces, adapters: reqAdapters } }
     : rest;
 
   // Build schema variables (mirrors server's schemaVars) with shaped optionality
@@ -278,7 +279,7 @@ export const handlers = [
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { adapters?: string[]; variables?: Record<string, { value?: string; ref?: string }> }));
+    return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> }));
   }),
 
   // GET /api/v1/accounts/:account/members

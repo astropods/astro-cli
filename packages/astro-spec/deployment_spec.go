@@ -294,7 +294,7 @@ type TemplateRequest struct {
 	Build        string                   `json:"build,omitempty"`
 	DeploymentID string                   `json:"deployment_id,omitempty"`
 	Revision     int                      `json:"revision,omitempty"`
-	Adapters     []string                 `json:"adapters,omitempty"`
+	Interfaces   *TemplateInterfaces      `json:"interfaces,omitempty"`
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
 }
 

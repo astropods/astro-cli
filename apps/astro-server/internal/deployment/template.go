@@ -379,10 +379,10 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// Deep-copy via JSON round-trip so mutations don't affect the base.
 	shaped := deepCopySpec(base)
 
-	// --- Adapter shaping ---
-	if req.Adapters != nil && shaped.Interfaces != nil {
-		shaped.Interfaces.Adapters = req.Adapters
-		slackSelected := slices.Contains(req.Adapters, "slack")
+	// --- Interface shaping ---
+	if req.Interfaces != nil && shaped.Interfaces != nil {
+		shaped.Interfaces.Adapters = req.Interfaces.Adapters
+		slackSelected := slices.Contains(req.Interfaces.Adapters, "slack")
 		// When slack is selected, its token variables become required.
 		for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
 			if v, ok := shaped.Variables[key]; ok {
@@ -391,7 +391,7 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 			}
 		}
 		// When web is selected, expose the HTTP endpoint for ingress.
-		if slices.Contains(req.Adapters, "web") {
+		if slices.Contains(req.Interfaces.Adapters, "web") {
 			if ep, ok := shaped.Interfaces.Endpoints["http"]; ok {
 				if ep.Expose == nil {
 					ep.Expose = &spec.EndpointExpose{}
@@ -404,9 +404,9 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 
 	// Strip variables that belong exclusively to non-selected adapters.
 	// They'll reappear if the user toggles that adapter on (reshape POST).
-	if req.Adapters != nil {
-		selectedSet := make(map[string]bool, len(req.Adapters))
-		for _, a := range req.Adapters {
+	if req.Interfaces != nil {
+		selectedSet := make(map[string]bool, len(req.Interfaces.Adapters))
+		for _, a := range req.Interfaces.Adapters {
 			selectedSet[a] = true
 		}
 		for key, v := range shaped.Variables {

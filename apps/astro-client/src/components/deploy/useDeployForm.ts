@@ -317,7 +317,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
-    reshapeTemplate({ adapters });
+    reshapeTemplate({ interfaces: { adapters } });
   }, [reshapeTemplate]);
 
   const allFormValues = useMemo(
@@ -520,7 +520,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // POST template with all inputs to get the server-fulfilled spec.
     const req: TemplateRequest = {
-      adapters: selectedAdapters,
+      interfaces: { adapters: selectedAdapters },
       variables: variableInputs,
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;

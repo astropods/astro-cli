@@ -2147,8 +2147,8 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 
 	// --- POST path: ShapeTemplate does the fulfillment ---
 	postResp := ShapeTemplate(base, &spec.TemplateRequest{
-		Adapters:  adapterSelection,
-		Variables: varInputs,
+		Interfaces: &spec.TemplateInterfaces{Adapters: adapterSelection},
+		Variables:  varInputs,
 	})
 	postSpec := postResp.Template
 
@@ -2322,7 +2322,7 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 
 	// Select slack adapter
 	resp := ShapeTemplate(base, &spec.TemplateRequest{
-		Adapters: []string{"slack"},
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
 	})
 
 	// Root schema should have slack vars as non-optional
@@ -2436,8 +2436,8 @@ func TestShapeTemplate_DoesNotMutateBase(t *testing.T) {
 	origJSON, _ := json.Marshal(base)
 
 	ShapeTemplate(base, &spec.TemplateRequest{
-		Adapters:  []string{"slack"},
-		Variables: map[string]spec.VariableInput{"MY_API_KEY": {Value: "mutated"}},
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
+		Variables:  map[string]spec.VariableInput{"MY_API_KEY": {Value: "mutated"}},
 	})
 
 	afterJSON, _ := json.Marshal(base)
@@ -2468,7 +2468,7 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 
 	// Reshape: user deselects web — response should reflect only slack.
 	resp := ShapeTemplate(base, &spec.TemplateRequest{
-		Adapters: []string{"slack"},
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
 	})
 	if len(resp.Interfaces.Adapters) != 1 || resp.Interfaces.Adapters[0] != "slack" {
 		t.Errorf("resp.Interfaces.Adapters after reshape: expected [slack], got %v", resp.Interfaces.Adapters)
@@ -2476,7 +2476,7 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 
 	// Reshape: user deselects all — response should be empty slice.
 	resp = ShapeTemplate(base, &spec.TemplateRequest{
-		Adapters: []string{},
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{}},
 	})
 	if resp.Interfaces.Adapters == nil {
 		t.Error("resp.Interfaces.Adapters should be non-nil (empty slice, not null)")

@@ -1117,7 +1117,7 @@ export interface TemplateRequest {
   build?: string;
   deployment_id?: string;
   revision?: number;
-  adapters?: string[];
+  interfaces?: TemplateInterfaces;
   variables?: Record<string, { value?: string; ref?: string }>;
 }
 
