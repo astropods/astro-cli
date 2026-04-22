@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,6 +32,37 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
+
+// githubBuildQueue is the subset of riverqueue.Queue used by GitHub handlers.
+type githubBuildQueue interface {
+	EnqueueGitHubBuild(ctx context.Context, args riverqueue.GitHubBuildArgs) error
+	CancelGitHubBuildsForConnection(ctx context.Context, connectionID string)
+}
+
+var subPathSegmentRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// validateRepoFullName checks that repoFullName is owner/repo or owner/repo/sub/path.
+// At least two slash-separated segments are required. Subpath segments must match
+// [a-zA-Z0-9._-]+ with no ".." components. Leading/trailing slashes are stripped.
+func validateRepoFullName(repoFullName string) error {
+	s := strings.Trim(repoFullName, "/")
+	parts := strings.Split(s, "/")
+	if len(parts) < 2 {
+		return fmt.Errorf("repo_full_name must be at least owner/repo")
+	}
+	for _, seg := range parts[2:] {
+		if seg == "" {
+			return fmt.Errorf("repo_full_name has empty path segment")
+		}
+		if seg == ".." {
+			return fmt.Errorf("repo_full_name must not contain '..' components")
+		}
+		if !subPathSegmentRe.MatchString(seg) {
+			return fmt.Errorf("repo_full_name subpath segment %q contains invalid characters", seg)
+		}
+	}
+	return nil
+}
 
 // GitHubConnectResponse is returned when an OAuth redirect is needed.
 type GitHubConnectResponse struct {
@@ -274,6 +306,12 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			req.Branch = "main"
 		}
 
+		// Validate before making any external calls.
+		if err := validateRepoFullName(req.RepoFullName); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 			Provider:       "github",
 			UserID:         session.UserID,
@@ -287,17 +325,22 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get GitHub token"})
 			return
 		}
+		req.RepoFullName = strings.Trim(req.RepoFullName, "/")
+		newBase := githubconnection.RepoBase(req.RepoFullName)
 
-		// Remove existing webhook if re-linking a different repo.
+		// Remove existing webhook if re-linking to a different base repo,
+		// but only if no other connections still reference that base repo.
 		existing, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
-		if err == nil && existing.WebhookID != 0 {
-			oldGH := githubclient.New(token.AccessToken)
-			if delErr := oldGH.DeleteWebhook(c.Request.Context(), existing.RepoFullName, existing.WebhookID); delErr != nil {
-				log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
+		if err == nil && existing.WebhookID != 0 && githubconnection.RepoBase(existing.RepoFullName) != newBase {
+			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName)); countErr == nil && count <= 1 {
+				oldGH := githubclient.New(token.AccessToken)
+				if delErr := oldGH.DeleteWebhook(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName), existing.WebhookID); delErr != nil {
+					log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
+				}
 			}
 		}
 
-		// Reject if the repo is already connected to a different agent in this account.
+		// Reject if the repo+subpath is already connected to a different agent in this account.
 		if conflict, err := ghStore.GetByRepoForAccount(c.Request.Context(), acct.ID, req.RepoFullName); err == nil && conflict.AgentName != agentName {
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("repo %q is already connected to agent %q", req.RepoFullName, conflict.AgentName)})
 			return
@@ -315,6 +358,20 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WebhookSecret:        "",
 		}
 
+		// Webhook dedup: reuse existing webhook if another connection already targets the same base repo.
+		if sharedConn, err := ghStore.GetByRepoBase(c.Request.Context(), newBase); err == nil && sharedConn.WebhookID != 0 {
+			conn.WebhookID = sharedConn.WebhookID
+			conn.WebhookSecret = sharedConn.WebhookSecret
+			if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
+				log.Error("githubconnection: upsert (dedup)", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save connection"})
+				return
+			}
+			log.Info("GitHub repo linked (webhook reused)", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName)
+			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
+			return
+		}
+
 		// Save connection first so the blueprint detail page shows the GitHub
 		// setup path and manual rebuilds work even if webhook installation fails.
 		if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
@@ -323,19 +380,19 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 
-		// Install webhook
+		// Install webhook on the base repo.
 		secretBytes := make([]byte, 32)
 		if _, err := rand.Read(secretBytes); err == nil {
 			webhookSecret := hex.EncodeToString(secretBytes)
 			gh := githubclient.New(token.AccessToken)
 			webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
 			webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
-				RepoFullName: req.RepoFullName,
+				RepoFullName: newBase,
 				PayloadURL:   webhookPayloadURL,
 				Secret:       webhookSecret,
 			})
 			if err != nil {
-				log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", req.RepoFullName)
+				log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", newBase)
 			} else {
 				conn.WebhookID = webhookID
 				conn.WebhookSecret = webhookSecret
@@ -507,25 +564,29 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 			return
 		}
 
-		// Best-effort webhook removal.
-		if conn.WebhookID != 0 {
-			token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-				Provider:       "github",
-				UserID:         session.UserID,
-				OrganizationID: session.OrganizationID,
-			})
-			if tokenErr == nil {
-				gh := githubclient.New(token.AccessToken)
-				if delErr := gh.DeleteWebhook(c.Request.Context(), conn.RepoFullName, conn.WebhookID); delErr != nil {
-					log.Warn("github: delete webhook", "error", delErr, "repo", conn.RepoFullName)
-				}
-			}
-		}
+		repoBase := githubconnection.RepoBase(conn.RepoFullName)
 
 		if err := ghStore.Delete(c.Request.Context(), acct.ID, agentName); err != nil {
 			log.Error("githubconnection: delete", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete connection"})
 			return
+		}
+
+		// Remove webhook only if no other connections remain for this base repo.
+		if conn.WebhookID != 0 {
+			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), repoBase); countErr == nil && count == 0 && pipesClient != nil {
+				token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+					Provider:       "github",
+					UserID:         session.UserID,
+					OrganizationID: session.OrganizationID,
+				})
+				if tokenErr == nil {
+					gh := githubclient.New(token.AccessToken)
+					if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
+						log.Warn("github: delete webhook", "error", delErr, "repo", repoBase)
+					}
+				}
+			}
 		}
 
 		log.Info("GitHub connection removed", "account", acct.Name, "agent", agentName)
@@ -631,11 +692,18 @@ type githubPushPayload struct {
 			Name string `json:"name"`
 		} `json:"author"`
 	} `json:"head_commit"`
+	Commits []struct {
+		Added    []string `json:"added"`
+		Removed  []string `json:"removed"`
+		Modified []string `json:"modified"`
+	} `json:"commits"`
 }
 
 // GitHubWebhook handles POST /webhooks/github.
 // Receives push events from GitHub. No session auth — verified via HMAC.
-func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *riverqueue.Queue) gin.HandlerFunc {
+// Fan-out: each connection for the pushed repo+branch gets its own build,
+// subject to path filtering for subpath connections.
+func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue githubBuildQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader("X-GitHub-Event") != "push" {
 			c.Status(http.StatusOK)
@@ -654,9 +722,9 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 			return
 		}
 
-		conn, err := ghStore.GetByRepoBase(c.Request.Context(), payload.Repository.FullName)
+		// Use GetByRepoBase to retrieve the shared webhook secret for HMAC verification.
+		baseConn, err := ghStore.GetByRepoBase(c.Request.Context(), payload.Repository.FullName)
 		if errors.Is(err, sql.ErrNoRows) {
-			// No connection for this repo — not an error, just ignore.
 			c.Status(http.StatusOK)
 			return
 		}
@@ -668,15 +736,15 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 
 		// Verify HMAC signature.
 		sig := c.GetHeader("X-Hub-Signature-256")
-		if !verifyGitHubSignature(body, conn.WebhookSecret, sig) {
+		if !verifyGitHubSignature(body, baseConn.WebhookSecret, sig) {
 			log.Warn("github webhook: invalid signature", "repo", payload.Repository.FullName)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 			return
 		}
 
-		// Only act on pushes to the configured branch.
-		expectedRef := "refs/heads/" + conn.Branch
-		if payload.Ref != expectedRef {
+		// Extract branch from ref.
+		branch, found := strings.CutPrefix(payload.Ref, "refs/heads/")
+		if !found {
 			c.Status(http.StatusOK)
 			return
 		}
@@ -687,57 +755,85 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue *r
 			return
 		}
 
-		buildID := randomHex(8)
-
 		var commitMsg, commitAuthor string
 		if payload.HeadCommit != nil {
 			commitMsg = firstCommitLine(payload.HeadCommit.Message)
 			commitAuthor = payload.HeadCommit.Author.Name
 		}
 
-		buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
-			ConnectionID:  conn.ID,
-			AccountID:     conn.AccountID,
-			AgentName:     conn.AgentName,
-			BuildID:       buildID,
-			CommitSHA:     payload.After,
-			Branch:        conn.Branch,
-			Status:        "pending",
-			CommitMessage: commitMsg,
-			CommitAuthor:  commitAuthor,
-		})
+		// Collect all changed files across all commits for path filtering.
+		var changedFiles []string
+		for _, commit := range payload.Commits {
+			changedFiles = append(changedFiles, commit.Added...)
+			changedFiles = append(changedFiles, commit.Removed...)
+			changedFiles = append(changedFiles, commit.Modified...)
+		}
+
+		// Fan-out: query all connections for this repo+branch.
+		conns, err := ghStore.ListByRepoAndBranch(c.Request.Context(), payload.Repository.FullName, branch)
 		if err != nil {
-			log.Error("github webhook: create build record", "error", err)
+			log.Error("github webhook: list connections", "error", err, "repo", payload.Repository.FullName)
 			c.Status(http.StatusInternalServerError)
 			return
 		}
 
-		// Cancel any older in-flight builds for this connection — new push supersedes them.
-		// CancelOlderBuilds updates DB state; CancelGitHubBuildsForConnection interrupts
-		// running workers (which propagates through RunJob's ctx to delete the K8s job).
-		if err := ghStore.CancelOlderBuilds(c.Request.Context(), conn.ID, buildRecordID); err != nil {
-			log.Warn("github webhook: cancel older builds", "error", err, "connection_id", conn.ID)
-		}
-		queue.CancelGitHubBuildsForConnection(c.Request.Context(), conn.ID)
+		for _, conn := range conns {
+			subPath := githubconnection.RepoSubPath(conn.RepoFullName)
+			if subPath != "" {
+				// Path filter: at least one changed file must be under subPath/.
+				eligible := false
+				for _, f := range changedFiles {
+					if strings.HasPrefix(f, subPath+"/") {
+						eligible = true
+						break
+					}
+				}
+				if !eligible {
+					continue
+				}
+			}
 
-		if err := queue.EnqueueGitHubBuild(c.Request.Context(), riverqueue.GitHubBuildArgs{
-			ConnectionID:  conn.ID,
-			CommitSHA:     payload.After,
-			BuildID:       buildID,
-			BuildRecordID: buildRecordID,
-		}); err != nil {
-			log.Error("github webhook: enqueue build", "error", err)
-			_ = ghStore.UpdateBuildStatus(c.Request.Context(), buildRecordID, "failed", "failed to enqueue build job")
-			c.Status(http.StatusInternalServerError)
-			return
+			buildID := randomHex(8)
+			buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
+				ConnectionID:  conn.ID,
+				AccountID:     conn.AccountID,
+				AgentName:     conn.AgentName,
+				BuildID:       buildID,
+				CommitSHA:     payload.After,
+				Branch:        branch,
+				Status:        "pending",
+				CommitMessage: commitMsg,
+				CommitAuthor:  commitAuthor,
+			})
+			if err != nil {
+				log.Error("github webhook: create build record", "error", err, "agent", conn.AgentName)
+				continue
+			}
+
+			if err := ghStore.CancelOlderBuilds(c.Request.Context(), conn.ID, buildRecordID); err != nil {
+				log.Warn("github webhook: cancel older builds", "error", err, "connection_id", conn.ID)
+			}
+			queue.CancelGitHubBuildsForConnection(c.Request.Context(), conn.ID)
+
+			if err := queue.EnqueueGitHubBuild(c.Request.Context(), riverqueue.GitHubBuildArgs{
+				ConnectionID:  conn.ID,
+				CommitSHA:     payload.After,
+				BuildID:       buildID,
+				BuildRecordID: buildRecordID,
+			}); err != nil {
+				log.Error("github webhook: enqueue build", "error", err, "agent", conn.AgentName)
+				_ = ghStore.UpdateBuildStatus(c.Request.Context(), buildRecordID, "failed", "failed to enqueue build job")
+			}
+
+			log.Info("GitHub push enqueued for build",
+				"repo", payload.Repository.FullName,
+				"branch", branch,
+				"agent", conn.AgentName,
+				"commit", payload.After[:min(7, len(payload.After))],
+				"build_id", buildID,
+			)
 		}
 
-		log.Info("GitHub push enqueued for build",
-			"repo", payload.Repository.FullName,
-			"branch", conn.Branch,
-			"commit", payload.After[:min(7, len(payload.After))],
-			"build_id", buildID,
-		)
 		c.Status(http.StatusAccepted)
 	}
 }
@@ -777,7 +873,7 @@ type GitHubHandlerConfig struct {
 
 // GitHubRebuild handles POST /api/v1/agents/:account/:name/github/rebuild.
 // Fetches the latest commit on the connected branch and enqueues a new build.
-func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, queue *riverqueue.Queue) gin.HandlerFunc {
+func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, queue githubBuildQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
