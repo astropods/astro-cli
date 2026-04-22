@@ -40,6 +40,18 @@ The rasterizer supersamples 2× and downsamples with Catmull-Rom (same filter `a
 
 `BlueprintIdentity.tsx` collapses from ~60 lines of probe-and-fallback state machine to a single `<img>` with an `onError` fallback to `getFallbackAvatarUrl()` (the static placeholder, same pattern as `UserAvatar.tsx`). The component's public API is unchanged, so the 14 call sites need no edits. `useCardAvatar` was a probe-and-generate-on-404 hook; it's deleted in favor of callers passing `{ url }` directly.
 
+### Deployment avatar URLs and cache busting
+
+`ListDeployments` and `GetDeployment` now populate `AvatarURL` on response objects via `avatarStore.DeploymentAvatarURL(id)`. Previously these handlers never set the field, so the configure panel always fell back to the blueprint avatar instead of the deployment's own avatar. `DeployFormFields` now passes the `url` prop through to `BlueprintIdentity` so the override is actually used.
+
+Deployment avatar cache busting mirrors the existing blueprint pattern: `bustDeploymentAvatar(id, blob)` and `useDeploymentAvatarBust(id)` in `avatar-bust.ts`. After upload, the blob URL immediately overrides the CDN URL across all components (`DeployedAgentCard`, `ActiveDetailView`, `LiveRevealOverlay`, `KebabMenu`, `ConfigurePanel`, `ConfigureDeployment`) without requiring a page refresh.
+
+### Reveal overlay stability
+
+The deploy reveal overlay (`LiveRevealOverlay`) was reactive to the deployments query — it rebuilt its deployment object from query data as it loaded, causing the avatar URL to change mid-animation. This triggered color re-extraction which briefly hid the card. The reveal deployment is now built once from location state via a `useState` initializer, making the overlay static and immune to background data loading.
+
+The holo card effect also had stale CSS variables on pointer leave: `HOLO_RESET_VARS` only reset `--o`, `--rx`, `--ry` but left `--px`, `--py`, `--fl`, `--ft`, `--fc` at their exit-point values, causing shine/glare gradients to stick. All 8 variables are now reset. The reveal card border radius was also mismatched (24px via `rounded-2xl` vs 16px in the share modal) and now uses `borderRadius: 16` to match.
+
 ### Cleanup
 
 `packages/astro-identity-gen/` and all workspace references are gone: `apps/astro-client/package.json`, `deployment/Dockerfile.astro-client`, `.github/workflows/{test,deploy-preview}.yml`, root `README.md`, root `CLAUDE.md`, and the client's `moon.yml` deps. `packages/astro-trading-card/dev-client.ts` had an incidental dev-only import; its sample avatars are now inline static SVGs.
