@@ -16,7 +16,7 @@ function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   return parsed ? { ref: parsed.name } : { value: raw };
 }
 
-export function isWebAuthOidc(interfaces: Record<string, unknown> | undefined): boolean {
+function isWebAuthOidc(interfaces: Record<string, unknown> | undefined): boolean {
   const webAuth = (interfaces?.auth as Record<string, unknown> | undefined)?.web as Record<string, unknown> | undefined;
   return webAuth?.type === "oidc";
 }
@@ -50,8 +50,6 @@ export interface UseDeployFormOptions {
   /** Load a historical revision's config (requires deploymentId). */
   revision?: number;
 }
-
-// --- Adapter configuration (must match server) ---
 
 export interface Adapter {
   id: string;
@@ -175,33 +173,6 @@ const mergeFormValues = (
   return merged;
 };
 
-/**
- * Builds the interfaces payload for a deployment spec.
- * When the web adapter is selected, forces expose.enabled=true on the HTTP
- * endpoint so the chat UI gets an ingress and is publicly accessible.
- */
-export function buildInterfacesPayload(
-  interfaces: Record<string, unknown>,
-  selectedAdapters: string[],
-  webAuthEnabled: boolean,
-): Record<string, unknown> {
-  const endpoints = selectedAdapters.includes("web") && interfaces.endpoints
-    ? {
-        ...(interfaces.endpoints as Record<string, unknown>),
-        http: {
-          ...((interfaces.endpoints as Record<string, unknown>).http as Record<string, unknown>),
-          expose: { enabled: true },
-        },
-      }
-    : interfaces.endpoints;
-  return {
-    ...interfaces,
-    adapters: selectedAdapters,
-    endpoints,
-    auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined,
-  };
-}
-
 /** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
 export function slugToTitle(slug: string): string {
   return slug
@@ -238,6 +209,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     () => new Set(accountVarsData?.variables.map(v => v.name) ?? []),
     [accountVarsData?.variables],
   );
+
+  // Refs used by both the fetch effect and seeding effect — declared before
+  // both so neither relies on a forward reference through the hook body.
+  const initialValuesRef = useRef<DeployFormInitialValues | null>(null);
+  const seededRef = useRef(false);
 
   // Fetch template via interactive POST endpoint.
   const templateMutation = usePostDeploymentTemplate(account, name);
@@ -308,8 +284,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Seed all form state from the template in one pass once it loads.
   // Uses v.value (existing deployment values) not just v.default, so both
   // fresh deploys and configure pages work correctly without manual seeding.
-  const initialValuesRef = useRef<DeployFormInitialValues | null>(null);
-  const seededRef = useRef(false);
   useEffect(() => {
     if (!template || seededRef.current) return;
     seededRef.current = true;
@@ -332,7 +306,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Re-POST template with new inputs to reshape variable optionality etc.
   // Does NOT reset form values — only updates the template schema.
-  const reshapeTemplate = useCallback((body: TemplateRequest) => {
+  const reshapeTemplate = useCallback((inputs: TemplateRequest) => {
+    const body: TemplateRequest = { ...inputs };
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);

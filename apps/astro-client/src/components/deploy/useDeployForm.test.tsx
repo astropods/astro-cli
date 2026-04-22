@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { slugToTitle, buildInterfacesPayload, useDeployForm } from './useDeployForm';
+import { slugToTitle, computeInitialValues, useDeployForm } from './useDeployForm';
 import { mockAuthContext } from '@/test/test-utils';
 import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
 import type { DeploymentTemplate } from '@/lib/api';
@@ -294,8 +294,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: templateWithSelect,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(templateWithSelect),
         }),
       { wrapper },
     );
@@ -318,8 +317,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'my-agent', {
-          initialTemplate: tpl,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(tpl),
         }),
       { wrapper },
     );
@@ -345,8 +343,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'my-agent', {
-          initialTemplate: tpl,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(tpl),
         }),
       { wrapper },
     );
@@ -369,8 +366,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'my-agent', {
-          initialTemplate: tpl,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(tpl),
         }),
       { wrapper },
     );
@@ -383,10 +379,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
 
     const { result } = renderHook(
       () =>
-        useDeployForm('testuser', 'my-agent', {
-          initialTemplate: undefined,
-          skipTemplateFetch: true,
-        }),
+        useDeployForm('testuser', 'my-agent'),
       { wrapper },
     );
 
@@ -413,8 +406,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     const { result } = renderHook(
       () =>
         useDeployForm('testuser', 'code-reviewer', {
-          initialTemplate: tpl,
-          skipTemplateFetch: true,
+          initialTemplateResponse: wrapTemplateResponse(tpl),
         }),
       { wrapper },
     );
@@ -434,39 +426,166 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
   });
 });
 
-describe('buildInterfacesPayload', () => {
-  const baseInterfaces = {
-    adapters: [],
-    endpoints: {
-      grpc: { port: 9090, protocol: 'grpc' },
-      http: { port: 8080, protocol: 'http', expose: { enabled: false } },
-    },
-  };
+// --- computeInitialValues ---
 
-  it('sets expose.enabled=true when web adapter is selected', () => {
-    const result = buildInterfacesPayload(baseInterfaces, ['web'], false);
-    const http = (result.endpoints as Record<string, unknown>).http as Record<string, unknown>;
-    expect((http.expose as Record<string, unknown>).enabled).toBe(true);
+function makeTemplate(overrides: Partial<DeploymentTemplate> = {}): DeploymentTemplate {
+  return { ...mockTemplate, ...overrides };
+}
+
+describe('computeInitialValues', () => {
+  it('routes agent-targeted variables to variableValues', () => {
+    const tpl = makeTemplate({
+      variables: {
+        OPENAI_API_KEY: { value: 'sk-123', targets: ['agent'], secret: true },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues).toEqual({ OPENAI_API_KEY: 'sk-123' });
+    expect(result.adapterCredentials).toEqual({});
   });
 
-  it('leaves expose.enabled=false when web adapter is not selected', () => {
-    const result = buildInterfacesPayload(baseInterfaces, ['slack'], false);
-    const http = (result.endpoints as Record<string, unknown>).http as Record<string, unknown>;
-    expect((http.expose as Record<string, unknown>).enabled).toBe(false);
+  it('routes interface-targeted variables to adapterCredentials', () => {
+    const tpl = makeTemplate({
+      variables: {
+        SLACK_BOT_TOKEN: { value: 'xoxb-test', targets: ['interface.slack'], secret: true },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.adapterCredentials).toEqual({ SLACK_BOT_TOKEN: 'xoxb-test' });
+    expect(result.variableValues).toEqual({});
   });
 
-  it('sets adapters from selectedAdapters', () => {
-    const result = buildInterfacesPayload(baseInterfaces, ['web', 'slack'], false);
-    expect(result.adapters).toEqual(['web', 'slack']);
+  it('converts secret ref to {{secrets.NAME}}', () => {
+    const tpl = makeTemplate({
+      variables: {
+        API_KEY: { ref: 'my-key', targets: ['agent'], secret: true },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues).toEqual({ API_KEY: '{{secrets.my-key}}' });
   });
 
-  it('adds oidc auth when webAuthEnabled', () => {
-    const result = buildInterfacesPayload(baseInterfaces, ['web'], true);
-    expect(result.auth).toEqual({ web: { type: 'oidc' } });
+  it('converts non-secret ref to {{vars.NAME}}', () => {
+    const tpl = makeTemplate({
+      variables: {
+        CONFIG: { ref: 'my-config', targets: ['agent'], secret: false },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues).toEqual({ CONFIG: '{{vars.my-config}}' });
   });
 
-  it('omits auth when webAuthEnabled is false', () => {
-    const result = buildInterfacesPayload(baseInterfaces, ['web'], false);
-    expect(result.auth).toBeUndefined();
+  it('ref takes precedence over value', () => {
+    const tpl = makeTemplate({
+      variables: {
+        MY_VAR: { ref: 'vault-name', value: 'direct-value', targets: ['agent'], secret: true },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues).toEqual({ MY_VAR: '{{secrets.vault-name}}' });
+  });
+
+  it('defaults to ["web"] when adapters is empty array', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: [] } });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.selectedAdapters).toEqual(['web']);
+  });
+
+  it('defaults to ["web"] when interfaces is undefined', () => {
+    const tpl = makeTemplate({ interfaces: undefined });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.selectedAdapters).toEqual(['web']);
+  });
+
+  it('preserves stored adapters from template', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: ['web', 'slack'] } });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.selectedAdapters).toEqual(['web', 'slack']);
+  });
+
+  it('decomposes SLACK_CONFIG into virtual adapter credential fields', () => {
+    const tpl = makeTemplate({
+      variables: {
+        SLACK_CONFIG: {
+          value: '{"actionable_reactions":["ticket"],"allowed_channel_ids":[],"allowed_user_ids":[]}',
+          targets: ['interface.slack'],
+          optional: true,
+        },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.adapterCredentials?.SLACK_ACTIONABLE_REACTIONS).toBe('ticket');
+    expect(result.variableValues?.SLACK_CONFIG).toBeUndefined();
+  });
+
+  it('detects webAuthEnabled from oidc interfaces', () => {
+    const tpl = makeTemplate({
+      interfaces: { auth: { web: { type: 'oidc' } }, adapters: ['web'] },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.webAuthEnabled).toBe(true);
+  });
+
+  it('extracts ingestion schedule defaults', () => {
+    const tpl = makeTemplate({
+      ingestion: {
+        nightly: { image: 'sync:latest', trigger: { type: 'schedule', schedule: '0 3 * * *' } },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.ingestionSchedules).toEqual({ nightly: '0 3 * * *' });
+  });
+
+  it('handles template with no variables', () => {
+    const tpl = makeTemplate({ variables: undefined as unknown as DeploymentTemplate['variables'] });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues).toEqual({});
+    expect(result.adapterCredentials).toEqual({});
+  });
+
+  it('uses boolean default for unset boolean variables', () => {
+    const tpl = makeTemplate({
+      variables: {
+        DEBUG: { targets: ['agent'], datatype: 'boolean' },
+      },
+    });
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.variableValues?.DEBUG).toBe('false');
   });
 });
+
+// --- useDeployForm: reset after template loads ---
+
+describe('useDeployForm reset', () => {
+  it('reset after template loads restores seeded values, not computedDefaults', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Seeded Name' },
+      variables: {
+        OPENAI_API_KEY: { value: 'sk-seeded', targets: ['agent'], secret: true },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(tpl),
+      }),
+      { wrapper },
+    );
+
+    // Modify a value
+    act(() => {
+      result.current.setVariableValues({ OPENAI_API_KEY: 'sk-changed' });
+    });
+    expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-changed');
+
+    // Reset should restore seeded template values (sk-seeded), not empty computedDefaults
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-seeded');
+    expect(result.current.deployName).toBe('Seeded Name');
+  });
+});
+
