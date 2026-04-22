@@ -9,6 +9,8 @@ interface BlueprintIdentityProps {
   /** Override the default agent avatar URL (e.g. deployment avatar). */
   url?: string;
   className?: string;
+  /** Called when the avatar image has loaded. */
+  onLoad?: (e: React.SyntheticEvent<HTMLImageElement>) => void;
 }
 
 export function BlueprintIdentity({
@@ -17,6 +19,7 @@ export function BlueprintIdentity({
   size = 128,
   url,
   className,
+  onLoad,
 }: BlueprintIdentityProps) {
   const bust = useAgentAvatarBust(account, name);
   return (
@@ -26,6 +29,7 @@ export function BlueprintIdentity({
       width={size}
       height={size}
       decoding="async"
+      onLoad={onLoad}
       onError={(e) => {
         const fallback = getFallbackAvatarUrl();
         if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;

@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 
 import { RecommendedBlueprints } from "@/components/RecommendedBlueprints";
 
@@ -8,11 +7,9 @@ const meta = {
   component: RecommendedBlueprints,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="max-w-3xl">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="max-w-3xl">
+        <Story />
+      </div>
     ),
   ],
 } satisfies Meta<typeof RecommendedBlueprints>;

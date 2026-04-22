@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { BlueprintDetailSidebar } from "@/components/blueprint-detail/BlueprintDetailSidebar";
 import type { Blueprint, AccountPublic } from "@/lib/api";
 
@@ -53,11 +52,9 @@ const meta = {
   component: BlueprintDetailSidebar,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="flex justify-end min-h-[600px]">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="flex justify-end min-h-[600px]">
+        <Story />
+      </div>
     ),
   ],
   // Override hidden lg:block so it always renders in Storybook

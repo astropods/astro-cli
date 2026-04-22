@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { DeployedAgentCard, type DeployedAgentCardProps } from "@/components/DeployedAgentCard";
 
 const meta = {
@@ -7,11 +6,9 @@ const meta = {
   component: DeployedAgentCard,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="max-w-sm">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="max-w-sm">
+        <Story />
+      </div>
     ),
   ],
 } satisfies Meta<DeployedAgentCardProps>;
@@ -181,11 +178,9 @@ export const AllStatuses: Story = {
   },
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="grid max-w-3xl grid-cols-2 gap-4">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="grid max-w-3xl grid-cols-2 gap-4">
+        <Story />
+      </div>
     ),
   ],
   render: () => (

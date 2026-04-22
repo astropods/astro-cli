@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import {
   MyAgentsHeader,
   type ViewMode,
@@ -11,11 +10,9 @@ const meta = {
   component: MyAgentsHeader,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="max-w-[900px] p-6">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="max-w-[900px] p-6">
+        <Story />
+      </div>
     ),
   ],
 } satisfies Meta<typeof MyAgentsHeader>;

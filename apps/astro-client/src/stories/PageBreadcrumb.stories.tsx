@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { Share2, Star } from "lucide-react";
 
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
@@ -8,13 +7,6 @@ import { Button } from "@/components/ui/button";
 const meta = {
   title: "Design System/Composites/PageBreadcrumb",
   component: PageBreadcrumb,
-  decorators: [
-    (Story) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
-    ),
-  ],
 } satisfies Meta<typeof PageBreadcrumb>;
 
 export default meta;

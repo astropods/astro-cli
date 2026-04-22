@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "./BlueprintIdentity";
@@ -14,6 +14,67 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { extractPalette, pickCardColors, parseHex } from "astro-trading-card";
+
+interface CardAccent {
+  base: string;
+  vibrant: string;
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const r = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+  const g = Math.round(hue2rgb(p, q, h) * 255);
+  const b = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+/** Extract accent colors directly from an already-loaded <img> element. */
+function extractAccentFromImg(img: HTMLImageElement): CardAccent | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, 64, 64);
+    const { data } = ctx.getImageData(0, 0, 64, 64);
+    const palette = extractPalette(data, 8);
+    const colors = pickCardColors(palette);
+    if (!colors) return null;
+    const rgb = parseHex(colors.accent);
+    if (!rgb) return { base: colors.accent, vibrant: colors.accent };
+    const [h, s] = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    return {
+      base: colors.accent,
+      vibrant: hslToHex(h, Math.min(s, 0.5), 0.35),
+    };
+  } catch {
+    return null;
+  }
+}
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -52,6 +113,11 @@ export function BlueprintCard({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const formattedDeploys = deployCount != null ? compactFormatter.format(deployCount) : "0";
   const deployLabel = deployCount === 1 ? "deploy" : "deploys";
+  const [accent, setAccent] = useState<CardAccent | null>(null);
+  const handleAvatarLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const colors = extractAccentFromImg(e.currentTarget);
+    if (colors) setAccent(colors);
+  }, []);
 
   if (variant === "oftenUsedTogether") {
     return (
@@ -173,9 +239,15 @@ export function BlueprintCard({
       <Link
         to={cardHref}
         className={cn(
-          "group relative flex flex-col overflow-hidden rounded-md border transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:hover:border-teal-700",
-          isDraft ? "border-dashed border-stone-400 dark:border-teal-800 bg-transparent" : "border-stone-400 dark:border-teal-800 bg-white dark:bg-teal-900/30"
+          "group relative flex flex-col overflow-hidden shadow-sm transition-all duration-150 hover:shadow-md",
+          isDraft
+            ? "border-[6px] border-dashed border-stone-400 dark:border-teal-800 bg-transparent"
+            : "[--mix:12%] hover:[--mix:16%] border-[0.5px] border-white transition-[background-color] duration-150 dark:bg-teal-900/30 before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,rgb(255_255_255/0.5)_0.5px,transparent_0.5px),linear-gradient(to_bottom,rgb(255_255_255/0.5)_0.5px,transparent_0.5px)] after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-white dark:after:border-teal-800"
         )}
+        style={accent && !isDraft ? {
+          backgroundColor: `color-mix(in srgb, ${accent.base} var(--mix), white)`,
+          '--card-accent': accent.vibrant,
+        } as React.CSSProperties : undefined}
       >
         {onArchive && (
           <div
@@ -208,15 +280,20 @@ export function BlueprintCard({
             </DropdownMenu>
           </div>
         )}
-        <div className="flex flex-1 items-start gap-3 p-4 pb-3">
+        <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3">
           <BlueprintIdentity
             account={account}
             name={name}
             size={36}
+            url={avatarUrl}
             className="size-9 shrink-0 rounded-sm overflow-hidden"
+            onLoad={handleAvatarLoad}
           />
           <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
-            <h3 className="flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
+            <h3 className={cn(
+              "flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors",
+              accent ? "group-hover:[color:var(--card-accent)]" : "group-hover:text-teal-500 dark:group-hover:text-teal-400"
+            )}>
               <span className="truncate">{name}</span>
               {isDraft
                 ? <StatusBadge color="warning">Finish setup</StatusBadge>
@@ -228,11 +305,15 @@ export function BlueprintCard({
             </p>
           </div>
         </div>
-        <div className={cn("flex items-center justify-between border-t px-4 py-2.5", isDraft ? "border-dashed border-border" : "border-border")}>
-          <span className="text-mono-sm font-mono text-faint-foreground">
+        {!isDraft && <div className="relative z-[1] mx-[5px] h-px bg-white" />}
+        <div
+          className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5", isDraft && "border-t border-dashed border-border")}
+          style={accent && !isDraft ? { color: `color-mix(in srgb, ${accent.base} 70%, black)` } : undefined}
+        >
+          <span className={cn("text-mono-sm font-mono", accent && !isDraft ? "text-[inherit]" : "text-faint-foreground")}>
             {formattedDeploys} {deployLabel}
           </span>
-          <span className="flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
+          <span className={cn("flex items-center gap-1.5 text-mono-sm font-mono", accent && !isDraft ? "text-[inherit]" : "text-faint-foreground")}>
             <UserAvatar handle={account} name={account} className="!size-4" />
             {account}
           </span>

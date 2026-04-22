@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
 import type { AgentDeployment } from "@/lib/api";
 
@@ -70,11 +69,9 @@ const meta = {
   component: ActiveDetailView,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+        <Story />
+      </div>
     ),
   ],
   parameters: {

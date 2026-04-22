@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 
 const meta = {
@@ -7,11 +6,9 @@ const meta = {
   component: EmptyState,
   decorators: [
     (Story) => (
-      <MemoryRouter>
-        <div className="flex h-[400px] w-[600px]">
-          <Story />
-        </div>
-      </MemoryRouter>
+      <div className="flex h-[400px] w-[600px]">
+        <Story />
+      </div>
     ),
   ],
 } satisfies Meta<typeof EmptyState>;

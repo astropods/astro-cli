@@ -1,17 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
 import { BlueprintDetailBreadcrumb } from "@/components/blueprint-detail/BlueprintDetailBreadcrumb";
 
 const meta = {
   title: "Features/Agents/BlueprintDetailBreadcrumb",
   component: BlueprintDetailBreadcrumb,
-  decorators: [
-    (Story) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
-    ),
-  ],
   parameters: {
     layout: "fullscreen",
   },
