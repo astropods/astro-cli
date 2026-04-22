@@ -48,20 +48,9 @@ export function ConfigureForm({
   const [formState, dispatch] = useReducer((_: FormState, next: FormState) => next, { step: "form" });
 
   const [name, setName] = useState("");
-  const [storage, setStorage] = useState("");
-  const [isPublic, setIsPublic] = useState(true);
-
-  const [privateLink, setPrivateLink] = useState(false);
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState(() => {
-    const defaultPort = PROVIDER_PORTS[provider];
-    return defaultPort != null ? String(defaultPort) : "";
-  });
-  const [database, setDatabase] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [skipHealthCheck, setSkipHealthCheck] = useState(false);
+  const [managedFields, setManagedFields] = useState({ storage: "", isPublic: true });
+  const initialExternalFields = { privateLink: false, host: "", port: String(PROVIDER_PORTS[provider] ?? ""), database: "", username: "", password: "", apiKey: "", skipHealthCheck: false };
+  const [externalFields, setExternalFields] = useState(initialExternalFields);
 
   const create = useCreateKnowledgeStore(account);
   const connect = useConnectKnowledgeStore(account);
@@ -70,6 +59,7 @@ export function ConfigureForm({
   const nameError = validateStoreName(name);
   const fields = useMemo(() => PROVIDER_FIELDS[provider], [provider]);
 
+  const { privateLink, host, port } = externalFields;
   const hostLabel = privateLink ? "VPC Endpoint Service Name" : "Host";
   const hostPlaceholder = privateLink ? "com.amazonaws.vpce.us-east-1.vpce-svc-0a..." : "db.example.com";
   const hostError = useMemo(() => {
@@ -84,6 +74,12 @@ export function ConfigureForm({
     !nameError &&
     !mutation.isPending &&
     (mode === "managed" || (host && !hostError && (!needsPort || port)));
+
+  function handleModeChange(next: "managed" | "external") {
+    setMode(next);
+    if (next === "managed") setExternalFields(initialExternalFields);
+    else setManagedFields({ storage: "", isPublic: true });
+  }
 
   function onMutationSuccess(store: KnowledgeStore) {
     if (store.status === "ready") {
@@ -109,10 +105,11 @@ export function ConfigureForm({
 
     if (mode === "managed") {
       create.mutate(
-        { name, provider, storage: storage || undefined, public: isPublic },
+        { name, provider, storage: managedFields.storage || undefined, public: managedFields.isPublic },
         { onSuccess: onMutationSuccess, onError: () => dispatch({ step: "form" }) },
       );
     } else {
+      const { privateLink, host, port, database, username, password, apiKey, skipHealthCheck } = externalFields;
       connect.mutate(
         {
           name,
@@ -195,7 +192,7 @@ export function ConfigureForm({
                     <button
                       key={m}
                       type="button"
-                      onClick={() => setMode(m)}
+                      onClick={() => handleModeChange(m)}
                       className={cn(
                         "flex w-full items-center gap-3 rounded-[6px] border px-5 py-4 text-left transition-[border-color,background-color]",
                         selected
@@ -252,7 +249,7 @@ export function ConfigureForm({
                 <>
                   <div>
                     <Label size="md">Storage</Label>
-                    <Select value={storage} onValueChange={setStorage}>
+                    <Select value={managedFields.storage} onValueChange={(v) => setManagedFields((f) => ({ ...f, storage: v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a storage size" />
                       </SelectTrigger>
@@ -272,7 +269,7 @@ export function ConfigureForm({
                         from inside your network. Recommended for advanced setups.
                       </span>
                     </div>
-                    <Switch checked={!isPublic} onCheckedChange={(v) => setIsPublic(!v)} />
+                    <Switch checked={!managedFields.isPublic} onCheckedChange={(v) => setManagedFields((f) => ({ ...f, isPublic: !v }))} />
                   </div>
                 </>
               ) : (
@@ -298,7 +295,7 @@ export function ConfigureForm({
                           Connect via AWS PrivateLink. Traffic stays off the public internet.
                         </span>
                       </div>
-                      <Switch checked={privateLink} onCheckedChange={setPrivateLink} />
+                      <Switch checked={externalFields.privateLink} onCheckedChange={(v) => setExternalFields((f) => ({ ...f, privateLink: v }))} />
                     </div>
 
                     <div
@@ -313,8 +310,8 @@ export function ConfigureForm({
                           <Input
                             id="ks-host"
                             placeholder={hostPlaceholder}
-                            value={host}
-                            onChange={(e) => setHost(e.target.value)}
+                            value={externalFields.host}
+                            onChange={(e) => setExternalFields((f) => ({ ...f, host: e.target.value }))}
                             autoComplete="off"
                           />
                           {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
@@ -328,8 +325,8 @@ export function ConfigureForm({
                               min={1}
                               max={65535}
                               placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
-                              value={port}
-                              onChange={(e) => setPort(e.target.value)}
+                              value={externalFields.port}
+                              onChange={(e) => setExternalFields((f) => ({ ...f, port: e.target.value }))}
                               autoComplete="off"
                             />
                           </div>
@@ -340,8 +337,8 @@ export function ConfigureForm({
                         <label className="mt-4 flex cursor-pointer items-start gap-2">
                           <input
                             type="checkbox"
-                            checked={skipHealthCheck}
-                            onChange={(e) => setSkipHealthCheck(e.target.checked)}
+                            checked={externalFields.skipHealthCheck}
+                            onChange={(e) => setExternalFields((f) => ({ ...f, skipHealthCheck: e.target.checked }))}
                             className="mt-0.5 size-4 shrink-0 accent-primary"
                           />
                           <div className="flex flex-col gap-0.5">
@@ -363,8 +360,8 @@ export function ConfigureForm({
                       <Input
                         id="ks-db"
                         placeholder="mydb"
-                        value={database}
-                        onChange={(e) => setDatabase(e.target.value)}
+                        value={externalFields.database}
+                        onChange={(e) => setExternalFields((f) => ({ ...f, database: e.target.value }))}
                         autoComplete="off"
                       />
                     </div>
@@ -375,8 +372,8 @@ export function ConfigureForm({
                       <Input
                         id="ks-user"
                         placeholder="admin"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        value={externalFields.username}
+                        onChange={(e) => setExternalFields((f) => ({ ...f, username: e.target.value }))}
                         autoComplete="off"
                       />
                     </div>
@@ -387,8 +384,8 @@ export function ConfigureForm({
                       <Input
                         id="ks-pass"
                         type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        value={externalFields.password}
+                        onChange={(e) => setExternalFields((f) => ({ ...f, password: e.target.value }))}
                         autoComplete="new-password"
                       />
                     </div>
@@ -399,8 +396,8 @@ export function ConfigureForm({
                       <Input
                         id="ks-apikey"
                         type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
+                        value={externalFields.apiKey}
+                        onChange={(e) => setExternalFields((f) => ({ ...f, apiKey: e.target.value }))}
                         autoComplete="new-password"
                       />
                     </div>
