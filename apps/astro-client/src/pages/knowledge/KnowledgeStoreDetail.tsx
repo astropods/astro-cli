@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { Eye, EyeOff, Bot, Calendar, ChevronRight } from "lucide-react";
 import type { Route } from "./+types/KnowledgeStoreDetail";
@@ -171,19 +171,21 @@ function EventTimeline({ store }: { store: KnowledgeStore }) {
     return <p className="px-5 py-6 text-center text-body-sm text-muted-foreground">No events recorded</p>;
   }
 
-  // Group events by date
-  const groups: { date: string; events: KnowledgeEvent[] }[] = [];
-  for (const event of events) {
-    const date = event.timestamp
-      ? new Date(event.timestamp).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-      : "Unknown date";
-    const last = groups[groups.length - 1];
-    if (last && last.date === date) {
-      last.events.push(event);
-    } else {
-      groups.push({ date, events: [event] });
+  const groups = useMemo(() => {
+    const result: { date: string; events: KnowledgeEvent[] }[] = [];
+    for (const event of events) {
+      const date = event.timestamp
+        ? new Date(event.timestamp).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : "Unknown date";
+      const last = result[result.length - 1];
+      if (last && last.date === date) {
+        last.events.push(event);
+      } else {
+        result.push({ date, events: [event] });
+      }
     }
-  }
+    return result;
+  }, [events]);
 
   return (
     <>
