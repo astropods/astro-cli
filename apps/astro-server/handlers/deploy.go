@@ -31,6 +31,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -266,37 +267,58 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Parse the registered astro-spec for this build
-	var astroSpec spec.AstroSpec
-	specBytes, err := json.Marshal(agentVersion.Spec)
-	if err != nil {
-		log.Error("Failed to marshal stored spec", "error", err, "agent", agentName, "build", buildID)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process registered spec", "details": err.Error()})
-		return nil, false
-	}
-	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "agent", agentName, "build", buildID, "raw", string(specBytes))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse registered spec", "details": err.Error()})
-		return nil, false
-	}
+	// Verify template signature — if valid the spec is exactly what the template
+	// endpoint produced and we can skip re-generation + field enforcement.
+	signatureVerified := specsign.Verify(cfg.Deployment.TemplateSigningKey, submittedSpec, c.GetHeader("X-Template-Signature"))
 
-	// Re-generate the server's canonical template for this build
-	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
-		Spec:              &astroSpec,
-		AgentName:         sourceAgent.Name,
-		Account:           sourceAcct.Name,
-		ECRNamespace:      agentVersion.ECRNamespace,
-		BuildID:           agentVersion.BuildID,
-		RegistryURL:       cfg.Deployment.RegistryURL,
-		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
-		Environment:       cfg.Deployment.Environment,
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "failed to generate deployment template",
-			"details": err.Error(),
+	if !signatureVerified {
+		// No valid signature — fall back to re-generation + EnforceEditable.
+		var astroSpec spec.AstroSpec
+		specBytes, specErr := json.Marshal(agentVersion.Spec)
+		if specErr != nil {
+			log.Error("Failed to marshal stored spec", "error", specErr, "agent", agentName, "build", buildID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process registered spec", "details": specErr.Error()})
+			return nil, false
+		}
+		if specErr = json.Unmarshal(specBytes, &astroSpec); specErr != nil {
+			log.Error("Failed to unmarshal spec into AstroSpec", "error", specErr, "agent", agentName, "build", buildID, "raw", string(specBytes))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse registered spec", "details": specErr.Error()})
+			return nil, false
+		}
+
+		template, tmplErr := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+			Spec:              &astroSpec,
+			AgentName:         sourceAgent.Name,
+			Account:           sourceAcct.Name,
+			ECRNamespace:      agentVersion.ECRNamespace,
+			BuildID:           agentVersion.BuildID,
+			RegistryURL:       cfg.Deployment.RegistryURL,
+			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+			Environment:       cfg.Deployment.Environment,
 		})
-		return nil, false
+		if tmplErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to generate deployment template",
+				"details": tmplErr.Error(),
+			})
+			return nil, false
+		}
+
+		// Rule 19: reject any change to server-owned fields.
+		template.Target.Account = submittedSpec.Target.Account
+		template.Target.DisplayName = submittedSpec.Target.DisplayName
+		template.Target.DeploymentID = submittedSpec.Target.DeploymentID
+		if submittedSpec.Interfaces != nil {
+			deployment.ApplyAdapterShaping(template, submittedSpec.Interfaces.Adapters)
+		}
+		deployment.ApplyBindingShaping(template, submittedSpec)
+		if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":             "server-owned fields were modified",
+				"validation_errors": toValidationErrors(editErrs),
+			})
+			return nil, false
+		}
 	}
 
 	displayName := submittedSpec.Target.DisplayName
@@ -357,24 +379,6 @@ func prepareDeployment(
 		// New deployment — generate UUID-based namespace
 		deploymentID = deployid.New()
 		k8sNamespace = deploymentNamespace(deploymentID)
-	}
-
-	// Rule 19: reject any change to server-owned fields
-	// Sync user-supplied target fields so EnforceEditable doesn't reject them
-	template.Target.Account = submittedSpec.Target.Account
-	template.Target.DisplayName = submittedSpec.Target.DisplayName
-	template.Target.DeploymentID = submittedSpec.Target.DeploymentID
-	// Apply the same adapter-dependent shaping that the POST template endpoint used,
-	// so the canonical template matches what the client received.
-	if submittedSpec.Interfaces != nil {
-		deployment.ApplyAdapterShaping(template, submittedSpec.Interfaces.Adapters)
-	}
-	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "server-owned fields were modified",
-			"validation_errors": toValidationErrors(editErrs),
-		})
-		return nil, false
 	}
 
 	// Resolve account variable refs before validation; capture the original refs
@@ -2656,6 +2660,9 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
 				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
+				if req.Finalize {
+					resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
+				}
 				c.JSON(http.StatusOK, resp)
 				return
 			}
@@ -2695,6 +2702,9 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			cache.set(cacheKey, template)
 			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
+			if req.Finalize {
+				resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
+			}
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -2703,6 +2713,9 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
 		if base, ok := cache.get(cacheKey); ok {
 			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
+			if req.Finalize {
+				resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
+			}
 			c.JSON(http.StatusOK, resp)
 			return
 		}
@@ -2723,6 +2736,9 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 		cache.set(cacheKey, template)
 		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
+		if req.Finalize {
+			resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
+		}
 		c.JSON(http.StatusOK, resp)
 	}
 }

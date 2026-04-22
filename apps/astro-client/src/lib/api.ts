@@ -365,17 +365,23 @@ class ApiClient {
     );
   }
 
-  async deployAgent(deploySpec: DeploymentSpec): Promise<DeployResponse> {
+  async deployAgent(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<DeployResponse> {
+    const headers: Record<string, string> = {};
+    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
     return this.request<DeployResponse>('/api/v1/deploy', {
       method: 'POST',
       body: JSON.stringify(deploySpec),
+      headers,
     });
   }
 
-  async validateDeployment(deploySpec: DeploymentSpec): Promise<ValidateDeploymentResponse> {
+  async validateDeployment(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<ValidateDeploymentResponse> {
+    const headers: Record<string, string> = {};
+    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
     return this.request<ValidateDeploymentResponse>('/api/v1/deploy/validate', {
       method: 'POST',
       body: JSON.stringify(deploySpec),
+      headers,
     });
   }
 
@@ -1136,6 +1142,7 @@ export interface TemplateRequest {
   bindings?: {
     knowledge?: Record<string, string>; // entry name → store ARN
   };
+  finalize?: boolean;
 }
 
 export interface KnowledgeBindingInfo {
@@ -1156,6 +1163,7 @@ export interface TemplateResponse {
     knowledge?: Record<string, KnowledgeBindingInfo>;
   };
   validation: TemplateValidation;
+  signature?: string;
 }
 
 export interface TemplateInterfaces {

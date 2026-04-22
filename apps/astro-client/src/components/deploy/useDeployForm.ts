@@ -580,6 +580,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
+    req.finalize = true;
 
     let resp: TemplateResponse;
     try {
@@ -606,7 +607,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     };
 
     try {
-      return await deployMutation.mutateAsync(spec);
+      return await deployMutation.mutateAsync({ spec, signature: resp.signature });
     } catch (err) {
       const apiErr = err as ApiError;
       const details: string[] = [];

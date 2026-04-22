@@ -314,6 +314,7 @@ type TemplateRequest struct {
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
 	Schedules    map[string]string        `json:"schedules,omitempty"` // ingestion name → cron expression
 	Bindings     *TemplateBindings        `json:"bindings,omitempty"`
+	Finalize     bool                     `json:"finalize,omitempty"` // when true, response includes an HMAC signature for deploy
 }
 
 // VariableInput carries a user-supplied value or account-variable ref for a single variable.
@@ -332,6 +333,7 @@ type TemplateResponse struct {
 	Schedules  map[string]string   `json:"schedules"`           // ingestion name → cron expression
 	Bindings   *ResolvedBindings   `json:"bindings,omitempty"`  // resolved binding metadata for the UI
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
+	Signature  string              `json:"signature,omitempty"` // HMAC-SHA256 of the template spec; deploy endpoint verifies this
 }
 
 // TemplateInterfaces carries the user-editable subset of DeploymentInterfaces

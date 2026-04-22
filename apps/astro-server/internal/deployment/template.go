@@ -711,6 +711,53 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 	}
 }
 
+// ApplyBindingShaping adjusts a template so that knowledge entries whose
+// submitted counterparts carry a binding ARN are zeroed to match the shape
+// the client originally received from ShapeTemplate. Without this the
+// EnforceEditable check would compare a full (unshaped) template against the
+// shaped submitted spec and reject the server-owned fields.
+func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.AstroDeploymentSpec) {
+	boundNames := make(map[string]bool)
+	for name, k := range submitted.Knowledge {
+		if k.IsBound() {
+			boundNames[name] = true
+			// Zero the template entry to match what ShapeTemplate produced.
+			template.Knowledge[name] = spec.DeploymentKnowledge{Binding: k.Binding}
+		}
+	}
+	if len(boundNames) == 0 {
+		return
+	}
+
+	// Remove credential variables targeting bound entries.
+	for key, v := range template.Variables {
+		for _, t := range v.Targets {
+			if entryName, ok := strings.CutPrefix(t, "knowledge."); ok {
+				if boundNames[entryName] {
+					delete(template.Variables, key)
+					break
+				}
+			}
+		}
+	}
+
+	// Remove editable fields for bound entries.
+	filtered := template.Editable[:0]
+	for _, field := range template.Editable {
+		exclude := false
+		for name := range boundNames {
+			if strings.HasPrefix(field, "knowledge."+name+".") {
+				exclude = true
+				break
+			}
+		}
+		if !exclude {
+			filtered = append(filtered, field)
+		}
+	}
+	template.Editable = filtered
+}
+
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()
 	port := container.Port

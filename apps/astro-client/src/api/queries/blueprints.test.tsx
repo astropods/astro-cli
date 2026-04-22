@@ -88,10 +88,12 @@ describe('useBlueprint', () => {
 
 describe('useDeployAgent', () => {
   const deployPayload = {
-    spec: 'deployment/v1',
-    source: { account: testAccount, name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
-    target: { runtime: 'kubernetes', namespace: 'prod' },
-    agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
+    spec: {
+      spec: 'deployment/v1',
+      source: { account: testAccount, name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
+      target: { runtime: 'kubernetes', namespace: 'prod' },
+      agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
+    },
   } as unknown as Parameters<ReturnType<typeof useDeployAgent>['mutate']>[0];
 
   // Redeploys optimistically patch build_id via setQueryData rather than

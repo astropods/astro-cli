@@ -2897,3 +2897,136 @@ func TestRetemplate_SlackConfigNotLeakedForWebOnly(t *testing.T) {
 		}
 	}
 }
+
+// Regression: deploying a spec with a knowledge binding failed because the
+// deploy handler regenerated a fresh template with full knowledge entries
+// (image, endpoints, etc.) but the submitted spec had those fields zeroed by
+// ShapeTemplate. EnforceEditable rejected binding, image, and endpoint diffs.
+// The fix: ApplyBindingShaping zeroes the template's bound knowledge entries
+// to match what the client received.
+func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
+	bindingARN := "arn:knowledge-store:acct123:pg-store"
+
+	template := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {
+				Image:      "postgres:16",
+				Endpoints:  map[string]spec.Endpoint{"http": {Port: 5432, Protocol: "tcp"}},
+				Persistent: true,
+				Resources:  spec.DeploymentResources{CPU: "500m", Memory: "512Mi"},
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"POSTGRES_USER":     {Targets: []string{"knowledge.postgres"}, Secret: true},
+			"POSTGRES_PASSWORD": {Targets: []string{"knowledge.postgres"}, Secret: true},
+			"AGENT_VAR":         {Targets: []string{"agent"}, Value: "v"},
+		},
+		Editable: []string{
+			"knowledge.postgres.replicas",
+			"knowledge.postgres.resources",
+			"agent.replicas",
+		},
+	}
+
+	// Submitted spec is what ShapeTemplate would have produced — bound entry zeroed.
+	submitted := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {Binding: bindingARN},
+		},
+		Variables: map[string]spec.Variable{
+			"AGENT_VAR": {Targets: []string{"agent"}, Value: "v"},
+		},
+		Editable: []string{"agent.replicas"},
+	}
+
+	ApplyBindingShaping(template, submitted)
+
+	// Template knowledge entry should now be zeroed with only the binding ARN.
+	k := template.Knowledge["postgres"]
+	if k.Binding != bindingARN {
+		t.Errorf("expected binding %q, got %q", bindingARN, k.Binding)
+	}
+	if k.Image != "" {
+		t.Errorf("expected empty image, got %q", k.Image)
+	}
+	if len(k.Endpoints) != 0 {
+		t.Errorf("expected no endpoints, got %v", k.Endpoints)
+	}
+
+	// Credential variables targeting the bound entry should be removed.
+	if _, ok := template.Variables["POSTGRES_USER"]; ok {
+		t.Error("expected POSTGRES_USER to be removed")
+	}
+	if _, ok := template.Variables["POSTGRES_PASSWORD"]; ok {
+		t.Error("expected POSTGRES_PASSWORD to be removed")
+	}
+	// Non-bound variable should be kept.
+	if _, ok := template.Variables["AGENT_VAR"]; !ok {
+		t.Error("expected AGENT_VAR to be kept")
+	}
+
+	// Editable fields for bound entry should be removed.
+	for _, f := range template.Editable {
+		if strings.HasPrefix(f, "knowledge.postgres.") {
+			t.Errorf("expected knowledge.postgres editable fields to be removed, found %q", f)
+		}
+	}
+	// Non-bound editable should be kept.
+	found := false
+	for _, f := range template.Editable {
+		if f == "agent.replicas" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected agent.replicas to remain in editable")
+	}
+
+	// EnforceEditable should now pass.
+	errs := spec.EnforceEditable(template, submitted)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors after binding shaping, got: %v", errs)
+	}
+}
+
+// ApplyBindingShaping should be a no-op when no knowledge entries are bound.
+func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
+	template := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {
+				Image:     "postgres:16",
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}},
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
+		},
+		Editable: []string{"knowledge.postgres.replicas"},
+	}
+
+	submitted := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {
+				Image:     "postgres:16",
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}},
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
+		},
+		Editable: []string{"knowledge.postgres.replicas"},
+	}
+
+	ApplyBindingShaping(template, submitted)
+
+	// Nothing should change.
+	if template.Knowledge["postgres"].Image != "postgres:16" {
+		t.Error("image should not have been changed")
+	}
+	if _, ok := template.Variables["POSTGRES_USER"]; !ok {
+		t.Error("POSTGRES_USER should still be present")
+	}
+	if len(template.Editable) != 1 {
+		t.Errorf("expected 1 editable field, got %d", len(template.Editable))
+	}
+}

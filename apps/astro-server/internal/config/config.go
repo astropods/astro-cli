@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -194,6 +195,10 @@ type DeploymentConfig struct {
 	PrivateLinkVpcID     string   // PRIVATELINK_VPC_ID — managed cluster VPC ID (empty = PrivateLink disabled)
 	PrivateLinkSubnetIDs []string // PRIVATELINK_SUBNET_IDS — comma-separated private subnet IDs
 	PrivateLinkSGID      string   // PRIVATELINK_SG_ID — security group for PrivateLink endpoints (broad HTTPS egress; fine-grained access via K8s NetworkPolicy)
+	// Template signing — HMAC key for signing deployment templates so the deploy
+	// endpoint can verify them without re-generating. Auto-generated at startup if
+	// not set. For multi-replica deployments behind a load balancer, set a shared key.
+	TemplateSigningKey []byte // TEMPLATE_SIGNING_KEY (hex-encoded; auto-generated if empty)
 }
 
 // Load loads configuration from environment variables with defaults
@@ -255,6 +260,7 @@ func Load() (*Config, error) {
 			PrivateLinkVpcID:              getEnv("PRIVATELINK_VPC_ID", ""),
 			PrivateLinkSubnetIDs:          getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
 			PrivateLinkSGID:               getEnv("PRIVATELINK_SG_ID", ""),
+			TemplateSigningKey:            loadSigningKey(),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -384,6 +390,27 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// defaultSigningKey is a static 32-byte HMAC key used when TEMPLATE_SIGNING_KEY
+// is not set. Override via env var for multi-replica setups behind a load balancer.
+var defaultSigningKey = []byte{
+	0x61, 0x73, 0x74, 0x72, 0x6f, 0x2d, 0x74, 0x6d,
+	0x70, 0x6c, 0x2d, 0x73, 0x69, 0x67, 0x6e, 0x2d,
+	0x6b, 0x65, 0x79, 0x2d, 0x64, 0x65, 0x66, 0x61,
+	0x75, 0x6c, 0x74, 0x2d, 0x76, 0x31, 0x2e, 0x30,
+}
+
+// loadSigningKey reads TEMPLATE_SIGNING_KEY (hex-encoded) from the environment.
+// Falls back to a compiled-in default key.
+func loadSigningKey() []byte {
+	if raw := os.Getenv("TEMPLATE_SIGNING_KEY"); raw != "" {
+		key, err := hex.DecodeString(raw)
+		if err == nil && len(key) > 0 {
+			return key
+		}
+	}
+	return defaultSigningKey
 }
 
 // getEnv gets an environment variable or returns a default value

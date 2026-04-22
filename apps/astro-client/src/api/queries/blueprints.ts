@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
-import { api, type BlueprintsListResponse, type Blueprint, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
+import { api, type BlueprintsListResponse, type Blueprint, type DeploymentSpec, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
 import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
 
@@ -53,7 +53,8 @@ export function useDeployAgent(account: string, agentName: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: api.deployAgent.bind(api),
+    mutationFn: (args: { spec: DeploymentSpec; signature?: string }) =>
+      api.deployAgent(args.spec, { signature: args.signature }),
     onMutate: async () => {
       // Immediate UX feedback: flip existing deployment rows to deploying.
       queryClient.setQueryData<DeploymentsListResponse>(
@@ -119,7 +120,8 @@ export function useDeployAgent(account: string, agentName: string) {
 
 export function useValidateDeployment() {
   return useMutation({
-    mutationFn: api.validateDeployment.bind(api),
+    mutationFn: (args: { spec: DeploymentSpec; signature?: string }) =>
+      api.validateDeployment(args.spec, { signature: args.signature }),
   });
 }
 
