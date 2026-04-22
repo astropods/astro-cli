@@ -382,6 +382,9 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// --- Interface shaping ---
 	if req.Interfaces != nil && shaped.Interfaces != nil {
 		shaped.Interfaces.Adapters = req.Interfaces.Adapters
+		if req.Interfaces.Auth != nil {
+			shaped.Interfaces.Auth = req.Interfaces.Auth
+		}
 		slackSelected := slices.Contains(req.Interfaces.Adapters, "slack")
 		// When slack is selected, its token variables become required.
 		for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {

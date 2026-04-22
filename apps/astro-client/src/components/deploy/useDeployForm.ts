@@ -62,9 +62,14 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "web", label: "Web", description: "Browser-based chat interface" },
 ];
 
-// Virtual Slack config field keys — these are UI-only fields parsed from the
-// compound SLACK_CONFIG JSON variable for individual editing.
-const SLACK_VIRTUAL_FIELDS = ["SLACK_ACTIONABLE_REACTIONS", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_ALLOWED_USER_IDS"] as const;
+// Virtual Slack config fields — UI-only, parsed from the compound SLACK_CONFIG
+// JSON variable for individual editing. Labels and placeholders are hardcoded
+// because these fields don't exist as separate server variables.
+const SLACK_VIRTUAL_FIELDS: Record<string, VariableDisplay> = {
+  SLACK_ACTIONABLE_REACTIONS: { label: "Actionable Reactions", description: "Emoji names the bot acts on", optional: true, secret: false, placeholder: "ticket, bug" },
+  SLACK_ALLOWED_CHANNEL_IDS: { label: "Allowed Channel IDs", description: "Restrict to specific channels", optional: true, secret: false, placeholder: "C12345, C67890" },
+  SLACK_ALLOWED_USER_IDS: { label: "Allowed User IDs", description: "Restrict to specific users", optional: true, secret: false, placeholder: "U12345, U67890" },
+};
 
 /** Compute form-ready initial values from a pre-filled deployment template.
  *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth) */
@@ -313,12 +318,18 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
   }, [opts?.deploymentId, opts?.build]);
 
+  // Build the interfaces payload from current form state.
+  const buildInterfaces = useCallback((): TemplateInterfaces => ({
+    adapters: selectedAdapters,
+    auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined,
+  }), [selectedAdapters, webAuthEnabled]);
+
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
-    reshapeTemplate({ interfaces: { adapters } });
-  }, [reshapeTemplate]);
+    reshapeTemplate({ interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined } });
+  }, [reshapeTemplate, webAuthEnabled]);
 
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
@@ -398,12 +409,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       if (hasSlackConfig) {
         // Expand SLACK_CONFIG compound JSON into three virtual config fields for display.
         // These are UI-only — they don't exist as separate server variables.
-        const virtualConfig: [string, VariableDisplay][] = SLACK_VIRTUAL_FIELDS.map((key) => [key, {
-          description: slugToTitle(key),
-          label: slugToTitle(key),
-          optional: true,
-          secret: false,
-        }]);
+        const virtualConfig: [string, VariableDisplay][] = Object.entries(SLACK_VIRTUAL_FIELDS);
         displayDefs[adapterId] = [...realFields, ...virtualConfig];
       } else {
         displayDefs[adapterId] = realFields;
@@ -520,7 +526,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // POST template with all inputs to get the server-fulfilled spec.
     const req: TemplateRequest = {
-      interfaces: { adapters: selectedAdapters },
+      interfaces: buildInterfaces(),
       variables: variableInputs,
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;

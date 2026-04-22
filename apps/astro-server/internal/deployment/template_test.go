@@ -2486,6 +2486,43 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 	}
 }
 
+func TestShapeTemplate_AuthShaping(t *testing.T) {
+	base := baseTemplateForShape(t)
+
+	// Base template starts with OIDC auth
+	if base.Interfaces.Auth == nil || base.Interfaces.Auth.Web == nil || base.Interfaces.Auth.Web.Type != "oidc" {
+		t.Fatal("precondition: base template should have oidc auth")
+	}
+
+	// Request with auth nil — preserves base auth
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"web"}},
+	})
+	if resp.Interfaces.Auth == nil || resp.Interfaces.Auth.Web == nil || resp.Interfaces.Auth.Web.Type != "oidc" {
+		t.Error("expected auth preserved when request auth is nil")
+	}
+	if resp.Template.Interfaces.Auth == nil || resp.Template.Interfaces.Auth.Web.Type != "oidc" {
+		t.Error("expected template.interfaces.auth to have oidc")
+	}
+
+	// Request explicitly sets auth — overrides base
+	resp = ShapeTemplate(base, &spec.TemplateRequest{
+		Interfaces: &spec.TemplateInterfaces{
+			Adapters: []string{"web"},
+			Auth:     &spec.DeploymentInterfacesAuth{},
+		},
+	})
+	if resp.Interfaces.Auth == nil {
+		t.Fatal("expected auth to be non-nil (empty struct)")
+	}
+	if resp.Interfaces.Auth.Web != nil {
+		t.Error("expected auth.web to be nil when request clears it")
+	}
+	if resp.Template.Interfaces.Auth.Web != nil {
+		t.Error("expected template.interfaces.auth.web to be nil when request clears it")
+	}
+}
+
 func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 	base := baseTemplateForShape(t)
 	resp := ShapeTemplate(base, &spec.TemplateRequest{})
