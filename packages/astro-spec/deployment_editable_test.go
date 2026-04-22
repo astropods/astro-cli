@@ -298,6 +298,116 @@ func TestEnforceEditable_MultipleViolations(t *testing.T) {
 	}
 }
 
+func TestEnforceEditable_KnowledgeBindingChanged(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Binding: "arn:knowledge-store:acct123:pg-store"},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+	k := subm.Knowledge["docs"]
+	k.Binding = "arn:knowledge-store:acct123:different-store"
+	subm.Knowledge["docs"] = k
+
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	if errs[0] != "knowledge.docs.binding: server-owned field cannot be changed" {
+		t.Errorf("unexpected error: %s", errs[0])
+	}
+}
+
+func TestEnforceEditable_BoundKnowledgeUnchangedPasses(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Binding: "arn:knowledge-store:acct123:pg-store"},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors for unchanged bound knowledge, got: %v", errs)
+	}
+}
+
+func TestEnforceEditable_BindingAddedToInlineEntry(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Image: "qdrant:latest", Endpoints: map[string]Endpoint{"http": {Port: 6333}}},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+	k := subm.Knowledge["docs"]
+	k.Binding = "arn:knowledge-store:acct123:pg-store"
+	subm.Knowledge["docs"] = k
+
+	errs := EnforceEditable(tmpl, subm)
+	found := false
+	for _, e := range errs {
+		if e == "knowledge.docs.binding: server-owned field cannot be changed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected binding enforcement error, got: %v", errs)
+	}
+}
+
+func TestEnforceEditable_BindingRemovedFromBoundEntry(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Binding: "arn:knowledge-store:acct123:pg-store"},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+	k := subm.Knowledge["docs"]
+	k.Binding = ""
+	subm.Knowledge["docs"] = k
+
+	errs := EnforceEditable(tmpl, subm)
+	found := false
+	for _, e := range errs {
+		if e == "knowledge.docs.binding: server-owned field cannot be changed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected binding enforcement error, got: %v", errs)
+	}
+}
+
+func TestEnforceEditable_MixedBoundAndInlineKnowledge(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"managed": {Binding: "arn:knowledge-store:acct123:pg-store"},
+		"local":   {Image: "redis:7", Endpoints: map[string]Endpoint{"tcp": {Port: 6379}}},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors for unchanged mixed knowledge, got: %v", errs)
+	}
+}
+
+func TestEnforceEditable_MixedKnowledgeOnlyBoundChanged(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Knowledge = map[string]DeploymentKnowledge{
+		"managed": {Binding: "arn:knowledge-store:acct123:pg-store"},
+		"local":   {Image: "redis:7", Endpoints: map[string]Endpoint{"tcp": {Port: 6379}}},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+	k := subm.Knowledge["managed"]
+	k.Binding = "arn:knowledge-store:acct123:other"
+	subm.Knowledge["managed"] = k
+
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+	}
+	if errs[0] != "knowledge.managed.binding: server-owned field cannot be changed" {
+		t.Errorf("unexpected error: %s", errs[0])
+	}
+}
+
 func TestCloneDeploymentSpec(t *testing.T) {
 	original := baseTemplate()
 	original.Models = map[string]DeploymentModel{

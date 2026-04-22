@@ -187,6 +187,9 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 	}
 
 	for name, k := range resolved.Knowledge {
+		if k.IsBound() {
+			continue // bound entries have no container config — no defaults to apply
+		}
 		if k.Replicas == 0 {
 			k.Replicas = 1
 		}

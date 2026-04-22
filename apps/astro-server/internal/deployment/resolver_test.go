@@ -249,6 +249,122 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolve_BoundKnowledgeSkipsDefaults(t *testing.T) {
+	ds := baseDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"docs": {Binding: "arn:knowledge-store:acct123:my-pg-store"},
+	}
+
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("expected no errors, got %v", result.Errors)
+	}
+
+	k := result.Spec.Knowledge["docs"]
+	if k.Replicas != 0 {
+		t.Errorf("bound knowledge replicas: expected 0 (untouched), got %d", k.Replicas)
+	}
+	if k.Update.Strategy != "" {
+		t.Errorf("bound knowledge update strategy: expected empty (untouched), got %s", k.Update.Strategy)
+	}
+}
+
+func TestValidateAndResolve_BoundKnowledgeSkipsValidation(t *testing.T) {
+	ds := baseDeploymentSpec()
+	// Bound entry has no image or endpoints — should pass validation
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"docs": {Binding: "arn:knowledge-store:acct123:my-pg-store"},
+	}
+
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("bound knowledge should not produce validation errors, got %v", result.Errors)
+	}
+	if !result.Spec.Knowledge["docs"].IsBound() {
+		t.Fatal("expected resolved knowledge to remain bound")
+	}
+	if result.Spec.Knowledge["docs"].Binding != "arn:knowledge-store:acct123:my-pg-store" {
+		t.Error("expected binding ARN to be preserved")
+	}
+}
+
+func TestValidateAndResolve_MixedBoundAndInlineKnowledge(t *testing.T) {
+	ds := baseDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"managed": {Binding: "arn:knowledge-store:acct123:pg-store"},
+		"local": {
+			Image:      "qdrant:latest",
+			Endpoints:  map[string]spec.Endpoint{"http": {Port: 6333}},
+			Persistent: true,
+		},
+	}
+
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("expected no errors, got %v", result.Errors)
+	}
+
+	// Bound entry untouched
+	managed := result.Spec.Knowledge["managed"]
+	if managed.Replicas != 0 {
+		t.Errorf("bound replicas: expected 0, got %d", managed.Replicas)
+	}
+	if managed.Update.Strategy != "" {
+		t.Errorf("bound update strategy: expected empty, got %s", managed.Update.Strategy)
+	}
+
+	// Inline entry gets defaults
+	local := result.Spec.Knowledge["local"]
+	if local.Replicas != 1 {
+		t.Errorf("inline replicas: expected 1, got %d", local.Replicas)
+	}
+	if local.Update.Strategy != "rolling" {
+		t.Errorf("inline update strategy: expected rolling, got %s", local.Update.Strategy)
+	}
+	if local.Storage == nil {
+		t.Error("expected default storage for persistent inline knowledge")
+	}
+}
+
+func TestValidateAndResolve_InlineKnowledgeMissingImage(t *testing.T) {
+	ds := baseDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"docs": {Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}},
+	}
+
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("expected validation error for inline knowledge without image")
+	}
+}
+
+func TestValidateAndResolve_InlineKnowledgeMissingEndpoints(t *testing.T) {
+	ds := baseDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"docs": {Image: "qdrant:latest"},
+	}
+
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("expected validation error for inline knowledge without endpoints")
+	}
+}
+
 func TestValidateAndResolve_StripsEditable(t *testing.T) {
 	ds := baseDeploymentSpec()
 	// Editable is a template-only field; resolver strips it and sets spec to deployment/v1

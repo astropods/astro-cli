@@ -189,6 +189,138 @@ knowledge:
 	}
 }
 
+func TestParseDeploymentSpec_BoundKnowledgeSkipsContainerValidation(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+knowledge:
+  docs:
+    binding: "arn:knowledge-store:acct123:my-pg-store"
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("bound knowledge should not require image/endpoints: %v", err)
+	}
+	if !ds.Knowledge["docs"].IsBound() {
+		t.Fatal("expected knowledge entry to be bound")
+	}
+}
+
+func TestParseDeploymentSpec_BoundAndInlineKnowledgeMixed(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+knowledge:
+  managed_db:
+    binding: "arn:knowledge-store:acct123:pg-store"
+  local_cache:
+    image: redis:7
+    endpoints:
+      tcp:
+        port: 6379
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("mixed bound/inline knowledge should parse: %v", err)
+	}
+	if !ds.Knowledge["managed_db"].IsBound() {
+		t.Error("expected managed_db to be bound")
+	}
+	if ds.Knowledge["local_cache"].IsBound() {
+		t.Error("expected local_cache to not be bound")
+	}
+	if ds.Knowledge["local_cache"].Image != "redis:7" {
+		t.Errorf("expected local_cache image redis:7, got %s", ds.Knowledge["local_cache"].Image)
+	}
+}
+
+func TestParseDeploymentSpec_InlineKnowledgeStillRequiresImage(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+knowledge:
+  docs:
+    endpoints:
+      http:
+        port: 6333
+`
+	_, err := ParseDeploymentSpec([]byte(yaml))
+	if err == nil {
+		t.Fatal("expected error for inline knowledge without image")
+	}
+}
+
+func TestParseDeploymentSpec_BoundKnowledgeInTemplate(t *testing.T) {
+	yaml := `
+spec: deployment-template/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+knowledge:
+  docs:
+    binding: "arn:knowledge-store:acct123:pg-store"
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("bound knowledge in template should parse: %v", err)
+	}
+	if !ds.Knowledge["docs"].IsBound() {
+		t.Fatal("expected knowledge entry to be bound")
+	}
+}
+
+func TestParseDeploymentSpec_EmptyBindingStillRequiresImage(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  endpoints:
+    http:
+      port: 8080
+knowledge:
+  docs:
+    binding: ""
+`
+	_, err := ParseDeploymentSpec([]byte(yaml))
+	if err == nil {
+		t.Fatal("expected error for knowledge with empty binding and no image")
+	}
+}
+
 func TestParseDeploymentSpec_MissingIngestionTriggerType(t *testing.T) {
 	yaml := `
 spec: deployment/v1

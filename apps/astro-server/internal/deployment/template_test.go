@@ -2679,9 +2679,9 @@ func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 	}
 
 	// 2. Shape with only "web" selected — mimics the POST template response.
-	shaped := ShapeTemplate(canonical, &spec.TemplateRequest{
+	shaped := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"web"}},
-	})
+	}, nil)
 	submittedSpec := &shaped.Template
 
 	// Verify Slack vars were stripped by ShapeTemplate.
@@ -2815,13 +2815,13 @@ func TestApplyAdapterShaping_DeployRoundTripSlackSelected(t *testing.T) {
 
 	canonical := mustGenerate(t, input)
 
-	shaped := ShapeTemplate(canonical, &spec.TemplateRequest{
+	shaped := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{
 		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
 		Variables: map[string]spec.VariableInput{
 			"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
 			"SLACK_APP_TOKEN": {Value: "xapp-test"},
 		},
-	})
+	}, nil)
 	submittedSpec := &shaped.Template
 
 	freshTemplate := mustGenerate(t, input)

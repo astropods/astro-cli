@@ -86,6 +86,9 @@ func EnforceEditable(template, submitted *AstroDeploymentSpec) []string {
 			errs = append(errs, fmt.Sprintf("knowledge.%s: server-owned component cannot be removed", name))
 			continue
 		}
+		if tmpl.Binding != subm.Binding {
+			errs = append(errs, fmt.Sprintf("knowledge.%s.binding: server-owned field cannot be changed", name))
+		}
 		if tmpl.Image != subm.Image {
 			errs = append(errs, fmt.Sprintf("knowledge.%s.image: server-owned field cannot be changed", name))
 		}

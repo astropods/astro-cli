@@ -116,6 +116,9 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 
 	// Rule 6, 6a, 7, 14, 16, 17
 	for name, k := range ds.Knowledge {
+		if k.IsBound() {
+			continue // bound entries have no container config — validated at deploy time
+		}
 		if k.Image == "" {
 			return fmt.Errorf("knowledge.%s.image is required", name)
 		}
