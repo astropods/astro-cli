@@ -21,7 +21,7 @@ Three new store methods replace `GetByRepo`:
 
 - **`GetByRepoBase(repoBase)`** — returns any connection matching the base repo (exact or prefix). Used to retrieve the shared webhook secret for HMAC verification.
 - **`CountByRepoBase(repoBase)`** — counts all connections for a base repo across all accounts. Used in disconnect to decide whether to remove the webhook.
-- **`ListByRepoAndBranch(repoFullName, branch)`** — returns all connections for a base repo+branch via prefix query (`WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'`). Used for webhook fan-out.
+- **`ListByRepoAndBranch(repoFullName, branch)`** — returns all connections for a base repo+branch via prefix query (`WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'`). `_` is escaped because GitHub repo names can contain underscores; `%` is not a valid GitHub name character so no escaping is needed for it. Used for webhook fan-out.
 
 ### Spec and build path resolution
 

@@ -294,20 +294,9 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 		req.RepoFullName = strings.Trim(req.RepoFullName, "/")
-
-		// Validate repo_full_name: at least two segments (owner/repo), no "..", ".", or empty components.
-		{
-			segments := strings.Split(req.RepoFullName, "/")
-			if len(segments) < 2 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "repo_full_name must be owner/repo[/subpath]"})
-				return
-			}
-			for _, seg := range segments {
-				if seg == ".." || seg == "." || seg == "" {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_full_name: illegal path segment"})
-					return
-				}
-			}
+		if err := validateRepoFullName(req.RepoFullName); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 
 		newBase := githubconnection.RepoBase(req.RepoFullName)
@@ -315,12 +304,13 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		// Remove existing webhook if re-linking to a different base repo,
 		// but only if no other connections still reference that base repo.
 		existing, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
-		if err == nil && existing.WebhookID != 0 && githubconnection.RepoBase(existing.RepoFullName) != newBase {
+		existingBase := githubconnection.RepoBase(existing.RepoFullName)
+		if err == nil && existing.WebhookID != 0 && existingBase != newBase {
 			// count <= 1 (not == 0) because the existing connection is still in the DB at this point
 			// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
-			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName)); countErr == nil && count <= 1 {
+			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), existingBase); countErr == nil && count <= 1 {
 				oldGH := githubclient.New(token.AccessToken)
-				if delErr := oldGH.DeleteWebhook(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName), existing.WebhookID); delErr != nil {
+				if delErr := oldGH.DeleteWebhook(c.Request.Context(), existingBase, existing.WebhookID); delErr != nil {
 					log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
 				}
 			}
@@ -770,18 +760,8 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 		var attempted, enqueued int
 		for _, conn := range conns {
 			subPath := githubconnection.RepoSubPath(conn.RepoFullName)
-			if subPath != "" {
-				// Path filter: at least one changed file must be under subPath/.
-				eligible := false
-				for _, f := range changedFiles {
-					if strings.HasPrefix(f, subPath+"/") {
-						eligible = true
-						break
-					}
-				}
-				if !eligible {
-					continue
-				}
+			if subPath != "" && !filesTouchSubPath(changedFiles, subPath) {
+				continue
 			}
 
 			attempted++
@@ -860,6 +840,32 @@ func randomHex(n int) string {
 	b := make([]byte, n/2)
 	rand.Read(b) //nolint:errcheck
 	return hex.EncodeToString(b)
+}
+
+// validateRepoFullName checks that name has at least two slash-separated segments
+// (owner/repo) and contains no "..", ".", or empty components.
+func validateRepoFullName(name string) error {
+	segments := strings.Split(name, "/")
+	if len(segments) < 2 {
+		return errors.New("repo_full_name must be owner/repo[/subpath]")
+	}
+	for _, seg := range segments {
+		if seg == ".." || seg == "." || seg == "" {
+			return errors.New("invalid repo_full_name: illegal path segment")
+		}
+	}
+	return nil
+}
+
+// filesTouchSubPath reports whether any file in files has subPath+"/" as a prefix.
+func filesTouchSubPath(files []string, subPath string) bool {
+	prefix := subPath + "/"
+	for _, f := range files {
+		if strings.HasPrefix(f, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // GitHubHandlerConfig holds config values needed by GitHub handlers.
