@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { FolderOpen, Search, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useGitHubAccountDirs } from "@/api/queries/github";
@@ -55,13 +56,15 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
           onFocus={() => setDirOpen(true)}
         />
         {value && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onChange("")}
-            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
           >
             <X className="size-3.5" />
-          </button>
+          </Button>
         )}
       </div>
 
@@ -78,18 +81,19 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
               </div>
             ) : (
               filteredDirs.map(dir => (
-                <button
+                <Button
                   key={dir}
                   type="button"
+                  variant="ghost"
                   onClick={() => { onChange(dir); setDirOpen(false); }}
                   className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-sm text-left font-medium transition-colors",
-                    value === dir ? "bg-primary/5" : "hover:bg-muted/60",
+                    "w-full justify-start h-auto px-3 py-2 font-medium rounded-none",
+                    value === dir && "bg-primary/5",
                   )}
                 >
                   <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
                   {dir}
-                </button>
+                </Button>
               ))
             )}
           </div>
