@@ -25,6 +25,7 @@ import {
   useGitHubRebuild,
 } from "@/api/queries/github";
 import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
+import { SubpathPicker } from "@/components/new-blueprint/SubpathPicker";
 import type { GitHubBuild, GitHubRepo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -156,18 +157,26 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
   const [logsOpen, setLogsOpen] = useState(false);
   const latestBuild = status.builds[0];
 
+  const repoParts = status.repo_full_name?.split("/") ?? [];
+  const repoBase = repoParts.slice(0, 2).join("/");
+  const repoSubPath = repoParts.slice(2).join("/");
+  const repoHref = repoSubPath && status.branch
+    ? `https://github.com/${repoBase}/tree/${status.branch}/${repoSubPath}`
+    : `https://github.com/${repoBase}`;
+  const repoLabel = repoSubPath ? `${repoParts[1]}/${repoSubPath}` : repoParts[1];
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <a
-            href={`https://github.com/${status.repo_full_name}`}
+            href={repoHref}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-sm font-medium hover:underline truncate"
           >
             <Github className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{status.repo_full_name?.split("/")[1] ?? status.repo_full_name}</span>
+            <span className="truncate">{repoLabel ?? status.repo_full_name}</span>
             <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
           </a>
           {status.branch && (
@@ -446,21 +455,23 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
   const link = useGitHubLink(account, name);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [selectedBranch, setSelectedBranch] = useState("main");
+  const [subpath, setSubpath] = useState("");
 
-  // Default branch to repo default when repo changes.
+  // Default branch to repo default and reset subpath when repo changes.
   useEffect(() => {
     if (selectedRepo) setSelectedBranch(selectedRepo.default_branch);
+    setSubpath("");
   }, [selectedRepo]);
 
   function handleLink() {
     if (!selectedRepo) return;
+    const cleanedSubpath = subpath.trim().replace(/^\/+|\/+$/g, "");
+    const repoFullName = cleanedSubpath
+      ? `${selectedRepo.full_name}/${cleanedSubpath}`
+      : selectedRepo.full_name;
     link.mutate(
-      { repo_full_name: selectedRepo.full_name, branch: selectedBranch },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-        },
-      }
+      { repo_full_name: repoFullName, branch: selectedBranch },
+      { onSuccess: () => onOpenChange(false) }
     );
   }
 
@@ -487,8 +498,27 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
             onSearchChange={setRepoQuery}
           />
 
+          {/* Subdirectory picker — slides in when a repo is selected */}
+          <div className={cn(
+            "grid transition-[grid-template-rows] duration-150 ease-out",
+            selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          )}>
+            <div className="overflow-hidden">
+              <div className="px-4 pb-1">
+                <SubpathPicker
+                  account={account}
+                  repo={selectedRepo?.full_name ?? ""}
+                  branch={selectedBranch}
+                  value={subpath}
+                  onChange={setSubpath}
+                  enabled={!!selectedRepo}
+                />
+              </div>
+            </div>
+          </div>
+
           {link.isError && (
-            <p className="text-sm text-destructive px-4">
+            <p className="text-sm text-destructive px-4 pt-2">
               {link.error instanceof Error ? link.error.message : "Failed to link repository"}
             </p>
           )}
