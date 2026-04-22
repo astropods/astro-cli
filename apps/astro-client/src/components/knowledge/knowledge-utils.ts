@@ -58,7 +58,7 @@ export function statusLabel(status: KnowledgeStatus): string {
     case "connecting":
       return "Connecting";
     case "pending-acceptance":
-      return "Pending Acceptance";
+      return "Pending";
     case "ready":
       return "Ready";
     case "error":
