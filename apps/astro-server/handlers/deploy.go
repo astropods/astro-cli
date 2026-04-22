@@ -362,6 +362,11 @@ func prepareDeployment(
 	template.Target.Account = submittedSpec.Target.Account
 	template.Target.DisplayName = submittedSpec.Target.DisplayName
 	template.Target.DeploymentID = submittedSpec.Target.DeploymentID
+	// Strip variables for non-selected adapters from the canonical template so the
+	// editable check matches what the client received from the POST template endpoint.
+	if submittedSpec.Interfaces != nil {
+		deployment.StripNonSelectedAdapterVars(template, submittedSpec.Interfaces.Adapters)
+	}
 	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "server-owned fields were modified",

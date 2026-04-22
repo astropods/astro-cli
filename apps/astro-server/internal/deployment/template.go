@@ -432,30 +432,7 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 	// Strip variables that belong exclusively to non-selected adapters.
 	// They'll reappear if the user toggles that adapter on (reshape POST).
 	if req.Interfaces != nil {
-		selectedSet := make(map[string]bool, len(req.Interfaces.Adapters))
-		for _, a := range req.Interfaces.Adapters {
-			selectedSet[a] = true
-		}
-		for key, v := range shaped.Variables {
-			if len(v.Targets) == 0 {
-				continue
-			}
-			allInterface := true
-			anySelected := false
-			for _, t := range v.Targets {
-				if !strings.HasPrefix(t, "interface.") {
-					allInterface = false
-					break
-				}
-				adapter := strings.TrimPrefix(t, "interface.")
-				if selectedSet[adapter] {
-					anySelected = true
-				}
-			}
-			if allInterface && !anySelected {
-				delete(shaped.Variables, key)
-			}
-		}
+		StripNonSelectedAdapterVars(shaped, req.Interfaces.Adapters)
 	}
 
 	// --- Variable filling ---
@@ -620,6 +597,45 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 		return names[0]
 	}
 	return "http"
+}
+
+// StripNonSelectedAdapterVars removes variables from ds that belong exclusively
+// to adapters not present in selectedAdapters.  This keeps the template's variable
+// set consistent with the adapter selection so that EnforceEditable doesn't reject
+// variables the user was never shown.
+func StripNonSelectedAdapterVars(ds *spec.AstroDeploymentSpec, selectedAdapters []string) {
+	if ds.Interfaces == nil {
+		return
+	}
+	selectedSet := make(map[string]bool, len(selectedAdapters))
+	for _, a := range selectedAdapters {
+		selectedSet[a] = true
+	}
+	for key, v := range ds.Variables {
+		if len(v.Targets) == 0 {
+			continue
+		}
+		allInterface := true
+		anySelected := false
+		for _, t := range v.Targets {
+			if !strings.HasPrefix(t, "interface.") {
+				allInterface = false
+				break
+			}
+			adapter := strings.TrimPrefix(t, "interface.")
+			if selectedSet[adapter] {
+				anySelected = true
+			}
+		}
+		if allInterface && !anySelected {
+			delete(ds.Variables, key)
+			// Also remove the corresponding ${variables.KEY} reference from
+			// interfaces.environment so it doesn't fail reference validation.
+			if ds.Interfaces != nil {
+				delete(ds.Interfaces.Environment, key)
+			}
+		}
+	}
 }
 
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
