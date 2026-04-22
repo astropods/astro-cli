@@ -110,9 +110,6 @@ export function ActiveDetailView({
   );
   const latestBuildId = latestVersion?.build_id;
   const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
-  const currentVersion = hasNewBuildAvailable
-    ? blueprintAgent?.versions?.find((v) => v.build_id === renderedDeployment.build_id)
-    : undefined;
 
   useEffect(() => {
     if (!pausing) return;
@@ -321,19 +318,14 @@ export function ActiveDetailView({
                   <div className="mb-4">
                     <ActionPanel
                       tone="warning"
-                      title="A new build number is available for this agent."
+                      title={<>A new build number <span className="font-mono">{latestBuildId?.slice(0, 8)}</span> is available for this agent.</>}
                       primaryLabel="Redeploy →"
                       onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
                       confirmTitle="Are you sure?"
                       confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
                       confirmLabel="Redeploy"
                       dismissible
-                    >
-                      <div className="space-y-0.5 opacity-80">
-                        <div>Current: {currentVersion ? `${formatDate(currentVersion.published_at)} / ` : ""}<span className="font-mono font-medium">{renderedDeployment.build_id.slice(0, 8)}</span></div>
-                        <div>New: {latestVersion ? `${formatDate(latestVersion.published_at)} / ` : ""}<span className="font-mono font-medium">{latestBuildId?.slice(0, 8)}</span></div>
-                      </div>
-                    </ActionPanel>
+                    />
                   </div>
                 )}
                 {showConfigureAsPage ? (

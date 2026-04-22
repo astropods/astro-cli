@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { screen, cleanup, within, waitFor } from '@testing-library/react';
+import { screen, cleanup, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { renderWithProviders } from '@/test/test-utils';
@@ -70,6 +70,10 @@ async function waitForBlueprintsLoaded(queryClient: ReturnType<typeof renderWith
   });
 }
 
+// Banner title is split across text nodes: "A new build number " + <span>hash</span> + " is available..."
+// Use regex against the parent element's textContent to match across nodes.
+const BANNER_REGEX = /A new build number .+ is available for this agent\./;
+
 describe('new build available banner', () => {
   it('shows when a newer build has been published', async () => {
     setupBlueprintsHandler([{
@@ -84,10 +88,10 @@ describe('new build available banner', () => {
 
     renderView();
 
-    await screen.findByText('A new build number is available for this agent.');
+    await screen.findByText(BANNER_REGEX);
   });
 
-  it('shows the current and new build hashes inside the banner', async () => {
+  it('shows the new build hash in the title', async () => {
     setupBlueprintsHandler([{
       name: 'my-agent',
       account: 'testuser',
@@ -100,11 +104,8 @@ describe('new build available banner', () => {
 
     renderView();
 
-    const titleEl = await screen.findByText('A new build number is available for this agent.');
-    // Walk up to the ActionPanel container (rounded outer div)
-    const panel = titleEl.closest('[class*="rounded-\\[6px\\]"]') ?? titleEl.parentElement!.parentElement!.parentElement!;
-    expect(within(panel as HTMLElement).getByText(OLD_BUILD.slice(0, 8))).toBeInTheDocument();
-    expect(within(panel as HTMLElement).getByText(NEW_BUILD.slice(0, 8))).toBeInTheDocument();
+    await screen.findByText(BANNER_REGEX);
+    expect(screen.getByText(NEW_BUILD.slice(0, 8))).toBeInTheDocument();
   });
 
   it('does not show when already on the latest build', async () => {
@@ -120,7 +121,7 @@ describe('new build available banner', () => {
     const { queryClient } = renderView();
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText('A new build number is available for this agent.')).not.toBeInTheDocument();
+    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
   });
 
   it('does not show when there is no matching blueprint', async () => {
@@ -136,7 +137,7 @@ describe('new build available banner', () => {
     const { queryClient } = renderView();
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText('A new build number is available for this agent.')).not.toBeInTheDocument();
+    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
   });
 
   it('does not show when the deployed build is already the newest by date', async () => {
@@ -153,6 +154,6 @@ describe('new build available banner', () => {
     const { queryClient } = renderView({ ...baseDeployment, build_id: NEW_BUILD });
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText('A new build number is available for this agent.')).not.toBeInTheDocument();
+    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
   });
 });
