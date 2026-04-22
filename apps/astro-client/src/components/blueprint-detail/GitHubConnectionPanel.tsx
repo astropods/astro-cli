@@ -293,7 +293,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="font-mono text-green-600 dark:text-green-400 cursor-default">{build.build_id} successful</span>
+                    <span className="font-medium text-green-600 dark:text-green-400 cursor-default">{build.build_id} successful</span>
                   </TooltipTrigger>
                   {build.completed_at && (
                     <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
@@ -305,7 +305,7 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="font-mono text-destructive cursor-default">Error: see logs for more</span>
+                    <span className="font-medium text-destructive cursor-default">Error: see logs for more</span>
                   </TooltipTrigger>
                   {build.completed_at && (
                     <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
