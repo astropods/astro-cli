@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -37,31 +36,6 @@ import (
 type githubBuildQueue interface {
 	EnqueueGitHubBuild(ctx context.Context, args riverqueue.GitHubBuildArgs) error
 	CancelGitHubBuildsForConnection(ctx context.Context, connectionID string)
-}
-
-var subPathSegmentRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-// validateRepoFullName checks that repoFullName is owner/repo or owner/repo/sub/path.
-// At least two slash-separated segments are required. Subpath segments must match
-// [a-zA-Z0-9._-]+ with no ".." components. Leading/trailing slashes are stripped.
-func validateRepoFullName(repoFullName string) error {
-	s := strings.Trim(repoFullName, "/")
-	parts := strings.Split(s, "/")
-	if len(parts) < 2 {
-		return fmt.Errorf("repo_full_name must be at least owner/repo")
-	}
-	for _, seg := range parts[2:] {
-		if seg == "" {
-			return fmt.Errorf("repo_full_name has empty path segment")
-		}
-		if seg == ".." {
-			return fmt.Errorf("repo_full_name must not contain '..' components")
-		}
-		if !subPathSegmentRe.MatchString(seg) {
-			return fmt.Errorf("repo_full_name subpath segment %q contains invalid characters", seg)
-		}
-	}
-	return nil
 }
 
 // GitHubConnectResponse is returned when an OAuth redirect is needed.
@@ -304,12 +278,6 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		}
 		if req.Branch == "" {
 			req.Branch = "main"
-		}
-
-		// Validate before making any external calls.
-		if err := validateRepoFullName(req.RepoFullName); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
 		}
 
 		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{

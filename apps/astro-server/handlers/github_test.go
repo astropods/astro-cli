@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,30 +20,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/gin-gonic/gin"
 )
-
-// --- validateRepoFullName tests ---
-
-func TestValidateRepoFullName(t *testing.T) {
-	tests := []struct {
-		in      string
-		wantErr bool
-	}{
-		{"owner/repo", false},
-		{"owner/repo/sub/path", false},
-		{"owner/repo/services/my-agent_v2.0", false},
-		{"owner", true},                    // too few segments
-		{"owner/repo/../etc/passwd", true}, // .. component
-		{"owner/repo/bad segment!", true},  // invalid chars
-		{"owner/repo/", false},             // trailing slash stripped → valid root
-		{"owner/repo//double", true},       // empty segment in middle
-	}
-	for _, tt := range tests {
-		err := validateRepoFullName(tt.in)
-		if (err != nil) != tt.wantErr {
-			t.Errorf("validateRepoFullName(%q): got err=%v, wantErr=%v", tt.in, err, tt.wantErr)
-		}
-	}
-}
 
 // --- mockGitHubBuildQueue ---
 
@@ -129,41 +104,6 @@ func pushPayload(repoFullName, branch, commitSHA string, changedFiles []string) 
 	}
 	b, _ := json.Marshal(payload)
 	return b
-}
-
-// --- TestGitHubLink_InvalidRepoFullName ---
-
-func TestGitHubLink_InvalidRepoFullName(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer db.Close()
-	_ = mock
-
-	store := githubconnection.New(db)
-	log := logger.New("error", "json")
-
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-1", OrganizationID: "org-1"})
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "myorg"})
-		c.Next()
-	})
-	router.POST("/agents/:account/:name/github/link",
-		GitHubLink(log, nil, store, GitHubHandlerConfig{WebhookBaseURL: "https://api.example.com"}))
-
-	body := `{"repo_full_name": "only-one-segment", "branch": "main"}`
-	req := httptest.NewRequest(http.MethodPost, "/agents/myorg/my-agent/github/link", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // --- TestGitHubWebhook_FanOut ---
