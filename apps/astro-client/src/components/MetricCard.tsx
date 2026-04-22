@@ -1,3 +1,5 @@
+import React from "react";
+import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 
 function SkeletonBar({ className }: { className?: string }) {
@@ -30,26 +32,54 @@ function TrendIndicator({ value, higherIsBetter }: { value: number | null; highe
 export interface MetricCardProps {
   label: string;
   value: string;
+  valueSuffix?: string;
+  description?: React.ReactNode;
   trend?: number | null;
   higherIsBetter?: boolean;
   showTrend?: boolean;
   loading?: boolean;
   trendLoading?: boolean;
+  sparkline?: number[];
   className?: string;
 }
 
-export function MetricCard({ label, value, trend = null, higherIsBetter = true, showTrend = true, loading, trendLoading, className }: MetricCardProps) {
+export function MetricCard({ label, value, valueSuffix, description, trend = null, higherIsBetter = true, showTrend = true, loading, trendLoading, sparkline, className }: MetricCardProps) {
+  const chartData = sparkline?.map((v) => ({ v }));
+
   return (
     <div className={cn("rounded-[10px] border border-border bg-white p-[12px_14px]", className)}>
-      <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend ? "mb-2" : "mb-4")}>
+      <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend || sparkline || description ? "mb-2" : "mb-4")}>
         {label}
       </span>
       {loading ? (
         <SkeletonBar className="h-6 w-1/2" />
+      ) : valueSuffix ? (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-sans text-heading-2 font-bold text-foreground">{value}</span>
+          <span className="font-sans text-body-sm text-muted-foreground">{valueSuffix}</span>
+        </div>
       ) : (
         <span className="block font-sans text-heading-2 font-bold text-foreground">{value}</span>
       )}
-      {showTrend && (trendLoading ? (
+      {chartData && !loading && (
+        <div className="mt-3 h-10">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--color-teal-600)" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="var(--color-teal-600)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Area type="monotone" dataKey="v" stroke="var(--color-teal-600)" strokeWidth={1.5} fill="url(#sparkGrad)" dot={false} isAnimationActive={true} animationDuration={1000} animationEasing="ease-out" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      {description && !loading && !sparkline && (
+        <p className="mt-3 text-body-sm text-muted-foreground">{description}</p>
+      )}
+      {showTrend && !sparkline && !description && (trendLoading ? (
         <div className="mt-2 flex gap-1.5 items-center">
           <SkeletonBar className="h-3.5 w-1/4" />
           <SkeletonBar className="h-3.5 w-8" />
