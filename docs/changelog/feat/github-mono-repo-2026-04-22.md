@@ -31,7 +31,7 @@ Three new store methods replace `GetByRepo`:
 
 ### Linking
 
-`repo_full_name` is validated on link: must have at least two segments, subpath segments must match `[a-zA-Z0-9._-]+`, no `..` components. Validation runs before any external API calls.
+`repo_full_name` is validated on link: must have at least two segments, no `..`, `.`, or empty path components. Validation runs before any external API calls.
 
 Webhook deduplication: before creating a new webhook, the handler calls `GetByRepoBase` to check if any existing connection already has a webhook on the same base repo. If found, the new connection inherits the existing `webhook_id` and `webhook_secret` — no new GitHub webhook is created.
 

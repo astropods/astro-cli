@@ -294,12 +294,30 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 		req.RepoFullName = strings.Trim(req.RepoFullName, "/")
+
+		// Validate repo_full_name: at least two segments (owner/repo), no "..", ".", or empty components.
+		{
+			segments := strings.Split(req.RepoFullName, "/")
+			if len(segments) < 2 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "repo_full_name must be owner/repo[/subpath]"})
+				return
+			}
+			for _, seg := range segments {
+				if seg == ".." || seg == "." || seg == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_full_name: illegal path segment"})
+					return
+				}
+			}
+		}
+
 		newBase := githubconnection.RepoBase(req.RepoFullName)
 
 		// Remove existing webhook if re-linking to a different base repo,
 		// but only if no other connections still reference that base repo.
 		existing, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
 		if err == nil && existing.WebhookID != 0 && githubconnection.RepoBase(existing.RepoFullName) != newBase {
+			// count <= 1 (not == 0) because the existing connection is still in the DB at this point
+			// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
 			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName)); countErr == nil && count <= 1 {
 				oldGH := githubclient.New(token.AccessToken)
 				if delErr := oldGH.DeleteWebhook(c.Request.Context(), githubconnection.RepoBase(existing.RepoFullName), existing.WebhookID); delErr != nil {
@@ -327,6 +345,10 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		}
 
 		// Webhook dedup: reuse existing webhook if another connection already targets the same base repo.
+		// Race: two concurrent link requests for the same base repo can both get ErrNoRows here and
+		// both create separate webhooks; the upsert means one silently wins, leaving a duplicate webhook
+		// on GitHub. Fixing this properly requires a DB advisory lock or a unique constraint on
+		// (webhook_id) per base repo with a retry loop. Accepted as low-probability for now.
 		if sharedConn, err := ghStore.GetByRepoBase(c.Request.Context(), newBase); err == nil && sharedConn.WebhookID != 0 {
 			conn.WebhookID = sharedConn.WebhookID
 			conn.WebhookSecret = sharedConn.WebhookSecret
@@ -745,6 +767,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			return
 		}
 
+		var attempted, enqueued int
 		for _, conn := range conns {
 			subPath := githubconnection.RepoSubPath(conn.RepoFullName)
 			if subPath != "" {
@@ -761,6 +784,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 				}
 			}
 
+			attempted++
 			buildID := randomHex(8)
 			buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
 				ConnectionID:  conn.ID,
@@ -791,8 +815,10 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			}); err != nil {
 				log.Error("github webhook: enqueue build", "error", err, "agent", conn.AgentName)
 				_ = ghStore.UpdateBuildStatus(c.Request.Context(), buildRecordID, "failed", "failed to enqueue build job")
+				continue
 			}
 
+			enqueued++
 			log.Info("GitHub push enqueued for build",
 				"repo", payload.Repository.FullName,
 				"branch", branch,
@@ -802,6 +828,11 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			)
 		}
 
+		// If eligible connections existed but every enqueue failed, tell GitHub to retry.
+		if attempted > 0 && enqueued == 0 {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
 		c.Status(http.StatusAccepted)
 	}
 }

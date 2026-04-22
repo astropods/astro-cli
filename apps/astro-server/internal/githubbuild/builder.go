@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -68,24 +69,6 @@ func (b *Builder) ECRImagePath(accountID, imageName, buildID string) string {
 		cfg.Environment, accountID,
 		imageName, buildID,
 	)
-}
-
-// repoBase returns the first two slash-separated segments of repoFullName ("owner/repo").
-func repoBase(repoFullName string) string {
-	parts := strings.SplitN(repoFullName, "/", 3)
-	if len(parts) < 2 {
-		return repoFullName
-	}
-	return parts[0] + "/" + parts[1]
-}
-
-// repoSubPath returns everything after the second slash, or "" for root connections.
-func repoSubPath(repoFullName string) string {
-	parts := strings.SplitN(repoFullName, "/", 3)
-	if len(parts) < 3 {
-		return ""
-	}
-	return parts[2]
 }
 
 // effectivePaths resolves the BuildKit context directory and dockerfile path
@@ -224,8 +207,8 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	}
 
 	// Split repoFullName into base repo (for clone URL) and subpath (for file paths).
-	base := repoBase(repoFullName)
-	subPath := repoSubPath(repoFullName)
+	base := githubconnection.RepoBase(repoFullName)
+	subPath := githubconnection.RepoSubPath(repoFullName)
 	contextDir, effectiveDockerfile := effectivePaths(subPath, buildContext, dockerfile)
 
 	// Create an ephemeral Secret for the GitHub token so it is not visible in Job args.

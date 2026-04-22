@@ -173,7 +173,7 @@ func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
-		WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
+		WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'
 		LIMIT 1
 	`, repoBase)
 
@@ -190,11 +190,12 @@ func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection
 
 // CountByRepoBase counts all connections whose repo_full_name equals repoBase or starts
 // with repoBase+"/". Used to decide whether to delete the shared webhook on disconnect.
+// Counts across all accounts — the webhook is shared per base repo regardless of account.
 func (s *Store) CountByRepoBase(ctx context.Context, repoBase string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM github_connections
-		WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
+		WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'
 	`, repoBase).Scan(&n)
 	return n, err
 }
@@ -206,7 +207,7 @@ func (s *Store) ListByRepoAndBranch(ctx context.Context, repoFullName, branch st
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
-		WHERE (repo_full_name = $1 OR repo_full_name LIKE $1 || '/%') AND branch = $2
+		WHERE (repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\') AND branch = $2
 	`, repoFullName, branch)
 	if err != nil {
 		return nil, err

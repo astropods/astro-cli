@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"gopkg.in/yaml.v3"
 )
@@ -94,8 +95,8 @@ func FetchAstroSpec(ctx context.Context, token, repoFullName, commitSHA string) 
 // prepended to filePath and the base repo is used for the API URL.
 // Returns ("", nil) when the file does not exist at that ref.
 func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath string) (string, error) {
-	base := repoBase(repoFullName)
-	if sub := repoSubPath(repoFullName); sub != "" {
+	base := githubconnection.RepoBase(repoFullName)
+	if sub := githubconnection.RepoSubPath(repoFullName); sub != "" {
 		filePath = sub + "/" + filePath
 	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", base, filePath, ref)
