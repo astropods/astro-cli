@@ -661,6 +661,18 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       for (const [key, value] of Object.entries(imported)) {
         const inVariableKeys = variableKeys.has(key);
         const inAdapterKeys = adapterKeys.has(key);
+
+        // Object variables (e.g. SLACK_CONFIG): deserialize JSON into sub-field form keys
+        const v = template?.variables?.[key];
+        if (v && isObjectVariable(v)) {
+          const subFields = deserializeObjectVariable(key, v.fields!, value);
+          if (Object.keys(subFields).length > 0) {
+            Object.assign(newAdapterValues, subFields);
+            matched.push(key);
+            continue;
+          }
+        }
+
         if (inVariableKeys) {
           newVarValues[key] = value;
         }

@@ -224,13 +224,16 @@ test.describe("deploy page", () => {
 
     await page.getByRole("button", { name: /^import$/i }).click();
 
+    const slackConfigJson = JSON.stringify({
+      actionable_reactions: ["ticket", "bug"],
+      allowed_channel_ids: ["C123", "C999"],
+      allowed_user_ids: ["U123", "U999"],
+    });
     const envContents = [
       "OPENAI_API_KEY=sk-imported-value",
       "SLACK_BOT_TOKEN=xoxb-imported-value",
       "SLACK_APP_TOKEN=xapp-imported-value",
-      "SLACK_ACTIONABLE_REACTIONS=ticket, bug",
-      "SLACK_ALLOWED_CHANNEL_IDS=C123, C999",
-      "SLACK_ALLOWED_USER_IDS=U123, U999",
+      `SLACK_CONFIG=${slackConfigJson}`,
       "UNUSED_KEY=skip-me",
     ].join("\n");
 
@@ -240,7 +243,7 @@ test.describe("deploy page", () => {
       buffer: Buffer.from(envContents),
     });
 
-    await expect(page.getByText(/Filled 6 variables/i)).toBeVisible();
+    await expect(page.getByText(/Filled 4 variables/i)).toBeVisible();
     await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-imported-value");
 
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
