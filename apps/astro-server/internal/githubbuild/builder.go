@@ -30,6 +30,10 @@ const (
 	ECRLoginImage = "amazon/aws-cli:2.24.21"
 )
 
+// workspaceDir is the shared emptyDir mount path used by the git-clone init
+// container and the BuildKit container within each build Job pod.
+const workspaceDir = "/workspace"
+
 // BuildFailedError marks a build failure as permanent (bad Dockerfile or code),
 // distinguishing it from retriable infrastructure errors.
 type BuildFailedError struct{ Cause error }
@@ -87,9 +91,9 @@ func repoSubPath(repoFullName string) string {
 // effectivePaths resolves the BuildKit context directory and dockerfile path
 // given an optional subpath within the cloned workspace.
 func effectivePaths(subPath, buildContext, dockerfile string) (contextDir, effectiveDockerfile string) {
-	base := "/workspace"
+	base := workspaceDir
 	if subPath != "" {
-		base = "/workspace/" + subPath
+		base = workspaceDir + "/" + subPath
 	}
 	if buildContext == "." {
 		contextDir = base
@@ -238,7 +242,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	// HOME=/tmp gives git a writable directory for the global config (user 1000 has no home).
 	// safe.directory bypasses Git's ownership check on the emptyDir volume (owned by root).
 	cloneCmd := fmt.Sprintf(
-		"HOME=/tmp git config --global --add safe.directory /workspace && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git /workspace && cd /workspace && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git -c advice.detachedHead=false checkout %s",
+		"HOME=/tmp git config --global --add safe.directory "+workspaceDir+" && git clone --depth 1 https://x-access-token:$(cat /token/token)@github.com/%s.git "+workspaceDir+" && cd "+workspaceDir+" && HOME=/tmp git fetch --depth 1 origin %s && HOME=/tmp git -c advice.detachedHead=false checkout %s",
 		base, commitSHA, commitSHA,
 	)
 
@@ -248,7 +252,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		"build",
 		"--frontend", "dockerfile.v0",
 		"--local", "context=" + contextDir,
-		"--local", "dockerfile=/workspace",
+		"--local", "dockerfile=" + workspaceDir,
 		"--opt", "filename=" + effectiveDockerfile,
 	}
 	if build.Target != "" {
@@ -303,13 +307,13 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 			Command:         []string{"sh", "-c", cloneCmd},
 			SecurityContext: initSecCtx,
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: "workspace", MountPath: "/workspace"},
+				{Name: "workspace", MountPath: workspaceDir},
 				{Name: "token", MountPath: "/token", ReadOnly: true},
 			},
 		},
 	}
 	buildKitVolumeMounts := []corev1.VolumeMount{
-		{Name: "workspace", MountPath: "/workspace", ReadOnly: true},
+		{Name: "workspace", MountPath: workspaceDir, ReadOnly: true},
 		{Name: "buildkitd", MountPath: "/home/user/.local/share/buildkit"},
 	}
 	if b.cfg.GitHub.BuildKitConfigMap != "" {
