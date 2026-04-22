@@ -170,7 +170,7 @@ export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
  *  Optionally merges request inputs (interfaces, variables) to simulate server-side shaping. */
 export function wrapTemplateResponse(
   tmpl: DeploymentTemplate,
-  reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> },
+  reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> },
 ): TemplateResponse {
   const { editable, variables, spec: _spec, ...rest } = tmpl;
   const reqAdapters = reqBody?.interfaces?.adapters;
@@ -206,6 +206,17 @@ export function wrapTemplateResponse(
     }
   }
 
+  // Extract schedules — apply request overrides, then promote to response root
+  const schedules: Record<string, string> = {};
+  const ingestion = rest.ingestion as Record<string, { trigger?: { type?: string; schedule?: string } }> | undefined;
+  if (ingestion) {
+    for (const [name, ing] of Object.entries(ingestion)) {
+      if (ing.trigger?.type === 'schedule') {
+        schedules[name] = reqBody?.schedules?.[name] ?? ing.trigger.schedule ?? '';
+      }
+    }
+  }
+
   const errors = Object.entries(templateVars)
     .filter(([, v]) => !v.optional && !v.value && !v.ref)
     .map(([key]) => ({ field: `variables.${key}`, message: 'required variable is empty' }));
@@ -215,6 +226,7 @@ export function wrapTemplateResponse(
     variables: schemaVars,
     editable: editable ?? [],
     interfaces: { adapters: shapedAdapters, auth: shapedAuth },
+    schedules,
     validation: { valid: errors.length === 0, errors },
   };
 }
@@ -287,7 +299,7 @@ export const handlers = [
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> }));
+    return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> }));
   }),
 
   // GET /api/v1/accounts/:account/members

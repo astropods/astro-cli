@@ -2542,3 +2542,118 @@ func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 		t.Errorf("expected JSON to contain auth with oidc, got: %s", s)
 	}
 }
+
+// baseTemplateWithIngestion extends baseTemplateForShape with a schedule-triggered ingestion.
+func baseTemplateWithIngestion(t *testing.T) *spec.AstroDeploymentSpec {
+	t.Helper()
+	base := baseTemplateForShape(t)
+	base.Ingestion = map[string]spec.DeploymentIngestion{
+		"nightly_sync": {
+			Image:   "sync:latest",
+			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: ""},
+		},
+		"on_demand": {
+			Image:   "import:latest",
+			Trigger: spec.DeploymentTrigger{Type: "manual"},
+		},
+	}
+	return base
+}
+
+func TestShapeTemplate_ScheduleShaping(t *testing.T) {
+	base := baseTemplateWithIngestion(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Schedules: map[string]string{"nightly_sync": "0 3 * * *"},
+	})
+
+	// Template should have the schedule applied
+	if ing, ok := resp.Template.Ingestion["nightly_sync"]; !ok {
+		t.Fatal("template missing nightly_sync ingestion")
+	} else if ing.Trigger.Schedule != "0 3 * * *" {
+		t.Errorf("template nightly_sync schedule: expected '0 3 * * *', got '%s'", ing.Trigger.Schedule)
+	}
+
+	// Response root schedules should match
+	if resp.Schedules["nightly_sync"] != "0 3 * * *" {
+		t.Errorf("resp.Schedules[nightly_sync]: expected '0 3 * * *', got '%s'", resp.Schedules["nightly_sync"])
+	}
+
+	// Manual trigger should not appear in schedules
+	if _, ok := resp.Schedules["on_demand"]; ok {
+		t.Error("resp.Schedules should not contain non-schedule triggers")
+	}
+
+	// No schedule validation errors for nightly_sync
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "ingestion.nightly_sync.trigger.schedule" {
+			t.Errorf("unexpected validation error for nightly_sync: %s", e.Message)
+		}
+	}
+}
+
+func TestShapeTemplate_ScheduleValidation(t *testing.T) {
+	base := baseTemplateWithIngestion(t)
+
+	// Invalid cron should produce a validation error
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Schedules: map[string]string{"nightly_sync": "not-a-cron"},
+	})
+	found := false
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "ingestion.nightly_sync.trigger.schedule" && strings.Contains(e.Message, "invalid") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected validation error for invalid cron expression")
+	}
+
+	// Empty schedule should produce a required error
+	resp = ShapeTemplate(base, &spec.TemplateRequest{})
+	found = false
+	for _, e := range resp.Validation.Errors {
+		if e.Field == "ingestion.nightly_sync.trigger.schedule" && strings.Contains(e.Message, "required") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected validation error for missing schedule")
+	}
+}
+
+func TestShapeTemplate_ScheduleIgnoredForNonScheduleTrigger(t *testing.T) {
+	base := baseTemplateWithIngestion(t)
+	resp := ShapeTemplate(base, &spec.TemplateRequest{
+		Schedules: map[string]string{"on_demand": "0 3 * * *"},
+	})
+
+	// Should not apply schedule to a manual trigger
+	if ing, ok := resp.Template.Ingestion["on_demand"]; ok {
+		if ing.Trigger.Schedule != "" {
+			t.Errorf("manual trigger should not have schedule applied, got '%s'", ing.Trigger.Schedule)
+		}
+	}
+}
+
+func TestShapeTemplate_ScheduleFromPrefill(t *testing.T) {
+	base := baseTemplateWithIngestion(t)
+	// Simulate mergeDeploymentPrefill: stored deployment had a schedule
+	if ing, ok := base.Ingestion["nightly_sync"]; ok {
+		ing.Trigger.Schedule = "0 2 * * *"
+		base.Ingestion["nightly_sync"] = ing
+	}
+
+	// Initial POST with no schedules in request — should reflect the stored schedule
+	resp := ShapeTemplate(base, &spec.TemplateRequest{})
+	if resp.Schedules["nightly_sync"] != "0 2 * * *" {
+		t.Errorf("resp.Schedules[nightly_sync]: expected '0 2 * * *', got '%s'", resp.Schedules["nightly_sync"])
+	}
+
+	// Reshape with new schedule — should override
+	resp = ShapeTemplate(base, &spec.TemplateRequest{
+		Schedules: map[string]string{"nightly_sync": "0 4 * * *"},
+	})
+	if resp.Schedules["nightly_sync"] != "0 4 * * *" {
+		t.Errorf("resp.Schedules[nightly_sync] after reshape: expected '0 4 * * *', got '%s'", resp.Schedules["nightly_sync"])
+	}
+}

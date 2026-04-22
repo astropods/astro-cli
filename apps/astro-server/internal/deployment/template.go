@@ -472,6 +472,16 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		}
 	}
 
+	// --- Schedule shaping ---
+	if len(req.Schedules) > 0 {
+		for name, cron := range req.Schedules {
+			if ing, ok := shaped.Ingestion[name]; ok && ing.Trigger.Type == "schedule" {
+				ing.Trigger.Schedule = cron
+				shaped.Ingestion[name] = ing
+			}
+		}
+	}
+
 	// --- Build response ---
 	// Root Variables = full schema (from shaped copy, includes descriptions etc.)
 	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
@@ -539,12 +549,21 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		respInterfaces.Auth = shaped.Interfaces.Auth
 	}
 
+	// Promote ingestion schedules to the response root.
+	respSchedules := make(map[string]string)
+	for name, ing := range shaped.Ingestion {
+		if ing.Trigger.Type == "schedule" {
+			respSchedules[name] = ing.Trigger.Schedule
+		}
+	}
+
 	return &spec.TemplateResponse{
 		Spec:       "deployment-template/v1",
 		Template:   *shaped,
 		Variables:  schemaVars,
 		Editable:   editable,
 		Interfaces: respInterfaces,
+		Schedules:  respSchedules,
 		Validation: spec.TemplateValidation{
 			Valid:  len(errs) == 0,
 			Errors: errs,

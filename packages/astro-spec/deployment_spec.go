@@ -307,6 +307,7 @@ type TemplateRequest struct {
 	Revision     int                      `json:"revision,omitempty"`
 	Interfaces   *TemplateInterfaces      `json:"interfaces,omitempty"`
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
+	Schedules    map[string]string        `json:"schedules,omitempty"` // ingestion name → cron expression
 }
 
 // VariableInput carries a user-supplied value or account-variable ref for a single variable.
@@ -322,6 +323,7 @@ type TemplateResponse struct {
 	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
 	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
 	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth)
+	Schedules  map[string]string   `json:"schedules"`           // ingestion name → cron expression
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
 }
 

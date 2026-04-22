@@ -1128,6 +1128,7 @@ export interface TemplateRequest {
   revision?: number;
   interfaces?: TemplateInterfaces;
   variables?: Record<string, { value?: string; ref?: string }>;
+  schedules?: Record<string, string>;
 }
 
 export interface TemplateResponse {
@@ -1136,6 +1137,7 @@ export interface TemplateResponse {
   variables: Record<string, DeploymentVariable>;
   editable: string[];
   interfaces: TemplateInterfaces;
+  schedules: Record<string, string>;
   validation: TemplateValidation;
 }
 

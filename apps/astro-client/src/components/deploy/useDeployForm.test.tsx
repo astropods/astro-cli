@@ -351,6 +351,58 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     expect(result.current.ingestionSchedules).toEqual({ nightly: '0 3 * * *' });
   });
 
+  it('reports validation error for empty schedule, passes when schedule is provided', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'API key' },
+      },
+      ingestion: {
+        nightly: {
+          image: 'sync:latest',
+          trigger: { type: 'schedule', schedule: '' },
+        },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+          initialValues: {
+            deployName: 'My Agent',
+            targetAccount: 'testuser',
+            variableValues: { OPENAI_API_KEY: 'sk-filled' },
+            selectedAdapters: ['web'],
+            ingestionSchedules: {},
+          },
+        }),
+      { wrapper },
+    );
+
+    // trySubmit with empty schedule → should fail
+    let valid: boolean;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+    expect(valid!).toBe(false);
+    expect(result.current.errors.ingestionSchedules).toEqual(['nightly']);
+
+    // Fill the schedule
+    act(() => {
+      result.current.setIngestionSchedules({ nightly: '0 3 * * *' });
+    });
+
+    // trySubmit again → should pass
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+    expect(valid!).toBe(true);
+    expect(result.current.errors.ingestionSchedules).toBeUndefined();
+  });
+
   it('populates web auth default on first render', () => {
     const tpl: DeploymentTemplate = {
       ...mockTemplate,

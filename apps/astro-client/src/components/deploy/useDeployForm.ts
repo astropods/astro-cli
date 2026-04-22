@@ -68,8 +68,9 @@ function isObjectVariable(v: DeploymentVariable): boolean {
 }
 
 /** Compute form-ready initial values from a pre-filled deployment template.
- *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth) */
-export function computeInitialValues(template: DeploymentTemplate, account: string, respInterfaces?: TemplateInterfaces): DeployFormInitialValues {
+ *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth)
+ *  @param respSchedules — top-level `schedules` from TemplateResponse (ingestion name → cron) */
+export function computeInitialValues(template: DeploymentTemplate, account: string, respInterfaces?: TemplateInterfaces, respSchedules?: Record<string, string>): DeployFormInitialValues {
   const variableValues: Record<string, string> = {};
   const adapterCredentials: Record<string, string> = {};
 
@@ -98,8 +99,8 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
   const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
   const webAuthEnabled = isWebAuthOidc(respInterfaces?.auth);
 
-  const ingestionSchedules: Record<string, string> = {};
-  if (template.ingestion) {
+  const ingestionSchedules: Record<string, string> = respSchedules ?? {};
+  if (!respSchedules && template.ingestion) {
     for (const [name, ing] of Object.entries(template.ingestion)) {
       if (ing.trigger?.type === "schedule") {
         ingestionSchedules[name] = ing.trigger.schedule ?? "";
@@ -289,7 +290,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (!template || seededRef.current) return;
     seededRef.current = true;
 
-    const extracted = computeInitialValues(template, account, templateResponse?.interfaces);
+    const extracted = computeInitialValues(template, account, templateResponse?.interfaces, templateResponse?.schedules);
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
       targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",
@@ -335,12 +336,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const scheduleIngestions = useMemo<string[]>(
     () =>
-      template?.ingestion
-        ? Object.entries(template.ingestion)
-            .filter(([, ing]) => ing.trigger?.type === "schedule")
-            .map(([name]) => name)
-        : [],
-    [template],
+      templateResponse?.schedules
+        ? Object.keys(templateResponse.schedules).sort()
+        : template?.ingestion
+          ? Object.entries(template.ingestion)
+              .filter(([, ing]) => ing.trigger?.type === "schedule")
+              .map(([name]) => name)
+          : [],
+    [template, templateResponse],
   );
 
   // Derived variable lists (agent/ingestion-targeting variables)
@@ -535,6 +538,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const req: TemplateRequest = {
       interfaces: buildInterfaces(),
       variables: variableInputs,
+      schedules: ingestionSchedules,
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
@@ -557,22 +561,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return;
     }
 
-    // The server-fulfilled template is ready — patch target and ingestion schedules, then deploy.
-    const ingestion = resp.template.ingestion
-      ? Object.fromEntries(
-          Object.entries(resp.template.ingestion).map(([n, ing]) => {
-            if (ing.trigger?.type === "schedule" && n in ingestionSchedules) {
-              return [n, { ...ing, trigger: { ...ing.trigger, schedule: ingestionSchedules[n] } }];
-            }
-            return [n, ing];
-          }),
-        )
-      : resp.template.ingestion;
-
+    // The server-fulfilled template has schedules baked in — just patch target.
     const spec: DeploymentSpec = {
       ...resp.template,
       target: { ...resp.template.target, account: targetAccount, display_name: deployName.trim() },
-      ingestion,
     };
 
     try {

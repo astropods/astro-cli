@@ -14,6 +14,7 @@ export function computeFormDefaults(
   template: DeploymentTemplate | null | undefined,
   name: string,
   respInterfaces?: TemplateInterfaces,
+  respSchedules?: Record<string, string>,
 ): DeployFormInitialValues {
   const deployName = slugToTitle(name);
 
@@ -53,9 +54,9 @@ export function computeFormDefaults(
     }
   }
 
-  // Ingestion schedule defaults
-  const ingestionSchedules: Record<string, string> = {};
-  if (template.ingestion) {
+  // Ingestion schedule defaults — prefer response-level schedules
+  const ingestionSchedules: Record<string, string> = respSchedules ? { ...respSchedules } : {};
+  if (!respSchedules && template.ingestion) {
     for (const [ingName, ing] of Object.entries(template.ingestion)) {
       if (ing.trigger?.type === "schedule") {
         ingestionSchedules[ingName] = ing.trigger.schedule ?? "";
