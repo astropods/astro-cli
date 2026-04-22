@@ -93,11 +93,12 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 				errs = append(errs, fmt.Sprintf("%s: knowledge store %q not declared", ref.Raw, ref.Name))
 				continue
 			}
-			if ref.Endpoint == "" {
+			switch ref.Endpoint {
+			case "":
 				if ref.Attribute != "host" {
 					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
 				}
-			} else if ref.Endpoint == "credentials" {
+			case "credentials":
 				// Credential references: only valid for bound entries.
 				if !k.IsBound() {
 					errs = append(errs, fmt.Sprintf("%s: credentials references are only valid for bound knowledge entries", ref.Raw))
@@ -107,7 +108,7 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 						errs = append(errs, fmt.Sprintf("%s: invalid credential %q for provider %q", ref.Raw, ref.Attribute, k.Provider))
 					}
 				}
-			} else {
+			default:
 				// Endpoint reference: for bound entries, look up from provider registry.
 				endpoints := k.Endpoints
 				if k.IsBound() {
