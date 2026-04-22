@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { ChatBubbleLeftRightIcon, Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
+import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
@@ -57,6 +58,8 @@ export function ActiveDetailView({
   const [configRevision, setConfigRevision] = useState<number | null>(null)
   const [configIsNewBuild, setConfigIsNewBuild] = useState(false)
   const [configRollbackBuildId, setConfigRollbackBuildId] = useState<string | null>(null)
+  const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
+  const deploymentAvatarUrl = deploymentAvatarBust ?? getDeploymentAvatarUrl(deployment.id);
   const messagingUrl = deployment.external_urls?.find(u => u.type === 'messaging')?.url;
 
   const [panelWidth, setPanelWidth] = useState(420);
@@ -169,7 +172,7 @@ export function ActiveDetailView({
             <ArrowLeft size={14} />
           </button>
           <div className="rounded overflow-hidden shrink-0 leading-none">
-            <BlueprintIdentity account={account} name={deployment.name} size={26} url={getDeploymentAvatarUrl(deployment.id)} className="rounded-sm" />
+            <BlueprintIdentity account={account} name={deployment.name} size={26} url={deploymentAvatarUrl} className="rounded-sm" />
           </div>
           <div className="flex items-center gap-1.5">
             <h1 className="font-sans text-heading-4 font-semibold text-foreground m-0 leading-tight">

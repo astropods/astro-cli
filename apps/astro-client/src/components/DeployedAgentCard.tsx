@@ -20,6 +20,7 @@ import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
+import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 
 export type DeployedAgentStatus = "active" | "inactive" | "deploying" | "undeploying" | "error" | "restarting" | "pausing" | "resuming";
 
@@ -88,7 +89,8 @@ export function DeployedAgentCard({
   const { data: agent } = useBlueprint(account, name, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const deploymentAvatarUrl = getDeploymentAvatarUrl(deploymentId);
+  const deploymentAvatarBust = useDeploymentAvatarBust(deploymentId);
+  const deploymentAvatarUrl = deploymentAvatarBust ?? getDeploymentAvatarUrl(deploymentId);
 
   const cardData = useMemo<CardData>(() => ({
     name,
@@ -155,7 +157,7 @@ export function DeployedAgentCard({
           account={account}
           name={name}
           size={36}
-          url={getDeploymentAvatarUrl(deploymentId)}
+          url={deploymentAvatarUrl}
           className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="min-w-0 flex-1 pr-6">

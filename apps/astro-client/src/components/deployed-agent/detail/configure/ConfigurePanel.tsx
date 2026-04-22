@@ -9,6 +9,7 @@ import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { Tag } from "@/components/Tag";
 import type { AgentDeployment } from "@/lib/api";
+import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 
 const PANEL_FORM_ID = "configure-side-panel-form";
 const PANEL_SHELL_CLASS = "flex h-full w-full flex-col";
@@ -45,6 +46,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
+  const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
 
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
@@ -135,11 +137,12 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
               form={form}
               hideAccountPicker
               avatar={{
-                url: deployment.avatar_url,
+                url: deploymentAvatarBust ?? deployment.avatar_url,
                 account,
                 blueprintName: deployment.name,
                 onUpload: readOnly ? undefined : async (file) => {
                   await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
+                  bustDeploymentAvatar(deployment.id, file);
                 },
                 isPending: uploadDeploymentAvatar.isPending,
               }}

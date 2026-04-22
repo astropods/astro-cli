@@ -10,6 +10,7 @@ import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
+import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 
 export const meta: MetaFunction = () => [{ title: "Configure Deployment | Astro" }];
 
@@ -40,6 +41,7 @@ export default function ConfigureDeployment() {
   });
 
   const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
+  const deploymentAvatarBust = useDeploymentAvatarBust(deployment.id);
 
   const trackedState: TrackedFormState = {
     deployName: form.deployName,
@@ -91,11 +93,12 @@ export default function ConfigureDeployment() {
           form={form}
           hideAccountPicker
           avatar={{
-            url: deployment.avatar_url,
+            url: deploymentAvatarBust ?? deployment.avatar_url,
             account,
             blueprintName: deployment.name,
             onUpload: async (file) => {
               await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
+              bustDeploymentAvatar(deployment.id, file);
             },
             isPending: uploadDeploymentAvatar.isPending,
           }}

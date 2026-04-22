@@ -7,6 +7,7 @@ import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
+import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -57,7 +58,8 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
   const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
-  const deploymentAvatarUrl = getDeploymentAvatarUrl(deploymentId);
+  const deploymentAvatarBust = useDeploymentAvatarBust(deploymentId);
+  const deploymentAvatarUrl = deploymentAvatarBust ?? getDeploymentAvatarUrl(deploymentId);
 
   const cardData = useMemo<CardData>(() => ({
     name: deploymentName,

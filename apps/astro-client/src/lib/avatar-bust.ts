@@ -80,6 +80,20 @@ export function useAgentAvatarBust(account: string, name: string): string | unde
   return useAvatarBust(`agent:${account}/${name}`);
 }
 
+/** Override the avatar for a deployment with a local blob URL for instant feedback. */
+export function bustDeploymentAvatar(id: string, blob: Blob): void {
+  const key = `deployment:${id}`;
+  const prev = overrides.get(key);
+  if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+  overrides.set(key, URL.createObjectURL(blob));
+  emit();
+}
+
+/** React hook — returns a local blob URL override for a deployment avatar, or `undefined`. */
+export function useDeploymentAvatarBust(id: string): string | undefined {
+  return useAvatarBust(`deployment:${id}`);
+}
+
 /** React hook — returns a local blob URL override for `handle`, or `undefined`. */
 export function useAvatarBust(handle: string): string | undefined {
   return useSyncExternalStore(

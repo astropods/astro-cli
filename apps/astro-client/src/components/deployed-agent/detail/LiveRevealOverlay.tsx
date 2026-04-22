@@ -18,6 +18,7 @@ import { useExtractedColors, useResolvedIntegrations } from "@/components/deploy
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
+import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 
 export function LiveRevealOverlay({
   deployment,
@@ -42,7 +43,8 @@ export function LiveRevealOverlay({
     return () => window.cancelAnimationFrame(raf);
   }, []);
 
-  const avatarUrl = getDeploymentAvatarUrl(deployment.id);
+  const avatarBust = useDeploymentAvatarBust(deployment.id);
+  const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deployment.id);
 
   const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -144,7 +146,7 @@ export function LiveRevealOverlay({
           {/* Hidden preload keeps the avatar URL in the browser cache so the SVG
               <image> element doesn't flicker when the card is regenerated after
               color extraction completes. */}
-          <img src={getDeploymentAvatarUrl(deployment.id)} aria-hidden className="sr-only" alt="" />
+          <img src={avatarUrl} aria-hidden className="sr-only" alt="" />
           <div
             className={cn(
               "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
