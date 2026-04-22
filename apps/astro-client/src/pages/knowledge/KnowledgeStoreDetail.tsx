@@ -10,6 +10,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { ExclamationTriangleIcon, CheckCircleIcon } from "@heroicons/react/24/solid";
 import { CopyButton as SharedCopyButton } from "@/components/ui/copy-button";
+import { formatBytes, formatUptime, formatCPU } from "@/lib/format-utils";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,25 +70,6 @@ function ProviderIcon({ provider, className }: { provider: KnowledgeProvider; cl
 
 // --- Overview tab ---
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatUptime(seconds: number): string {
-  if (seconds < 60) { const v = seconds; return `${v} ${v === 1 ? "second" : "seconds"}`; }
-  if (seconds < 3600) { const v = Math.floor(seconds / 60); return `${v} ${v === 1 ? "minute" : "minutes"}`; }
-  if (seconds < 86400) { const v = Math.floor(seconds / 3600); return `${v} ${v === 1 ? "hour" : "hours"}`; }
-  const v = Math.floor(seconds / 86400);
-  return `${v} ${v === 1 ? "day" : "days"}`;
-}
-
-function formatCPU(cores: number): string {
-  if (cores < 0.01) return `${(cores * 1000).toFixed(0)}m`;
-  return `${cores.toFixed(2)}`;
-}
 
 function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeStore; account: string; onViewLogs: () => void }) {
   const isReady = store.status === "ready";
