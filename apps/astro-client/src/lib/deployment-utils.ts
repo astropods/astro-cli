@@ -80,6 +80,17 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+/** Formats a date as "April 22nd, 2026" — full month, ordinal day, full year. */
+export function formatDateLong(dateStr: string): string {
+  const date = new Date(dateStr);
+  const day = date.getDate();
+  const v = day % 100;
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const suffix = suffixes[(v - 20) % 10] ?? suffixes[v] ?? 'th';
+  const month = date.toLocaleDateString("en-US", { month: "long" });
+  return `${month} ${day}${suffix}, ${date.getFullYear()}`;
+}
+
 export function formatDaysActive(isoString: string): string {
   const days = Math.floor((Date.now() - new Date(isoString).getTime()) / (1000 * 60 * 60 * 24));
   if (days === 0) return "< 1 day";

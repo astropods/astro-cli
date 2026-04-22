@@ -7,7 +7,7 @@ import { ChatBubbleLeftRightIcon, Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
-import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate, formatDateLong } from "@/lib/deployment-utils";
 import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
 import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
@@ -318,7 +318,7 @@ export function ActiveDetailView({
                   <div className="mb-4">
                     <ActionPanel
                       tone="warning"
-                      title={<>A new build number <span className="font-mono">{latestBuildId?.slice(0, 8)}</span> is available for this agent.</>}
+                      title={<>A new build (<span className="font-mono">{latestBuildId?.slice(0, 8)}</span>) for this agent was released on {formatDateLong(latestVersion?.published_at ?? "")}.</>}
                       primaryLabel="Redeploy →"
                       onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
                       confirmTitle="Are you sure?"

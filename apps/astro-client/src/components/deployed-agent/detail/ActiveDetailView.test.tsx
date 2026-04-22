@@ -70,9 +70,8 @@ async function waitForBlueprintsLoaded(queryClient: ReturnType<typeof renderWith
   });
 }
 
-// Banner title is split across text nodes: "A new build number " + <span>hash</span> + " is available..."
-// Use regex against the parent element's textContent to match across nodes.
-const BANNER_REGEX = /A new build number .+ is available for this agent\./;
+// The banner is uniquely identified by its "Redeploy →" CTA button.
+const bannerButton = () => screen.queryByRole('button', { name: /Redeploy/ });
 
 describe('new build available banner', () => {
   it('shows when a newer build has been published', async () => {
@@ -88,7 +87,7 @@ describe('new build available banner', () => {
 
     renderView();
 
-    await screen.findByText(BANNER_REGEX);
+    await screen.findByRole('button', { name: /Redeploy/ });
   });
 
   it('shows the new build hash in the title', async () => {
@@ -104,7 +103,8 @@ describe('new build available banner', () => {
 
     renderView();
 
-    await screen.findByText(BANNER_REGEX);
+    await screen.findByRole('button', { name: /Redeploy/ });
+    // The 8-char hash of the new build appears in the banner title
     expect(screen.getByText(NEW_BUILD.slice(0, 8))).toBeInTheDocument();
   });
 
@@ -121,7 +121,7 @@ describe('new build available banner', () => {
     const { queryClient } = renderView();
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
+    expect(bannerButton()).not.toBeInTheDocument();
   });
 
   it('does not show when there is no matching blueprint', async () => {
@@ -137,7 +137,7 @@ describe('new build available banner', () => {
     const { queryClient } = renderView();
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
+    expect(bannerButton()).not.toBeInTheDocument();
   });
 
   it('does not show when the deployed build is already the newest by date', async () => {
@@ -154,6 +154,6 @@ describe('new build available banner', () => {
     const { queryClient } = renderView({ ...baseDeployment, build_id: NEW_BUILD });
     await waitForBlueprintsLoaded(queryClient);
 
-    expect(screen.queryByText(BANNER_REGEX)).not.toBeInTheDocument();
+    expect(bannerButton()).not.toBeInTheDocument();
   });
 });
