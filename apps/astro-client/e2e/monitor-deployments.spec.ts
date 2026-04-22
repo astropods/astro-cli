@@ -50,7 +50,8 @@ test("deployments tab: stat cards and service accordion are visible", async ({ p
   await page.goto(AGENT_DETAIL, { waitUntil: "domcontentloaded" });
 
   // Stat cards: build ID from mock is "build-123" → first 8 chars = "build-12"
-  const buildStatCard = page.locator(':has-text("CURRENT BUILD")').last();
+  // Navigate from the label span up to its MetricCard parent div, then find the value sibling.
+  const buildStatCard = page.locator('span:text("CURRENT BUILD")').locator('..');
   await expect(buildStatCard).toBeVisible({ timeout: 15_000 });
   await expect(buildStatCard.getByText("build-12")).toBeVisible({ timeout: 5_000 });
 
