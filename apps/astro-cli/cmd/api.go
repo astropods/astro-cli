@@ -14,7 +14,7 @@ import (
 // dest is a pointer to decode the JSON response into, or nil to ignore the body.
 // Non-2xx responses are returned as an error with the status code; the caller
 // is responsible for reading and interpreting any error body.
-func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) error { //nolint:unparam
+func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) error { //nolint:unparam,unused
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -60,7 +60,7 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 
 // apiPath builds a full API URL: serverURL + /api/v1/ + operation + / + account + / + parts.
 // e.g. apiPath(serverURL, "alice", "accounts", "variables", "MY_KEY") → "https://…/api/v1/accounts/alice/variables/MY_KEY"
-func apiPath(serverURL, account string, operation string, parts ...string) string {
+func apiPath(serverURL, account string, operation string, parts ...string) string { //nolint:unused
 	base := strings.TrimSuffix(serverURL, "/") + "/api/v1/" + operation + "/" + account
 	if len(parts) > 0 {
 		base += "/" + strings.Join(parts, "/")
