@@ -151,7 +151,13 @@ const templatesByAgent = {
         targets: ["interface.slack"],
         secret: false,
         optional: true,
-        description: "Slack adapter configuration as JSON",
+        description: "Slack adapter configuration",
+        datatype: "object",
+        fields: {
+          actionable_reactions: { label: "Actionable Reactions", description: "Emoji names the bot acts on", placeholder: "ticket, bug", datatype: "csv", optional: true },
+          allowed_channel_ids: { label: "Allowed Channel IDs", description: "Restrict to specific channels", placeholder: "C12345, C67890", datatype: "csv", optional: true },
+          allowed_user_ids: { label: "Allowed User IDs", description: "Restrict to specific users", placeholder: "U12345, U67890", datatype: "csv", optional: true },
+        },
       },
     },
     editable: ["variables.*.value", "interfaces.adapters"],
@@ -277,7 +283,13 @@ const prefilledTemplatesByDeployment = {
         targets: ["interface.slack"],
         secret: false,
         optional: true,
-        description: "Slack adapter configuration as JSON",
+        description: "Slack adapter configuration",
+        datatype: "object",
+        fields: {
+          actionable_reactions: { label: "Actionable Reactions", description: "Emoji names the bot acts on", placeholder: "ticket, bug", datatype: "csv", optional: true },
+          allowed_channel_ids: { label: "Allowed Channel IDs", description: "Restrict to specific channels", placeholder: "C12345, C67890", datatype: "csv", optional: true },
+          allowed_user_ids: { label: "Allowed User IDs", description: "Restrict to specific users", placeholder: "U12345, U67890", datatype: "csv", optional: true },
+        },
         value: '{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}',
       },
     },
@@ -490,16 +502,18 @@ const accountAgents = {
   count: 5,
 };
 
+const corsHeaders = (origin?: string | null) => ({
+  "access-control-allow-origin": origin || "http://127.0.0.1:44317",
+  "access-control-allow-credentials": "true",
+  "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  "access-control-allow-headers": "content-type,authorization",
+});
+
+let _currentOrigin: string | null = null;
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "content-type": "application/json",
-      "access-control-allow-origin": "http://localhost:5173",
-      "access-control-allow-credentials": "true",
-      "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "content-type,authorization",
-    },
+    headers: { "content-type": "application/json", ...corsHeaders(_currentOrigin) },
   });
 
 Bun.serve({
@@ -507,25 +521,13 @@ Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
     const pathname = url.pathname;
+    _currentOrigin = request.headers.get("origin");
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "http://localhost:5173",
-          "access-control-allow-credentials": "true",
-          "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-          "access-control-allow-headers": "content-type,authorization",
-        },
-      });
+      return new Response(null, { status: 204, headers: corsHeaders(_currentOrigin) });
     }
 
     if (pathname === "/health") {
-      return new Response("ok", {
-        headers: {
-          "access-control-allow-origin": "http://localhost:5173",
-          "access-control-allow-credentials": "true",
-        },
-      });
+      return new Response("ok", { headers: corsHeaders(_currentOrigin) });
     }
 
     // Reset mutable state between tests so parallel workers don't leak side-effects
@@ -628,10 +630,26 @@ Bun.serve({
           }
         }
 
-        // Merge request-level adapters
-        const reqAdapters = body.adapters as string[] | undefined;
+        // Merge request-level interfaces (adapters + auth)
+        const reqInterfaces = body.interfaces as Record<string, unknown> | undefined;
+        const reqAdapters = reqInterfaces?.adapters as string[] | undefined;
         if (reqAdapters && flat.interfaces) {
           (flat.interfaces as Record<string, unknown>).adapters = reqAdapters;
+        }
+        if (reqInterfaces?.auth && flat.interfaces) {
+          (flat.interfaces as Record<string, unknown>).auth = reqInterfaces.auth;
+        }
+
+        // Merge request-level schedules
+        const reqSchedules = body.schedules as Record<string, string> | undefined;
+        if (reqSchedules && flat.ingestion) {
+          const tmplIngestion = flat.ingestion as Record<string, Record<string, unknown>>;
+          for (const [name, cron] of Object.entries(reqSchedules)) {
+            if (tmplIngestion[name]) {
+              const trigger = (tmplIngestion[name] as Record<string, unknown>).trigger as Record<string, unknown>;
+              if (trigger?.type === "schedule") trigger.schedule = cron;
+            }
+          }
         }
 
         // Build TemplateResponse envelope
@@ -642,6 +660,26 @@ Bun.serve({
             templateVars[k] = { value: v.value, ref: v.ref, targets: v.targets, secret: v.secret, optional: v.optional };
           }
         }
+
+        // Promote interfaces to response root
+        const flatInterfaces = flat.interfaces as Record<string, unknown> | undefined;
+        const respInterfaces = {
+          adapters: (flatInterfaces?.adapters as string[] | undefined) ?? [],
+          auth: flatInterfaces?.auth,
+        };
+
+        // Promote schedules to response root
+        const respSchedules: Record<string, string> = {};
+        const flatIngestion = flat.ingestion as Record<string, Record<string, unknown>> | undefined;
+        if (flatIngestion) {
+          for (const [name, ing] of Object.entries(flatIngestion)) {
+            const trigger = ing.trigger as Record<string, unknown> | undefined;
+            if (trigger?.type === "schedule") {
+              respSchedules[name] = (trigger.schedule as string) ?? "";
+            }
+          }
+        }
+
         const errors = variables
           ? Object.entries(variables as Record<string, Record<string, unknown>>)
               .filter(([, v]) => !v.optional && !v.value && !v.ref)
@@ -652,6 +690,8 @@ Bun.serve({
           template: { ...templateRest, spec: "deployment/v1", variables: templateVars },
           variables: variables ?? {},
           editable: editable ?? [],
+          interfaces: respInterfaces,
+          schedules: respSchedules,
           validation: { valid: errors.length === 0, errors },
         });
       }
