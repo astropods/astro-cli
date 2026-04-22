@@ -355,13 +355,37 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 		slackCfgDefault := slackConfigDefault(astroSpec)
 		ds.Variables["SLACK_CONFIG"] = spec.Variable{
-			Description: "Slack adapter configuration as JSON (actionable_reactions, allowed_channel_ids, allowed_user_ids, socket_mode, auto_thread)",
+			Description: "Slack adapter configuration",
 			Label:       "Slack Configuration",
+			Datatype:    "object",
 			Optional:    true,
 			Secret:      false,
 			Targets:     []string{"interface.slack"},
 			Value:       slackCfgDefault,
 			Default:     slackCfgDefault,
+			Fields: map[string]spec.VariableField{
+				"actionable_reactions": {
+					Label:       "Actionable Reactions",
+					Description: "Emoji names the bot acts on",
+					Placeholder: "ticket, bug",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+				"allowed_channel_ids": {
+					Label:       "Allowed Channel IDs",
+					Description: "Restrict to specific channels",
+					Placeholder: "C12345, C67890",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+				"allowed_user_ids": {
+					Label:       "Allowed User IDs",
+					Description: "Restrict to specific users",
+					Placeholder: "U12345, U67890",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+			},
 		}
 
 		wireInterfaceEnvironment(ds)
@@ -467,6 +491,7 @@ func ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *s
 		v.Datatype = ""
 		v.DisplayAs = ""
 		v.Options = nil
+		v.Fields = nil
 		v.Default = ""
 		shaped.Variables[key] = v
 	}

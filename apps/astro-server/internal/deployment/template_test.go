@@ -2203,6 +2203,7 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 		v.Datatype = ""
 		v.DisplayAs = ""
 		v.Options = nil
+		v.Fields = nil
 		v.Default = ""
 		getSpec.Variables[key] = v
 	}

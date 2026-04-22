@@ -8,7 +8,7 @@ import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
-import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
+import { serializeObjectVariable, deserializeObjectVariable } from "./slackConfig";
 import { computeFormDefaults } from "./computeFormDefaults";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
@@ -62,14 +62,10 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "web", label: "Web", description: "Browser-based chat interface" },
 ];
 
-// Virtual Slack config fields — UI-only, parsed from the compound SLACK_CONFIG
-// JSON variable for individual editing. Labels and placeholders are hardcoded
-// because these fields don't exist as separate server variables.
-const SLACK_VIRTUAL_FIELDS: Record<string, VariableDisplay> = {
-  SLACK_ACTIONABLE_REACTIONS: { label: "Actionable Reactions", description: "Emoji names the bot acts on", optional: true, secret: false, placeholder: "ticket, bug" },
-  SLACK_ALLOWED_CHANNEL_IDS: { label: "Allowed Channel IDs", description: "Restrict to specific channels", optional: true, secret: false, placeholder: "C12345, C67890" },
-  SLACK_ALLOWED_USER_IDS: { label: "Allowed User IDs", description: "Restrict to specific users", optional: true, secret: false, placeholder: "U12345, U67890" },
-};
+/** Check whether a variable is an object with sub-field schema. */
+function isObjectVariable(v: DeploymentVariable): boolean {
+  return v.datatype === "object" && !!v.fields && Object.keys(v.fields).length > 0;
+}
 
 /** Compute form-ready initial values from a pre-filled deployment template.
  *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth) */
@@ -82,10 +78,11 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
       const val = v.ref
         ? (v.secret ? `{{secrets.${v.ref}}}` : `{{vars.${v.ref}}}`)
         : (v.value ?? v.default ?? getVariableDefault({ datatype: v.datatype }));
-      if (key === SLACK_CONFIG_KEY) {
-        const parsed = deserializeSlackConfig(val);
-        for (const [vKey, vVal] of Object.entries(parsed)) {
-          adapterCredentials[vKey] = vVal;
+      // Object variables with fields → expand sub-fields into adapter credentials
+      if (isObjectVariable(v)) {
+        const parsed = deserializeObjectVariable(key, v.fields!, val);
+        for (const [fKey, fVal] of Object.entries(parsed)) {
+          adapterCredentials[fKey] = fVal;
         }
         continue;
       }
@@ -391,29 +388,37 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     for (const [adapterId, vars] of byAdapter) {
       const isSelected = selectedAdapters.includes(adapterId);
-      const hasSlackConfig = adapterId === "slack" && vars.some(([key]) => key === SLACK_CONFIG_KEY);
 
-      // Build real adapter fields (exclude SLACK_CONFIG — it's expanded into virtual fields).
-      // When the adapter is selected, secret token variables become required immediately
-      // (optimistic — confirmed by the server reshape response).
+      // Separate object variables (expanded into sub-fields) from regular variables.
+      const objectVars = vars.filter(([, v]) => isObjectVariable(v));
       const realFields: [string, VariableDisplay][] = vars
-        .filter(([key]) => key !== SLACK_CONFIG_KEY)
+        .filter(([, v]) => !isObjectVariable(v))
         .map(([key, v]) => {
           const display = toVariableDisplay(v);
+          // When the adapter is selected, secret token variables become required immediately
+          // (optimistic — confirmed by the server reshape response).
           if (isSelected && display.secret) display.optional = false;
           return [key, display];
         });
 
       varDefs[adapterId] = realFields;
 
-      if (hasSlackConfig) {
-        // Expand SLACK_CONFIG compound JSON into three virtual config fields for display.
-        // These are UI-only — they don't exist as separate server variables.
-        const virtualConfig: [string, VariableDisplay][] = Object.entries(SLACK_VIRTUAL_FIELDS);
-        displayDefs[adapterId] = [...realFields, ...virtualConfig];
-      } else {
-        displayDefs[adapterId] = realFields;
+      // Expand object variables into per-sub-field display entries driven by the server schema.
+      const subFields: [string, VariableDisplay][] = [];
+      for (const [parentKey, v] of objectVars) {
+        for (const [fieldKey, fieldDef] of Object.entries(v.fields!)) {
+          subFields.push([`${parentKey}.${fieldKey}`, {
+            label: fieldDef.label,
+            description: fieldDef.description,
+            placeholder: fieldDef.placeholder,
+            optional: fieldDef.optional ?? true,
+            secret: false,
+          }]);
+        }
       }
+      displayDefs[adapterId] = subFields.length > 0
+        ? [...realFields, ...subFields]
+        : realFields;
     }
 
     return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
@@ -519,9 +524,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         variableInputs[key] = resolveValue(raw);
       }
     }
-    // SLACK_CONFIG: serialize the three virtual fields back into a single JSON value.
-    if (SLACK_CONFIG_KEY in (template.variables ?? {})) {
-      variableInputs[SLACK_CONFIG_KEY] = { value: serializeSlackConfig(allFormValues) };
+    // Serialize object variables: re-assemble sub-field form values into JSON.
+    for (const [key, v] of Object.entries(template.variables ?? {})) {
+      if (isObjectVariable(v)) {
+        variableInputs[key] = { value: serializeObjectVariable(key, v.fields!, allFormValues) };
+      }
     }
 
     // POST template with all inputs to get the server-fulfilled spec.

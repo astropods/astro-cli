@@ -7,6 +7,12 @@ function makeTemplate(overrides: Partial<DeploymentTemplate> = {}): DeploymentTe
   return { ...mockTemplate, ...overrides };
 }
 
+const slackConfigFields = {
+  actionable_reactions: { label: "Actionable Reactions", datatype: "csv", optional: true },
+  allowed_channel_ids: { label: "Allowed Channel IDs", datatype: "csv", optional: true },
+  allowed_user_ids: { label: "Allowed User IDs", datatype: "csv", optional: true },
+};
+
 describe("computeFormDefaults", () => {
   // --- Null / missing template ---
 
@@ -197,7 +203,7 @@ describe("computeFormDefaults", () => {
 
   // --- SLACK_CONFIG compound field ---
 
-  it("deserializes SLACK_CONFIG default into virtual fields", () => {
+  it("deserializes SLACK_CONFIG default into sub-field credentials", () => {
     const slackCfg = JSON.stringify({
       actionable_reactions: ["ticket", "bug"],
       allowed_channel_ids: ["C12345"],
@@ -205,21 +211,21 @@ describe("computeFormDefaults", () => {
     });
     const tpl = makeTemplate({
       variables: {
-        SLACK_CONFIG: { default: slackCfg, targets: ["interface.slack"], optional: true },
+        SLACK_CONFIG: { default: slackCfg, targets: ["interface.slack"], optional: true, datatype: "object", fields: slackConfigFields },
         SLACK_BOT_TOKEN: { targets: ["interface.slack"], secret: true },
       },
     });
     const result = computeFormDefaults(tpl, "my-agent");
-    expect(result.adapterCredentials?.SLACK_ACTIONABLE_REACTIONS).toBe("ticket, bug");
-    expect(result.adapterCredentials?.SLACK_ALLOWED_CHANNEL_IDS).toBe("C12345");
+    expect(result.adapterCredentials?.["SLACK_CONFIG.actionable_reactions"]).toBe("ticket, bug");
+    expect(result.adapterCredentials?.["SLACK_CONFIG.allowed_channel_ids"]).toBe("C12345");
     // Empty arrays produce empty string, which is falsy → not included
-    expect(result.adapterCredentials?.SLACK_ALLOWED_USER_IDS).toBeUndefined();
+    expect(result.adapterCredentials?.["SLACK_CONFIG.allowed_user_ids"]).toBeUndefined();
   });
 
   it("handles SLACK_CONFIG with empty/invalid JSON gracefully", () => {
     const tpl = makeTemplate({
       variables: {
-        SLACK_CONFIG: { default: "", targets: ["interface.slack"], optional: true },
+        SLACK_CONFIG: { default: "", targets: ["interface.slack"], optional: true, datatype: "object", fields: slackConfigFields },
       },
     });
     const result = computeFormDefaults(tpl, "my-agent");
@@ -233,12 +239,14 @@ describe("computeFormDefaults", () => {
           default: JSON.stringify({ actionable_reactions: ["ticket"] }),
           targets: ["interface.slack"],
           optional: true,
+          datatype: "object",
+          fields: slackConfigFields,
         },
       },
     });
     const result = computeFormDefaults(tpl, "my-agent");
     expect(result.adapterCredentials?.SLACK_CONFIG).toBeUndefined();
-    expect(result.adapterCredentials?.SLACK_ACTIONABLE_REACTIONS).toBe("ticket");
+    expect(result.adapterCredentials?.["SLACK_CONFIG.actionable_reactions"]).toBe("ticket");
   });
 
   // --- Ingestion schedules ---
@@ -333,6 +341,8 @@ describe("computeFormDefaults", () => {
           default: JSON.stringify({ actionable_reactions: ["ticket"] }),
           targets: ["interface.slack"],
           optional: true,
+          datatype: "object",
+          fields: slackConfigFields,
         },
       },
       ingestion: {
@@ -357,7 +367,7 @@ describe("computeFormDefaults", () => {
       VERBOSE: "false",
     });
     expect(result.adapterCredentials).toEqual({
-      SLACK_ACTIONABLE_REACTIONS: "ticket",
+      "SLACK_CONFIG.actionable_reactions": "ticket",
     });
     expect(result.ingestionSchedules).toEqual({ nightly: "0 2 * * *" });
     expect(result.webAuthEnabled).toBe(true);

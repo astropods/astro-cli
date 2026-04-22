@@ -1034,6 +1034,15 @@ export interface DeploymentVariable {
   datatype?: string;
   'display-as'?: string;
   options?: string[];
+  fields?: Record<string, VariableField>;
+}
+
+export interface VariableField {
+  label?: string;
+  description?: string;
+  placeholder?: string;
+  datatype?: string;
+  optional?: boolean;
 }
 
 export interface AccountVariable {

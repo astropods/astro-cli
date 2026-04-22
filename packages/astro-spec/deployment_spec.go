@@ -34,22 +34,33 @@ type EndpointExpose struct {
 }
 
 // Variable represents a user-fillable or provider-credential variable.
-// Template fields (Default, Description, Label, Placeholder, HelpURL, Datatype, DisplayAs, Options)
+// Template fields (Default, Description, Label, Placeholder, HelpURL, Datatype, DisplayAs, Options, Fields)
 // are only present in deployment-template/v1 and must be stripped before deployment/v1.
 type Variable struct {
-	Value       string   `json:"value,omitempty" yaml:"value,omitempty"`
-	Ref         string   `json:"ref,omitempty" yaml:"ref,omitempty"` // reference to an account variable by name (deploy-time only)
-	Default     string   `json:"default,omitempty" yaml:"default,omitempty"`
-	Targets     []string `json:"targets,omitempty" yaml:"targets,omitempty"`
-	Secret      bool     `json:"secret,omitempty" yaml:"secret,omitempty"`
-	Optional    bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
-	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
-	Label       string   `json:"label,omitempty" yaml:"label,omitempty"`
-	Placeholder string   `json:"placeholder,omitempty" yaml:"placeholder,omitempty"`
-	HelpURL     string   `json:"help_url,omitempty" yaml:"help_url,omitempty"`
-	Datatype    string   `json:"datatype,omitempty" yaml:"datatype,omitempty"`
-	DisplayAs   string   `json:"display-as,omitempty" yaml:"display-as,omitempty"`
-	Options     []string `json:"options,omitempty" yaml:"options,omitempty"`
+	Value       string                   `json:"value,omitempty" yaml:"value,omitempty"`
+	Ref         string                   `json:"ref,omitempty" yaml:"ref,omitempty"` // reference to an account variable by name (deploy-time only)
+	Default     string                   `json:"default,omitempty" yaml:"default,omitempty"`
+	Targets     []string                 `json:"targets,omitempty" yaml:"targets,omitempty"`
+	Secret      bool                     `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Optional    bool                     `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Description string                   `json:"description,omitempty" yaml:"description,omitempty"`
+	Label       string                   `json:"label,omitempty" yaml:"label,omitempty"`
+	Placeholder string                   `json:"placeholder,omitempty" yaml:"placeholder,omitempty"`
+	HelpURL     string                   `json:"help_url,omitempty" yaml:"help_url,omitempty"`
+	Datatype    string                   `json:"datatype,omitempty" yaml:"datatype,omitempty"`
+	DisplayAs   string                   `json:"display-as,omitempty" yaml:"display-as,omitempty"`
+	Options     []string                 `json:"options,omitempty" yaml:"options,omitempty"`
+	Fields      map[string]VariableField `json:"fields,omitempty" yaml:"fields,omitempty"` // sub-field schema for datatype=object
+}
+
+// VariableField describes a single sub-field within an object-typed variable.
+// The field key matches the JSON property name in the serialized value.
+type VariableField struct {
+	Label       string `json:"label,omitempty" yaml:"label,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Placeholder string `json:"placeholder,omitempty" yaml:"placeholder,omitempty"`
+	Datatype    string `json:"datatype,omitempty" yaml:"datatype,omitempty"` // "csv" for comma-separated arrays, "string", "boolean"
+	Optional    bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
 }
 
 // DeploymentSource identifies the agent being deployed.

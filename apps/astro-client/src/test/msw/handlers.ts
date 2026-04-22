@@ -142,7 +142,15 @@ export const mockTemplate: DeploymentTemplate = {
     SENTRY_DSN: { default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN for error tracking' },
     SLACK_BOT_TOKEN: { default: '', targets: ['interface.slack'], secret: true, optional: true, description: 'Slack bot token', label: 'Slack Bot Token', placeholder: 'xoxb-...' },
     SLACK_APP_TOKEN: { default: '', targets: ['interface.slack'], secret: true, optional: true, description: 'Slack app token', label: 'Slack App Token', placeholder: 'xapp-...' },
-    SLACK_CONFIG: { default: '', targets: ['interface.slack'], secret: false, optional: true, description: 'Slack adapter configuration' },
+    SLACK_CONFIG: {
+      default: '', targets: ['interface.slack'], secret: false, optional: true,
+      description: 'Slack adapter configuration', datatype: 'object',
+      fields: {
+        actionable_reactions: { label: 'Actionable Reactions', description: 'Emoji names the bot acts on', placeholder: 'ticket, bug', datatype: 'csv', optional: true },
+        allowed_channel_ids: { label: 'Allowed Channel IDs', description: 'Restrict to specific channels', placeholder: 'C12345, C67890', datatype: 'csv', optional: true },
+        allowed_user_ids: { label: 'Allowed User IDs', description: 'Restrict to specific users', placeholder: 'U12345, U67890', datatype: 'csv', optional: true },
+      },
+    },
   },
   editable: ['variables.*.value', 'interfaces.adapters'],
 };

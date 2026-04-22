@@ -426,21 +426,26 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
   });
 });
 
-// --- adapterDisplayFields: Slack virtual fields ---
+// --- adapterDisplayFields: object variable sub-fields ---
 
-describe('adapterDisplayFields Slack virtual fields', () => {
-  it('includes virtual config fields with proper labels and placeholders', () => {
+describe('adapterDisplayFields object variable sub-fields', () => {
+  const slackConfigVar = {
+    targets: ['interface.slack'] as string[],
+    optional: true,
+    datatype: 'object',
+    fields: {
+      actionable_reactions: { label: 'Actionable Reactions', description: 'Emoji names the bot acts on', placeholder: 'ticket, bug', datatype: 'csv', optional: true },
+      allowed_channel_ids: { label: 'Allowed Channel IDs', description: 'Restrict to specific channels', placeholder: 'C12345, C67890', datatype: 'csv', optional: true },
+      allowed_user_ids: { label: 'Allowed User IDs', description: 'Restrict to specific users', placeholder: 'U12345, U67890', datatype: 'csv', optional: true },
+    },
+  };
+
+  it('expands object variable fields with server-driven labels and placeholders', () => {
     const tpl: DeploymentTemplate = {
       ...mockTemplate,
       variables: {
         SLACK_BOT_TOKEN: { targets: ['interface.slack'], secret: true, optional: true, label: 'Slack Bot Token', placeholder: 'xoxb-...' },
-        SLACK_APP_TOKEN: { targets: ['interface.slack'], secret: true, optional: true, label: 'Slack App Token', placeholder: 'xapp-...' },
-        SLACK_CONFIG: {
-          value: '{"actionable_reactions":[],"allowed_channel_ids":[],"allowed_user_ids":[]}',
-          targets: ['interface.slack'],
-          optional: true,
-          label: 'Slack Configuration',
-        },
+        SLACK_CONFIG: slackConfigVar,
       },
       interfaces: { adapters: ['slack'] },
     };
@@ -465,29 +470,25 @@ describe('adapterDisplayFields Slack virtual fields', () => {
     expect(fieldMap.SLACK_BOT_TOKEN?.label).toBe('Slack Bot Token');
     expect(fieldMap.SLACK_BOT_TOKEN?.placeholder).toBe('xoxb-...');
 
-    // Virtual SLACK_CONFIG fields — should have hardcoded labels, not slugToTitle output
-    expect(fieldMap.SLACK_ACTIONABLE_REACTIONS?.label).toBe('Actionable Reactions');
-    expect(fieldMap.SLACK_ACTIONABLE_REACTIONS?.description).toBe('Emoji names the bot acts on');
-    expect(fieldMap.SLACK_ACTIONABLE_REACTIONS?.placeholder).toBe('ticket, bug');
-    expect(fieldMap.SLACK_ACTIONABLE_REACTIONS?.optional).toBe(true);
+    // Sub-fields from SLACK_CONFIG.fields — labels driven by server schema
+    expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.label).toBe('Actionable Reactions');
+    expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.description).toBe('Emoji names the bot acts on');
+    expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.placeholder).toBe('ticket, bug');
+    expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.optional).toBe(true);
 
-    expect(fieldMap.SLACK_ALLOWED_CHANNEL_IDS?.label).toBe('Allowed Channel IDs');
-    expect(fieldMap.SLACK_ALLOWED_CHANNEL_IDS?.placeholder).toBe('C12345, C67890');
+    expect(fieldMap['SLACK_CONFIG.allowed_channel_ids']?.label).toBe('Allowed Channel IDs');
+    expect(fieldMap['SLACK_CONFIG.allowed_channel_ids']?.placeholder).toBe('C12345, C67890');
 
-    expect(fieldMap.SLACK_ALLOWED_USER_IDS?.label).toBe('Allowed User IDs');
-    expect(fieldMap.SLACK_ALLOWED_USER_IDS?.placeholder).toBe('U12345, U67890');
+    expect(fieldMap['SLACK_CONFIG.allowed_user_ids']?.label).toBe('Allowed User IDs');
+    expect(fieldMap['SLACK_CONFIG.allowed_user_ids']?.placeholder).toBe('U12345, U67890');
   });
 
-  it('does not include SLACK_CONFIG key itself in display fields', () => {
+  it('excludes the parent object variable key from display fields', () => {
     const tpl: DeploymentTemplate = {
       ...mockTemplate,
       variables: {
         SLACK_BOT_TOKEN: { targets: ['interface.slack'], secret: true, optional: true },
-        SLACK_CONFIG: {
-          value: '{}',
-          targets: ['interface.slack'],
-          optional: true,
-        },
+        SLACK_CONFIG: slackConfigVar,
       },
       interfaces: { adapters: ['slack'] },
     };
@@ -506,7 +507,7 @@ describe('adapterDisplayFields Slack virtual fields', () => {
     const slackFields = result.current.adapterDisplayFields.slack;
     const keys = slackFields.map(([key]) => key);
     expect(keys).not.toContain('SLACK_CONFIG');
-    expect(keys).toContain('SLACK_ACTIONABLE_REACTIONS');
+    expect(keys).toContain('SLACK_CONFIG.actionable_reactions');
   });
 });
 
@@ -599,18 +600,24 @@ describe('computeInitialValues', () => {
     expect(result.webAuthEnabled).toBe(false);
   });
 
-  it('decomposes SLACK_CONFIG into virtual adapter credential fields', () => {
+  it('decomposes object variable into sub-field adapter credentials', () => {
     const tpl = makeTemplate({
       variables: {
         SLACK_CONFIG: {
           value: '{"actionable_reactions":["ticket"],"allowed_channel_ids":[],"allowed_user_ids":[]}',
           targets: ['interface.slack'],
           optional: true,
+          datatype: 'object',
+          fields: {
+            actionable_reactions: { label: 'Actionable Reactions', datatype: 'csv', optional: true },
+            allowed_channel_ids: { label: 'Allowed Channel IDs', datatype: 'csv', optional: true },
+            allowed_user_ids: { label: 'Allowed User IDs', datatype: 'csv', optional: true },
+          },
         },
       },
     });
     const result = computeInitialValues(tpl, 'acme');
-    expect(result.adapterCredentials?.SLACK_ACTIONABLE_REACTIONS).toBe('ticket');
+    expect(result.adapterCredentials?.['SLACK_CONFIG.actionable_reactions']).toBe('ticket');
     expect(result.variableValues?.SLACK_CONFIG).toBeUndefined();
   });
 

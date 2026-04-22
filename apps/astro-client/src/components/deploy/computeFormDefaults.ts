@@ -1,7 +1,7 @@
 import type { DeploymentTemplate, TemplateInterfaces } from "@/lib/api";
 import type { DeployFormInitialValues } from "./useDeployForm";
 import { getVariableDefault } from "./VariableField";
-import { SLACK_CONFIG_KEY, deserializeSlackConfig } from "./slackConfig";
+import { deserializeObjectVariable } from "./slackConfig";
 
 /**
  * Compute all initial form values synchronously from a deployment template.
@@ -39,17 +39,16 @@ export function computeFormDefaults(
       }
 
       const isInterface = v.targets?.some((t) => t.startsWith("interface."));
-      if (isInterface && key !== SLACK_CONFIG_KEY && v.default) {
-        adapterCredentials[key] = v.default;
-      }
-    }
+      if (!isInterface) continue;
 
-    // SLACK_CONFIG compound field — parse into virtual fields
-    const slackCfgDefault = template.variables[SLACK_CONFIG_KEY]?.default;
-    if (slackCfgDefault) {
-      const parsed = deserializeSlackConfig(slackCfgDefault);
-      for (const [key, val] of Object.entries(parsed)) {
-        if (val && !adapterCredentials[key]) adapterCredentials[key] = val;
+      // Object variables with fields → expand sub-fields
+      if (v.datatype === "object" && v.fields && v.default) {
+        const parsed = deserializeObjectVariable(key, v.fields, v.default);
+        for (const [fKey, fVal] of Object.entries(parsed)) {
+          if (fVal && !adapterCredentials[fKey]) adapterCredentials[fKey] = fVal;
+        }
+      } else if (v.default) {
+        adapterCredentials[key] = v.default;
       }
     }
   }
