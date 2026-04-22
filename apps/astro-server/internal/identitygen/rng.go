@@ -37,5 +37,5 @@ func createRng(seed uint32) func() float64 {
 // imul replicates JavaScript's Math.imul: signed 32-bit integer multiplication
 // with wrap-around semantics.
 func imul(a, b int32) int32 {
-	return int32(uint32(a) * uint32(b))
+	return int32(uint32(a) * uint32(b)) //nolint:gosec // intentional wrap — replicates JS Math.imul
 }
