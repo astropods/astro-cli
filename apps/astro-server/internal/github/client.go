@@ -172,6 +172,29 @@ func (c *Client) CreateWebhook(ctx context.Context, in CreateWebhookInput) (int6
 	return wh.ID, nil
 }
 
+// GetDirs returns the paths of all directories in the repository tree at the
+// given ref (branch name or commit SHA). Uses the recursive Git Trees API so
+// only one round-trip is needed regardless of repo depth.
+func (c *Client) GetDirs(ctx context.Context, repoFullName, ref string) ([]string, error) {
+	var result struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"tree"`
+	}
+	path := fmt.Sprintf("/repos/%s/git/trees/%s?recursive=1", repoFullName, url.PathEscape(ref))
+	if err := c.get(ctx, path, &result); err != nil {
+		return nil, fmt.Errorf("github: get tree: %w", err)
+	}
+	var dirs []string
+	for _, entry := range result.Tree {
+		if entry.Type == "tree" {
+			dirs = append(dirs, entry.Path)
+		}
+	}
+	return dirs, nil
+}
+
 // DeleteWebhook removes a webhook from a repository.
 func (c *Client) DeleteWebhook(ctx context.Context, repoFullName string, webhookID int64) error {
 	path := fmt.Sprintf("/repos/%s/hooks/%d", repoFullName, webhookID)

@@ -1339,6 +1339,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)
+			api.GET(accountGitHubRoutes, "/github/dirs", "List directories in a GitHub repo tree",
+				handlers.GitHubAccountListDirs(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
 			api.GET(accountGitHubRoutes, "/github/connections", "List repos already linked to agents under this account",
 				handlers.GitHubAccountListConnections(log, ghStore),
 				oapispec.Tags("GitHub"),
