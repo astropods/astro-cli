@@ -228,8 +228,8 @@ func TestMarkNameReserved_NonExistentAgentNoError(t *testing.T) {
 
 func agentRows(accountID, name, registry, visibility string, archivedAt interface{}, nameReserved bool, ts time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at",
-	}).AddRow(accountID, name, registry, visibility, archivedAt, nameReserved, ts, ts)
+		"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at",
+	}).AddRow(accountID, name, registry, visibility, archivedAt, nameReserved, nil, ts, ts)
 }
 
 func emptyVersionRows() *sqlmock.Rows {

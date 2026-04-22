@@ -83,12 +83,12 @@ func deploymentByIDRow(id, accountID, agentName, buildID, namespace, displayName
 		"id", "account_id", "agent_name", "build_id", "namespace",
 		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at",
+		"deployed_at", "undeployed_at", "avatar_colors",
 	}).AddRow(
 		id, accountID, agentName, buildID, namespace,
 		displayName, specJSON, []byte(nil), (*string)(nil),
 		status, (*string)(nil), json.RawMessage(nil), now, &rev,
-		now, undeployedAt,
+		now, undeployedAt, nil,
 	)
 }
 
@@ -98,7 +98,7 @@ func emptyDeploymentByIDRows() *sqlmock.Rows {
 		"id", "account_id", "agent_name", "build_id", "namespace",
 		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at",
+		"deployed_at", "undeployed_at", "avatar_colors",
 	})
 }
 
@@ -336,8 +336,8 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember
 	accountMock.ExpectQuery(`SELECT`).
@@ -349,12 +349,12 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", agentName, buildID, namespace, "My Agent",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
-			now, nil,
+			now, nil, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -403,8 +403,8 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myaccount", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myaccount", "organization", nil, nil, now, now, "", nil))
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -414,12 +414,12 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", agentName, buildID, namespace, "Sas Bot",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
-			now, nil,
+			now, nil, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myaccount", nil)
@@ -742,8 +742,8 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember
 	accountMock.ExpectQuery(`SELECT`).
@@ -755,7 +755,7 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -796,8 +796,8 @@ func TestListDeployments_NotMember(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember returns 0
 	accountMock.ExpectQuery(`SELECT`).
@@ -886,8 +886,8 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -898,17 +898,17 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID1, "acct-1", "agent-a", "b1", ns1, "Agent A",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
-			now, nil,
+			now, nil, nil,
 		).AddRow(
 			depID2, "acct-1", "agent-b", "b1", ns2, "Agent B",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
-			now, nil,
+			now, nil, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -1025,8 +1025,8 @@ func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
@@ -1034,12 +1034,12 @@ func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", agentName, buildID, namespace, "My Agent",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
-			now, nil,
+			now, nil, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -1087,8 +1087,8 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -1286,8 +1286,8 @@ func TestDeploy_PrivateSourceAgent_NonMember_Rejected(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("source-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil))
 
 	// Target == source (no target.account in spec), so no second account lookup
 
@@ -1300,8 +1300,8 @@ func TestDeploy_PrivateSourceAgent_NonMember_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1345,15 +1345,15 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("source-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil))
 
 	// Target account lookup (different from source)
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("target-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("tgt-acct", "target-org", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("tgt-acct", "target-org", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember(target, user) → member of target account
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1364,8 +1364,8 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1397,8 +1397,8 @@ func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember(target=source, user) → member
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1409,7 +1409,7 @@ func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "nonexistent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1442,8 +1442,8 @@ func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
 			accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 				WithArgs("myorg").
 				WillReturnRows(sqlmock.NewRows(
-					[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-					AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+					[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+					AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 			// IsMember
 			accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1513,8 +1513,8 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember(target=source, user) → yes
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1525,8 +1525,8 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1810,8 +1810,8 @@ func TestGetDeploymentStatus_Success(t *testing.T) {
 
 	// GetByID (account lookup for permission + avatar resolution)
 	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow(acctID, "myaccount", "personal", nil, nil, now, now, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow(acctID, "myaccount", "personal", nil, nil, now, now, "", nil))
 
 	// IsMember check
 	accountMock.ExpectQuery(`SELECT`).
@@ -1899,12 +1899,12 @@ func deploymentByIDRowWithStatus(id, accountID, agentName, buildID, namespace, d
 		"id", "account_id", "agent_name", "build_id", "namespace",
 		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at",
+		"deployed_at", "undeployed_at", "avatar_colors",
 	}).AddRow(
 		id, accountID, agentName, buildID, namespace,
 		displayName, specJSON, []byte(nil), (*string)(nil),
 		status, (*string)(nil), json.RawMessage(nil), now, revision,
-		now, (*time.Time)(nil),
+		now, (*time.Time)(nil), nil,
 	)
 }
 
@@ -2446,8 +2446,8 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
@@ -2456,8 +2456,8 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -3411,8 +3411,8 @@ func TestDeploy_SourcePropertiesFromDB(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 
 	// IsMember → yes
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -3423,8 +3423,8 @@ func TestDeploy_SourcePropertiesFromDB(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -3845,8 +3845,8 @@ func expectAccountLookup(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
 }
 
 func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
@@ -3854,8 +3854,8 @@ func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
 	mock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", visibility, nil, false, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", visibility, nil, false, nil, now, now))
 	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -4048,8 +4048,8 @@ func TestPostTemplate_WithDeploymentID_PrefillsValues(t *testing.T) {
 	// GetByID for target.account
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, "", nil))
 	// GetDeploymentVariables
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -4144,8 +4144,8 @@ func TestPostTemplate_SchedulesInResponse(t *testing.T) {
 	expectGenerateTemplatePinned(indexMock, accountMock, specWithIngestion)
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, "", nil))
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",

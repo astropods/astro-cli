@@ -11,6 +11,7 @@ CREATE TABLE public.accounts (
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     display_name varchar(64) NOT NULL DEFAULT '',
+    avatar_colors jsonb,
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
@@ -51,6 +52,7 @@ CREATE TABLE public.agents (
     visibility varchar(10) NOT NULL DEFAULT 'private',
     archived_at timestamp,
     name_reserved bool NOT NULL DEFAULT false,
+    avatar_colors jsonb,
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
     CONSTRAINT agents_pkey PRIMARY KEY (account_id, name),
@@ -116,6 +118,7 @@ CREATE TABLE public.deployments (
     undeployed_at timestamp,
     drift_report jsonb,
     drift_checked_at timestamptz,
+    avatar_colors jsonb,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
     CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

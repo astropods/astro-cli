@@ -27,12 +27,12 @@ var edgeStyles = []EdgeStyle{
 
 // PolygonParams describes the polygon layer of an identity.
 type PolygonParams struct {
-	Sides       int       // 3–8
+	Sides       int // 3–8
 	EdgeStyle   EdgeStyle
-	Rotation    float64   // radians
-	Radius      float64   // fraction of half-viewBox
-	SpikeDepth  float64   // inner-radius ratio for spikey
-	CurveAmount float64   // control-point offset for scalloped
+	Rotation    float64 // radians
+	Radius      float64 // fraction of half-viewBox
+	SpikeDepth  float64 // inner-radius ratio for spikey
+	CurveAmount float64 // control-point offset for scalloped
 }
 
 type point struct {

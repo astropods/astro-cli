@@ -523,8 +523,8 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	// ResolveAccount: return org-b
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("org-b").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), "", nil))
 
 	// RequireAccountMember: IsMember returns 0 (user-a is not a member of org-b)
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -863,7 +863,7 @@ func TestCreateInvitations_BulkMixed_NonOwnerAssignsOwner_Rejected(t *testing.T)
 // + handler + permission checks work together as a stack.
 
 // orgAccountCols matches scanAccount's expected column shape for org permission tests.
-var orgAccountCols = []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}
+var orgAccountCols = []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}
 
 // injectAuth returns middleware that sets user and session in context.
 func injectAuth(user *auth.User, session *auth.Session) gin.HandlerFunc {
@@ -887,7 +887,7 @@ func TestFullChain_AddMember_MemberWithoutOrgManage_Denied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -926,7 +926,7 @@ func TestFullChain_UpdateMemberRole_MemberWithoutOrgManage_Denied(t *testing.T) 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -966,7 +966,7 @@ func TestFullChain_RemoveMember_OtherRemoval_MemberDenied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil))
 
 	// RequireAccountMember: IsMember
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1003,7 +1003,7 @@ func TestFullChain_OrgManage_WrongOrgScope_Denied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), ""))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").

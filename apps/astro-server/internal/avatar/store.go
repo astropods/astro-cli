@@ -125,6 +125,21 @@ func (s *Store) DeploymentAvatarExists(ctx context.Context, id string) (bool, er
 	return s.backend.Exists(ctx, deploymentAvatarKey(id))
 }
 
+// ReadAvatar returns the raw bytes of an account's avatar.
+func (s *Store) ReadAvatar(ctx context.Context, handle string) ([]byte, error) {
+	return s.backend.Read(ctx, avatarKey(handle))
+}
+
+// ReadAgentAvatar returns the raw bytes of an agent blueprint's avatar.
+func (s *Store) ReadAgentAvatar(ctx context.Context, account, name string) ([]byte, error) {
+	return s.backend.Read(ctx, agentAvatarKey(account, name))
+}
+
+// ReadDeploymentAvatar returns the raw bytes of a deployment's avatar.
+func (s *Store) ReadDeploymentAvatar(ctx context.Context, id string) ([]byte, error) {
+	return s.backend.Read(ctx, deploymentAvatarKey(id))
+}
+
 // AssignPreset copies a deterministic preset placeholder to the account's avatar key.
 func (s *Store) AssignPreset(ctx context.Context, handle string) error {
 	return s.SetPreset(ctx, handle, PresetIndex(handle))

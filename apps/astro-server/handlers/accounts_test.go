@@ -473,12 +473,12 @@ func TestDeleteAccount_Success(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
-			now, nil,
+			now, nil, nil,
 		))
 
 	// EnqueueUndeploy: UpdateStatus + InsertUndeployJob
@@ -527,7 +527,7 @@ func TestDeleteAccount_NoDeployments(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount", nil)
@@ -588,12 +588,12 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 			"id", "account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
+			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
-			now, nil,
+			now, nil, nil,
 		))
 
 	// UpdateStatus succeeds but InsertUndeployJob fails — handler should still return 200

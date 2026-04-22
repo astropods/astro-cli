@@ -39,8 +39,10 @@ func (w *BlueprintAvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[B
 
 	bpProcessed, bpSkipped, bpFailed := w.backfillBlueprints(ctx)
 	depProcessed, depSkipped, depFailed := w.backfillDeployments(ctx)
+	colorProcessed, colorSkipped, colorFailed := w.backfillBlueprintColors(ctx)
+	depColorProcessed, depColorSkipped, depColorFailed := w.backfillDeploymentColors(ctx)
 
-	if bpProcessed > 0 || bpFailed > 0 || depProcessed > 0 || depFailed > 0 {
+	if bpProcessed > 0 || bpFailed > 0 || depProcessed > 0 || depFailed > 0 || colorProcessed > 0 || colorFailed > 0 || depColorProcessed > 0 || depColorFailed > 0 {
 		w.log.Info("Blueprint avatar backfill completed",
 			"blueprints_processed", bpProcessed,
 			"blueprints_skipped", bpSkipped,
@@ -48,6 +50,12 @@ func (w *BlueprintAvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[B
 			"deployments_processed", depProcessed,
 			"deployments_skipped", depSkipped,
 			"deployments_failed", depFailed,
+			"blueprint_colors_processed", colorProcessed,
+			"blueprint_colors_skipped", colorSkipped,
+			"blueprint_colors_failed", colorFailed,
+			"deployment_colors_processed", depColorProcessed,
+			"deployment_colors_skipped", depColorSkipped,
+			"deployment_colors_failed", depColorFailed,
 		)
 	}
 	return nil
@@ -185,4 +193,88 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 		}
 	}
 	return processed, skipped, failed
+}
+
+// backfillBlueprintColors extracts and stores avatar colors for blueprints
+// that have an avatar but no colors yet.
+func (w *BlueprintAvatarBackfillWorker) backfillBlueprintColors(ctx context.Context) (processed, skipped, failed int) {
+	var lastAccountID, lastName string
+	return backfillColors(ctx, w.log, "Blueprint color backfill", func(ctx context.Context) ([]colorBackfillItem, error) {
+		rows, err := w.db.QueryContext(ctx, `
+			SELECT a.account_id::text, a.name, acc.name
+			FROM agents a
+			JOIN accounts acc ON acc.id = a.account_id
+			WHERE a.archived_at IS NULL
+			  AND a.avatar_colors IS NULL
+			  AND ($1 = '' OR (a.account_id, a.name) > ($1::uuid, $2))
+			ORDER BY a.account_id, a.name
+			LIMIT $3
+		`, lastAccountID, lastName, 100)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var items []colorBackfillItem
+		for rows.Next() {
+			var accountID, agentName, accountName string
+			if err := rows.Scan(&accountID, &agentName, &accountName); err != nil {
+				w.log.Error("Blueprint color backfill: scan row", "error", err)
+				continue
+			}
+			lastAccountID = accountID
+			lastName = agentName
+			items = append(items, colorBackfillItem{
+				readAvatar: func(ctx context.Context) ([]byte, error) {
+					return w.avatarStore.ReadAgentAvatar(ctx, accountName, agentName)
+				},
+				storeColors: func(ctx context.Context, j []byte) error {
+					_, err := w.db.ExecContext(ctx, `UPDATE agents SET avatar_colors = $1 WHERE account_id = $2::uuid AND name = $3`, j, accountID, agentName)
+					return err
+				},
+				logAttrs: []any{"account", accountName, "name", agentName},
+			})
+		}
+		return items, rows.Err()
+	})
+}
+
+// backfillDeploymentColors extracts and stores avatar colors for deployments
+// that have an avatar but no colors yet.
+func (w *BlueprintAvatarBackfillWorker) backfillDeploymentColors(ctx context.Context) (processed, skipped, failed int) {
+	var lastID string
+	return backfillColors(ctx, w.log, "Deployment color backfill", func(ctx context.Context) ([]colorBackfillItem, error) {
+		rows, err := w.db.QueryContext(ctx, `
+			SELECT d.id
+			FROM deployments d
+			WHERE d.avatar_colors IS NULL
+			  AND ($1 = '' OR d.id > $1)
+			ORDER BY d.id
+			LIMIT 100
+		`, lastID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var items []colorBackfillItem
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				w.log.Error("Deployment color backfill: scan row", "error", err)
+				continue
+			}
+			lastID = id
+			items = append(items, colorBackfillItem{
+				readAvatar: func(ctx context.Context) ([]byte, error) { return w.avatarStore.ReadDeploymentAvatar(ctx, id) },
+				storeColors: func(ctx context.Context, j []byte) error {
+					_, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, j, id)
+					return err
+				},
+				logAttrs:        []any{"deployment", id},
+				skipOnReadError: true,
+			})
+		}
+		return items, rows.Err()
+	})
 }

@@ -1,17 +1,21 @@
 package account
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Account represents a named account that scopes all resources
 type Account struct {
-	ID                   string     `json:"id"`
-	Name                 string     `json:"name"`
-	Type                 string     `json:"type"`
-	WorkOSOrganizationID string     `json:"workos_org_id,omitempty"`
-	DeletedAt            *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	DisplayName          string     `json:"display_name"`
+	ID                   string           `json:"id"`
+	Name                 string           `json:"name"`
+	Type                 string           `json:"type"`
+	WorkOSOrganizationID string           `json:"workos_org_id,omitempty"`
+	DeletedAt            *time.Time       `json:"deleted_at,omitempty"`
+	CreatedAt            time.Time        `json:"created_at"`
+	UpdatedAt            time.Time        `json:"updated_at"`
+	DisplayName          string           `json:"display_name"`
+	AvatarColors         *json.RawMessage `json:"avatar_colors,omitempty"`
 }
 
 // AccountMember represents a user's membership in an account

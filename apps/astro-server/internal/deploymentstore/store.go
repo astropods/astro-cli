@@ -22,22 +22,23 @@ func NewStore(db *sql.DB) *Store {
 
 // Deployment represents a single deployment record.
 type Deployment struct {
-	ID                 string          `json:"id"`
-	AccountID          string          `json:"account_id"`
-	AgentName          string          `json:"agent_name"`
-	BuildID            string          `json:"build_id"`
-	Namespace          string          `json:"namespace"`
-	DisplayName        string          `json:"display_name,omitempty"`
-	DeploymentSpecJSON string          `json:"deployment_spec_json"`
-	EncryptedDataKey   []byte          `json:"-"`
-	KMSKeyARN          *string         `json:"-"`
-	Status             string          `json:"status"`
-	ErrorMessage       *string         `json:"error_message,omitempty"`
-	ErrorDetails       json.RawMessage `json:"error_details,omitempty"`
-	StatusChangedAt    time.Time       `json:"status_changed_at"`
-	CurrentRevision    *int            `json:"current_revision,omitempty"`
-	DeployedAt         time.Time       `json:"deployed_at"`
-	UndeployedAt       *time.Time      `json:"undeployed_at,omitempty"`
+	ID                 string           `json:"id"`
+	AccountID          string           `json:"account_id"`
+	AgentName          string           `json:"agent_name"`
+	BuildID            string           `json:"build_id"`
+	Namespace          string           `json:"namespace"`
+	DisplayName        string           `json:"display_name,omitempty"`
+	DeploymentSpecJSON string           `json:"deployment_spec_json"`
+	EncryptedDataKey   []byte           `json:"-"`
+	KMSKeyARN          *string          `json:"-"`
+	Status             string           `json:"status"`
+	ErrorMessage       *string          `json:"error_message,omitempty"`
+	ErrorDetails       json.RawMessage  `json:"error_details,omitempty"`
+	StatusChangedAt    time.Time        `json:"status_changed_at"`
+	CurrentRevision    *int             `json:"current_revision,omitempty"`
+	DeployedAt         time.Time        `json:"deployed_at"`
+	UndeployedAt       *time.Time       `json:"undeployed_at,omitempty"`
+	AvatarColors       *json.RawMessage `json:"avatar_colors,omitempty"`
 }
 
 // SaveDeploymentParams holds the parameters for saving a deployment with normalized spec data.
@@ -64,7 +65,7 @@ func nilIfEmpty(s string) interface{} {
 const deploymentColumns = `id, account_id, agent_name, build_id, namespace, display_name,
        deployment_spec_json, encrypted_data_key, kms_key_arn,
        status, error_message, error_details, status_changed_at, current_revision,
-       deployed_at, undeployed_at`
+       deployed_at, undeployed_at, avatar_colors`
 
 // scanDeployment scans a full deployment row into a Deployment struct.
 func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
@@ -74,12 +75,18 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
 		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
-		&d.DeployedAt, &d.UndeployedAt,
+		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors,
 	)
 	if errorDetails != nil {
 		d.ErrorDetails = errorDetails
 	}
 	return &d, err
+}
+
+// SetAvatarColors stores the extracted avatar color scheme for a deployment.
+func (s *Store) SetAvatarColors(deploymentID string, colorsJSON []byte) error {
+	_, err := s.db.Exec(`UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, colorsJSON, deploymentID)
+	return err
 }
 
 // BulkDeploymentCounts returns the total deployment count per agent name for the given account.
@@ -760,4 +767,3 @@ func (s *Store) IsScaledDown(namespace string) (bool, error) {
 	}
 	return exists, nil
 }
-

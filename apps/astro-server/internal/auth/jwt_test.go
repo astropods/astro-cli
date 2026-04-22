@@ -572,11 +572,11 @@ func TestJWTValidator_StrictIssuerValidation(t *testing.T) {
 	defer server.Close()
 
 	tests := []struct {
-		name            string
-		configuredIss   string
-		tokenIss        string
-		expectError     bool
-		errorContains   string
+		name          string
+		configuredIss string
+		tokenIss      string
+		expectError   bool
+		errorContains string
 	}{
 		{
 			name:          "exact issuer match",

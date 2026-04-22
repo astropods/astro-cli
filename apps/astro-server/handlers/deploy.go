@@ -560,10 +560,13 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}()
 		}
 
-		// Copy the blueprint's avatar to the new deployment (best-effort).
+		// Copy the blueprint's avatar and colors to the new deployment (best-effort).
 		if avatarStore != nil && !dctx.isUpdate {
 			if _, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.sourceAccountName, dctx.agentName, dctx.deploymentID); copyErr != nil {
 				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
+			}
+			if agent, err := agentIndex.Get(dctx.sourceAccountID, dctx.agentName); err == nil && agent.AvatarColors != nil {
+				_ = deployStore.SetAvatarColors(dctx.deploymentID, *agent.AvatarColors)
 			}
 		}
 
@@ -771,6 +774,7 @@ type AgentDeployment struct {
 	Name               string                `json:"name"`
 	DisplayName        string                `json:"display_name,omitempty"`
 	AvatarURL          string                `json:"avatar_url,omitempty"`
+	AvatarColors       json.RawMessage       `json:"avatar_colors,omitempty"`
 	BuildID            string                `json:"build_id"`
 	Namespace          string                `json:"namespace"`
 	Status             string                `json:"status"`
@@ -926,10 +930,25 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			}
 		}
 
-		// Resolve avatar URLs for each deployment.
+		// Build a lookup of avatar colors from the original DB records.
+		dbColorsByID := make(map[string]json.RawMessage, len(dbDeps))
+		for _, dep := range dbDeps {
+			if dep.AvatarColors != nil {
+				dbColorsByID[dep.ID] = *dep.AvatarColors
+			}
+		}
+
+		// Resolve avatar URLs and colors for each deployment.
 		if avatarStore != nil {
 			for i, d := range allDeployments {
 				allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
+			}
+		}
+		for i, d := range allDeployments {
+			if len(allDeployments[i].AvatarColors) == 0 {
+				if colors, ok := dbColorsByID[d.ID]; ok {
+					allDeployments[i].AvatarColors = colors
+				}
 			}
 		}
 
@@ -1032,6 +1051,9 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 		Ready:       0,
 		CreatedAt:   dep.DeployedAt.Format(time.RFC3339),
 		Components:  []string{},
+	}
+	if dep.AvatarColors != nil {
+		ad.AvatarColors = *dep.AvatarColors
 	}
 
 	if dep.ErrorMessage != nil && *dep.ErrorMessage != "" {

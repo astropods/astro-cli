@@ -126,7 +126,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		// Accept either exact match or WorkOS user management issuer format
 		validIssuer := claims.Issuer == v.issuer ||
 			(v.issuer == "https://api.workos.com" &&
-			 strings.HasPrefix(claims.Issuer, "https://api.workos.com/user_management/"))
+				strings.HasPrefix(claims.Issuer, "https://api.workos.com/user_management/"))
 
 		if !validIssuer {
 			return nil, fmt.Errorf("%w: invalid issuer %q (expected %q)", ErrInvalidToken, claims.Issuer, v.issuer)

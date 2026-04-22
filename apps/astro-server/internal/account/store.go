@@ -93,7 +93,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
 	var deletedAt sql.NullTime
-	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName)
+	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.name = $1 AND a.deleted_at IS NULL
@@ -126,7 +126,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.id = $1 AND a.deleted_at IS NULL
@@ -143,7 +143,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE ao.workos_org_id = $1
@@ -292,6 +292,15 @@ func (s *AccountStore) UpdateDisplayName(accountID, displayName string) error {
 	}
 
 	return nil
+}
+
+// SetAvatarColors stores the extracted avatar color scheme for an account.
+func (s *AccountStore) SetAvatarColors(accountID string, colorsJSON []byte) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET avatar_colors = $1, updated_at = now()
+		WHERE id = $2
+	`, colorsJSON, accountID)
+	return err
 }
 
 // GetFirstMemberUserID returns the user ID of the first member of an account.

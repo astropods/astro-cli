@@ -42,7 +42,7 @@ var purgeDeployColumns = []string{
 	"id", "account_id", "agent_name", "build_id", "namespace",
 	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at",
+	"deployed_at", "undeployed_at", "avatar_colors",
 }
 
 func TestAccountPurge_NoDeletedAccounts(t *testing.T) {
@@ -110,7 +110,7 @@ func TestAccountPurge_SkipsAccountWithPendingTeardown(t *testing.T) {
 			"dep-1", "acct-1", "agent", "build-1", "ns-1",
 			"Agent", `{}`, nil, nil,
 			"active", nil, json.RawMessage(nil), now, &rev,
-			now, nil,
+			now, nil, nil,
 		))
 
 	// Should NOT call DELETE FROM accounts — account is skipped
@@ -148,7 +148,7 @@ func TestAccountPurge_SkipsReenqueueForAlreadyUndeploying(t *testing.T) {
 			"dep-1", "acct-1", "agent", "build-1", "ns-1",
 			"Agent", `{}`, nil, nil,
 			"undeploying", nil, json.RawMessage(nil), now, &rev,
-			now, nil,
+			now, nil, nil,
 		))
 
 	err := w.Work(context.Background(), &river.Job[AccountPurgeArgs]{})

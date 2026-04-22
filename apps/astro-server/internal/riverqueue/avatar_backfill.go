@@ -85,5 +85,55 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 		)
 	}
 
+	// Backfill colors for accounts that have avatars but no colors yet.
+	colorProcessed, colorSkipped, colorFailed := w.backfillAccountColors(ctx)
+	if colorProcessed > 0 || colorFailed > 0 {
+		w.log.Info("Account color backfill completed",
+			"processed", colorProcessed,
+			"skipped", colorSkipped,
+			"failed", colorFailed,
+		)
+	}
+
 	return nil
+}
+
+// backfillAccountColors extracts and stores avatar colors for accounts
+// that have an avatar but no colors yet.
+func (w *AvatarBackfillWorker) backfillAccountColors(ctx context.Context) (processed, skipped, failed int) {
+	var lastID string
+	return backfillColors(ctx, w.log, "Account color backfill", func(ctx context.Context) ([]colorBackfillItem, error) {
+		rows, err := w.db.QueryContext(ctx, `
+			SELECT id, name FROM accounts
+			WHERE deleted_at IS NULL
+			  AND avatar_colors IS NULL
+			  AND ($1 = '' OR id > $1::uuid)
+			ORDER BY id
+			LIMIT 100
+		`, lastID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var items []colorBackfillItem
+		for rows.Next() {
+			var id, name string
+			if err := rows.Scan(&id, &name); err != nil {
+				w.log.Error("Account color backfill: scan row", "error", err)
+				continue
+			}
+			lastID = id
+			items = append(items, colorBackfillItem{
+				readAvatar: func(ctx context.Context) ([]byte, error) { return w.avatarStore.ReadAvatar(ctx, name) },
+				storeColors: func(ctx context.Context, j []byte) error {
+					_, err := w.db.ExecContext(ctx, `UPDATE accounts SET avatar_colors = $1 WHERE id = $2`, j, id)
+					return err
+				},
+				logAttrs:        []any{"account", name},
+				skipOnReadError: true,
+			})
+		}
+		return items, rows.Err()
+	})
 }

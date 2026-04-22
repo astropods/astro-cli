@@ -24,15 +24,16 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID    string          `json:"account_id"`
-	Name         string          `json:"name"`
-	Registry     string          `json:"registry"`
-	Visibility   string          `json:"visibility"`
-	Versions     []*AgentVersion `json:"versions"`
-	ArchivedAt   *time.Time      `json:"archived_at,omitempty"`
-	NameReserved bool            `json:"name_reserved"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	AccountID    string           `json:"account_id"`
+	Name         string           `json:"name"`
+	Registry     string           `json:"registry"`
+	Visibility   string           `json:"visibility"`
+	Versions     []*AgentVersion  `json:"versions"`
+	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
+	NameReserved bool             `json:"name_reserved"`
+	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
+	CreatedAt    time.Time        `json:"created_at"`
+	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -175,10 +176,10 @@ func (idx *Index) Create(accountID, name string) error {
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, visibility, archived_at, name_reserved, created_at, updated_at
+		SELECT account_id, name, registry, visibility, archived_at, name_reserved, avatar_colors, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.NameReserved, &agent.CreatedAt, &agent.UpdatedAt)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.NameReserved, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -245,7 +246,7 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 // List returns all agents in the index (global browse), excluding archived
 func (idx *Index) List() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, created_at, updated_at
+		SELECT account_id, name, registry, visibility, avatar_colors, created_at, updated_at
 		FROM agents
 		WHERE archived_at IS NULL
 		ORDER BY name
@@ -258,7 +259,7 @@ func (idx *Index) List() ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -298,7 +299,7 @@ func (idx *Index) List() ([]*Agent, error) {
 // ListForAccount returns all agents belonging to a specific account, excluding archived
 func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, created_at, updated_at
+		SELECT account_id, name, registry, visibility, avatar_colors, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND archived_at IS NULL
 		ORDER BY name
@@ -311,7 +312,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -475,10 +476,19 @@ func (idx *Index) MarkNameReserved(accountID, name string) error {
 	return err
 }
 
+// SetAvatarColors stores the extracted avatar color scheme for an agent.
+func (idx *Index) SetAvatarColors(accountID, name string, colorsJSON []byte) error {
+	_, err := idx.db.Exec(`
+		UPDATE agents SET avatar_colors = $1, updated_at = now()
+		WHERE account_id = $2 AND name = $3
+	`, colorsJSON, accountID, name)
+	return err
+}
+
 // ListPublicAgents returns agents with visibility='public' and their latest version
 func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT a.account_id, a.name, a.registry, a.visibility, a.created_at, a.updated_at,
+		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.created_at, a.updated_at,
 		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.published_at, v.updated_at
 		FROM agents a
 		JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
@@ -501,7 +511,7 @@ func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 		var specJSON string
 
 		if err := rows.Scan(
-			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt,
+			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt,
 			&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.AgentCardJSON, &v.PublishedAt, &v.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

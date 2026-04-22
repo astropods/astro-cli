@@ -1,18 +1,45 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
+
+// extractAndStoreColors reads an avatar via readFn, extracts its color palette,
+// and persists the result via storeFn. Failures are logged but not propagated.
+func extractAndStoreColors(ctx context.Context, log *logger.Logger,
+	readFn func(context.Context) ([]byte, error),
+	storeFn func([]byte) error,
+	logAttrs ...any,
+) {
+	data, err := readFn(ctx)
+	if err != nil {
+		log.Warn("Failed to read avatar for color extraction", append([]any{"error", err}, logAttrs...)...)
+		return
+	}
+	colors, err := colorextract.ExtractFromJPEG(data)
+	if err != nil {
+		log.Warn("Failed to extract avatar colors", append([]any{"error", err}, logAttrs...)...)
+		return
+	}
+	colorsJSON, _ := json.Marshal(colors)
+	if err := storeFn(colorsJSON); err != nil {
+		log.Warn("Failed to store avatar colors", append([]any{"error", err}, logAttrs...)...)
+	}
+}
 
 // AvatarResponse is returned after avatar mutations.
 type AvatarResponse struct {
@@ -52,6 +79,12 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			return
 		}
 
+		extractAndStoreColors(c.Request.Context(), log,
+			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
+			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
+			"account", acct.Name,
+		)
+
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "account"
@@ -87,6 +120,12 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 			return
 		}
 
+		extractAndStoreColors(c.Request.Context(), log,
+			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
+			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
+			"account", acct.Name,
+		)
+
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarPreset
 		evt.ResourceType = "account"
@@ -116,6 +155,12 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			return
 		}
 
+		extractAndStoreColors(c.Request.Context(), log,
+			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
+			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
+			"account", acct.Name,
+		)
+
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarReset
 		evt.ResourceType = "account"
@@ -141,7 +186,7 @@ func readAvatarUpload(c *gin.Context) ([]byte, error) {
 }
 
 // UploadBlueprintAvatar handles POST /api/v1/agents/:account/:name/avatar
-func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index *agentindex.Index, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -167,6 +212,14 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditS
 			return
 		}
 
+		extractAndStoreColors(c.Request.Context(), log,
+			func(ctx context.Context) ([]byte, error) {
+				return avatarStore.ReadAgentAvatar(ctx, acct.Name, agentName)
+			},
+			func(j []byte) error { return index.SetAvatarColors(acct.ID, agentName, j) },
+			"account", acct.Name, "agent", agentName,
+		)
+
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "agent"
@@ -182,7 +235,7 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditS
 }
 
 // ResetBlueprintAvatar handles DELETE /api/v1/agents/:account/:name/avatar
-func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index *agentindex.Index, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -196,6 +249,9 @@ func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, auditSt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
+
+		// Clear colors — the backfill worker will regenerate the placeholder and re-extract.
+		_ = index.SetAvatarColors(acct.ID, agentName, nil)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AvatarReset
@@ -232,6 +288,12 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			return
 		}
 
+		extractAndStoreColors(c.Request.Context(), log,
+			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dep.ID) },
+			func(j []byte) error { return deployStore.SetAvatarColors(dep.ID, j) },
+			"deployment", dep.ID,
+		)
+
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarUpload
 		evt.ResourceType = "deployment"
@@ -260,6 +322,9 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
+
+		// Clear colors — the backfill worker will re-copy from the blueprint and re-extract.
+		_ = deployStore.SetAvatarColors(dep.ID, nil)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarReset

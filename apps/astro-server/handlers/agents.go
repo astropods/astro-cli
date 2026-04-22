@@ -45,6 +45,7 @@ type AgentResponse struct {
 	Registry     string                 `json:"registry"`
 	Visibility   string                 `json:"visibility"`
 	AvatarURL    string                 `json:"avatar_url,omitempty"`
+	AvatarColors json.RawMessage        `json:"avatar_colors,omitempty"`
 	ArchivedAt   *time.Time             `json:"archived_at,omitempty"`
 	NameReserved bool                   `json:"name_reserved"`
 	Versions     []AgentVersionResponse `json:"versions"`
@@ -274,6 +275,9 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
+			if agent.AvatarColors != nil {
+				resp.AvatarColors = *agent.AvatarColors
+			}
 			responses = append(responses, resp)
 		}
 
@@ -353,6 +357,9 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			}
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
+			}
+			if agent.AvatarColors != nil {
+				resp.AvatarColors = *agent.AvatarColors
 			}
 			responses = append(responses, resp)
 		}
@@ -442,6 +449,9 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		}
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
+		}
+		if agent.AvatarColors != nil {
+			resp.AvatarColors = *agent.AvatarColors
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count
@@ -689,6 +699,12 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 				log.Warn("Failed to generate blueprint avatar", "account", accountName, "name", req.Name, "error", err)
 			} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, req.Name, jpegBytes); err != nil {
 				log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", req.Name, "error", err)
+			} else {
+				extractAndStoreColors(c.Request.Context(), log,
+					func(context.Context) ([]byte, error) { return jpegBytes, nil },
+					func(j []byte) error { return index.SetAvatarColors(acct.ID, req.Name, j) },
+					"account", accountName, "name", req.Name,
+				)
 			}
 		}
 
