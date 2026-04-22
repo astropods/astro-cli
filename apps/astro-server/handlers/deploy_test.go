@@ -22,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -4207,6 +4208,13 @@ func TestGetDeployment_NotMember(t *testing.T) {
 //   - Secret variables set directly → value is hidden (never expose plaintext)
 //   - Non-secret variables set directly → value is returned as-is
 
+// specWithMessaging is a minimal agent spec with messaging interfaces enabled,
+// plus two inputs (API_KEY, LOG_LEVEL). Used by POST template handler tests.
+const specWithMessaging = `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1","inputs":[{"name":"API_KEY","secret":true,"description":"API key"},{"name":"LOG_LEVEL","secret":false,"description":"Log level"}],"interfaces":{"messaging":true}}}`
+
+// specWithIngestion is a minimal agent spec with a schedule-triggered ingestion job.
+const specWithIngestion = `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1","inputs":[{"name":"API_KEY","secret":true,"description":"API key"}]},"ingestion":{"nightly":{"container":{"image":"sync:latest"},"trigger":{"type":"schedule"}}}}`
+
 // specWithVarInputs is a minimal agent spec JSON that declares two inputs:
 // API_KEY (secret) and LOG_LEVEL (non-secret). These become entries in
 // template.Variables so the prefilled-template merge logic has keys to populate.
@@ -4729,5 +4737,312 @@ func TestGetDeploymentEvents_CacheBypassDuringDeploy(t *testing.T) {
 	}
 	if resp.Events[0].Message != "Pulling image" {
 		t.Errorf("expected message 'Pulling image', got %q", resp.Events[0].Message)
+	}
+}
+
+// ===== POST /agents/:account/:name/deployment-template =====
+
+// setupPostTemplateRouter creates a gin router wired to the POST deployment-template handler
+// with the standard mock stores. Returns the router + all three mocks for test-specific expectations.
+func setupPostTemplateRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
+		},
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.POST("/agents/:account/:name/deployment-template",
+		PostDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	return router, indexMock, accountMock, deployMock
+}
+
+// expectGenerateTemplateLatest sets up mock expectations for generateTemplate
+// when no build override is provided (resolves latest version, 2-arg query).
+func expectGenerateTemplateLatest(indexMock, accountMock sqlmock.Sqlmock, specJSON string) {
+	now := time.Now()
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+}
+
+// expectGenerateTemplatePinned sets up mock expectations for generateTemplate
+// when a build override is provided (pinned build, 3-arg query).
+func expectGenerateTemplatePinned(indexMock, accountMock sqlmock.Sqlmock, specJSON string) {
+	now := time.Now()
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+}
+
+// postTemplate sends a POST to the deployment-template endpoint and returns the response.
+func postTemplate(t *testing.T, router *gin.Engine, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/agents/myorg/my-agent/deployment-template",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPostTemplate_FreshTemplate_EmptyBody(t *testing.T) {
+	router, indexMock, accountMock, _ := setupPostTemplateRouter(t)
+	expectGenerateTemplateLatest(indexMock, accountMock, specWithVarInputs)
+
+	rec := postTemplate(t, router, `{}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Spec != "deployment-template/v1" {
+		t.Errorf("resp.Spec: expected deployment-template/v1, got %s", resp.Spec)
+	}
+	if resp.Template.Spec != "deployment/v1" {
+		t.Errorf("template.Spec: expected deployment/v1, got %s", resp.Template.Spec)
+	}
+	// Variables promoted to root
+	if _, ok := resp.Variables["API_KEY"]; !ok {
+		t.Error("expected API_KEY in resp.Variables")
+	}
+	// Interfaces always present
+	if resp.Interfaces.Adapters == nil {
+		t.Error("resp.Interfaces.Adapters should be non-nil")
+	}
+	// Schedules always present
+	if resp.Schedules == nil {
+		t.Error("resp.Schedules should be non-nil")
+	}
+	// Validation should flag required API_KEY
+	if resp.Validation.Valid {
+		t.Error("expected valid=false with missing required API_KEY")
+	}
+}
+
+func TestPostTemplate_FreshTemplate_WithVariables(t *testing.T) {
+	router, indexMock, accountMock, _ := setupPostTemplateRouter(t)
+	expectGenerateTemplateLatest(indexMock, accountMock, specWithVarInputs)
+
+	rec := postTemplate(t, router, `{
+		"variables": {
+			"API_KEY": {"value": "sk-test-123"},
+			"LOG_LEVEL": {"value": "debug"}
+		}
+	}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	if v := resp.Template.Variables["API_KEY"]; v.Value != "sk-test-123" {
+		t.Errorf("API_KEY value: expected sk-test-123, got %s", v.Value)
+	}
+	if v := resp.Template.Variables["LOG_LEVEL"]; v.Value != "debug" {
+		t.Errorf("LOG_LEVEL value: expected debug, got %s", v.Value)
+	}
+	if !resp.Validation.Valid {
+		t.Errorf("expected valid=true, got errors: %v", resp.Validation.Errors)
+	}
+}
+
+func TestPostTemplate_FreshTemplate_WithAdapters(t *testing.T) {
+	router, indexMock, accountMock, _ := setupPostTemplateRouter(t)
+	expectGenerateTemplateLatest(indexMock, accountMock, specWithMessaging)
+
+	rec := postTemplate(t, router, `{
+		"interfaces": {"adapters": ["slack", "web"]},
+		"variables": {"API_KEY": {"value": "sk-test"}, "LOG_LEVEL": {"value": "info"}}
+	}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	// Response interfaces should reflect the selection
+	if len(resp.Interfaces.Adapters) != 2 {
+		t.Errorf("resp.Interfaces.Adapters: expected [slack web], got %v", resp.Interfaces.Adapters)
+	}
+	// Slack tokens should be required (non-optional)
+	if v, ok := resp.Variables["SLACK_BOT_TOKEN"]; ok && v.Optional {
+		t.Error("SLACK_BOT_TOKEN should be non-optional when slack is selected")
+	}
+}
+
+func TestPostTemplate_WithDeploymentID_PrefillsValues(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-prefill-1"
+	acctID := "acct-1"
+
+	storedSpec := `{"interfaces":{"adapters":["web","slack"]}}`
+
+	// GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Bot", storedSpec, "active", now, nil))
+	// IsMember
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// generateTemplate
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
+	// GetByID for target.account
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+	// GetDeploymentVariables
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).
+			AddRow(depID, "API_KEY", "", "my-vault-secret", true, false, `{"agent"}`, nil).
+			AddRow(depID, "LOG_LEVEL", "warn", "", false, true, `{"agent"}`, nil))
+
+	rec := postTemplate(t, router, `{"deployment_id": "dep-prefill-1"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	// Variables should be prefilled from stored deployment
+	if v := resp.Variables["API_KEY"]; v.Ref != "my-vault-secret" {
+		t.Errorf("API_KEY ref: expected my-vault-secret, got %q", v.Ref)
+	}
+	if v := resp.Variables["LOG_LEVEL"]; v.Value != "warn" {
+		t.Errorf("LOG_LEVEL value: expected warn, got %q", v.Value)
+	}
+	// Target should have deployment ID and display name
+	if resp.Template.Target.DeploymentID != depID {
+		t.Errorf("target.deployment_id: expected %s, got %s", depID, resp.Template.Target.DeploymentID)
+	}
+	if resp.Template.Target.DisplayName != "My Bot" {
+		t.Errorf("target.display_name: expected My Bot, got %s", resp.Template.Target.DisplayName)
+	}
+}
+
+func TestPostTemplate_DeploymentNotFound(t *testing.T) {
+	router, _, _, deployMock := setupPostTemplateRouter(t)
+
+	deployMock.ExpectQuery(`SELECT`).WillReturnRows(emptyDeploymentByIDRows())
+
+	rec := postTemplate(t, router, `{"deployment_id": "dep-nonexistent"}`)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostTemplate_Forbidden(t *testing.T) {
+	router, _, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow("dep-1", "acct-1", "my-agent", "build-1",
+			"astro-abc123", "Bot", "{}", "active", now, nil))
+	// IsMember returns 0 — not a member
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	rec := postTemplate(t, router, `{"deployment_id": "dep-1"}`)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostTemplate_InvalidBody(t *testing.T) {
+	router, _, _, _ := setupPostTemplateRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/myorg/my-agent/deployment-template",
+		strings.NewReader(`{invalid json`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostTemplate_SchedulesInResponse(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-sched-1"
+	acctID := "acct-1"
+	storedSpec := `{"ingestion":{"nightly":{"image":"sync:latest","trigger":{"type":"schedule","schedule":"0 2 * * *"}}}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithIngestion)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, ""))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}).AddRow(depID, "API_KEY", "sk-val", "", true, false, `{"agent"}`, nil))
+
+	// POST with schedule override
+	rec := postTemplate(t, router, `{
+		"deployment_id": "dep-sched-1",
+		"schedules": {"nightly": "0 4 * * *"}
+	}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	// Schedules in response should reflect the override
+	if resp.Schedules["nightly"] != "0 4 * * *" {
+		t.Errorf("resp.Schedules[nightly]: expected '0 4 * * *', got %q", resp.Schedules["nightly"])
 	}
 }
