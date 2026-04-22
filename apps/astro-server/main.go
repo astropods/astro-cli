@@ -1280,6 +1280,18 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		accountGitHubRoutes.Use(middleware.ResolveAccount(accountStore))
 		accountGitHubRoutes.Use(middleware.RequireAccountMember(accountStore))
 		{
+			api.GET(accountGitHubRoutes, "/github", "Get GitHub connection status for account",
+				handlers.GitHubAccountStatus(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.DELETE(accountGitHubRoutes, "/github", "Disconnect GitHub from account",
+				handlers.GitHubAccountDisconnect(log, pipesClient, ghStore),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
 			api.POST(accountGitHubRoutes, "/github/connect", "Start account-level GitHub OAuth",
 				handlers.GitHubAccountConnect(log, pipesClient, githubCfg),
 				oapispec.Tags("GitHub"),

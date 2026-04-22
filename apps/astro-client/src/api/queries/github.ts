@@ -79,6 +79,25 @@ export function useGitHubDisconnect(account: string, name: string) {
   });
 }
 
+export function useGitHubAccountStatus(account: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: githubKeys.accountStatus(account),
+    queryFn: () => api.gitHubAccountStatus(account),
+    enabled: (opts?.enabled ?? true) && !!account,
+  });
+}
+
+export function useGitHubAccountDisconnect(account: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.gitHubAccountDisconnect(account),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountStatus(account) });
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+    },
+  });
+}
+
 export function useGitHubAccountConnect(account: string) {
   return useMutation({
     mutationFn: (redirectTo: string) => api.gitHubConnectAccount(account, redirectTo),

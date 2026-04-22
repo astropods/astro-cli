@@ -425,6 +425,81 @@ func GitHubAccountListConnections(log *logger.Logger, ghStore *githubconnection.
 	}
 }
 
+// GitHubAccountStatus handles GET /api/v1/accounts/:account/github.
+// Returns whether the account has a live GitHub OAuth token and the authenticated login.
+func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"connected": false})
+			return
+		}
+
+		login := ""
+		if gh := githubclient.New(token.AccessToken); gh != nil {
+			login, _ = gh.GetLogin(c.Request.Context())
+		}
+		c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
+	}
+}
+
+// GitHubAccountDisconnect handles DELETE /api/v1/accounts/:account/github.
+// Removes all agent repo connections and their webhooks for the account.
+func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		conns, err := ghStore.ListByAccount(c.Request.Context(), acct.ID)
+		if err != nil {
+			log.Error("github: list connections for disconnect", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load connections"})
+			return
+		}
+
+		// Best-effort webhook removal using the account's OAuth token.
+		token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		for _, conn := range conns {
+			if tokenErr == nil && conn.WebhookID != 0 {
+				if gh := githubclient.New(token.AccessToken); gh != nil {
+					if delErr := gh.DeleteWebhook(c.Request.Context(), conn.RepoFullName, conn.WebhookID); delErr != nil {
+						log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
+					}
+				}
+			}
+			if delErr := ghStore.Delete(c.Request.Context(), acct.ID, conn.AgentName); delErr != nil {
+				log.Error("github: delete connection on account disconnect", "error", delErr, "agent", conn.AgentName)
+			}
+		}
+
+		log.Info("GitHub account disconnected", "account", acct.Name, "connections_removed", len(conns))
+		c.Status(http.StatusNoContent)
+	}
+}
+
 // GitHubDisconnect handles DELETE /api/v1/agents/:account/:name/github.
 // Removes the webhook from GitHub and deletes the connection record.
 func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {
