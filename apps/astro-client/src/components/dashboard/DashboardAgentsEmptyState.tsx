@@ -7,7 +7,7 @@ import { explorePath } from "@/lib/routes";
 export function DashboardAgentsEmptyState() {
   return (
     <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
-      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-muted">
+      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-border">
         <RocketLaunchIcon className="size-6 text-muted-foreground" />
       </div>
       <p className="text-heading-3 text-foreground mb-2">No agents deployed yet</p>
@@ -24,7 +24,7 @@ export function DashboardAgentsEmptyState() {
         <Button variant="outline" asChild>
           <Link to={explorePath}>
             <Telescope className="size-4" strokeWidth={1.5} />
-            Explore community blueprints
+            Explore community
           </Link>
         </Button>
       </div>
