@@ -180,9 +180,10 @@ export function wrapTemplateResponse(
       };
     }
   }
-  // Shape adapters — mirrors server: response root reflects current selection
+  // Shape interfaces — mirrors server: promote user-editable fields to response root
   const interfaces = rest.interfaces as Record<string, unknown> | undefined;
   const shapedAdapters = (reqBody?.adapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
+  const shapedAuth = interfaces?.auth as { web?: { type?: string } } | undefined;
   const shapedRest = reqBody?.adapters && interfaces
     ? { ...rest, interfaces: { ...interfaces, adapters: reqBody.adapters } }
     : rest;
@@ -204,7 +205,7 @@ export function wrapTemplateResponse(
     template: { ...shapedRest, spec: 'deployment/v1', variables: templateVars } as DeploymentSpec,
     variables: schemaVars,
     editable: editable ?? [],
-    adapters: shapedAdapters,
+    interfaces: { adapters: shapedAdapters, auth: shapedAuth },
     validation: { valid: errors.length === 0, errors },
   };
 }

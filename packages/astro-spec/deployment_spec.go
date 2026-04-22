@@ -310,8 +310,16 @@ type TemplateResponse struct {
 	Template   AstroDeploymentSpec `json:"template"`            // deployment/v1 — directly postable to /deploy
 	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
 	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
-	Adapters   []string            `json:"adapters"`            // current adapter selection (always present, may be empty)
+	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth)
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
+}
+
+// TemplateInterfaces carries the user-editable subset of DeploymentInterfaces
+// at the response root. The full DeploymentInterfaces (image, resources, etc.)
+// lives inside Template for the deploy POST.
+type TemplateInterfaces struct {
+	Adapters []string                  `json:"adapters"` // selected adapters (always present, may be empty)
+	Auth     *DeploymentInterfacesAuth `json:"auth,omitempty"`
 }
 
 // TemplateValidation carries the current validity state and any field-level errors.

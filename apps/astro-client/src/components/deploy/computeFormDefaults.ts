@@ -1,4 +1,4 @@
-import type { DeploymentTemplate } from "@/lib/api";
+import type { DeploymentTemplate, TemplateInterfaces } from "@/lib/api";
 import type { DeployFormInitialValues } from "./useDeployForm";
 import { getVariableDefault } from "./VariableField";
 import { SLACK_CONFIG_KEY, deserializeSlackConfig } from "./slackConfig";
@@ -13,6 +13,7 @@ import { SLACK_CONFIG_KEY, deserializeSlackConfig } from "./slackConfig";
 export function computeFormDefaults(
   template: DeploymentTemplate | null | undefined,
   name: string,
+  respInterfaces?: TemplateInterfaces,
 ): DeployFormInitialValues {
   const deployName = slugToTitle(name);
 
@@ -63,10 +64,10 @@ export function computeFormDefaults(
     }
   }
 
-  // Web auth
-  const interfaces = template.interfaces as Record<string, unknown> | undefined;
-  const webAuth = (interfaces?.auth as Record<string, unknown> | undefined)?.web as Record<string, unknown> | undefined;
-  const webAuthEnabled = webAuth?.type === "oidc";
+  // Web auth — prefer response-level interfaces, fall back to template
+  const auth = respInterfaces?.auth
+    ?? (template.interfaces as Record<string, unknown> | undefined)?.auth as TemplateInterfaces['auth'] | undefined;
+  const webAuthEnabled = auth?.web?.type === "oidc";
 
   return {
     deployName,

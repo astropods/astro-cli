@@ -3,7 +3,7 @@ import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
@@ -16,9 +16,8 @@ function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   return parsed ? { ref: parsed.name } : { value: raw };
 }
 
-function isWebAuthOidc(interfaces: Record<string, unknown> | undefined): boolean {
-  const webAuth = (interfaces?.auth as Record<string, unknown> | undefined)?.web as Record<string, unknown> | undefined;
-  return webAuth?.type === "oidc";
+function isWebAuthOidc(auth: TemplateInterfaces['auth'] | undefined): boolean {
+  return auth?.web?.type === "oidc";
 }
 
 function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
@@ -68,8 +67,8 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
 const SLACK_VIRTUAL_FIELDS = ["SLACK_ACTIONABLE_REACTIONS", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_ALLOWED_USER_IDS"] as const;
 
 /** Compute form-ready initial values from a pre-filled deployment template.
- *  @param responseAdapters — top-level `adapters` from TemplateResponse (prefilled from existing deployment) */
-export function computeInitialValues(template: DeploymentTemplate, account: string, responseAdapters?: string[]): DeployFormInitialValues {
+ *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth) */
+export function computeInitialValues(template: DeploymentTemplate, account: string, respInterfaces?: TemplateInterfaces): DeployFormInitialValues {
   const variableValues: Record<string, string> = {};
   const adapterCredentials: Record<string, string> = {};
 
@@ -93,13 +92,9 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     }
   }
 
-  // Prefer top-level response adapters (prefilled from existing deployment),
-  // fall back to template.interfaces.adapters for backward compat.
-  const adapters = responseAdapters
-    ?? (template.interfaces as Record<string, unknown> | undefined)?.adapters as string[] | undefined;
+  const adapters = respInterfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
-  const interfaces = template.interfaces as Record<string, unknown> | undefined;
-  const webAuthEnabled = isWebAuthOidc(interfaces);
+  const webAuthEnabled = isWebAuthOidc(respInterfaces?.auth);
 
   const ingestionSchedules: Record<string, string> = {};
   if (template.ingestion) {
@@ -292,7 +287,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (!template || seededRef.current) return;
     seededRef.current = true;
 
-    const extracted = computeInitialValues(template, account, templateResponse?.adapters);
+    const extracted = computeInitialValues(template, account, templateResponse?.interfaces);
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
       targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",

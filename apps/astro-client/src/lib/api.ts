@@ -1126,8 +1126,13 @@ export interface TemplateResponse {
   template: DeploymentSpec;
   variables: Record<string, DeploymentVariable>;
   editable: string[];
-  adapters: string[];
+  interfaces: TemplateInterfaces;
   validation: TemplateValidation;
+}
+
+export interface TemplateInterfaces {
+  adapters: string[];
+  auth?: { web?: { type?: string } };
 }
 
 export interface TemplateValidation {

@@ -2273,12 +2273,15 @@ func TestShapeTemplate_EmptyRequest(t *testing.T) {
 		t.Error("resp.Editable should be non-empty")
 	}
 
-	// Root adapters should be empty (base template has no adapter selection)
-	if resp.Adapters == nil {
-		t.Error("resp.Adapters should be non-nil (empty slice, not null)")
+	// Root interfaces: adapters should be empty, auth should reflect template
+	if resp.Interfaces.Adapters == nil {
+		t.Error("resp.Interfaces.Adapters should be non-nil (empty slice, not null)")
 	}
-	if len(resp.Adapters) != 0 {
-		t.Errorf("resp.Adapters: expected empty, got %v", resp.Adapters)
+	if len(resp.Interfaces.Adapters) != 0 {
+		t.Errorf("resp.Interfaces.Adapters: expected empty, got %v", resp.Interfaces.Adapters)
+	}
+	if resp.Interfaces.Auth == nil || resp.Interfaces.Auth.Web == nil || resp.Interfaces.Auth.Web.Type != "oidc" {
+		t.Error("resp.Interfaces.Auth should have web.type=oidc from base template")
 	}
 
 	// Root variables should have schema fields (description)
@@ -2339,8 +2342,8 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	}
 
 	// Root adapters should match the request selection
-	if len(resp.Adapters) != 1 || resp.Adapters[0] != "slack" {
-		t.Errorf("resp.Adapters: expected [slack], got %v", resp.Adapters)
+	if len(resp.Interfaces.Adapters) != 1 || resp.Interfaces.Adapters[0] != "slack" {
+		t.Errorf("resp.Interfaces.Adapters: expected [slack], got %v", resp.Interfaces.Adapters)
 	}
 
 	// Validation should error on missing slack tokens (now non-optional due to adapter shaping)
@@ -2450,11 +2453,11 @@ func TestShapeTemplate_AdaptersFromPrefill(t *testing.T) {
 
 	// Initial POST with no adapters in request — response should reflect the stored adapters.
 	resp := ShapeTemplate(base, &spec.TemplateRequest{})
-	if len(resp.Adapters) != 2 {
-		t.Fatalf("resp.Adapters: expected [web slack], got %v", resp.Adapters)
+	if len(resp.Interfaces.Adapters) != 2 {
+		t.Fatalf("resp.Interfaces.Adapters: expected [web slack], got %v", resp.Interfaces.Adapters)
 	}
-	if resp.Adapters[0] != "web" || resp.Adapters[1] != "slack" {
-		t.Errorf("resp.Adapters: expected [web slack], got %v", resp.Adapters)
+	if resp.Interfaces.Adapters[0] != "web" || resp.Interfaces.Adapters[1] != "slack" {
+		t.Errorf("resp.Interfaces.Adapters: expected [web slack], got %v", resp.Interfaces.Adapters)
 	}
 }
 
@@ -2467,23 +2470,23 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 	resp := ShapeTemplate(base, &spec.TemplateRequest{
 		Adapters: []string{"slack"},
 	})
-	if len(resp.Adapters) != 1 || resp.Adapters[0] != "slack" {
-		t.Errorf("resp.Adapters after reshape: expected [slack], got %v", resp.Adapters)
+	if len(resp.Interfaces.Adapters) != 1 || resp.Interfaces.Adapters[0] != "slack" {
+		t.Errorf("resp.Interfaces.Adapters after reshape: expected [slack], got %v", resp.Interfaces.Adapters)
 	}
 
 	// Reshape: user deselects all — response should be empty slice.
 	resp = ShapeTemplate(base, &spec.TemplateRequest{
 		Adapters: []string{},
 	})
-	if resp.Adapters == nil {
-		t.Error("resp.Adapters should be non-nil (empty slice, not null)")
+	if resp.Interfaces.Adapters == nil {
+		t.Error("resp.Interfaces.Adapters should be non-nil (empty slice, not null)")
 	}
-	if len(resp.Adapters) != 0 {
-		t.Errorf("resp.Adapters after clearing: expected empty, got %v", resp.Adapters)
+	if len(resp.Interfaces.Adapters) != 0 {
+		t.Errorf("resp.Interfaces.Adapters after clearing: expected empty, got %v", resp.Interfaces.Adapters)
 	}
 }
 
-func TestShapeTemplate_AdaptersJSONNeverNull(t *testing.T) {
+func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 	base := baseTemplateForShape(t)
 	resp := ShapeTemplate(base, &spec.TemplateRequest{})
 
@@ -2491,7 +2494,13 @@ func TestShapeTemplate_AdaptersJSONNeverNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if !strings.Contains(string(b), `"adapters":[]`) {
-		t.Errorf("expected JSON to contain \"adapters\":[], got: %s", string(b))
+	s := string(b)
+	// Adapters must serialize as [] not null
+	if !strings.Contains(s, `"adapters":[]`) {
+		t.Errorf("expected JSON to contain \"adapters\":[], got: %s", s)
+	}
+	// Auth should be present (base template has OIDC)
+	if !strings.Contains(s, `"auth":{"web":{"type":"oidc"}}`) {
+		t.Errorf("expected JSON to contain auth with oidc, got: %s", s)
 	}
 }

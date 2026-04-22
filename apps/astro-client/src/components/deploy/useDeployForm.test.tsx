@@ -485,40 +485,34 @@ describe('computeInitialValues', () => {
     expect(result.variableValues).toEqual({ MY_VAR: '{{secrets.vault-name}}' });
   });
 
-  it('defaults to ["web"] when adapters is empty array', () => {
-    const tpl = makeTemplate({ interfaces: { adapters: [] } });
-    const result = computeInitialValues(tpl, 'acme');
-    expect(result.selectedAdapters).toEqual(['web']);
-  });
-
-  it('defaults to ["web"] when interfaces is undefined', () => {
-    const tpl = makeTemplate({ interfaces: undefined });
-    const result = computeInitialValues(tpl, 'acme');
-    expect(result.selectedAdapters).toEqual(['web']);
-  });
-
-  it('preserves stored adapters from template', () => {
-    const tpl = makeTemplate({ interfaces: { adapters: ['web', 'slack'] } });
-    const result = computeInitialValues(tpl, 'acme');
-    expect(result.selectedAdapters).toEqual(['web', 'slack']);
-  });
-
-  it('prefers responseAdapters over template.interfaces.adapters', () => {
-    const tpl = makeTemplate({ interfaces: { adapters: ['web'] } });
-    const result = computeInitialValues(tpl, 'acme', ['web', 'slack']);
-    expect(result.selectedAdapters).toEqual(['web', 'slack']);
-  });
-
-  it('falls back to template.interfaces.adapters when responseAdapters is undefined', () => {
+  it('defaults to ["web"] when no response interfaces provided', () => {
     const tpl = makeTemplate({ interfaces: { adapters: ['slack'] } });
-    const result = computeInitialValues(tpl, 'acme', undefined);
-    expect(result.selectedAdapters).toEqual(['slack']);
+    const result = computeInitialValues(tpl, 'acme');
+    expect(result.selectedAdapters).toEqual(['web']);
   });
 
-  it('defaults to ["web"] when responseAdapters is empty', () => {
+  it('prefers response interfaces over template.interfaces', () => {
+    const tpl = makeTemplate({ interfaces: { adapters: ['web'] } });
+    const result = computeInitialValues(tpl, 'acme', { adapters: ['web', 'slack'] });
+    expect(result.selectedAdapters).toEqual(['web', 'slack']);
+  });
+
+  it('defaults to ["web"] when response interfaces has empty adapters', () => {
     const tpl = makeTemplate({ interfaces: { adapters: [] } });
-    const result = computeInitialValues(tpl, 'acme', []);
+    const result = computeInitialValues(tpl, 'acme', { adapters: [] });
     expect(result.selectedAdapters).toEqual(['web']);
+  });
+
+  it('reads webAuthEnabled from response interfaces auth', () => {
+    const tpl = makeTemplate({});
+    const result = computeInitialValues(tpl, 'acme', { adapters: ['web'], auth: { web: { type: 'oidc' } } });
+    expect(result.webAuthEnabled).toBe(true);
+  });
+
+  it('webAuthEnabled is false when response interfaces has no auth', () => {
+    const tpl = makeTemplate({});
+    const result = computeInitialValues(tpl, 'acme', { adapters: ['web'] });
+    expect(result.webAuthEnabled).toBe(false);
   });
 
   it('decomposes SLACK_CONFIG into virtual adapter credential fields', () => {
@@ -534,14 +528,6 @@ describe('computeInitialValues', () => {
     const result = computeInitialValues(tpl, 'acme');
     expect(result.adapterCredentials?.SLACK_ACTIONABLE_REACTIONS).toBe('ticket');
     expect(result.variableValues?.SLACK_CONFIG).toBeUndefined();
-  });
-
-  it('detects webAuthEnabled from oidc interfaces', () => {
-    const tpl = makeTemplate({
-      interfaces: { auth: { web: { type: 'oidc' } }, adapters: ['web'] },
-    });
-    const result = computeInitialValues(tpl, 'acme');
-    expect(result.webAuthEnabled).toBe(true);
   });
 
   it('extracts ingestion schedule defaults', () => {
