@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useReducer } from "react";
 import { Link } from "react-router";
 import { ExclamationTriangleIcon, GlobeAltIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,12 @@ import { MANAGED_SET, STORAGE_OPTIONS } from "./constants";
 import { ProvisioningStage } from "./ProvisioningStage";
 import { SuccessStage } from "./SuccessStage";
 
-type FormStep = "form" | "creating" | "provisioning" | "success" | "error";
+type FormState =
+  | { step: "form" }
+  | { step: "creating" }
+  | { step: "provisioning"; submittedName: string }
+  | { step: "success"; store: KnowledgeStore }
+  | { step: "error"; submittedName: string; error: string };
 
 export function ConfigureForm({
   provider,
@@ -40,10 +45,7 @@ export function ConfigureForm({
 }) {
   const canManage = MANAGED_SET.has(provider);
   const [mode, setMode] = useState<"managed" | "external">(canManage ? "managed" : "external");
-  const [step, setStep] = useState<FormStep>("form");
-  const [createdStore, setCreatedStore] = useState<KnowledgeStore | null>(null);
-  const [submittedName, setSubmittedName] = useState("");
-  const [provisionError, setProvisionError] = useState("");
+  const [formState, dispatch] = useReducer((_: FormState, next: FormState) => next, { step: "form" });
 
   const [name, setName] = useState("");
   const [storage, setStorage] = useState("");
@@ -84,35 +86,31 @@ export function ConfigureForm({
     (mode === "managed" || (host && !hostError && (!needsPort || port)));
 
   function onMutationSuccess(store: KnowledgeStore) {
-    setSubmittedName(store.name);
     if (store.status === "ready") {
-      setCreatedStore(store);
-      setStep("success");
+      dispatch({ step: "success", store });
     } else {
-      setStep("provisioning");
+      dispatch({ step: "provisioning", submittedName: store.name });
     }
   }
 
   const handleProvisionReady = useCallback((store: KnowledgeStore) => {
-    setCreatedStore(store);
-    setStep("success");
+    dispatch({ step: "success", store });
   }, []);
 
-  const handleProvisionError = useCallback((error: string) => {
-    setProvisionError(error);
-    setStep("error");
+  const handleProvisionError = useCallback((error: string, submittedName: string) => {
+    dispatch({ step: "error", submittedName, error });
   }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
 
-    setStep("creating");
+    dispatch({ step: "creating" });
 
     if (mode === "managed") {
       create.mutate(
         { name, provider, storage: storage || undefined, public: isPublic },
-        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
+        { onSuccess: onMutationSuccess, onError: () => dispatch({ step: "form" }) },
       );
     } else {
       connect.mutate(
@@ -128,12 +126,12 @@ export function ConfigureForm({
           private_link: privateLink || undefined,
           skip_health_check: (!privateLink && skipHealthCheck) || undefined,
         },
-        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
+        { onSuccess: onMutationSuccess, onError: () => dispatch({ step: "form" }) },
       );
     }
   }
 
-  if (step === "creating") {
+  if (formState.step === "creating") {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
         <Spinner size={40} className="text-teal-600" />
@@ -144,43 +142,41 @@ export function ConfigureForm({
     );
   }
 
-  if (step === "provisioning") {
+  if (formState.step === "provisioning") {
     return (
       <ProvisioningStage
         account={account}
-        storeName={submittedName}
+        storeName={formState.submittedName}
         provider={provider}
         mode={mode}
         onReady={handleProvisionReady}
-        onError={handleProvisionError}
+        onError={(error) => handleProvisionError(error, formState.submittedName)}
       />
     );
   }
 
-  if (step === "error") {
+  if (formState.step === "error") {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
         <div className="flex size-12 items-center justify-center rounded-full border-2 border-red-200 bg-red-50">
           <ExclamationTriangleIcon className="size-6 text-red-600" />
         </div>
         <h2 className="mt-4 text-heading-4 text-foreground">Provisioning failed</h2>
-        <p className="mt-2 text-body-sm text-muted-foreground">{provisionError}</p>
+        <p className="mt-2 text-body-sm text-muted-foreground">{formState.error}</p>
         <div className="mt-6 flex gap-2">
           <Button variant="outline" asChild>
             <Link to={knowledgePath}>Back to Knowledge Stores</Link>
           </Button>
-          {submittedName && (
-            <Button asChild>
-              <Link to={knowledgeDetailPath(submittedName)}>View store details</Link>
-            </Button>
-          )}
+          <Button asChild>
+            <Link to={knowledgeDetailPath(formState.submittedName)}>View store details</Link>
+          </Button>
         </div>
       </div>
     );
   }
 
-  if (step === "success" && createdStore) {
-    return <SuccessStage store={createdStore} />;
+  if (formState.step === "success") {
+    return <SuccessStage store={formState.store} />;
   }
 
   return (
