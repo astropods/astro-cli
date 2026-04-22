@@ -22,7 +22,7 @@ export default function Blueprints() {
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <PageContainer>
+    <PageContainer outerClassName="bg-stone-100">
       <PageHeader
         title="Blueprints"
         description="Agent configurations available to deploy in your account."

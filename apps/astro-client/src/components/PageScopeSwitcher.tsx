@@ -4,16 +4,14 @@ import { useAuth } from "@/lib/auth";
 
 export function PageScopeSwitcher() {
   const { isAuthenticated } = useAuth();
-  const { activeAccount, defaultAccount, setActiveAccount, toggleDefault } = useActiveAccount();
+  const { activeAccount, setActiveAccount } = useActiveAccount();
 
   if (!isAuthenticated) return null;
 
   return (
     <OrgSwitcher
       activeAccount={activeAccount}
-      defaultAccount={defaultAccount}
       onChange={setActiveAccount}
-      onSetDefault={toggleDefault}
     />
   );
 }

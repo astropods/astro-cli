@@ -20,6 +20,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tag } from "@/components/Tag";
+import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
@@ -64,15 +66,12 @@ function KnowledgeStoresContent() {
   const tableHeaders = ["Name", "Status", "Provider", "Mode", "Storage", "Created"];
 
   return (
-    <div className="flex-1 bg-surface">
-      <div className="px-6 py-6">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div>
-            <h1 className="text-heading-1 text-foreground">Knowledge Stores</h1>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Account-level databases shared across agent deployments.
-            </p>
-          </div>
+    <PageContainer outerClassName="bg-stone-100">
+      <PageHeader
+        title="Knowledge Stores"
+        description="Account-level databases shared across agent deployments."
+        adornment={<PageScopeSwitcher />}
+        action={
           <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" asChild>
               <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
@@ -84,7 +83,8 @@ function KnowledgeStoresContent() {
               Add store
             </Button>
           </div>
-        </div>
+        }
+      />
 
         {isLoading ? (
           <Table>
@@ -115,8 +115,8 @@ function KnowledgeStoresContent() {
             <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
               Create a store to give your agents a database for memory, vector search, or caching.
             </p>
-            <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
-              <PlusIcon className="size-3.5" />
+            <Button onClick={() => navigate(newKnowledgePath)}>
+              <PlusIcon className="size-4" />
               Add your first store
             </Button>
           </div>
@@ -199,7 +199,6 @@ function KnowledgeStoresContent() {
             </TableBody>
           </Table>
         )}
-      </div>
 
       {deleteTarget && (
         <DeleteKnowledgeStoreDialog
@@ -210,7 +209,7 @@ function KnowledgeStoresContent() {
           onDeleted={() => setDeleteTarget(null)}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }
 

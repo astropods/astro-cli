@@ -27,7 +27,7 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <PageContainer>
+    <PageContainer outerClassName="bg-stone-100">
       <PageHeader title="Explore community blueprints" />
       <BlueprintListView
         blueprints={data?.agents ?? []}
