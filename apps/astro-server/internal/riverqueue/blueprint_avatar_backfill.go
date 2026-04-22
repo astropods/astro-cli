@@ -42,22 +42,20 @@ func (w *BlueprintAvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[B
 	colorProcessed, colorSkipped, colorFailed := w.backfillBlueprintColors(ctx)
 	depColorProcessed, depColorSkipped, depColorFailed := w.backfillDeploymentColors(ctx)
 
-	if bpProcessed > 0 || bpFailed > 0 || depProcessed > 0 || depFailed > 0 || colorProcessed > 0 || colorFailed > 0 || depColorProcessed > 0 || depColorFailed > 0 {
-		w.log.Info("Blueprint avatar backfill completed",
-			"blueprints_processed", bpProcessed,
-			"blueprints_skipped", bpSkipped,
-			"blueprints_failed", bpFailed,
-			"deployments_processed", depProcessed,
-			"deployments_skipped", depSkipped,
-			"deployments_failed", depFailed,
-			"blueprint_colors_processed", colorProcessed,
-			"blueprint_colors_skipped", colorSkipped,
-			"blueprint_colors_failed", colorFailed,
-			"deployment_colors_processed", depColorProcessed,
-			"deployment_colors_skipped", depColorSkipped,
-			"deployment_colors_failed", depColorFailed,
-		)
-	}
+	w.log.Info("Blueprint avatar backfill completed",
+		"blueprints_processed", bpProcessed,
+		"blueprints_skipped", bpSkipped,
+		"blueprints_failed", bpFailed,
+		"deployments_processed", depProcessed,
+		"deployments_skipped", depSkipped,
+		"deployments_failed", depFailed,
+		"blueprint_colors_processed", colorProcessed,
+		"blueprint_colors_skipped", colorSkipped,
+		"blueprint_colors_failed", colorFailed,
+		"deployment_colors_processed", depColorProcessed,
+		"deployment_colors_skipped", depColorSkipped,
+		"deployment_colors_failed", depColorFailed,
+	)
 	return nil
 }
 

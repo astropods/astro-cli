@@ -4,41 +4,11 @@ import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HoloCard } from "./HoloCard";
-import type { CardColors, CardData } from "astro-trading-card";
-import { generateCard, DEFAULT_COLORS } from "astro-trading-card";
-import { extractColorsFromImage, svgToImageSource } from "astro-trading-card/browser";
-import type { ResolvedIntegration } from "@/lib/api";
+import type { CardData } from "astro-trading-card";
+import { generateCard } from "astro-trading-card";
+import type { AvatarColors, ResolvedIntegration } from "@/lib/api";
+import { useCardColors } from "@/components/deployed-agent/detail/liveRevealCardHooks";
 import { resolveCardIntegrations } from "@/lib/integrationIcons";
-
-function useExtractedColors(avatar: CardData["avatar"], open: boolean) {
-  const [colors, setColors] = useState<CardColors>(DEFAULT_COLORS);
-
-  useEffect(() => {
-    if (!open) return;
-
-    let cancelled = false;
-
-    let source: string | null = null;
-    if (avatar?.url) {
-      source = avatar.url;
-    } else if (avatar?.svg) {
-      source = svgToImageSource(avatar.svg);
-    }
-
-    if (!source) {
-      setColors(DEFAULT_COLORS);
-      return;
-    }
-
-    extractColorsFromImage(source).then((result) => {
-      if (!cancelled) setColors(result ?? DEFAULT_COLORS);
-    });
-
-    return () => { cancelled = true; };
-  }, [avatar, open]);
-
-  return colors;
-}
 
 function useResolvedIntegrations(
   integrations: ResolvedIntegration[] | undefined,
@@ -54,6 +24,7 @@ interface TradingCardModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   data: CardData;
+  avatarColors?: AvatarColors;
   integrations?: ResolvedIntegration[];
 }
 
@@ -61,12 +32,13 @@ export function TradingCardModal({
   open,
   onOpenChange,
   data,
+  avatarColors,
   integrations: rawIntegrations,
 }: TradingCardModalProps) {
   const [entered, setEntered] = useState(false);
   const [showActions, setShowActions] = useState(false);
 
-  const colors = useExtractedColors(data.avatar, open);
+  const colors = useCardColors(avatarColors);
   const cardIntegrations = useResolvedIntegrations(rawIntegrations, open);
 
   const cardData = useMemo<CardData>(

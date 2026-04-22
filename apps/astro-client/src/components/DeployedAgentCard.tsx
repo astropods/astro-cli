@@ -18,6 +18,7 @@ import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
+import type { AvatarColors } from "@/lib/api";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
@@ -48,6 +49,7 @@ export interface DeployedAgentCardProps {
   installedAt: string;
   updatedAt: string;
   hasNewBuildAvailable?: boolean;
+  avatarColors?: AvatarColors;
   className?: string;
   linkState?: Record<string, unknown>;
 }
@@ -73,6 +75,7 @@ export function DeployedAgentCard({
   installedAt,
   updatedAt,
   hasNewBuildAvailable = false,
+  avatarColors,
   className,
   linkState,
 }: DeployedAgentCardProps) {
@@ -207,6 +210,7 @@ export function DeployedAgentCard({
         open={shareOpen}
         onOpenChange={setShareOpen}
         data={cardData}
+        avatarColors={avatarColors}
         integrations={integrations}
       />
     </>

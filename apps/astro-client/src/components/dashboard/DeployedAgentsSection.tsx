@@ -63,6 +63,7 @@ function AgentCard({
       installedAt={deployment.created_at}
       updatedAt={deployment.updated_at || deployment.created_at}
       hasNewBuildAvailable={hasNewBuildAvailable}
+      avatarColors={deployment.avatar_colors}
     />
   );
 }

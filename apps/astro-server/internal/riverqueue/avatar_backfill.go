@@ -77,23 +77,17 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 		}
 	}
 
-	if totalProcessed > 0 || totalFailed > 0 {
-		w.log.Info("Avatar backfill completed",
-			"processed", totalProcessed,
-			"skipped", totalSkipped,
-			"failed", totalFailed,
-		)
-	}
-
 	// Backfill colors for accounts that have avatars but no colors yet.
 	colorProcessed, colorSkipped, colorFailed := w.backfillAccountColors(ctx)
-	if colorProcessed > 0 || colorFailed > 0 {
-		w.log.Info("Account color backfill completed",
-			"processed", colorProcessed,
-			"skipped", colorSkipped,
-			"failed", colorFailed,
-		)
-	}
+
+	w.log.Info("Avatar backfill completed",
+		"processed", totalProcessed,
+		"skipped", totalSkipped,
+		"failed", totalFailed,
+		"colors_processed", colorProcessed,
+		"colors_skipped", colorSkipped,
+		"colors_failed", colorFailed,
+	)
 
 	return nil
 }

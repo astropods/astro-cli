@@ -1,44 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { resolveCardIntegrations } from "@/lib/integrationIcons";
-import type { ResolvedIntegration } from "@/lib/api";
-import type { CardColors, CardData } from "astro-trading-card";
+import type { AvatarColors, ResolvedIntegration } from "@/lib/api";
+import type { CardColors } from "astro-trading-card";
 import { DEFAULT_COLORS } from "astro-trading-card";
-import { extractColorsFromImage, svgToImageSource } from "astro-trading-card/browser";
 
-export function useExtractedColors(avatar: CardData["avatar"], enabled: boolean) {
-  const [colors, setColors] = useState<CardColors>(DEFAULT_COLORS);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-
-    let source: string | null = null;
-    if (avatar?.url) {
-      source = avatar.url;
-    } else if (avatar?.svg) {
-      source = svgToImageSource(avatar.svg);
-    }
-
-    if (!source) {
-      setColors(DEFAULT_COLORS);
-      setReady(true);
-      return;
-    }
-
-    extractColorsFromImage(source).then((result) => {
-      if (!cancelled) {
-        setColors(result ?? DEFAULT_COLORS);
-        setReady(true);
-      }
-    });
-
-    return () => {
-      cancelled = true;
+/** Map server-provided AvatarColors to the CardColors shape used by the trading card. */
+export function useCardColors(serverColors?: AvatarColors): CardColors {
+  return useMemo(() => {
+    if (!serverColors) return DEFAULT_COLORS;
+    return {
+      accent: serverColors.accent,
+      accentLight: serverColors.accent_light,
+      background: serverColors.background,
+      foreground: serverColors.foreground,
+      glow: serverColors.glow,
     };
-  }, [avatar, enabled]);
-
-  return { colors, ready };
+  }, [serverColors]);
 }
 
 export function useResolvedIntegrations(integrations: ResolvedIntegration[] | undefined, enabled: boolean) {

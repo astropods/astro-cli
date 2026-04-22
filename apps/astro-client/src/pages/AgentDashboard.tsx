@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeployment, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
@@ -37,13 +37,14 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   const navigate = useNavigate();
 
   const [revealDeployment] = useState<AgentDeployment | null>(() => {
-    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
+    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string; revealAvatarColors?: AvatarColors } | null;
     if (!rs?.revealDeploymentId || !rs.revealAgentName) return null;
     return {
       id: rs.revealDeploymentId,
       name: rs.revealAgentName,
       display_name: rs.revealDisplayName ?? rs.revealAgentName,
       avatar_url: rs.revealAvatarUrl ?? undefined,
+      avatar_colors: rs.revealAvatarColors,
       build_id: "",
       namespace: "",
       status: "pending",

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HoloCard } from "@/components/trading-card/HoloCard";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
-import { useExtractedColors, useResolvedIntegrations } from "@/components/deployed-agent/detail/liveRevealCardHooks";
+import { useCardColors, useResolvedIntegrations } from "@/components/deployed-agent/detail/liveRevealCardHooks";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
@@ -62,7 +62,7 @@ export function LiveRevealOverlay({
     };
   }, [account, avatarUrl, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
 
-  const { colors, ready: colorsReady } = useExtractedColors(baseCardData.avatar, true);
+  const colors = useCardColors(deployment.avatar_colors);
   const cardIntegrations = useResolvedIntegrations(integrations, true);
 
   const revealCardData = useMemo<CardData>(
@@ -150,7 +150,7 @@ export function LiveRevealOverlay({
           <div
             className={cn(
               "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
-              entered && colorsReady ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
+              entered ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
             )}
           >
             <HoloCard>

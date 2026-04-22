@@ -19,35 +19,38 @@ import (
 )
 
 // extractAndStoreColors reads an avatar via readFn, extracts its color palette,
-// and persists the result via storeFn. Failures are logged but not propagated.
+// persists the result via storeFn, and returns the raw JSON for inclusion in
+// API responses. Failures are logged but not propagated; returns nil on error.
 func extractAndStoreColors(ctx context.Context, log *logger.Logger,
 	readFn func(context.Context) ([]byte, error),
 	storeFn func([]byte) error,
 	logAttrs ...any,
-) {
+) json.RawMessage {
 	data, err := readFn(ctx)
 	if err != nil {
 		log.Warn("Failed to read avatar for color extraction", append([]any{"error", err}, logAttrs...)...)
-		return
+		return nil
 	}
 	colors, err := colorextract.ExtractFromJPEG(data)
 	if err != nil {
 		log.Warn("Failed to extract avatar colors", append([]any{"error", err}, logAttrs...)...)
-		return
+		return nil
 	}
 	colorsJSON, err := json.Marshal(colors)
 	if err != nil {
 		log.Warn("Failed to marshal avatar colors", append([]any{"error", err}, logAttrs...)...)
-		return
+		return nil
 	}
 	if err := storeFn(colorsJSON); err != nil {
 		log.Warn("Failed to store avatar colors", append([]any{"error", err}, logAttrs...)...)
 	}
+	return colorsJSON
 }
 
 // AvatarResponse is returned after avatar mutations.
 type AvatarResponse struct {
-	AvatarURL string `json:"avatar_url"`
+	AvatarURL    string          `json:"avatar_url"`
+	AvatarColors json.RawMessage `json:"avatar_colors,omitempty"`
 }
 
 // UploadAvatar handles POST /api/v1/accounts/:account/avatar
@@ -83,7 +86,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			return
 		}
 
-		extractAndStoreColors(c.Request.Context(), log,
+		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
 			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
 			"account", acct.Name,
@@ -98,7 +101,8 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL: avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarColors: colorsJSON,
 		})
 	}
 }
@@ -124,7 +128,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 			return
 		}
 
-		extractAndStoreColors(c.Request.Context(), log,
+		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
 			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
 			"account", acct.Name,
@@ -139,7 +143,8 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL: avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarColors: colorsJSON,
 		})
 	}
 }
@@ -159,7 +164,7 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			return
 		}
 
-		extractAndStoreColors(c.Request.Context(), log,
+		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
 			func(j []byte) error { return accountStore.SetAvatarColors(acct.ID, j) },
 			"account", acct.Name,
@@ -174,7 +179,8 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL: avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarColors: colorsJSON,
 		})
 	}
 }
@@ -216,7 +222,7 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index 
 			return
 		}
 
-		extractAndStoreColors(c.Request.Context(), log,
+		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) {
 				return avatarStore.ReadAgentAvatar(ctx, acct.Name, agentName)
 			},
@@ -233,7 +239,8 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index 
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL: avatarStore.AgentAvatarURL(acct.Name, agentName),
+			AvatarURL:    avatarStore.AgentAvatarURL(acct.Name, agentName),
+			AvatarColors: colorsJSON,
 		})
 	}
 }
@@ -292,7 +299,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			return
 		}
 
-		extractAndStoreColors(c.Request.Context(), log,
+		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dep.ID) },
 			func(j []byte) error { return deployStore.SetAvatarColors(dep.ID, j) },
 			"deployment", dep.ID,
@@ -307,7 +314,8 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL: avatarStore.DeploymentAvatarURL(dep.ID),
+			AvatarURL:    avatarStore.DeploymentAvatarURL(dep.ID),
+			AvatarColors: colorsJSON,
 		})
 	}
 }

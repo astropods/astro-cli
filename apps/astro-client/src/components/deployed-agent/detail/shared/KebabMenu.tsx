@@ -6,6 +6,7 @@ import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData } from "astro-trading-card";
+import type { AvatarColors } from "@/lib/api";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
@@ -42,12 +43,13 @@ interface KebabMenuProps {
   displayName?: string;
   account: string;
   installedAt?: string;
+  avatarColors?: AvatarColors;
   onDeleted?: () => void;
   onRestart?: () => void;
   hideDestructive?: boolean;
 }
 
-export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, onDeleted, onRestart, hideDestructive = false }: KebabMenuProps) {
+export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarColors, onDeleted, onRestart, hideDestructive = false }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -236,6 +238,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
         open={shareOpen}
         onOpenChange={setShareOpen}
         data={cardData}
+        avatarColors={avatarColors}
         integrations={integrations}
       />
     </div>

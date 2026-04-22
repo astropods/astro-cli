@@ -10,7 +10,7 @@ if (import.meta.hot) {
   });
 }
 import { generateCard, DEFAULT_COLORS } from "./src/index";
-import { downloadSvg, downloadPng, extractColorsFromImage, svgToImageSource, setupHolo } from "./src/browser";
+import { downloadSvg, downloadPng, setupHolo } from "./src/browser";
 import type { CardAvatar, CardColors, CardData } from "./src/types";
 
 // --- Sample data ---
@@ -45,7 +45,6 @@ interface CardSample {
   label: string;
   avatar: CardAvatar | undefined;
   thumb: string;
-  source: string | null;
   /** Override any fields on defaultData for this sample. */
   overrides?: Partial<Omit<CardData, "avatar" | "colors">>;
 }
@@ -59,7 +58,6 @@ function staticAvatar(bg: string, fg: string, label: string): CardSample {
     label,
     avatar: { svg: inner },
     thumb: thumbSvg,
-    source: svgToImageSource(inner),
   };
 }
 
@@ -71,25 +69,21 @@ const samples: CardSample[] = [
     label: "Photo: robot",
     avatar: { url: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=256&h=256&fit=crop" },
     thumb: `<img src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=256&h=256&fit=crop" width="48" height="48" style="object-fit:cover;border-radius:8px"/>`,
-    source: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=256&h=256&fit=crop",
   },
   {
     label: "Photo: abstract",
     avatar: { url: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=256&h=256&fit=crop" },
     thumb: `<img src="https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=256&h=256&fit=crop" width="48" height="48" style="object-fit:cover;border-radius:8px"/>`,
-    source: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=256&h=256&fit=crop",
   },
   {
     label: "OpenClaw",
     avatar: { url: "/assets/openclaw.png" },
     thumb: `<img src="/assets/openclaw.png" width="48" height="48" style="object-fit:cover;border-radius:8px"/>`,
-    source: "/assets/openclaw.png",
   },
   {
     label: "No avatar",
     avatar: undefined,
     thumb: `<div style="width:48px;height:48px;background:#333;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;opacity:0.5">none</div>`,
-    source: null,
   },
   // --- Scenario-specific samples ---
   identityAvatar("scenario/many-integrations", "Many integrations", {
@@ -162,9 +156,8 @@ async function render(idx: number) {
   });
 
   const sample = samples[idx];
-  const colors: CardColors = sample.source
-    ? (await extractColorsFromImage(sample.source)) ?? DEFAULT_COLORS
-    : DEFAULT_COLORS;
+  // Color extraction moved server-side; dev tool uses DEFAULT_COLORS.
+  const colors: CardColors = DEFAULT_COLORS;
   const data: CardData = { ...defaultData, ...sample.overrides, avatar: sample.avatar, colors, displayName: sample.overrides?.displayName ?? sample.label };
   lastSvg = generateCard(data);
 

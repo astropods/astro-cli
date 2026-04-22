@@ -124,8 +124,8 @@ function AccountProfileContent() {
                 name={agent.name}
                 description={getBlueprintDescription(agent)}
                 visibility={agent.visibility}
+                avatarColors={agent.avatar_colors}
                 deployCount={agent.metrics?.deploy_count}
-
                 onArchive={isMember ? () => {} : undefined}
               />
             ))}

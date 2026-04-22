@@ -982,12 +982,24 @@ export interface BlueprintMetrics {
   deploy_count?: number;
 }
 
+export interface AvatarColors {
+  base: string;
+  vibrant: string;
+  vibrant_light: string;
+  accent: string;
+  accent_light: string;
+  background: string;
+  foreground: string;
+  glow: string;
+}
+
 export interface Blueprint {
   name: string;
   account: string;
   registry: string;
   visibility?: string;
   avatar_url?: string;
+  avatar_colors?: AvatarColors;
   archived_at?: string;
   name_reserved?: boolean;
   versions: BlueprintVersion[];
@@ -1237,6 +1249,7 @@ export interface AgentDeployment {
   name: string;
   display_name?: string;
   avatar_url?: string;
+  avatar_colors?: AvatarColors;
   build_id: string;
   namespace: string;
   status: string;
@@ -1368,6 +1381,7 @@ export interface UsageMeter {
 
 export interface AvatarResponse {
   avatar_url: string;
+  avatar_colors?: AvatarColors;
 }
 
 export interface FeedbackInput {

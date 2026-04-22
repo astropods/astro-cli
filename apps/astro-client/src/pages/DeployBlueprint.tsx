@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { createServerApi } from "@/lib/api.server";
+import type { AvatarColors } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
@@ -120,7 +121,9 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
       // Upload staged avatar before navigating so we can pass the server URL
       // (not the local blob URL) in nav state — prevents a blob→server URL
       // transition in the reveal overlay that causes an avatar flicker.
+      // The upload response also includes extracted avatar_colors.
       let revealAvatarUrl: string | null | undefined = stagedPreviewUrl;
+      let revealAvatarColors: AvatarColors | undefined = agent.avatar_colors;
       if (result?.deployment_id && stagedBlobRef.current) {
         try {
           const avatarResult = await uploadDeploymentAvatar.mutateAsync({
@@ -128,6 +131,9 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
             file: stagedBlobRef.current,
           });
           revealAvatarUrl = avatarResult.avatar_url;
+          if (avatarResult.avatar_colors) {
+            revealAvatarColors = avatarResult.avatar_colors;
+          }
         } catch {
           // Avatar upload failure shouldn't block navigation — deployment succeeded
         }
@@ -141,6 +147,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
             revealAgentName: agent.name,
             revealDisplayName: form.deployName,
             revealAvatarUrl,
+            revealAvatarColors,
           },
         });
       } else {

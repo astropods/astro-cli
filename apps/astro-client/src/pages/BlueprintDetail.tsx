@@ -183,6 +183,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getBlueprintDescription(a),
+        avatarColors: a.avatar_colors,
         deployCount: a.metrics?.deploy_count,
       }));
   }, [blueprint, blueprintsData, agentSlug]);

@@ -1077,6 +1077,9 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.Clu
 			deps[i].Name = dbDep.AgentName
 			deps[i].DisplayName = dbDep.DisplayName
 			deps[i].CreatedAt = createdAt.Format(time.RFC3339)
+			if dbDep.AvatarColors != nil {
+				deps[i].AvatarColors = *dbDep.AvatarColors
+			}
 			switch dbDep.Status {
 			case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
 				deps[i].Status = "pending"

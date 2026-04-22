@@ -64,6 +64,7 @@ export function BlueprintsEmptyState() {
               account={bp.account}
               name={bp.name}
               description={getBlueprintDescription(bp)}
+              avatarColors={bp.avatar_colors}
               deployCount={bp.heart_count ?? 0}
             />
           ))}

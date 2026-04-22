@@ -95,6 +95,7 @@ export function BlueprintListView({
             description={getBlueprintDescription(blueprint)}
             visibility={blueprint.visibility}
             avatarUrl={blueprint.avatar_url}
+            avatarColors={blueprint.avatar_colors}
             deployCount={blueprint.metrics?.deploy_count}
             heartCount={blueprint.heart_count}
             isDraft={blueprint.versions.length === 0}
@@ -115,6 +116,7 @@ export function BlueprintListView({
           name={blueprint.name}
           description={getBlueprintDescription(blueprint)}
           visibility={blueprint.visibility}
+          avatarColors={blueprint.avatar_colors}
           deployCount={blueprint.metrics?.deploy_count}
           isDraft={blueprint.versions.length === 0}
           onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}

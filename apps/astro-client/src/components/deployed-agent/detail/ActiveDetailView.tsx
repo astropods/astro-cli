@@ -184,6 +184,7 @@ export function ActiveDetailView({
               displayName={deployment.display_name}
               account={account}
               installedAt={formatDate(deployment.created_at)}
+              avatarColors={deployment.avatar_colors}
               onRestart={!isPaused && !isDeploying ? () => { setIsGloballyRestarting(true); restartAllMutation.mutate({ deploymentId: renderedDeployment.id }); } : undefined}
             />
           </div>
