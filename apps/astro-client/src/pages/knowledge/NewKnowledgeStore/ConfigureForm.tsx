@@ -1,0 +1,438 @@
+import { useState, useMemo, useCallback } from "react";
+import { Link } from "react-router";
+import { ExclamationTriangleIcon, GlobeAltIcon } from "@heroicons/react/24/outline";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
+import { FormSection } from "@/components/deploy/FormSection";
+import { ErrorPanel } from "@/components/ui/status-panel";
+import { useCreateKnowledgeStore, useConnectKnowledgeStore } from "@/api/queries/knowledge";
+import {
+  validateStoreName,
+  PROVIDER_LABELS,
+  PROVIDER_FIELDS,
+  PROVIDER_PORTS,
+} from "@/components/knowledge/knowledge-utils";
+import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
+import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { MANAGED_SET, STORAGE_OPTIONS } from "./constants";
+import { ProvisioningStage } from "./ProvisioningStage";
+import { SuccessStage } from "./SuccessStage";
+
+type FormStep = "form" | "creating" | "provisioning" | "success" | "error";
+
+export function ConfigureForm({
+  provider,
+  account,
+}: {
+  provider: KnowledgeProvider;
+  account: string;
+}) {
+  const canManage = MANAGED_SET.has(provider);
+  const [mode, setMode] = useState<"managed" | "external">(canManage ? "managed" : "external");
+  const [step, setStep] = useState<FormStep>("form");
+  const [createdStore, setCreatedStore] = useState<KnowledgeStore | null>(null);
+  const [submittedName, setSubmittedName] = useState("");
+  const [provisionError, setProvisionError] = useState("");
+
+  const [name, setName] = useState("");
+  const [storage, setStorage] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
+
+  const [privateLink, setPrivateLink] = useState(false);
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState(() => {
+    const defaultPort = PROVIDER_PORTS[provider];
+    return defaultPort != null ? String(defaultPort) : "";
+  });
+  const [database, setDatabase] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [skipHealthCheck, setSkipHealthCheck] = useState(false);
+
+  const create = useCreateKnowledgeStore(account);
+  const connect = useConnectKnowledgeStore(account);
+  const mutation = mode === "managed" ? create : connect;
+
+  const nameError = validateStoreName(name);
+  const fields = useMemo(() => PROVIDER_FIELDS[provider], [provider]);
+
+  const hostLabel = privateLink ? "VPC Endpoint Service Name" : "Host";
+  const hostPlaceholder = privateLink ? "com.amazonaws.vpce.us-east-1.vpce-svc-0a..." : "db.example.com";
+  const hostError = useMemo(() => {
+    if (!host || !privateLink) return null;
+    if (!host.startsWith("com.amazonaws.vpce.")) return "Must start with com.amazonaws.vpce.";
+    return null;
+  }, [host, privateLink]);
+
+  const needsPort = mode === "external" && fields.includes("port");
+  const canSubmit =
+    name &&
+    !nameError &&
+    !mutation.isPending &&
+    (mode === "managed" || (host && !hostError && (!needsPort || port)));
+
+  function onMutationSuccess(store: KnowledgeStore) {
+    setSubmittedName(store.name);
+    if (store.status === "ready") {
+      setCreatedStore(store);
+      setStep("success");
+    } else {
+      setStep("provisioning");
+    }
+  }
+
+  const handleProvisionReady = useCallback((store: KnowledgeStore) => {
+    setCreatedStore(store);
+    setStep("success");
+  }, []);
+
+  const handleProvisionError = useCallback((error: string) => {
+    setProvisionError(error);
+    setStep("error");
+  }, []);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setStep("creating");
+
+    if (mode === "managed") {
+      create.mutate(
+        { name, provider, storage: storage || undefined, public: isPublic },
+        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
+      );
+    } else {
+      connect.mutate(
+        {
+          name,
+          provider,
+          host,
+          port: port ? Number(port) : undefined,
+          database: fields.includes("database") ? database || undefined : undefined,
+          username: fields.includes("username") ? username || undefined : undefined,
+          password: fields.includes("password") ? password || undefined : undefined,
+          api_key: fields.includes("api_key") ? apiKey || undefined : undefined,
+          private_link: privateLink || undefined,
+          skip_health_check: (!privateLink && skipHealthCheck) || undefined,
+        },
+        { onSuccess: onMutationSuccess, onError: () => setStep("form") },
+      );
+    }
+  }
+
+  if (step === "creating") {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
+        <Spinner size={40} className="text-teal-600" />
+        <h2 className="mt-6 text-heading-4 text-foreground">
+          {mode === "managed" ? "Creating your store..." : "Connecting your store..."}
+        </h2>
+      </div>
+    );
+  }
+
+  if (step === "provisioning") {
+    return (
+      <ProvisioningStage
+        account={account}
+        storeName={submittedName}
+        provider={provider}
+        mode={mode}
+        onReady={handleProvisionReady}
+        onError={handleProvisionError}
+      />
+    );
+  }
+
+  if (step === "error") {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center py-20 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full border-2 border-red-200 bg-red-50">
+          <ExclamationTriangleIcon className="size-6 text-red-600" />
+        </div>
+        <h2 className="mt-4 text-heading-4 text-foreground">Provisioning failed</h2>
+        <p className="mt-2 text-body-sm text-muted-foreground">{provisionError}</p>
+        <div className="mt-6 flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to={knowledgePath}>Back to Knowledge Stores</Link>
+          </Button>
+          {submittedName && (
+            <Button asChild>
+              <Link to={knowledgeDetailPath(submittedName)}>View store details</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "success" && createdStore) {
+    return <SuccessStage store={createdStore} />;
+  }
+
+  return (
+    <div className="mx-auto max-w-xl">
+      <form onSubmit={handleSubmit}>
+        <div className="space-y-12">
+          {canManage && (
+            <FormSection
+              title="Mode"
+              description={`Choose how this ${PROVIDER_LABELS[provider]} store is hosted.`}
+            >
+              <div className="space-y-3">
+                {(["managed", "external"] as const).map((m) => {
+                  const selected = mode === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-[6px] border px-5 py-4 text-left transition-[border-color,background-color]",
+                        selected
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border bg-transparent hover:bg-stone-200/50",
+                      )}
+                    >
+                      <div className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                        selected ? "border-primary" : "border-muted-foreground/30",
+                      )}>
+                        {selected && <div className="size-2.5 rounded-full bg-primary" />}
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[13px] font-medium text-foreground">
+                          {m === "managed" ? "Managed by Astro" : "Connect your own"}
+                        </span>
+                        <span className="text-[12px] text-muted-foreground">
+                          {m === "managed"
+                            ? "Astro provisions and operates this database. No credentials needed."
+                            : "Register an existing instance. Astro stores your credentials securely."}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </FormSection>
+          )}
+
+          <FormSection
+            title={mode === "managed" ? "Configuration" : "Connection"}
+            description={
+              mode === "managed"
+                ? "Provision a managed database for your agents."
+                : "Connect your own database. Credentials are encrypted at rest."
+            }
+          >
+            <div className="space-y-5">
+              <div>
+                <Label htmlFor="ks-name" size="md">Name</Label>
+                <Input
+                  id="ks-name"
+                  placeholder="my-store"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); mutation.reset(); }}
+                  autoComplete="off"
+                  autoFocus
+                />
+                {name && nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
+              </div>
+
+              {mode === "managed" ? (
+                <>
+                  <div>
+                    <Label size="md">Storage</Label>
+                    <Select value={storage} onValueChange={setStorage}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a storage size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STORAGE_OPTIONS.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground">Make private</span>
+                      <span className="text-[12px] text-muted-foreground max-w-sm">
+                        Disables the public hostname. The store and its migrations will only be reachable
+                        from inside your network. Recommended for advanced setups.
+                      </span>
+                    </div>
+                    <Switch checked={!isPublic} onCheckedChange={(v) => setIsPublic(!v)} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    className={cn(
+                      "overflow-hidden rounded-[6px] border transition-[border-color,background-color]",
+                      privateLink ? "border-primary/40 bg-primary/5" : "border-border bg-transparent",
+                    )}
+                  >
+                    <div className="flex items-center gap-4 px-5 py-4">
+                      <div
+                        className={cn(
+                          "flex size-9 shrink-0 items-center justify-center rounded-sm transition-colors",
+                          privateLink ? "bg-primary/10 text-primary" : "bg-stone-200 text-muted-foreground",
+                        )}
+                      >
+                        <GlobeAltIcon className="size-5" />
+                      </div>
+                      <div className="flex flex-1 min-w-0 flex-col gap-0.5">
+                        <span className="text-[13px] font-medium text-foreground">PrivateLink</span>
+                        <span className="text-[12px] text-muted-foreground">
+                          Connect via AWS PrivateLink. Traffic stays off the public internet.
+                        </span>
+                      </div>
+                      <Switch checked={privateLink} onCheckedChange={setPrivateLink} />
+                    </div>
+
+                    <div
+                      className={cn(
+                        "border-t bg-surface px-5 py-4 transition-colors",
+                        privateLink ? "border-primary/20" : "border-border",
+                      )}
+                    >
+                      <div className="grid grid-cols-[1fr_auto] gap-3">
+                        <div>
+                          <Label htmlFor="ks-host" size="md">{hostLabel}</Label>
+                          <Input
+                            id="ks-host"
+                            placeholder={hostPlaceholder}
+                            value={host}
+                            onChange={(e) => setHost(e.target.value)}
+                            autoComplete="off"
+                          />
+                          {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
+                        </div>
+                        {fields.includes("port") && (
+                          <div className="w-24">
+                            <Label htmlFor="ks-port" size="md">Port</Label>
+                            <Input
+                              id="ks-port"
+                              type="number"
+                              min={1}
+                              max={65535}
+                              placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
+                              value={port}
+                              onChange={(e) => setPort(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {!privateLink && (
+                        <label className="mt-4 flex cursor-pointer items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={skipHealthCheck}
+                            onChange={(e) => setSkipHealthCheck(e.target.checked)}
+                            className="mt-0.5 size-4 shrink-0 accent-primary"
+                          />
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[13px] font-medium text-foreground select-none">
+                              Skip connection test
+                            </span>
+                            <span className="text-[12px] text-muted-foreground">
+                              Save credentials without verifying Astro can reach the database.
+                            </span>
+                          </div>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {fields.includes("database") && (
+                    <div>
+                      <Label htmlFor="ks-db" size="md">Database</Label>
+                      <Input
+                        id="ks-db"
+                        placeholder="mydb"
+                        value={database}
+                        onChange={(e) => setDatabase(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  )}
+                  {fields.includes("username") && (
+                    <div>
+                      <Label htmlFor="ks-user" size="md">Username</Label>
+                      <Input
+                        id="ks-user"
+                        placeholder="admin"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </div>
+                  )}
+                  {fields.includes("password") && (
+                    <div>
+                      <Label htmlFor="ks-pass" size="md">Password</Label>
+                      <Input
+                        id="ks-pass"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  )}
+                  {fields.includes("api_key") && (
+                    <div>
+                      <Label htmlFor="ks-apikey" size="md">API Key</Label>
+                      <Input
+                        id="ks-apikey"
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </FormSection>
+        </div>
+
+        {mutation.isError && (
+          <div className="mt-4">
+            <ErrorPanel variant="inline">
+              {mutation.error instanceof Error ? mutation.error.message : mode === "managed" ? "Failed to create store" : "Failed to connect store"}
+            </ErrorPanel>
+          </div>
+        )}
+
+        <hr className="border-border mt-12" />
+        <div className="mt-12 flex justify-end gap-3">
+          <Button type="button" variant="ghost" size="default" asChild>
+            <Link to={knowledgePath}>Cancel</Link>
+          </Button>
+          <Button type="submit" disabled={!canSubmit}>
+            {mode === "managed" ? "Create store" : "Connect store"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
