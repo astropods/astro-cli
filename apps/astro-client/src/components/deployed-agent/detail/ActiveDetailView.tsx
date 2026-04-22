@@ -103,14 +103,17 @@ export function ActiveDetailView({
   const isPausing = (pausing || pauseMutation.isPending) && !isActuallyPaused;
   // isResuming persists until live, so the badge doesn't flash then hand off to "Deploying".
   const isResuming = (wakeupMutation.isPending || wakeupMutation.isSuccess) && !isLiveState(renderedDeployment) && !isActuallyPaused;
-  const latestBuildId = accountAgents?.agents
-    ?.find((a) => a.name === renderedDeployment.name)
-    ?.versions?.reduce((latest, current) =>
-      new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
-        ? current
-        : latest,
-    )?.build_id;
+  const blueprintAgent = accountAgents?.agents?.find((a) => a.name === renderedDeployment.name);
+  const latestVersion = blueprintAgent?.versions?.reduce((latest, current) =>
+    new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+      ? current
+      : latest,
+  );
+  const latestBuildId = latestVersion?.build_id;
   const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
+  const currentVersion = hasNewBuildAvailable
+    ? blueprintAgent?.versions?.find((v) => v.build_id === renderedDeployment.build_id)
+    : undefined;
 
   useEffect(() => {
     if (!pausing) return;
@@ -322,7 +325,7 @@ export function ActiveDetailView({
                       title={
                         <span>
                           <StatusBadge color="warning" className="mr-2">Update</StatusBadge>
-                          A new build is available for this agent.
+                          A new build number is available for this agent.
                         </span>
                       }
                       primaryLabel="Redeploy →"
@@ -331,7 +334,12 @@ export function ActiveDetailView({
                       confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
                       confirmLabel="Redeploy"
                       dismissible
-                    />
+                    >
+                      <div className="space-y-0.5 opacity-80">
+                        <div>Current: <span className="font-mono">{currentVersion ? `${formatDate(currentVersion.published_at)} / ` : ""}<span className="font-medium">{renderedDeployment.build_id.slice(0, 8)}</span></span></div>
+                        <div>New: <span className="font-mono">{latestVersion ? `${formatDate(latestVersion.published_at)} / ` : ""}<span className="font-medium">{latestBuildId?.slice(0, 8)}</span></span></div>
+                      </div>
+                    </ActionPanel>
                   </div>
                 )}
                 {showConfigureAsPage ? (

@@ -187,14 +187,21 @@ export const ActionPanelStory: Story = {
       />
       <ActionPanel
         tone="warning"
-        title="A new build is available for this agent."
+        title={
+          "A new build number is available for this agent."
+        }
         primaryLabel="Redeploy →"
         onPrimary={() => {}}
         confirmTitle="Redeploying may be destructive"
         confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
         confirmLabel="Confirm redeploy"
         dismissible
-      />
+      >
+        <div className="space-y-0.5 opacity-80">
+          <div>Current: <span className="font-mono">Apr 15, 2026 / <span className="font-medium">0b3cfd8b</span></span></div>
+          <div>New: <span className="font-mono">Apr 22, 2026 / <span className="font-medium">d4763698</span></span></div>
+        </div>
+      </ActionPanel>
       <ActionPanel
         tone="error"
         title="This deployment is misconfigured and cannot start."

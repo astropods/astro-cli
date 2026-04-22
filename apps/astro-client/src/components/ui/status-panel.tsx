@@ -108,8 +108,8 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
     <div className="rounded-[6px] p-4" style={panelStyle}>
       <div className="flex items-start justify-between gap-3">
         {title ? (
-          <div className="flex items-start gap-1.5 mb-2">
-            <Icon size={16} className="shrink-0 mt-[1px]" style={toneTextStyle} />
+          <div className="flex items-center gap-1.5 mb-2">
+            <Icon size={16} className="shrink-0" style={toneTextStyle} />
             <span className="text-sm font-medium" style={toneTextStyle}>{title}</span>
           </div>
         ) : (
@@ -187,6 +187,8 @@ export function WarningPanel({ title, children, dismissible = false, onDismiss, 
 
 export interface ActionPanelProps {
   title: ReactNode;
+  /** Optional body content rendered below the title, aligned with the title text. */
+  children?: ReactNode;
   primaryLabel: string;
   onPrimary: () => void;
   dismissible?: boolean;
@@ -204,6 +206,7 @@ export interface ActionPanelProps {
  */
 export function ActionPanel({
   title,
+  children,
   primaryLabel,
   onPrimary,
   dismissible = false,
@@ -228,8 +231,8 @@ export function ActionPanel({
   return (
     <>
       <div className="rounded-[6px] px-4 py-3" style={{ background: toneConfig.backgroundColor, border: `1px solid ${toneConfig.borderColor}` }}>
-        <div className="flex items-start gap-3 flex-wrap">
-          <Icon size={16} className="shrink-0 mt-[1px]" style={{ color: toneConfig.textColor }} />
+        <div className="flex items-center gap-3">
+          <Icon size={16} className="shrink-0" style={{ color: toneConfig.textColor }} />
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium" style={{ color: toneConfig.textColor }}>{title}</span>
           </div>
@@ -256,6 +259,11 @@ export function ActionPanel({
             )}
           </div>
         </div>
+        {children && (
+          <div className="mt-2 pl-7 text-xs" style={{ color: toneConfig.textColor }}>
+            {children}
+          </div>
+        )}
       </div>
       {confirmTitle && (
         <Dialog open={confirming} onOpenChange={setConfirming}>
