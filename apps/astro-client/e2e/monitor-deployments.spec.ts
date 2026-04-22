@@ -50,8 +50,9 @@ test("deployments tab: stat cards and service accordion are visible", async ({ p
   await page.goto(AGENT_DETAIL, { waitUntil: "domcontentloaded" });
 
   // Stat cards: build ID from mock is "build-123" → first 8 chars = "build-12"
-  await expect(page.getByText("CURRENT BUILD")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("build-12")).toBeVisible({ timeout: 5_000 });
+  const buildStatCard = page.locator(':has-text("CURRENT BUILD")').last();
+  await expect(buildStatCard).toBeVisible({ timeout: 15_000 });
+  await expect(buildStatCard.getByText("build-12")).toBeVisible({ timeout: 5_000 });
 
   // SERVICES stat card — dep-slack-full-1 has one workload, so value is "1"
   // exact: true avoids matching the "Services1" accordion section header
