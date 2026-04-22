@@ -92,8 +92,8 @@ export function useGitHubAccountDisconnect(account: string) {
   return useMutation({
     mutationFn: () => api.gitHubAccountDisconnect(account),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: githubKeys.accountStatus(account) });
-      queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+      // Invalidate all github queries for this account — blueprint panels pick this up too.
+      queryClient.invalidateQueries({ queryKey: ['github', account] });
     },
   });
 }

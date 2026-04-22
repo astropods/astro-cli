@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { MetaFunction } from "react-router";
+import { useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -13,8 +15,8 @@ import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
-import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect } from "@/api/queries/github";
-import { useGitHubAccountConnections } from "@/api/queries/github";
+import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountConnections } from "@/api/queries/github";
+import { githubKeys } from "@/api/queries/keys";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -102,6 +104,8 @@ function PreferencesSection() {
 function GitHubSection() {
   const { personalAccount } = useAuth();
   const account = personalAccount?.name ?? "";
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: status, isLoading } = useGitHubAccountStatus(account, { enabled: !!account });
   const { data: connectionsData } = useGitHubAccountConnections(account, { enabled: !!account && !!status?.connected });
   const disconnect = useGitHubAccountDisconnect(account);
@@ -111,21 +115,45 @@ function GitHubSection() {
   const connected = status?.connected ?? false;
   const connections = connectionsData?.connections ?? [];
 
+  // After OAuth redirect back, ?github_connected=true is set by the server callback.
+  // Update the cache immediately so the toggle reflects the new state without waiting for a refetch.
+  useEffect(() => {
+    if (searchParams.get('github_connected') !== 'true') return;
+    const login = searchParams.get('github_login') ?? '';
+    queryClient.setQueryData(githubKeys.accountStatus(account), { connected: true, github_login: login });
+    queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+    setSearchParams((p) => { p.delete('github_connected'); p.delete('github_login'); return p; }, { replace: true });
+  }, [searchParams]);
+
   const handleToggle = (checked: boolean) => {
     if (!checked) {
       setConfirmOpen(true);
     } else {
-      const redirectTo = `/${account}/settings/account`;
+      const redirectTo = `/${account}/settings/account?github_connected=true`;
       connect.mutate(redirectTo, {
-        onSuccess: (res) => {
-          if (res.redirect_url) window.location.href = res.redirect_url;
+        onSuccess: (data) => {
+          if (data.redirect_url) {
+            window.location.href = data.redirect_url;
+          } else if (data.connected) {
+            // Pipes token already exists — update cache directly.
+            queryClient.setQueryData(githubKeys.accountStatus(account), {
+              connected: true,
+              github_login: data.github_login,
+            });
+            queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+          }
         },
       });
     }
   };
 
   const handleDisconnect = () => {
-    disconnect.mutate(undefined, { onSuccess: () => setConfirmOpen(false) });
+    disconnect.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
+        setConfirmOpen(false);
+      },
+    });
   };
 
   return (
