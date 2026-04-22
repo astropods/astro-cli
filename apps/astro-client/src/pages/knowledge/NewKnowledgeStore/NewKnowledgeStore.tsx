@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router";
 import type { Route } from "./+types/NewKnowledgeStore";
-import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { useAuth } from "@/lib/auth";
 import { useDefaultAccount } from "@/hooks/use-default-account";
-import { knowledgePath } from "@/lib/routes";
+import { knowledgePath, accountProfilePath } from "@/lib/routes";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { UserAvatar } from "@/components/UserAvatar";
+import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderList } from "./ProviderList";
 import { ConfigureForm } from "./ConfigureForm";
@@ -20,19 +21,24 @@ function NewKnowledgeStoreContent() {
 
   return (
     <div className="flex-1 bg-surface">
-      <div className="border-b border-border bg-surface px-6 py-3">
-        <div className="flex items-center gap-2 text-body-sm">
-          <Link
-            to={knowledgePath}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeftIcon className="size-4" />
-            Knowledge Stores
-          </Link>
-          <span className="text-muted-foreground">/</span>
-          <span className="font-medium text-foreground">Add store</span>
-        </div>
-      </div>
+      <PageBreadcrumb
+        items={[
+          { label: "Knowledge Stores", to: knowledgePath },
+          { label: account, to: accountProfilePath(account) },
+          { label: provider ? `Add store / ${PROVIDER_LABELS[provider]}` : "Add store" },
+        ]}
+        mobileItems={[
+          {
+            label: (
+              <span className="inline-flex items-center gap-2">
+                <UserAvatar handle={account} name={account} className="size-5" />
+                {account}
+              </span>
+            ),
+            to: accountProfilePath(account),
+          },
+        ]}
+      />
 
       <div className="px-6 py-8">
         {provider === null ? (

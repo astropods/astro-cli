@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router";
-import { Bot, Calendar, ChevronRight } from "lucide-react";
+import { Bot, Calendar } from "lucide-react";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
   Squares2X2Icon,
@@ -22,7 +22,9 @@ import {
   statusLabel,
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
-import { knowledgePath } from "@/lib/routes";
+import { knowledgePath, accountProfilePath } from "@/lib/routes";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { UserAvatar } from "@/components/UserAvatar";
 import { cn } from "@/lib/utils";
 import { Chip } from "./Chip";
 import { OverviewTab } from "./OverviewTab";
@@ -76,19 +78,30 @@ function KnowledgeStoreDetailContent() {
     <div className="flex flex-1 min-h-0 overflow-hidden relative bg-surface">
       <div className="flex flex-1 flex-col min-w-0 min-h-0">
 
-        <div className="flex h-[52px] items-center border-b border-stone-300 bg-surface px-8 shrink-0">
-          <div className="flex items-center gap-2 font-mono text-mono-sm text-muted-foreground">
-            <Link to={knowledgePath} className="hover:text-foreground transition-colors">Knowledge stores</Link>
-            <ChevronRight className="size-3 text-faint-foreground" />
-            <Link to={`/${account}`} className="hover:text-foreground transition-colors font-medium text-foreground">{account}</Link>
-          </div>
-        </div>
+        <PageBreadcrumb
+          items={[
+            { label: "Knowledge Stores", to: knowledgePath },
+            { label: account, to: accountProfilePath(account) },
+            { label: store.name },
+          ]}
+          mobileItems={[
+            {
+              label: (
+                <span className="inline-flex items-center gap-2">
+                  <UserAvatar handle={account} name={account} className="size-5" />
+                  {account}
+                </span>
+              ),
+              to: accountProfilePath(account),
+            },
+          ]}
+        />
 
         <div className="bg-surface border-b border-border shrink-0 pt-6">
           <div className="mb-4 px-8">
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5 mb-2.5">
-                <h1 className="text-heading-1 text-foreground">{store.name}</h1>
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mb-2.5">
+                <h1 className="text-heading-1 text-foreground w-full sm:w-auto">{store.name}</h1>
                 <StatusBadge color={statusToColor(store.status)} spinning={isTransitionalStatus(store.status)}>
                   {statusLabel(store.status)}
                 </StatusBadge>
@@ -101,12 +114,6 @@ function KnowledgeStoreDetailContent() {
                   <ProviderIcon provider={store.provider} className="size-3.5 shrink-0" />
                   {PROVIDER_LABELS[store.provider] ?? store.provider}
                 </Chip>
-                {(store.public_host || store.arn) && (
-                  <Chip>
-                    <span className="font-mono text-mono-sm">{store.public_host || store.arn}</span>
-                    <CopyButton copyText={store.public_host || store.arn} className="size-4 p-0 shrink-0 border-0 bg-transparent shadow-none hover:bg-stone-200" iconClassName="size-3" />
-                  </Chip>
-                )}
                 <Chip>
                   <Bot className="size-3.5 shrink-0" />
                   {store.bound_agents?.length ?? 0} bound agents
@@ -115,6 +122,12 @@ function KnowledgeStoreDetailContent() {
                   <Calendar className="size-3.5 shrink-0" />
                   Created {new Date(store.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </Chip>
+                {(store.public_host || store.arn) && (
+                  <Chip>
+                    <span className="font-mono text-mono-sm">{store.public_host || store.arn}</span>
+                    <CopyButton copyText={store.public_host || store.arn} className="size-4 p-0 shrink-0 border-0 bg-transparent shadow-none hover:bg-stone-200" iconClassName="size-3" />
+                  </Chip>
+                )}
               </div>
             </div>
           </div>

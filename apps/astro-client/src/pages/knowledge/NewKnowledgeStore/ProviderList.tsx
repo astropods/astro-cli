@@ -24,7 +24,7 @@ export function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) =>
               <ProviderIcon provider={p} className="size-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="font-medium text-foreground">{PROVIDER_LABELS[p]}</span>
                 {MANAGED_SET.has(p) && <Tag color="blue">Managed option</Tag>}
               </div>
