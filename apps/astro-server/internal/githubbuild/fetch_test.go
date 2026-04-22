@@ -121,6 +121,48 @@ func TestFetchAstroSpec_InvalidYAML(t *testing.T) {
 	}
 }
 
+func TestFetchFileContent_SubPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		fmt.Fprint(w, "content")
+	}))
+	defer srv.Close()
+	withTestHTTPClient(t, srv)
+
+	_, err := FetchFileContent(context.Background(), "tok", "owner/repo/services/my-agent", "sha", "astropods.yml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/repos/owner/repo/contents/services/my-agent/astropods.yml"
+	if gotPath != want {
+		t.Errorf("request path = %q, want %q", gotPath, want)
+	}
+}
+
+func TestFetchAstroSpec_SubPath(t *testing.T) {
+	const yaml = "spec: package/v1\nname: my-agent\nagent:\n  image: myimage\n"
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		fmt.Fprint(w, yaml)
+	}))
+	defer srv.Close()
+	withTestHTTPClient(t, srv)
+
+	s, _, err := FetchAstroSpec(context.Background(), "tok", "owner/repo/services/my-agent", "sha")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.Name != "my-agent" {
+		t.Errorf("Name = %q, want %q", s.Name, "my-agent")
+	}
+	want := "/repos/owner/repo/contents/services/my-agent/astropods.yml"
+	if gotPath != want {
+		t.Errorf("request path = %q, want %q", gotPath, want)
+	}
+}
+
 func TestCollectComponentBuilds_AgentOnly(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name: "my-agent",

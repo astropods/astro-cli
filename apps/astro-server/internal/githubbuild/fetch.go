@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -89,10 +90,34 @@ func FetchAstroSpec(ctx context.Context, token, repoFullName, commitSHA string) 
 	return &s, content, nil
 }
 
+// repoBase returns the first two slash-separated segments of repoFullName ("owner/repo").
+func repoBase(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 2 {
+		return repoFullName
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+// repoSubPath returns everything after the second slash, or "" for root connections.
+func repoSubPath(repoFullName string) string {
+	parts := strings.SplitN(repoFullName, "/", 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
+}
+
 // FetchFileContent fetches a file's raw content from GitHub at a specific ref.
+// repoFullName may be "owner/repo" or "owner/repo/sub/path"; the subpath is
+// prepended to filePath and the base repo is used for the API URL.
 // Returns ("", nil) when the file does not exist at that ref.
 func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", repoFullName, filePath, ref)
+	base := repoBase(repoFullName)
+	if sub := repoSubPath(repoFullName); sub != "" {
+		filePath = sub + "/" + filePath
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", base, filePath, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
