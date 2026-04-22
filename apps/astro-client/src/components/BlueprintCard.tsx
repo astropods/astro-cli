@@ -68,7 +68,7 @@ function extractAccentFromImg(img: HTMLImageElement): CardAccent | null {
     if (!rgb) return { base: colors.accent, vibrant: colors.accent };
     const [h, s] = rgbToHsl(rgb.r, rgb.g, rgb.b);
     return {
-      base: colors.accent,
+      base: hslToHex(h, s * 0.5, rgbToHsl(rgb.r, rgb.g, rgb.b)[2]),
       vibrant: hslToHex(h, Math.min(s, 0.5), 0.35),
     };
   } catch {
@@ -273,7 +273,7 @@ export function BlueprintCard({
           "group relative flex flex-col overflow-hidden shadow-sm transition-all duration-150 hover:shadow-md",
           isDraft
             ? "border-[6px] border-dashed border-stone-400 dark:border-teal-800 bg-transparent"
-            : "[--mix:12%] hover:[--mix:16%] border-[0.5px] border-white transition-[background-color] duration-150 dark:bg-teal-900/30 before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,rgb(255_255_255/0.5)_0.5px,transparent_0.5px),linear-gradient(to_bottom,rgb(255_255_255/0.5)_0.5px,transparent_0.5px)] after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-white dark:after:border-teal-800"
+            : "[--mix:18%] hover:[--mix:14%] border-[0.5px] border-white transition-[background-color] duration-150 dark:bg-teal-900/30 before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,rgb(255_255_255/0.5)_0.5px,transparent_0.5px),linear-gradient(to_bottom,rgb(255_255_255/0.5)_0.5px,transparent_0.5px)] after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-white dark:after:border-teal-800"
         )}
         style={accent && !isDraft ? {
           backgroundColor: `color-mix(in srgb, ${accent.base} var(--mix), white)`,
@@ -341,7 +341,7 @@ export function BlueprintCard({
             name={name}
             size={36}
             url={avatarUrl}
-            className="size-9 shrink-0 rounded-sm overflow-hidden"
+            className="size-9 shrink-0 overflow-hidden border-[0.5px] border-white rounded-[3px]"
             onLoad={handleAvatarLoad}
           />
           <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
