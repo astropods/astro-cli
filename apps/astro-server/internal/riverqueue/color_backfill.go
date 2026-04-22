@@ -52,7 +52,12 @@ func backfillColors(
 				failed++
 				continue
 			}
-			colorsJSON, _ := json.Marshal(colors)
+			colorsJSON, err := json.Marshal(colors)
+			if err != nil {
+				log.Warn(label+": marshal colors", append([]any{"error", err}, item.logAttrs...)...)
+				failed++
+				continue
+			}
 			if err := item.storeColors(ctx, colorsJSON); err != nil {
 				log.Warn(label+": store colors", append([]any{"error", err}, item.logAttrs...)...)
 				failed++

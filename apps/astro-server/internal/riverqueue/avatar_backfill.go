@@ -114,7 +114,7 @@ func (w *AvatarBackfillWorker) backfillAccountColors(ctx context.Context) (proce
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		var items []colorBackfillItem
 		for rows.Next() {

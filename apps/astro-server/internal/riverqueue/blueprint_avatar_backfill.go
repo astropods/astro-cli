@@ -213,7 +213,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprintColors(ctx context.Cont
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		var items []colorBackfillItem
 		for rows.Next() {
@@ -255,7 +255,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeploymentColors(ctx context.Con
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 
 		var items []colorBackfillItem
 		for rows.Next() {

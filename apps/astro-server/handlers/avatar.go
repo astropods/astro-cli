@@ -35,7 +35,11 @@ func extractAndStoreColors(ctx context.Context, log *logger.Logger,
 		log.Warn("Failed to extract avatar colors", append([]any{"error", err}, logAttrs...)...)
 		return
 	}
-	colorsJSON, _ := json.Marshal(colors)
+	colorsJSON, err := json.Marshal(colors)
+	if err != nil {
+		log.Warn("Failed to marshal avatar colors", append([]any{"error", err}, logAttrs...)...)
+		return
+	}
 	if err := storeFn(colorsJSON); err != nil {
 		log.Warn("Failed to store avatar colors", append([]any{"error", err}, logAttrs...)...)
 	}
