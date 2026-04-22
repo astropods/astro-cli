@@ -1,69 +1,155 @@
-import { CheckIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
-import { Spinner } from "@/components/ui/spinner";
-import type { KnowledgeStore } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { CheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
+import { Button } from "@/components/ui/button";
+import type { KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 
-const STEPS = [
-  { key: "connecting", label: "Creating endpoint" },
-  { key: "pending-acceptance", label: "Waiting for acceptance" },
-  { key: "ready", label: "Ready" },
-];
+const CLOUD_CONSOLE: Record<string, {
+  stepTitle: string;
+  label: string;
+  description: string;
+  url: (region: string, endpointId?: string) => string;
+}> = {
+  aws: {
+    stepTitle: "Approve the VPC Endpoint request",
+    label: "Open AWS Console ↗",
+    description: "In AWS Console, go to VPC → Endpoints and approve the pending connection from Astro.",
+    url: (region, endpointId) =>
+      `https://console.aws.amazon.com/vpc/home?region=${region}#Endpoints:${endpointId ? `endpointId=${endpointId}` : ""}`,
+  },
+  gcp: {
+    stepTitle: "Approve the Private Service Connect endpoint",
+    label: "Open GCP Console ↗",
+    description: "In GCP Console, go to Private Service Connect and approve the pending endpoint request from Astro.",
+    url: () => "https://console.cloud.google.com/net-services/psc/list/endpoints",
+  },
+  azure: {
+    stepTitle: "Approve the Private Endpoint connection",
+    label: "Open Azure Portal ↗",
+    description: "In Azure Portal, go to Private Link Center → Pending connections and approve the request from Astro.",
+    url: () => "https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.Network%2FprivateEndpoints",
+  },
+};
 
 export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
   if (!store.endpoint) return null;
-  const status = store.endpoint.status;
 
-  const currentIdx = STEPS.findIndex((s) => s.key === status);
-  const isError = status === "error";
+  const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
+  const consoleUrl = cloud.url(store.endpoint.region, store.endpoint.endpoint_id);
+  const events: KnowledgeEvent[] = store.events ?? [];
+  const status = store.endpoint.status;
+  const isPending = status === "pending-acceptance";
+  const isReady = status === "ready";
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-5">
-      <h3 className="text-heading-4 text-foreground mb-4">PrivateLink</h3>
+    <div className="space-y-3">
+      {/* Action required warning banner */}
+      {isPending && (
+        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3.5 text-sm text-yellow-800">
+          <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+          <div>
+            <p className="font-medium">Action required</p>
+            <p className="text-yellow-700">Accept the endpoint connection request in your cloud console to complete setup.</p>
+          </div>
+        </div>
+      )}
 
-      <div className="space-y-3">
-        {STEPS.map((step, i) => {
-          const isActive = step.key === status;
-          const isDone = !isError && (currentIdx > i || (isActive && status === "ready"));
-          return (
-            <div key={step.key} className="flex items-center gap-3">
-              <div className={cn(
-                "flex size-6 items-center justify-center rounded-full text-xs font-medium",
-                isDone && "bg-teal-100 text-teal-700",
-                isActive && !isError && "bg-yellow-100 text-yellow-700",
-                !isDone && !isActive && "bg-muted text-muted-foreground",
-              )}>
-                {isDone ? <CheckIcon className="size-3.5" /> : isActive && !isError ? <Spinner size={14} /> : i + 1}
+      {/* Steps card */}
+      <div className="rounded-lg overflow-hidden border border-border bg-white divide-y divide-border">
+
+        {/* Step 1 — Complete */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-teal-600/30 bg-teal-600/10 mt-0.5">
+            <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-body font-medium text-foreground">Store registered in Astro</p>
+            {store.endpoint.region && (
+              <div className="mt-2 flex items-start gap-1.5 flex-wrap">
+                {store.endpoint.endpoint_id && (
+                  <span className="flex items-center gap-1.5 min-w-0 rounded-sm bg-stone-100 px-2 py-0.5">
+                    <span className="shrink-0 text-body-sm text-muted-foreground">Endpoint</span>
+                    <span className="font-mono text-mono-sm text-foreground break-all">{store.endpoint.endpoint_id}</span>
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5 rounded-sm bg-stone-100 px-2 py-0.5">
+                  <span className="text-body-sm text-muted-foreground">Region</span>
+                  <span className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</span>
+                </span>
               </div>
-              <span className={cn("text-body-sm", (isDone || isActive) ? "text-foreground" : "text-muted-foreground")}>
-                {step.label}
-              </span>
-            </div>
-          );
-        })}
+            )}
+          </div>
+        </div>
 
-        {status === "pending-acceptance" && (
-          <div className="flex items-start gap-3 rounded-md border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-            <ExclamationTriangleIcon className="size-5 shrink-0 mt-0.5 text-yellow-600" />
-            <div>
-              <p className="font-medium">Action required</p>
-              <p>Accept the endpoint connection request in your AWS console.</p>
-              {store.endpoint?.region && (
-                <p className="mt-1 text-xs text-yellow-700">
-                  Region: {store.endpoint.region}
-                  {store.endpoint.endpoint_id && <> &middot; Endpoint: {store.endpoint.endpoint_id}</>}
-                </p>
+        {/* Step 2 — Active or complete */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5"
+            style={{
+              background: isReady
+                ? "color-mix(in oklch, var(--color-teal-600) 10%, transparent)"
+                : "color-mix(in oklch, var(--color-yellow-600) 12%, transparent)",
+              borderColor: isReady
+                ? "color-mix(in oklch, var(--color-teal-600) 28%, transparent)"
+                : "color-mix(in oklch, var(--color-yellow-600) 28%, transparent)",
+            }}
+          >
+            {isReady
+              ? <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
+              : <span className="text-body-sm font-semibold text-yellow-700">2</span>
+            }
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-body font-medium text-foreground">{cloud.stepTitle}</p>
+            {isPending && (
+              <>
+                <p className="mt-1 text-body-sm text-muted-foreground">{cloud.description}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => window.open(consoleUrl, "_blank")}>
+                  {cloud.label}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Step 3 — Locked or complete */}
+        <div className="flex items-start gap-4 px-5 py-4">
+          <div className={`flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5 ${isReady ? "border-teal-600/30 bg-teal-600/10" : "border-border"}`}>
+            {isReady
+              ? <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
+              : <span className="text-body-sm font-medium text-muted-foreground">3</span>
+            }
+          </div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className={`text-body font-medium ${isReady ? "text-foreground" : "text-faint-foreground"}`}>
+              Astro verifies your connection
+            </p>
+            <p className={`mt-0.5 text-body-sm ${isReady ? "text-muted-foreground" : "text-faint-foreground"}`}>
+              {isReady ? "Connection verified and store is ready." : "Happens automatically after you approve."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Event cards */}
+      {events.length > 0 && (
+        <div className="space-y-2">
+          {events.map((event, i) => (
+            <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
+              {event.type === "Warning" ? (
+                <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+              ) : (
+                <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-500" />
+              )}
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
+                {event.message && <span className="text-body-sm text-muted-foreground">: {event.message}</span>}
+              </div>
+              {event.count > 1 && (
+                <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">×{event.count}</span>
               )}
             </div>
-          </div>
-        )}
-
-        {isError && store.endpoint?.error && (
-          <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <ExclamationTriangleIcon className="size-5 shrink-0 mt-0.5" />
-            <div>{store.endpoint.error}</div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
