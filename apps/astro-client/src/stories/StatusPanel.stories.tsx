@@ -187,9 +187,7 @@ export const ActionPanelStory: Story = {
       />
       <ActionPanel
         tone="warning"
-        title={
-          "A new build number is available for this agent."
-        }
+        title="A new build number is available for this agent."
         primaryLabel="Redeploy →"
         onPrimary={() => {}}
         confirmTitle="Redeploying may be destructive"
@@ -198,8 +196,8 @@ export const ActionPanelStory: Story = {
         dismissible
       >
         <div className="space-y-0.5 opacity-80">
-          <div>Current: <span className="font-mono">Apr 15, 2026 / <span className="font-medium">0b3cfd8b</span></span></div>
-          <div>New: <span className="font-mono">Apr 22, 2026 / <span className="font-medium">d4763698</span></span></div>
+          <div>Current: Apr 15, 2026 / <span className="font-mono font-medium">0b3cfd8b</span></div>
+          <div>New: Apr 22, 2026 / <span className="font-mono font-medium">d4763698</span></div>
         </div>
       </ActionPanel>
       <ActionPanel

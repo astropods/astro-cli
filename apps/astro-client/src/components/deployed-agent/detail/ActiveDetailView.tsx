@@ -14,7 +14,6 @@ import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/StatusBadge";
 import { SidePanel } from "./SidePanel";
 import { DeploymentStatusBadge } from "@/components/deployed-agent/DeploymentStatusBadge";
 import { KebabMenu } from "./shared/KebabMenu";
@@ -322,12 +321,7 @@ export function ActiveDetailView({
                   <div className="mb-4">
                     <ActionPanel
                       tone="warning"
-                      title={
-                        <span>
-                          <StatusBadge color="warning" className="mr-2">Update</StatusBadge>
-                          A new build number is available for this agent.
-                        </span>
-                      }
+                      title="A new build number is available for this agent."
                       primaryLabel="Redeploy →"
                       onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
                       confirmTitle="Are you sure?"
@@ -336,8 +330,8 @@ export function ActiveDetailView({
                       dismissible
                     >
                       <div className="space-y-0.5 opacity-80">
-                        <div>Current: <span className="font-mono">{currentVersion ? `${formatDate(currentVersion.published_at)} / ` : ""}<span className="font-medium">{renderedDeployment.build_id.slice(0, 8)}</span></span></div>
-                        <div>New: <span className="font-mono">{latestVersion ? `${formatDate(latestVersion.published_at)} / ` : ""}<span className="font-medium">{latestBuildId?.slice(0, 8)}</span></span></div>
+                        <div>Current: {currentVersion ? `${formatDate(currentVersion.published_at)} / ` : ""}<span className="font-mono font-medium">{renderedDeployment.build_id.slice(0, 8)}</span></div>
+                        <div>New: {latestVersion ? `${formatDate(latestVersion.published_at)} / ` : ""}<span className="font-mono font-medium">{latestBuildId?.slice(0, 8)}</span></div>
                       </div>
                     </ActionPanel>
                   </div>

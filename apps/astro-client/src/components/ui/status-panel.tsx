@@ -231,12 +231,17 @@ export function ActionPanel({
   return (
     <>
       <div className="rounded-[6px] px-4 py-3" style={{ background: toneConfig.backgroundColor, border: `1px solid ${toneConfig.borderColor}` }}>
-        <div className="flex items-center gap-3">
-          <Icon size={16} className="shrink-0" style={{ color: toneConfig.textColor }} />
+        <div className="flex items-start gap-3">
+          <Icon size={16} className="shrink-0 mt-[3px]" style={{ color: toneConfig.textColor }} />
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium" style={{ color: toneConfig.textColor }}>{title}</span>
+            {children && (
+              <div className="mt-2 text-xs" style={{ color: toneConfig.textColor }}>
+                {children}
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-center">
             <Button
               size="sm"
               variant="default"
@@ -259,11 +264,6 @@ export function ActionPanel({
             )}
           </div>
         </div>
-        {children && (
-          <div className="mt-2 pl-7 text-xs" style={{ color: toneConfig.textColor }}>
-            {children}
-          </div>
-        )}
       </div>
       {confirmTitle && (
         <Dialog open={confirming} onOpenChange={setConfirming}>
