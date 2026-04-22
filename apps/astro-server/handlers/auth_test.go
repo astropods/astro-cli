@@ -1,18 +1,43 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// ─── stubs for fetchAccounts unit tests ──────────────────────────────────────
+
+type stubOrgSyncer struct {
+	roles map[string]string
+}
+
+func (s *stubOrgSyncer) GetMembershipRoles(_ context.Context, _ string) map[string]string {
+	return s.roles
+}
+func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, _ string) error { return nil }
+
+type stubAccountGetter struct {
+	accounts []account.AccountWithRole
+	err      error
+}
+
+func (s *stubAccountGetter) GetAccountsForUser(_ string) ([]account.AccountWithRole, error) {
+	return s.accounts, s.err
+}
 
 func init() {
 	gin.SetMode(gin.TestMode)
@@ -348,6 +373,58 @@ func TestMe_ReturnsPermissions(t *testing.T) {
 	if resp.Permissions[0] != "admin:view" || resp.Permissions[1] != "deployments:write" {
 		t.Errorf("Permissions = %v, want [admin:view deployments:write]", resp.Permissions)
 	}
+}
+
+// TestFetchAccounts covers the fetchAccounts helper in isolation.
+func TestFetchAccounts(t *testing.T) {
+	orgAcct := account.AccountWithRole{
+		ID:                   "org-1",
+		Name:                 "my-org",
+		Type:                 "organization",
+		WorkOSOrganizationID: "wos-org-abc",
+		DisplayName:          "My Org",
+	}
+	personalAcct := account.AccountWithRole{
+		ID:          "personal-1",
+		Name:        "alice",
+		Type:        "personal",
+		DisplayName: "Alice",
+	}
+
+	t.Run("nil orgSync and nil accountStore returns empty slice", func(t *testing.T) {
+		h := createTestAuthHandler("Lax")
+		got := h.fetchAccounts(context.Background(), "user-1")
+		assert.NotNil(t, got)
+		assert.Empty(t, got)
+	})
+
+	t.Run("accounts present but no orgSync gives empty role", func(t *testing.T) {
+		h := createTestAuthHandler("Lax")
+		h.accountStore = &stubAccountGetter{accounts: []account.AccountWithRole{orgAcct}}
+		got := h.fetchAccounts(context.Background(), "user-1")
+		require.Len(t, got, 1)
+		assert.Equal(t, "org-1", got[0].ID)
+		assert.Empty(t, got[0].Role)
+	})
+
+	t.Run("org account gets role from orgSync WorkOS ID map", func(t *testing.T) {
+		h := createTestAuthHandler("Lax")
+		h.orgSync = &stubOrgSyncer{roles: map[string]string{"wos-org-abc": "admin"}}
+		h.accountStore = &stubAccountGetter{accounts: []account.AccountWithRole{orgAcct, personalAcct}}
+		got := h.fetchAccounts(context.Background(), "user-1")
+		require.Len(t, got, 2)
+		assert.Equal(t, "admin", got[0].Role)
+		assert.Empty(t, got[1].Role, "personal account should have no role")
+	})
+
+	t.Run("accountStore error returns empty non-nil slice", func(t *testing.T) {
+		h := createTestAuthHandler("Lax")
+		h.orgSync = &stubOrgSyncer{roles: map[string]string{"wos-org-abc": "member"}}
+		h.accountStore = &stubAccountGetter{err: fmt.Errorf("db unavailable")}
+		got := h.fetchAccounts(context.Background(), "user-1")
+		assert.NotNil(t, got)
+		assert.Empty(t, got)
+	})
 }
 
 // TestMe_ReturnsEmptyPermissions verifies that the response always contains

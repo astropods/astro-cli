@@ -15,10 +15,20 @@ import (
 	avatarpkg "github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
+
+// orgSyncer is satisfied by *org.Sync; extracted for unit testing.
+type orgSyncer interface {
+	SyncMembershipsForUser(ctx context.Context, userID string) error
+	GetMembershipRoles(ctx context.Context, userID string) map[string]string
+}
+
+// accountGetter is satisfied by *account.AccountStore; extracted for unit testing.
+type accountGetter interface {
+	GetAccountsForUser(userID string) ([]account.AccountWithRole, error)
+}
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
@@ -28,15 +38,15 @@ type AuthHandler struct {
 	sessionManager *auth.SessionManager
 	jwtValidator   *auth.JWTValidator
 	allowedOrigins map[string]bool
-	accountStore   *account.AccountStore
-	orgSync        *org.Sync
+	accountStore   accountGetter
+	orgSync        orgSyncer
 	avatarStore    *avatarpkg.Store
 }
 
 // SetOrgSync sets the org sync service on the auth handler.
 // Called after construction since org.Sync depends on the account store
 // which is also a dependency of the auth handler.
-func (h *AuthHandler) SetOrgSync(sync *org.Sync) {
+func (h *AuthHandler) SetOrgSync(sync orgSyncer) {
 	h.orgSync = sync
 }
 
