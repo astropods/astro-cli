@@ -128,7 +128,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_SLACK_FULL}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { adapters: ["web"], auth: { web: { type: "oidc" } } },
     variables: {
       ...baseVariables,
       SLACK_BOT_TOKEN: {
@@ -256,7 +256,7 @@ const prefilledTemplatesByDeployment = {
       image: `registry.example.com/testuser/${AGENT_SLACK_FULL}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web", "slack"] },
+    interfaces: { adapters: ["web", "slack"], auth: { web: { type: "oidc" } } },
     variables: {
       OPENAI_API_KEY: {
         ...baseVariables.OPENAI_API_KEY,
