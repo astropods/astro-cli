@@ -295,7 +295,7 @@ export function BlueprintCard({
         {cardOverlays}
         {onArchive && (
           <div
-            className="absolute top-3 right-3"
+            className="absolute top-3 right-3 z-[2]"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
           >
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
