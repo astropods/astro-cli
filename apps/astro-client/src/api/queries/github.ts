@@ -80,11 +80,14 @@ export function useGitHubDisconnect(account: string, name: string) {
   });
 }
 
-export function useGitHubAccountStatus(account: string, opts?: { enabled?: boolean }) {
+export function useGitHubAccountStatus(account: string, opts?: { enabled?: boolean; initialData?: { connected: boolean; github_login?: string } }) {
   return useQuery({
     queryKey: githubKeys.accountStatus(account),
     queryFn: () => api.gitHubAccountStatus(account),
     enabled: (opts?.enabled ?? true) && !!account,
+    initialData: opts?.initialData,
+    // Mark seeded data as immediately stale so a background refetch follows.
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
