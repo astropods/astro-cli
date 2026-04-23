@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useAccountBlueprints } from "@/api/queries";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
@@ -9,13 +8,26 @@ import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { createServerApi } from "@/lib/api.server";
+import type { Route } from "./+types/Blueprints";
 
-export function meta() {
-  return [{ title: "Blueprints | Astro" }];
+export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  try {
+    const auth = await api.getCurrentUser();
+    const account = auth.accounts?.find((a) => a.type === "personal");
+    if (!account) return { count: 0 };
+    const { count } = await api.listAccountBlueprints(account.name);
+    return { count };
+  } catch {
+    return { count: 0 };
+  }
 }
 
-export default function Blueprints() {
-  const { activeAccount, setActiveAccount } = useActiveAccount();
+export default function Blueprints({ loaderData }: Route.ComponentProps) {
+  const { activeAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
   const isReady = isAuthenticated && !!activeAccount;
   const { data, isLoading, isError, error, refetch } = useAccountBlueprints(activeAccount, {
@@ -50,6 +62,7 @@ export default function Blueprints() {
         refetch={refetch}
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
+        skeletonCount={loaderData.count || 6}
       />
     </PageContainer>
   );
