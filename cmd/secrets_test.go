@@ -25,9 +25,8 @@ func secretTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server,
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("NO_COLOR", "1")
 		writeAccountTestCredentials(t, accountTestCreds("alice"))
-		prev := auth.DefaultServerURL
-		auth.DefaultServerURL = srv.URL
-		t.Cleanup(func() { auth.DefaultServerURL = prev })
+		secretsServerURLOverride = srv.URL
+		t.Cleanup(func() { secretsServerURLOverride = "" })
 	}
 	return srv, setup
 }

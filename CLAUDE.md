@@ -10,6 +10,12 @@ Use `github.com/stretchr/testify` for all Go tests — `require` for fatal asser
 
 Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individual test functions when the setup or behaviour is meaningfully different from other cases.
 
+### Credentials in tests
+
+- Use `writeAccountTestCredentials(t, creds)` (defined in `account_test.go`) to write a credentials file. Always call `t.Setenv("HOME", t.TempDir())` first so the file lands in a temp dir.
+- Use `accountTestCreds(currentAccount)` for a standard profile — the argument sets the active `CurrentAccount`; the profile always includes personal ("alice") and two org accounts. Pass a custom `*auth.Credentials` only when you need an account name or structure that doesn't match this standard set.
+- Never call `t.Setenv(auth.EnvAccessToken, ...)` in `cmd` package tests. `auth.GetEnvAccessToken()` uses `sync.Once` — setting the env var in one test permanently caches the value for the entire test binary, bypassing auth checks in later tests.
+
 ## Command authoring rules
 
 ### Authentication & account resolution
@@ -20,14 +26,22 @@ Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individ
 ### HTTP calls
 
 - Always use `apiCall(ctx, method, url, body, at.Token, verbose, &dest)` for all API requests. Never create `http.Client`, `http.NewRequest`, or manage response bodies manually in handlers.
-- For non-2xx errors, `apiCall` returns `"server returned status N"`. Map specific status codes to user-friendly messages with `strings.Contains(err.Error(), "status 404")` etc.
+- `apiCall` returns `(int, error)`. Check specific status codes first (`if status == http.StatusNotFound`), then check `if err != nil`. Never use `strings.Contains(err.Error(), "status 404")`.
 - Always read `verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")` and pass it to `apiCall`.
+
+### Output
+
+- All output must go through `w := cmd.OutOrStdout()`. Never use `fmt.Printf`, `fmt.Println`, or write to `os.Stdout` directly in command handlers.
+- Pass `w` to color writers (`color.New(...).Fprint(w, ...)`) and tabwriter (`tabwriter.NewWriter(w, ...)`).
+
+### Flags
+
+- Register per-command flags with `cmd.Flags().Bool(...)` / `cmd.Flags().GetBool(...)`. Never use shared package-level variables for flags that appear on multiple sibling commands (e.g. `--json`). Package-level flag vars leak state across tests.
 
 ### URL construction
 
-- Use `apiPath(serverURL, account, operation, parts...)` for standard `/api/v1/{operation}/{account}/...` paths.
-- For non-standard paths (sub-resources like `/archive`, `/visibility`), build with `strings.TrimSuffix(serverURL, "/") + fmt.Sprintf(...)`.
-- Always use a package-level `xxxServerURLOverride` var for test injection; the URL helper reads it first, then falls back to `auth.DefaultServerURL`.
+- Use `apiPath(baseURL, account, operation, parts...)` for all API paths — it accepts variadic trailing parts so sub-resources like `/archive` or `/visibility` are just additional arguments (e.g. `apiPath(base, account, "agents", name, "archive")`).
+- Always expose a package-level `xxxServerURLOverride` var and a `xxxBaseURL()` helper that reads it first, then falls back to `auth.DefaultServerURL`. Use the helper everywhere instead of reading `auth.DefaultServerURL` directly.
 
 ### Context
 
