@@ -990,6 +990,7 @@ export interface BlueprintMetrics {
 }
 
 export interface AvatarColors {
+  version?: number;
   base: string;
   vibrant: string;
   vibrant_light: string;

@@ -13,6 +13,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -276,7 +277,10 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
 			if agent.AvatarColors != nil {
-				resp.AvatarColors = *agent.AvatarColors
+				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
+					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
+					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+				)
 			}
 			responses = append(responses, resp)
 		}
@@ -359,7 +363,10 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
 			if agent.AvatarColors != nil {
-				resp.AvatarColors = *agent.AvatarColors
+				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
+					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
+					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+				)
 			}
 			responses = append(responses, resp)
 		}
@@ -451,7 +458,10 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
 		}
 		if agent.AvatarColors != nil {
-			resp.AvatarColors = *agent.AvatarColors
+			resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
+				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
+				func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+			)
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count

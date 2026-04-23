@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -949,6 +950,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				if colors, ok := dbColorsByID[d.ID]; ok {
 					allDeployments[i].AvatarColors = colors
 				}
+			}
+			if len(allDeployments[i].AvatarColors) > 0 && avatarStore != nil {
+				allDeployments[i].AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), allDeployments[i].AvatarColors,
+					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, d.ID) },
+					func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(d.ID, j) },
+				)
 			}
 		}
 

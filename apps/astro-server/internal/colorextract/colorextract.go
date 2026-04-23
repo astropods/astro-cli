@@ -7,6 +7,8 @@ package colorextract
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -17,8 +19,13 @@ import (
 	"golang.org/x/image/draw"
 )
 
+// CurrentVersion is bumped whenever the extraction algorithm changes.
+// Stored in the JSON so stale palettes can be lazily re-extracted on read.
+const CurrentVersion = 2
+
 // AvatarColors is the JSON-serializable color scheme extracted from an avatar.
 type AvatarColors struct {
+	Version      int    `json:"version"`
 	Base         string `json:"base"`
 	Vibrant      string `json:"vibrant"`
 	VibrantLight string `json:"vibrant_light"`
@@ -27,6 +34,11 @@ type AvatarColors struct {
 	Background   string `json:"background"`
 	Foreground   string `json:"foreground"`
 	Glow         string `json:"glow"`
+}
+
+// IsCurrent returns true if the colors were extracted with the current algorithm.
+func (c *AvatarColors) IsCurrent() bool {
+	return c != nil && c.Version == CurrentVersion
 }
 
 // ExtractFromJPEG decodes JPEG bytes and extracts avatar colors.
@@ -64,7 +76,8 @@ func ExtractFromRGBA(img *image.RGBA) (*AvatarColors, error) {
 	rgb := parseHex(colors.accent)
 	if rgb == nil {
 		return &AvatarColors{
-			Base: colors.accent, Vibrant: colors.accent, VibrantLight: colors.accent,
+			Version: CurrentVersion,
+			Base:    colors.accent, Vibrant: colors.accent, VibrantLight: colors.accent,
 			Accent: colors.accent, AccentLight: colors.accentLight,
 			Background: colors.background, Foreground: colors.foreground, Glow: colors.glow,
 		}, nil
@@ -73,6 +86,7 @@ func ExtractFromRGBA(img *image.RGBA) (*AvatarColors, error) {
 	h, s, l := rgbToHSL(rgb.r, rgb.g, rgb.b)
 
 	return &AvatarColors{
+		Version:      CurrentVersion,
 		Base:         hslToHex(h, s*0.5, l),
 		Vibrant:      hslToHex(h, math.Min(s, 0.5), 0.35),
 		VibrantLight: hslToHex(h, math.Min(s, 0.6), 0.7),
@@ -82,6 +96,43 @@ func ExtractFromRGBA(img *image.RGBA) (*AvatarColors, error) {
 		Foreground:   colors.foreground,
 		Glow:         colors.glow,
 	}, nil
+}
+
+// EnsureCurrent checks whether colorsJSON contains a palette at CurrentVersion.
+// If it does, it returns the JSON as-is. If not (stale or nil), it reads the
+// avatar via readAvatar, re-extracts, persists via storeColors, and returns
+// the fresh JSON. Errors are returned but are non-fatal — callers can fall
+// back to the stale palette.
+func EnsureCurrent(
+	ctx context.Context,
+	colorsJSON json.RawMessage,
+	readAvatar func(ctx context.Context) ([]byte, error),
+	storeColors func(ctx context.Context, j []byte) error,
+) json.RawMessage {
+	if len(colorsJSON) > 0 {
+		var peek struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(colorsJSON, &peek) == nil && peek.Version == CurrentVersion {
+			return colorsJSON
+		}
+	}
+
+	data, err := readAvatar(ctx)
+	if err != nil {
+		return colorsJSON // keep stale rather than nil
+	}
+	fresh, err := ExtractFromJPEG(data)
+	if err != nil {
+		return colorsJSON
+	}
+	j, err := json.Marshal(fresh)
+	if err != nil {
+		return colorsJSON
+	}
+	// Best-effort persist — don't block the response on a write failure.
+	_ = storeColors(ctx, j)
+	return j
 }
 
 // --- MMCQ (Modified Median Cut Quantization) ---
