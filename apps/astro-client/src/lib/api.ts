@@ -870,12 +870,6 @@ class ApiClient {
     );
   }
 
-  async gitHubListRepos(account: string, name: string): Promise<{ repos: GitHubRepo[] }> {
-    return this.request<{ repos: GitHubRepo[] }>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/repos`
-    );
-  }
-
   async gitHubLink(account: string, name: string, body: GitHubLinkInput): Promise<void> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/link`,

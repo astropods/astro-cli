@@ -28,14 +28,6 @@ export function useGitHubStatus(account: string, name: string, opts?: { enabled?
   return result;
 }
 
-export function useGitHubRepos(account: string, name: string, opts?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: githubKeys.repos(account, name),
-    queryFn: () => api.gitHubListRepos(account, name),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
-  });
-}
-
 export function useGitHubRebuild(account: string, name: string) {
   const queryClient = useQueryClient();
   return useMutation({

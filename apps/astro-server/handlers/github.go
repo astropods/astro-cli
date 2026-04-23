@@ -55,48 +55,6 @@ type GitHubLinkRequest struct {
 	Branch       string `json:"branch"`
 }
 
-// GitHubListRepos handles GET /api/v1/agents/:account/:name/github/repos?q=<query>.
-// Returns matching GitHub repos for the repo selector. Delegates to SearchRepos.
-func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		q := strings.TrimSpace(c.Query("q"))
-		if q == "" {
-			c.JSON(http.StatusOK, gin.H{"repos": []any{}})
-			return
-		}
-
-		session, ok := middleware.GetSession(c)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-			return
-		}
-
-		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-		if err != nil {
-			if errors.Is(err, pipes.ErrNotInstalled) || errors.Is(err, pipes.ErrNeedsReauthorization) {
-				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get GitHub token"})
-			return
-		}
-
-		gh := githubclient.New(token.AccessToken)
-		repos, err := gh.SearchRepos(c.Request.Context(), q, strings.TrimSpace(c.Query("login")))
-		if err != nil {
-			log.Error("github: search repos", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search GitHub repos"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"repos": repos})
-	}
-}
-
 // GitHubAccountConnectRequest is the body for the account-level connect endpoint.
 type GitHubAccountConnectRequest struct {
 	RedirectTo string `json:"redirect_to"`

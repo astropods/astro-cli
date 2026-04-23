@@ -1242,11 +1242,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		githubRoutes := protected.Group("/agents/:account/:name")
 		githubRoutes.Use(middleware.ResolveAccount(accountStore))
 		{
-			api.GET(githubRoutes, "/github/repos", "List user GitHub repos",
-				handlers.GitHubListRepos(log, pipesClient),
-				oapispec.Tags("GitHub"),
-				oapispec.BearerAuth(),
-			)
 			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
 				handlers.GitHubLink(log, pipesClient, ghStore, githubCfg),
 				oapispec.Tags("GitHub"),
