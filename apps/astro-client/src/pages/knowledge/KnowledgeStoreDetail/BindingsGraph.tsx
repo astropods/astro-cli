@@ -60,14 +60,6 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
               strokeDasharray="3 2"
               markerEnd="url(#bind-arrow)"
             />
-            <text
-              x={mx} y={(storeY + agent.y) / 2 - 4}
-              textAnchor="middle"
-              fill={mutedText}
-              fontSize={9} fontFamily="var(--font-mono, monospace)" letterSpacing="0.04em"
-            >
-              binding
-            </text>
           </g>
         );
       })}
