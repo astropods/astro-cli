@@ -21,11 +21,12 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-/* ── Test 1: Linking a repo to a BP marks GitHub as globally connected ───── */
-/* After a user connects GitHub via the BP panel and links a repo, the       */
-/* account settings page should reflect the connected state. This validates  */
-/* that useGitHubLink.onSuccess invalidates githubKeys.accountStatus so the  */
-/* settings toggle picks up the new state without a full page reload.        */
+// ─── Test 1: Linking a repo to a BP marks GitHub as globally connected ────────
+//
+// After a user connects GitHub via the BP panel and links a repo, the account
+// settings page should reflect the connected state. This validates that
+// useGitHubLink.onSuccess invalidates githubKeys.accountStatus so the settings
+// toggle picks up the new state without a full page reload.
 
 test("linking a repo via BP panel shows account as globally connected in settings", async ({ page }) => {
   test.setTimeout(60_000);
@@ -34,9 +35,9 @@ test("linking a repo via BP panel shows account as globally connected in setting
   const connectButton = page.getByRole("button", { name: /connect github repo/i });
   await expect(connectButton).toBeVisible({ timeout: 20_000 });
 
-  /* Clicking triggers the OAuth connect. The mock returns                   */
-  /* { connected: true, github_login: "testgh" } so the repo picker dialog   */
-  /* opens immediately instead of redirecting.                               */
+  // Clicking triggers the OAuth connect. The mock returns
+  // { connected: true, github_login: "testgh" } so the repo picker dialog
+  // opens immediately instead of redirecting.
   const connectResponse = page.waitForResponse(
     (r) => /\/api\/v1\/accounts\/[^/]+\/github\/connect$/.test(r.url()) && r.request().method() === "POST",
   );
@@ -47,7 +48,7 @@ test("linking a repo via BP panel shows account as globally connected in setting
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await expect(dialog.getByText(/connect github repository/i)).toBeVisible({ timeout: 5_000 });
 
-  /* Wait for repos to load, then pick one and confirm.                      */
+  // Wait for repos to load, then pick one and confirm.
   await dialog.getByPlaceholder(/search repositories/i).fill("my-repo");
   const repoButton = dialog.getByRole("button", { name: /my-repo/ }).first();
   await expect(repoButton).toBeVisible({ timeout: 10_000 });
@@ -60,15 +61,16 @@ test("linking a repo via BP panel shows account as globally connected in setting
   await linkResponse;
   await expect(dialog).toBeHidden({ timeout: 15_000 });
 
-  /* Account status query fires fresh and must return connected:true.        */
+  // Account status query fires fresh and must return connected:true.
   await page.goto("/settings/account", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("switch")).toBeChecked({ timeout: 10_000 });
 });
 
-/* ── Test 2: Unlinking a BP repo does NOT disconnect GitHub globally ────── */
-/* Removing a repo connection from a single blueprint should not touch the  */
-/* account-level OAuth connection. The account settings toggle must stay ON. */
+// ─── Test 2: Unlinking a BP repo does NOT disconnect GitHub globally ──────────
+//
+// Removing a repo connection from a single blueprint should not touch the
+// account-level OAuth connection. The account settings toggle must remain ON.
 
 test("unlinking a BP repo leaves the global GitHub connection intact", async ({ page }) => {
   test.setTimeout(45_000);
@@ -101,10 +103,11 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
   await expect(page.getByRole("switch")).toBeChecked({ timeout: 10_000 });
 });
 
-/* ── Test 3: Global disconnect from account settings clears all BP links ── */
-/* Disconnecting from the account settings page (which removes the WorkOS   */
-/* Pipes token) should also wipe every github_connection row. Navigating to */
-/* any BP panel afterward must show the "not connected" state.              */
+// ─── Test 3: Global disconnect from account settings clears all BP connections ─
+//
+// Disconnecting from the account settings page (which removes the WorkOS Pipes
+// token) should also wipe every github_connection row. Navigating to any BP
+// panel afterward must show the "not connected" state.
 
 test("global GitHub disconnect from settings severs all BP connections", async ({ page }) => {
   test.setTimeout(60_000);
@@ -129,8 +132,8 @@ test("global GitHub disconnect from settings severs all BP connections", async (
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
 
-  /* Scope confirmation controls to the dialog so we never match unrelated   */
-  /* page-level checkboxes or buttons.                                       */
+  // Scope confirmation controls to the dialog so we never match unrelated
+  // page-level checkboxes or buttons.
   await dialog.getByRole("checkbox").click();
   await dialog.getByPlaceholder(`disconnect ${ACCOUNT}`).fill(`disconnect ${ACCOUNT}`);
 
@@ -140,8 +143,8 @@ test("global GitHub disconnect from settings severs all BP connections", async (
   await dialog.getByRole("button", { name: /^disconnect$/i }).click();
   await disconnectResponse;
 
-  /* Server state is now disconnected; confirm via the mock, then verify     */
-  /* the UI reflects the state after the invalidation settles.               */
+  // Server state is now disconnected; confirm via the mock, then verify
+  // the UI reflects the state after the invalidation settles.
   const connections = (await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`).then((r) => r.json())) as {
     connections: unknown[];
   };
