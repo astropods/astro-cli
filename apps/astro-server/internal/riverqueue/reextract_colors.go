@@ -129,7 +129,7 @@ func (w *ReextractColorsWorker) reextractDeploymentColors(ctx context.Context) (
 			}
 			lastID = id
 			items = append(items, colorBackfillItem{
-				readAvatar:  func(ctx context.Context) ([]byte, error) { return w.avatarStore.ReadDeploymentAvatar(ctx, id) },
+				readAvatar: func(ctx context.Context) ([]byte, error) { return w.avatarStore.ReadDeploymentAvatar(ctx, id) },
 				storeColors: func(ctx context.Context, j []byte) error {
 					_, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, j, id)
 					return err
