@@ -6,10 +6,9 @@ import type { GitHubRepo } from "@/lib/api";
 vi.mock("@/api/queries/github", () => ({
   useGitHubAccountRepos: vi.fn(),
   useGitHubAccountConnections: vi.fn(),
-  useGitHubAccountDirs: vi.fn(),
 }));
 
-import { useGitHubAccountRepos, useGitHubAccountConnections, useGitHubAccountDirs } from "@/api/queries/github";
+import { useGitHubAccountRepos, useGitHubAccountConnections } from "@/api/queries/github";
 
 const REPOS: GitHubRepo[] = [
   { full_name: "testuser/my-agent", default_branch: "main", private: false },
@@ -20,7 +19,6 @@ const REPOS: GitHubRepo[] = [
 function baseProps() {
   return {
     account: "testuser",
-    agentName: "new-agent",
     githubLogin: "testuser",
     enabled: true,
     onChange: vi.fn(),
@@ -30,7 +28,7 @@ function baseProps() {
 beforeEach(() => {
   vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: REPOS }, isLoading: false } as any);
   vi.mocked(useGitHubAccountConnections).mockReturnValue({ data: { connections: [] } } as any);
-  vi.mocked(useGitHubAccountDirs).mockReturnValue({ data: { dirs: [] }, isLoading: false } as any);
+
 });
 
 describe("RepoPicker", () => {

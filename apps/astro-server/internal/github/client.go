@@ -195,6 +195,30 @@ func (c *Client) GetDirs(ctx context.Context, repoFullName, ref string) ([]strin
 	return dirs, nil
 }
 
+// PathExists reports whether the given path exists in the repository at the
+// specified ref (branch name or commit SHA). Uses the Contents API so only the
+// path metadata is fetched, not the full tree. Returns false (no error) for a
+// 404 response.
+func (c *Client) PathExists(ctx context.Context, repoFullName, ref, path string) (bool, error) {
+	apiPath := fmt.Sprintf("/repos/%s/contents/%s?ref=%s", repoFullName, url.PathEscape(path), url.QueryEscape(ref))
+	req, err := c.newRequest(ctx, http.MethodGet, apiPath, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("github: check path: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode >= 400 {
+		return false, fmt.Errorf("github: check path returned %d", resp.StatusCode)
+	}
+	return true, nil
+}
+
 // DeleteWebhook removes a webhook from a repository.
 func (c *Client) DeleteWebhook(ctx context.Context, repoFullName string, webhookID int64) error {
 	path := fmt.Sprintf("/repos/%s/hooks/%d", repoFullName, webhookID)

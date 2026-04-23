@@ -253,47 +253,6 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 	}
 }
 
-// GitHubAccountListDirs handles GET /api/v1/accounts/:account/github/dirs.
-// Returns all directory paths in the repository tree at the given ref using
-// the recursive Git Trees API — one request, filtered to type=tree entries.
-// Query params: repo (owner/repo or owner/repo/sub/path), ref (branch or SHA).
-func GitHubAccountListDirs(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		session, ok := middleware.GetSession(c)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-			return
-		}
-
-		repo := c.Query("repo")
-		ref := c.Query("ref")
-		if repo == "" || ref == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "repo and ref are required"})
-			return
-		}
-
-		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-		if err != nil {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
-			return
-		}
-
-		gh := githubclient.New(token.AccessToken)
-		dirs, err := gh.GetDirs(c.Request.Context(), githubconnection.RepoBase(repo), ref)
-		if err != nil {
-			log.Warn("github: list dirs", "error", err, "repo", repo, "ref", ref)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list directories"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"dirs": dirs})
-	}
-}
-
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
 func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
@@ -340,7 +299,23 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 
+		gh := githubclient.New(token.AccessToken)
+
+		// If a subpath is present, verify it exists in the repo before installing a webhook.
 		newBase := githubconnection.RepoBase(req.RepoFullName)
+		parts := strings.SplitN(req.RepoFullName, "/", 3)
+		if len(parts) == 3 && parts[2] != "" {
+			exists, pathErr := gh.PathExists(c.Request.Context(), newBase, req.Branch, parts[2])
+			if pathErr != nil {
+				log.Warn("github: check subpath", "error", pathErr, "repo", newBase, "path", parts[2])
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify subdirectory"})
+				return
+			}
+			if !exists {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("subdirectory %q not found in %s on branch %s", parts[2], newBase, req.Branch)})
+				return
+			}
+		}
 
 		// Remove existing webhook if re-linking to a different base repo,
 		// but only if no other connections still reference that base repo.
@@ -405,7 +380,6 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		secretBytes := make([]byte, 32)
 		if _, err := rand.Read(secretBytes); err == nil {
 			webhookSecret := hex.EncodeToString(secretBytes)
-			gh := githubclient.New(token.AccessToken)
 			webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
 			webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
 				RepoFullName: newBase,

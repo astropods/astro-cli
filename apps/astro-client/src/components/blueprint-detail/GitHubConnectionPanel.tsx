@@ -479,7 +479,7 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
         <div className="py-2">
           <RepoPicker
             account={account}
-            agentName={name}
+
             enabled={open}
             onChange={setPickerValue}
           />

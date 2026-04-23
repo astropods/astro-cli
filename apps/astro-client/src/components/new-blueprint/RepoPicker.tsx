@@ -16,13 +16,12 @@ export type RepoPickerValue = {
 
 type Props = {
   account: string;
-  agentName: string;
   githubLogin?: string;
   enabled?: boolean;
   onChange: (value: RepoPickerValue) => void;
 };
 
-export function RepoPicker({ account, agentName, githubLogin, enabled = true, onChange }: Props) {
+export function RepoPicker({ account, githubLogin, enabled = true, onChange }: Props) {
   const [query, setQuery] = useState("");
   const [apiQuery, setApiQuery] = useState("");
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
@@ -51,20 +50,6 @@ export function RepoPicker({ account, agentName, githubLogin, enabled = true, on
       ? [selectedRepo.default_branch]
       : []),
   ];
-
-  const takenSubpaths = selectedRepo
-    ? (connectionsData?.connections ?? [])
-        .filter(c => {
-          const slash = c.repo_full_name.indexOf("/", c.repo_full_name.indexOf("/") + 1);
-          return slash !== -1
-            && c.repo_full_name.slice(0, slash) === selectedRepo.full_name
-            && c.agent_name !== agentName;
-        })
-        .map(c => ({
-          subpath: c.repo_full_name.slice(selectedRepo.full_name.length + 1),
-          agentName: c.agent_name,
-        }))
-    : [];
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -302,13 +287,8 @@ export function RepoPicker({ account, agentName, githubLogin, enabled = true, on
       )}>
         <div className="overflow-hidden">
           <SubpathPicker
-            account={account}
-            repo={selectedRepo?.full_name ?? ""}
-            branch={selectedBranch}
             value={subpath}
             onChange={handleSubpathChange}
-            enabled={enabled && !!selectedRepo}
-            takenSubpaths={takenSubpaths}
           />
         </div>
       </div>

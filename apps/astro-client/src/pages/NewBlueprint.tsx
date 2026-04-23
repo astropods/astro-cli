@@ -424,7 +424,7 @@ function NewBlueprintContent() {
                                             </p>
                                             <RepoPicker
                                               account={selectedOrg}
-                                              agentName={slug}
+
                                               githubLogin={githubLogin}
                                               enabled={githubConnected}
                                               onChange={setPickerValue}
