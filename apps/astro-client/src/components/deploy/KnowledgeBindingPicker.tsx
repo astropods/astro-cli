@@ -38,7 +38,7 @@ export function KnowledgeBindingPicker({
         const compatibleStores = stores.filter(
           (s) => s.provider === provider && s.status === "ready"
         );
-        const rawArn = bindings[name] ?? "";
+        const rawArn = bindings[name] || entry.binding || "";
         const isBound = rawArn !== "";
         const selectValue = isBound ? rawArn : "__builtin__";
         const resolved = resolvedBindings[name];

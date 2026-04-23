@@ -735,6 +735,30 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 	}
 }
 
+// RestoreBindingsFromSpec extracts knowledge binding ARNs from a stored
+// deployment spec JSON. Returns nil if no bound entries are found (or on
+// parse error). Used by the template handler to seed the TemplateRequest
+// when the client opens the configure panel for an existing deployment.
+func RestoreBindingsFromSpec(specJSON string) *spec.TemplateBindings {
+	if specJSON == "" {
+		return nil
+	}
+	var stored spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(specJSON), &stored); err != nil {
+		return nil
+	}
+	restored := make(map[string]string)
+	for name, k := range stored.Knowledge {
+		if k.IsBound() {
+			restored[name] = k.Binding
+		}
+	}
+	if len(restored) == 0 {
+		return nil
+	}
+	return &spec.TemplateBindings{Knowledge: restored}
+}
+
 // ApplyBindingShaping adjusts a template so that knowledge entries whose
 // submitted counterparts carry a binding ARN are zeroed to match the shape
 // the client originally received from ShapeTemplate. Without this the

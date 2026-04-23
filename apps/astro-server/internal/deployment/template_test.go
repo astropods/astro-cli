@@ -3074,3 +3074,64 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 		t.Error("expected POSTGRES_USERS_PASSWORD variable (suffixed key for 'users' entry)")
 	}
 }
+
+// Test that RestoreBindingsFromSpec extracts bound entries from a stored
+// deployment spec JSON and produces the correct TemplateBindings.
+func TestRestoreBindingsFromSpec(t *testing.T) {
+	storedSpec := spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {Binding: "arn:knowledge:acct:pg-store", Provider: "postgres"},
+			"cache":    {Image: "redis:7", Provider: "redis"},                             // not bound
+			"users":    {Binding: "arn:knowledge:acct:users-store", Provider: "postgres"}, // bound
+		},
+	}
+	specJSON, err := json.Marshal(storedSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bindings := RestoreBindingsFromSpec(string(specJSON))
+	if bindings == nil {
+		t.Fatal("expected non-nil bindings")
+	}
+	if len(bindings.Knowledge) != 2 {
+		t.Fatalf("expected 2 bound entries, got %d: %v", len(bindings.Knowledge), bindings.Knowledge)
+	}
+	if bindings.Knowledge["postgres"] != "arn:knowledge:acct:pg-store" {
+		t.Errorf("postgres: got %q", bindings.Knowledge["postgres"])
+	}
+	if bindings.Knowledge["users"] != "arn:knowledge:acct:users-store" {
+		t.Errorf("users: got %q", bindings.Knowledge["users"])
+	}
+	if _, ok := bindings.Knowledge["cache"]; ok {
+		t.Error("cache should not be in bindings (not bound)")
+	}
+}
+
+func TestRestoreBindingsFromSpec_NoBoundEntries(t *testing.T) {
+	storedSpec := spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"cache": {Image: "redis:7", Provider: "redis"},
+		},
+	}
+	specJSON, _ := json.Marshal(storedSpec)
+
+	bindings := RestoreBindingsFromSpec(string(specJSON))
+	if bindings != nil {
+		t.Errorf("expected nil bindings when no entries are bound, got %v", bindings)
+	}
+}
+
+func TestRestoreBindingsFromSpec_EmptyJSON(t *testing.T) {
+	bindings := RestoreBindingsFromSpec("")
+	if bindings != nil {
+		t.Errorf("expected nil for empty JSON, got %v", bindings)
+	}
+}
+
+func TestRestoreBindingsFromSpec_InvalidJSON(t *testing.T) {
+	bindings := RestoreBindingsFromSpec("{invalid")
+	if bindings != nil {
+		t.Errorf("expected nil for invalid JSON, got %v", bindings)
+	}
+}

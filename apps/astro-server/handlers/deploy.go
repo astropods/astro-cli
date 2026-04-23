@@ -2656,6 +2656,25 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				lookupAccountName = sourceAccountName
 			}
 
+			// Restore knowledge bindings from the stored spec so that the
+			// initial template load (before the user sends explicit bindings)
+			// correctly shapes bound entries and populates the binding picker.
+			// Count only non-empty ARNs — the client may send {key: ""} for unbound entries.
+			hasExplicitBindings := false
+			if req.Bindings != nil {
+				for _, arn := range req.Bindings.Knowledge {
+					if arn != "" {
+						hasExplicitBindings = true
+						break
+					}
+				}
+			}
+			if !hasExplicitBindings {
+				if restored := deployment.RestoreBindingsFromSpec(prefillExisting.DeploymentSpecJSON); restored != nil {
+					req.Bindings = restored
+				}
+			}
+
 			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {

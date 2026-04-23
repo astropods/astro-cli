@@ -311,9 +311,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (templateResponse?.bindings?.knowledge) {
       const prefilled: Record<string, string> = {};
       for (const [entryName, info] of Object.entries(templateResponse.bindings.knowledge)) {
-        prefilled[entryName] = info.arn;
+        if (info.arn) prefilled[entryName] = info.arn;
       }
-      setKnowledgeBindingsRaw(prefilled);
+      if (Object.keys(prefilled).length > 0) {
+        setKnowledgeBindingsRaw(prefilled);
+      }
     }
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
@@ -350,19 +352,30 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
+    const cleaned = nonEmptyBindings(knowledgeBindings);
     reshapeTemplate({
       interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined },
-      bindings: Object.keys(knowledgeBindings).length > 0 ? { knowledge: knowledgeBindings } : undefined,
+      bindings: Object.keys(cleaned).length > 0 ? { knowledge: cleaned } : undefined,
     });
   }, [reshapeTemplate, webAuthEnabled, knowledgeBindings]);
+
+  // Filter empty-string ARNs — an entry with value "" means "not bound".
+  const nonEmptyBindings = (b: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(b)) {
+      if (v) out[k] = v;
+    }
+    return out;
+  };
 
   // Exposed binding setter: updates state and re-POSTs to reshape the template.
   // Binding selection is a structural change (removes/adds knowledge entries, variables, editable fields).
   const setKnowledgeBindings = useCallback((bindings: Record<string, string>) => {
-    setKnowledgeBindingsRaw(bindings);
+    const cleaned = nonEmptyBindings(bindings);
+    setKnowledgeBindingsRaw(cleaned);
     reshapeTemplate({
       interfaces: buildInterfaces(),
-      bindings: { knowledge: bindings },
+      bindings: Object.keys(cleaned).length > 0 ? { knowledge: cleaned } : undefined,
     });
   }, [reshapeTemplate, buildInterfaces]);
 
@@ -576,7 +589,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       interfaces: buildInterfaces(),
       variables: variableInputs,
       schedules: ingestionSchedules,
-      bindings: Object.keys(knowledgeBindings).length > 0 ? { knowledge: knowledgeBindings } : undefined,
+      bindings: (() => { const c = nonEmptyBindings(knowledgeBindings); return Object.keys(c).length > 0 ? { knowledge: c } : undefined; })(),
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
