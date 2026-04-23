@@ -66,9 +66,9 @@ const cardAccentVars = "[--mix:18%] hover:[--mix:14%]";
 const cardBorder = "border-[0.5px] border-teal-25 dark:border-white/10";
 const gridOverlay = "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,var(--card-grid)_0.5px,transparent_0.5px),linear-gradient(to_bottom,var(--card-grid)_0.5px,transparent_0.5px)]";
 const innerBorderBase = "after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-teal-25 dark:after:border-white/10";
-const innerBorderDashed = "after:pointer-events-none after:absolute after:inset-[3px] after:rounded-md after:border after:border-dashed after:border-stone-300 dark:after:border-white/10";
-const draftBorder = "border-[0.5px] border-stone-300 dark:border-white/10";
-const draftVars = "[--card-neutral:oklch(97.76%_0_0)] dark:[--card-neutral:#0f0f0f]";
+const innerBorderDashed = "after:pointer-events-none after:absolute after:inset-0 after:border after:border-dashed after:border-stone-300 dark:after:border-white/10";
+const draftBorder = "";
+const draftVars = "[--card-neutral:rgb(255_255_255/0.25)] dark:[--card-neutral:rgb(0_0_0/0.25)]";
 const fadeOverlayStyle = { background: "linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--card-neutral) 75%, transparent) 100%)" } as const;
 const contentShadowStyle = { textShadow: "0 0 5px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 10px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 16px color-mix(in srgb, var(--card-neutral) 80%, transparent)" } as const;
 
@@ -128,7 +128,7 @@ export function BlueprintCard({
     "relative overflow-hidden bg-[var(--card-neutral)]",
     hasAccent
       ? cn(cardVars, cardBorder, cardAccentVars, "transition-[background-color] duration-150", gridOverlay, innerBorderBase)
-      : cn(draftVars, draftBorder, innerBorderDashed, "rounded-lg"),
+      : cn(draftVars, draftBorder, innerBorderDashed),
   );
 
   const cardStyle = hasAccent ? {
@@ -195,7 +195,7 @@ export function BlueprintCard({
     return (
       <>
         <div
-          className={cn(cardShell, "shadow-sm")}
+          className={cn(cardShell, !isDraft && "shadow-sm")}
           style={cardStyle}
         >
           {cardOverlays}
@@ -289,7 +289,7 @@ export function BlueprintCard({
     <>
       <Link
         to={cardHref}
-        className={cn(cardShell, "group flex flex-col shadow-sm transition-all duration-150 hover:shadow-md")}
+        className={cn(cardShell, "group flex flex-col transition-all duration-150", !isDraft && "shadow-sm hover:shadow-md")}
         style={cardStyle}
       >
         {cardOverlays}

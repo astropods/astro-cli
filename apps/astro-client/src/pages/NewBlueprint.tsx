@@ -522,7 +522,7 @@ function NewBlueprintContent() {
                       <div className="relative flex items-center justify-center">
                         <div className="absolute size-24 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "1.6s" }} />
                         <div className="absolute size-20 rounded-full bg-primary/15 animate-ping" style={{ animationDuration: "1.6s", animationDelay: "0.4s" }} />
-                        <div className="relative z-10 size-16 overflow-hidden rounded-2xl border border-border shadow-sm">
+                        <div className="relative z-10 size-16 overflow-hidden rounded-md border border-border shadow-sm">
                           {avatarPreviewUrl ? (
                             <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
                           ) : slug ? (
@@ -694,23 +694,23 @@ function NewBlueprintContent() {
                               : "Blueprint registered!"}
                           </span>
                         </div>
-                        <div className="relative size-20 overflow-hidden rounded-2xl border border-border">
+                        <div className="relative size-20 overflow-hidden rounded-md border border-border">
                           {avatarPreviewUrl
                             ? <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
                             : <BlueprintIdentity account={selectedOrg} name={slug} size={80} className="size-full" />
                           }
                           <div
-                            className="absolute left-0 right-0 h-[2px] opacity-80"
+                            className="absolute left-0 right-0 h-[2px] mix-blend-overlay"
                             style={{
-                              background: "linear-gradient(90deg, transparent, var(--color-teal-500), transparent)",
+                              background: "linear-gradient(90deg, transparent, white, transparent)",
                               animation: "scanLine 2.5s ease-in-out infinite",
-                              boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-teal-500) 30%, transparent)",
+                              boxShadow: "0 0 12px 2px rgba(255,255,255,0.3)",
                             }}
                           />
-                          <div className="absolute top-1.5 left-1.5 size-3 border-t-2 border-l-2 border-teal-500/50 rounded-tl-sm" />
-                          <div className="absolute top-1.5 right-1.5 size-3 border-t-2 border-r-2 border-teal-500/50 rounded-tr-sm" />
-                          <div className="absolute bottom-1.5 left-1.5 size-3 border-b-2 border-l-2 border-teal-500/50 rounded-bl-sm" />
-                          <div className="absolute bottom-1.5 right-1.5 size-3 border-b-2 border-r-2 border-teal-500/50 rounded-br-sm" />
+                          <div className="absolute top-1.5 left-1.5 size-3 border-t border-l border-white mix-blend-overlay rounded-tl-sm" />
+                          <div className="absolute top-1.5 right-1.5 size-3 border-t border-r border-white mix-blend-overlay rounded-tr-sm" />
+                          <div className="absolute bottom-1.5 left-1.5 size-3 border-b border-l border-white mix-blend-overlay rounded-bl-sm" />
+                          <div className="absolute bottom-1.5 right-1.5 size-3 border-b border-r border-white mix-blend-overlay rounded-br-sm" />
                         </div>
                         <div className="text-center">
                           <p className="text-sm font-semibold">{slug || "my-agent"}</p>
