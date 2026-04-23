@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -175,5 +177,46 @@ func TestDefaultK8sClientMode(t *testing.T) {
 	pullPolicy := imagePullPolicyForMode(defaultMode)
 	if pullPolicy != corev1.PullAlways {
 		t.Errorf("default mode pull policy = %v, want PullAlways", pullPolicy)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveBoundKnowledge
+// ---------------------------------------------------------------------------
+
+func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
+	// When KnowledgeStore is nil (not configured), bound entries are silently skipped.
+	d := &Deployer{Log: logger.New("error", "json")}
+
+	ds := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"mydb": {Binding: "arn:knowledge:acct:store1", Provider: "postgres"},
+		},
+	}
+
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bk != nil || bc != nil {
+		t.Error("expected nil maps when KnowledgeStore is nil")
+	}
+}
+
+func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
+	d := &Deployer{Log: logger.New("error", "json")}
+
+	ds := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"cache": {Image: "redis:7", Provider: "redis"}, // not bound
+		},
+	}
+
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bk != nil || bc != nil {
+		t.Error("expected nil maps when no bound entries")
 	}
 }

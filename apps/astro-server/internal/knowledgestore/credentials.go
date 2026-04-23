@@ -101,8 +101,10 @@ type SecretReader interface {
 }
 
 // ResolveCredentials returns plaintext credentials for a knowledge store.
-// It tries KMS decryption first (when EncryptedDataKey is set), then falls
-// back to reading from the k8s Secret via the SecretReader.
+// Three resolution paths, tried in order:
+//  1. KMS decryption — credentials stored encrypted in the DB (production with KMS).
+//  2. K8s Secret fallback — read from the store's credential Secret (local/no-KMS managed stores).
+//  3. Error — no credentials available (external stores without KMS have no fallback).
 func ResolveCredentials(
 	ctx context.Context,
 	store *KnowledgeStore,
@@ -114,17 +116,25 @@ func ResolveCredentials(
 	// Path 1: KMS decryption — credentials stored encrypted in the DB.
 	if len(store.EncryptedDataKey) > 0 && len(dbCreds) > 0 {
 		if kmsClient == nil {
-			return nil, fmt.Errorf("KMS client required but not available")
+			return nil, fmt.Errorf("store %q requires KMS decryption but no KMS client is available", store.Name)
 		}
 		return DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, dbCreds)
 	}
 
-	// Path 2: no KMS — read directly from the k8s Secret.
+	// Path 2: k8s Secret fallback — for managed stores without KMS (local dev).
+	// External stores have no k8s Secret; this path will fail for them.
 	if secretReader != nil {
-		return secretReader.ReadCredentials(ctx, store.ID, namespace)
+		creds, err := secretReader.ReadCredentials(ctx, store.ID, namespace)
+		if err != nil {
+			if store.Mode == ModeExternal {
+				return nil, fmt.Errorf("external store %q: credentials require KMS (not configured when store was created)", store.Name)
+			}
+			return nil, fmt.Errorf("store %q: %w", store.Name, err)
+		}
+		return creds, nil
 	}
 
-	return nil, fmt.Errorf("no credentials available (KMS not configured and no secret reader)")
+	return nil, fmt.Errorf("store %q: no credentials available (no KMS and no k8s Secret reader configured)", store.Name)
 }
 
 func randomHex(n int) (string, error) {

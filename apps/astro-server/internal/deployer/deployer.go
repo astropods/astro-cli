@@ -96,7 +96,10 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	}
 
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
-	boundKnowledge, boundCredentials := d.resolveBoundKnowledge(ctx, &ds)
+	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, &ds)
+	if boundErr != nil {
+		return nil, fmt.Errorf("resolve bound knowledge: %w", boundErr)
+	}
 
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
 		Namespace:              dep.Namespace,
@@ -135,12 +138,14 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 }
 
 // resolveBoundKnowledge looks up store info and decrypts credentials for all bound
-// knowledge entries in the deployment spec.
+// knowledge entries in the deployment spec. Returns an error if any bound entry's
+// store or credentials cannot be resolved — deploying without credentials would
+// produce a running agent that silently fails to connect.
 func (d *Deployer) resolveBoundKnowledge(
 	ctx context.Context, ds *spec.AstroDeploymentSpec,
-) (map[string]deployment.BoundKnowledgeInfo, map[string]string) {
+) (map[string]deployment.BoundKnowledgeInfo, map[string]string, error) {
 	if d.KnowledgeStore == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var boundKnowledge map[string]deployment.BoundKnowledgeInfo
@@ -151,9 +156,11 @@ func (d *Deployer) resolveBoundKnowledge(
 			continue
 		}
 		store, err := d.KnowledgeStore.GetByARN(k.Binding)
-		if err != nil || store == nil {
-			d.Log.Warn("Failed to resolve bound knowledge store", "error", err, "arn", k.Binding, "entry", name)
-			continue
+		if err != nil {
+			return nil, nil, fmt.Errorf("knowledge %q: failed to look up bound store %q: %w", name, k.Binding, err)
+		}
+		if store == nil {
+			return nil, nil, fmt.Errorf("knowledge %q: bound store %q not found", name, k.Binding)
 		}
 		if boundKnowledge == nil {
 			boundKnowledge = make(map[string]deployment.BoundKnowledgeInfo)
@@ -169,16 +176,14 @@ func (d *Deployer) resolveBoundKnowledge(
 		// Resolve store credentials via unified resolver (KMS or k8s Secret fallback).
 		creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
 		if credErr != nil {
-			d.Log.Warn("Failed to get store credentials", "error", credErr, "store_id", store.ID)
-			continue
+			return nil, nil, fmt.Errorf("knowledge %q: failed to get credentials for store %q: %w", name, store.ID, credErr)
 		}
 		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
 			ctx, store, creds, d.kmsClient(ctx),
 			&k8s.KnowledgeSecretReader{Clientset: d.K8sClient.Clientset()}, storeNS,
 		)
 		if resolveErr != nil {
-			d.Log.Warn("Failed to resolve store credentials", "error", resolveErr, "store_id", store.ID)
-			continue
+			return nil, nil, fmt.Errorf("knowledge %q: failed to resolve credentials for store %q: %w", name, store.ID, resolveErr)
 		}
 		storageKeyMap := spec.CredentialStorageKeyMap(store.Provider)
 		for storageKey, val := range plainCreds {
@@ -188,7 +193,7 @@ func (d *Deployer) resolveBoundKnowledge(
 		}
 	}
 
-	return boundKnowledge, boundCredentials
+	return boundKnowledge, boundCredentials, nil
 }
 
 // kmsClient returns the deployer's KMS client, or creates one from the default AWS config.

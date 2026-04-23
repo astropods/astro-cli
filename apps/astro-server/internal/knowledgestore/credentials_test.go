@@ -1,6 +1,8 @@
 package knowledgestore
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -226,5 +228,67 @@ func TestValidateExternalCredentials_EmptyValueTreatedAsMissing(t *testing.T) {
 	err := ValidateExternalCredentials("postgres", creds)
 	if err == nil {
 		t.Fatal("expected error for empty PASSWORD, got nil")
+	}
+}
+
+// --- ResolveCredentials ---
+
+type fakeSecretReader struct {
+	creds map[string]string
+	err   error
+}
+
+func (f *fakeSecretReader) ReadCredentials(_ context.Context, _, _ string) (map[string]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.creds, nil
+}
+
+func TestResolveCredentials_KMSRequired(t *testing.T) {
+	store := &KnowledgeStore{Name: "my-db", EncryptedDataKey: []byte("key")}
+	dbCreds := []Credential{{Key: "POSTGRES_USER", ValueEncrypted: []byte("enc"), Nonce: []byte("n")}}
+
+	_, err := ResolveCredentials(context.Background(), store, dbCreds, nil, nil, "ns")
+	if err == nil {
+		t.Fatal("expected error when KMS required but nil")
+	}
+	if !strings.Contains(err.Error(), "KMS") {
+		t.Errorf("error should mention KMS, got: %v", err)
+	}
+}
+
+func TestResolveCredentials_K8sFallback(t *testing.T) {
+	store := &KnowledgeStore{ID: "store-1", Name: "my-db"} // no EncryptedDataKey
+	reader := &fakeSecretReader{creds: map[string]string{"POSTGRES_USER": "astro", "POSTGRES_PASSWORD": "pw"}}
+
+	creds, err := ResolveCredentials(context.Background(), store, nil, nil, reader, "ns")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if creds["POSTGRES_USER"] != "astro" {
+		t.Errorf("POSTGRES_USER: expected 'astro', got %q", creds["POSTGRES_USER"])
+	}
+}
+
+func TestResolveCredentials_ExternalStoreNoKMS(t *testing.T) {
+	store := &KnowledgeStore{ID: "ext-1", Name: "prod-db", Mode: ModeExternal}
+	reader := &fakeSecretReader{err: fmt.Errorf("secret not found")}
+
+	_, err := ResolveCredentials(context.Background(), store, nil, nil, reader, "ns")
+	if err == nil {
+		t.Fatal("expected error for external store without KMS")
+	}
+	if !strings.Contains(err.Error(), "external") {
+		t.Errorf("error should mention 'external', got: %v", err)
+	}
+}
+
+func TestResolveCredentials_NoReaderNoKMS(t *testing.T) {
+	store := &KnowledgeStore{ID: "s1", Name: "db"}
+
+	_, err := ResolveCredentials(context.Background(), store, nil, nil, nil, "ns")
+	if err == nil {
+		t.Fatal("expected error when no KMS and no secret reader")
 	}
 }
