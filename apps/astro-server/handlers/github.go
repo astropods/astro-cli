@@ -471,7 +471,7 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 			UserID:         session.UserID,
 			OrganizationID: session.OrganizationID,
 		}); err != nil {
-			log.Warn("github: revoke pipes connection on account disconnect", "error", err)
+			log.Error("github: revoke pipes connection on account disconnect", "error", err)
 		}
 
 		log.Info("GitHub account disconnected", "account", acct.Name, "connections_removed", len(conns))
