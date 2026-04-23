@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { repoHref, repoLabel } from "@/lib/github-utils";
 import { useSearchParams } from "react-router";
 import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -155,26 +156,21 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
   const [logsOpen, setLogsOpen] = useState(false);
   const latestBuild = status.builds[0];
 
-  const repoParts = status.repo_full_name?.split("/") ?? [];
-  const repoBase = repoParts.slice(0, 2).join("/");
-  const repoSubPath = repoParts.slice(2).join("/");
-  const repoHref = repoSubPath && status.branch
-    ? `https://github.com/${repoBase}/tree/${status.branch}/${repoSubPath}`
-    : `https://github.com/${repoBase}`;
-  const repoLabel = repoSubPath ? `${repoParts[1]}/${repoSubPath}` : repoParts[1];
+  const href = repoHref(status.repo_full_name ?? "", status.branch);
+  const label = repoLabel(status.repo_full_name ?? "");
 
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <a
-            href={repoHref}
+            href={href}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-sm font-medium hover:underline truncate"
           >
             <Github className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{repoLabel ?? status.repo_full_name}</span>
+            <span className="truncate">{label || status.repo_full_name}</span>
             <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
           </a>
           {status.branch && (

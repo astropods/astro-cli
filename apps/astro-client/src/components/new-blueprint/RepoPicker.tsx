@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toRepoFullName } from "@/lib/github-utils";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown, Search, Github, GitBranch, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -61,11 +62,6 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  const toRepoFullName = useCallback((repo: GitHubRepo, sub: string): string => {
-    const cleaned = sub.trim().replace(/^\/+|\/+$/g, "");
-    return cleaned ? `${repo.full_name}/${cleaned}` : repo.full_name;
-  }, []);
-
   function handleQueryChange(value: string) {
     setQuery(value);
     setRepoOpen(true);
@@ -105,14 +101,14 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
     setSelectedBranch(branch);
     setBranchOpen(false);
     onChange({ repoFullName: selectedRepo ? toRepoFullName(selectedRepo, subpath) : null, branch });
-  }, [onChange, selectedRepo, subpath, toRepoFullName]);
+  }, [onChange, selectedRepo, subpath]);
 
   const handleSubpathChange = useCallback((newSubpath: string) => {
     setSubpath(newSubpath);
     if (selectedRepo) {
       onChange({ repoFullName: toRepoFullName(selectedRepo, newSubpath), branch: selectedBranch });
     }
-  }, [onChange, selectedRepo, selectedBranch, toRepoFullName]);
+  }, [onChange, selectedRepo, selectedBranch]);
 
   return (
     <div ref={containerRef} className="px-4 py-3 space-y-3">
