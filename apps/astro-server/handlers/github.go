@@ -924,14 +924,15 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 		)
 
 		gh := githubclient.New(token.AccessToken)
-		sha, err := gh.GetBranchHead(c.Request.Context(), conn.RepoFullName, conn.Branch)
+		repoBase := githubconnection.RepoBase(conn.RepoFullName)
+		sha, err := gh.GetBranchHead(c.Request.Context(), repoBase, conn.Branch)
 		if err != nil {
 			log.Error("github: get branch head", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get latest commit"})
 			return
 		}
 
-		commit, err := gh.GetCommit(c.Request.Context(), conn.RepoFullName, sha)
+		commit, err := gh.GetCommit(c.Request.Context(), repoBase, sha)
 		if err != nil {
 			log.Warn("github: get commit metadata", "error", err, "sha", sha)
 		}
