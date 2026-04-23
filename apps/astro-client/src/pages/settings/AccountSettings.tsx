@@ -125,36 +125,29 @@ function GitHubSection() {
     setSearchParams((p) => { p.delete('github_connected'); p.delete('github_login'); return p; }, { replace: true });
   }, [searchParams]);
 
-  const handleToggle = (checked: boolean) => {
-    if (!checked) {
-      setConfirmOpen(true);
-    } else {
-      const redirectTo = `/${account}/settings/account?github_connected=true`;
-      connect.mutate(redirectTo, {
-        onSuccess: (data) => {
-          if (data.redirect_url) {
-            window.location.href = data.redirect_url;
-          } else if (data.connected) {
-            // Pipes token already exists — update cache directly.
-            queryClient.setQueryData(githubKeys.accountStatus(account), {
-              connected: true,
-              github_login: data.github_login,
-            });
-            queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
-          }
-        },
-      });
-    }
+  const handleConnect = () => {
+    const redirectTo = `/${account}/settings/account?github_connected=true`;
+    connect.mutate(redirectTo, {
+      onSuccess: (data) => {
+        if (data.redirect_url) {
+          window.location.href = data.redirect_url;
+        } else if (data.connected) {
+          queryClient.setQueryData(githubKeys.accountStatus(account), {
+            connected: true,
+            github_login: data.github_login,
+          });
+          queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+        }
+      },
+    });
   };
 
   const handleDisconnect = () => {
     const previous = queryClient.getQueryData(githubKeys.accountStatus(account));
-    // Optimistically flip to disconnected immediately
     queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
     setConfirmOpen(false);
     disconnect.mutate(undefined, {
       onError: () => {
-        // Rollback if the server call fails
         queryClient.setQueryData(githubKeys.accountStatus(account), previous);
       },
     });
@@ -184,11 +177,17 @@ function GitHubSection() {
             )}
           </div>
         </div>
-        <Switch
-          checked={connected}
-          disabled={isLoading || disconnect.isPending || connect.isPending}
-          onCheckedChange={handleToggle}
-        />
+        {isLoading ? null : connected ? (
+          <Switch
+            checked={true}
+            disabled={disconnect.isPending}
+            onCheckedChange={() => setConfirmOpen(true)}
+          />
+        ) : (
+          <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+            {connect.isPending ? "Connecting…" : "Connect GitHub"}
+          </Button>
+        )}
       </div>
 
       {connected && connections.length > 0 && (
