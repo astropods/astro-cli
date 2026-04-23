@@ -351,8 +351,9 @@ func runPush(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
-		// Retag locally-built platform images to registry paths so the local server can resolve them
-		if isDevBuild {
+		// Retag locally-built platform images to registry paths so the local server can resolve them.
+		// Only applicable when the build ran; if it was skipped there are no local images to retag.
+		if isDevBuild && !skipBuild {
 			retag := func(local, remote string) error {
 				cmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
 				if out, err := cmd.CombinedOutput(); err != nil {

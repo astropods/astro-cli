@@ -18,6 +18,16 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
+// secretsServerURLOverride is set in tests to redirect API calls to a test server.
+var secretsServerURLOverride string
+
+func secretsBaseURL() string {
+	if secretsServerURLOverride != "" {
+		return strings.TrimSuffix(secretsServerURLOverride, "/")
+	}
+	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+}
+
 var secretCmd = &cobra.Command{
 	Use:   "secrets",
 	Short: "Manage account secrets",
@@ -125,7 +135,7 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	if _, err := apiCall(
 		cmd.Context(),
 		http.MethodGet,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables"),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		nil,
 		at.Token,
 		verbose,
@@ -251,7 +261,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 	status, err := apiCall(
 		cmd.Context(),
 		http.MethodPost,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables"),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		map[string]any{"variables": []map[string]any{{"name": name, "value": value, "secret": !plain}}},
 		at.Token,
 		verbose,
@@ -337,7 +347,7 @@ func fetchVariableMeta(ctx context.Context, at AccountToken, name string, verbos
 	status, err := apiCall(
 		ctx,
 		http.MethodGet,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables", name),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
 		nil,
 		at.Token,
 		verbose,
@@ -359,7 +369,7 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 	status, err := apiCall(
 		cmd.Context(),
 		http.MethodPut,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables", name),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
 		map[string]any{"value": value},
 		at.Token,
 		verbose,
@@ -442,7 +452,7 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 	status, err := apiCall(
 		cmd.Context(),
 		http.MethodDelete,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables", name),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
 		nil,
 		at.Token,
 		verbose,
@@ -542,7 +552,7 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 	if _, err := apiCall(
 		ctx,
 		http.MethodPost,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables"),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		map[string]any{"variables": vars},
 		at.Token,
 		verbose,
@@ -573,7 +583,7 @@ func fetchExistingVarNames(ctx context.Context, at AccountToken, verbose bool) (
 	if _, err := apiCall(
 		ctx,
 		http.MethodGet,
-		apiPath(auth.DefaultServerURL, at.Account, "accounts", "variables"),
+		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		nil,
 		at.Token,
 		verbose,
