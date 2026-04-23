@@ -2,12 +2,12 @@ import { Bot } from "lucide-react";
 import type { BoundAgent, KnowledgeProvider } from "@/lib/api";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
-const CARD_W = 140;
-const CARD_H = 32;
-const GAP_X = 100; // horizontal gap between columns
-const AGENT_GAP_Y = 16; // vertical spacing between agent cards
-const PAD_X = 20;
-const PAD_Y = 24;
+const CARD_W = 110;
+const CARD_H = 24;
+const GAP_X = 70; // horizontal gap between columns
+const AGENT_GAP_Y = 10; // vertical spacing between agent cards
+const PAD_X = 12;
+const PAD_Y = 16;
 
 interface Props {
   storeName: string;
@@ -33,8 +33,8 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto max-h-[360px]" role="img" aria-label="Knowledge store bindings graph">
       <defs>
-        <marker id="bind-arrow" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" className="fill-border" />
+        <marker id="bind-arrow" markerWidth="5" markerHeight="3" refX="5" refY="1.5" orient="auto">
+          <polygon points="0 0, 5 1.5, 0 3" className="fill-border" />
         </marker>
       </defs>
 
@@ -52,11 +52,11 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
               d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
               fill="none"
               className="stroke-border"
-              strokeWidth={1.5}
-              strokeDasharray="4 3"
+              strokeWidth={1}
+              strokeDasharray="3 2"
               markerEnd="url(#bind-arrow)"
             />
-            <text x={mx} y={labelY} textAnchor="middle" className="fill-muted-foreground text-[9px]">
+            <text x={mx} y={labelY} textAnchor="middle" className="fill-muted-foreground text-[7px]">
               binding
             </text>
           </g>
@@ -67,15 +67,15 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
       <g>
         <rect
           x={storeX - CARD_W / 2} y={storeY - CARD_H / 2}
-          width={CARD_W} height={CARD_H} rx={6}
-          className="fill-white stroke-border" strokeWidth={1.5}
+          width={CARD_W} height={CARD_H} rx={5}
+          className="fill-white stroke-border" strokeWidth={1}
         />
-        <foreignObject x={storeX - CARD_W / 2 + 10} y={storeY - 8} width={16} height={16}>
+        <foreignObject x={storeX - CARD_W / 2 + 7} y={storeY - 6} width={12} height={12}>
           <div className="flex items-center justify-center w-full h-full">
-            <ProviderIcon provider={provider} className="size-3.5" />
+            <ProviderIcon provider={provider} className="size-2.5" />
           </div>
         </foreignObject>
-        <text x={storeX - CARD_W / 2 + 32} y={storeY + 4} className="fill-foreground text-[11px] font-medium">
+        <text x={storeX - CARD_W / 2 + 24} y={storeY + 3} className="fill-foreground text-[9px] font-medium">
           {storeName}
         </text>
       </g>
@@ -85,15 +85,15 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
         <g key={agent.deployment_id}>
           <rect
             x={agent.x - CARD_W / 2} y={agent.y - CARD_H / 2}
-            width={CARD_W} height={CARD_H} rx={6}
-            className="fill-white stroke-border" strokeWidth={1.5}
+            width={CARD_W} height={CARD_H} rx={5}
+            className="fill-white stroke-border" strokeWidth={1}
           />
-          <foreignObject x={agent.x - CARD_W / 2 + 10} y={agent.y - 7} width={14} height={14}>
+          <foreignObject x={agent.x - CARD_W / 2 + 7} y={agent.y - 5} width={10} height={10}>
             <div className="flex items-center justify-center w-full h-full">
-              <Bot className="size-3 text-muted-foreground" />
+              <Bot className="size-2.5 text-muted-foreground" />
             </div>
           </foreignObject>
-          <text x={agent.x - CARD_W / 2 + 30} y={agent.y + 4} className="fill-foreground text-[10px] font-medium">
+          <text x={agent.x - CARD_W / 2 + 22} y={agent.y + 3} className="fill-foreground text-[8px] font-medium">
             {agent.display_name || agent.agent_name}
           </text>
         </g>
@@ -101,7 +101,7 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
 
       {/* Empty state */}
       {agents.length === 0 && (
-        <text x={width / 2} y={storeY + CARD_H / 2 + 20} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+        <text x={width / 2} y={storeY + CARD_H / 2 + 14} textAnchor="middle" className="fill-muted-foreground text-[8px]">
           No agents bound
         </text>
       )}
