@@ -17,8 +17,8 @@ import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountConnections } from "@/api/queries/github";
 import { githubKeys } from "@/api/queries/keys";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 
 export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }];
@@ -120,6 +120,8 @@ function GitHubSection() {
   const disconnect = useGitHubAccountDisconnect(account);
   const connect = useGitHubAccountConnect(account);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const confirmPhrase = `disconnect ${account}`;
 
   const connected = status?.connected ?? false;
   const connections = connectionsData?.connections ?? [];
@@ -199,22 +201,33 @@ function GitHubSection() {
         </ul>
       )}
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>Disconnect GitHub?</DialogTitle>
-            <DialogDescription>
-              This will remove all repo connections and stop automatic builds for every agent in this account. You'll need to reconnect and relink repos to resume builds.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDisconnect} disabled={disconnect.isPending}>
-              {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmationDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Disconnect GitHub?"
+        description="This will remove all repo connections and stop automatic builds for every agent in this account. You'll need to reconnect and relink repos to resume builds."
+        checkboxLabel="I understand that disconnecting GitHub will remove all repo connections and stop automatic builds."
+        actionLabel="Disconnect"
+        pendingLabel="Disconnecting…"
+        error={disconnect.isError ? (disconnect.error as Error) : null}
+        defaultErrorMessage="Failed to disconnect GitHub. Please try again."
+        isPending={disconnect.isPending}
+        canConfirm={confirmation === confirmPhrase}
+        onConfirm={handleDisconnect}
+        onReset={() => { setConfirmation(""); disconnect.reset(); }}
+      >
+        <div>
+          <Label size="md">
+            Type <span className="font-semibold">&ldquo;{confirmPhrase}&rdquo;</span> to confirm
+          </Label>
+          <Input
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            placeholder={confirmPhrase}
+            autoComplete="off"
+          />
+        </div>
+      </ConfirmationDialog>
     </>
   );
 }
