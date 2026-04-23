@@ -129,7 +129,6 @@ export function useGitHubAccountScan(account: string) {
   });
 }
 
-
 export function useGitHubAccountConnections(account: string, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: githubKeys.accountConnections(account),

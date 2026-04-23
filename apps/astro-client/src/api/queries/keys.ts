@@ -43,7 +43,6 @@ export const githubKeys = {
   accountStatus: (account: string) => ['github', account, 'status'] as const,
   accountRepos: (account: string, q: string) => ['github', account, 'repos', q] as const,
   accountConnections: (account: string) => ['github', account, 'connections'] as const,
-
 };
 
 export const deploymentKeys = {
