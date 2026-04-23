@@ -10,6 +10,7 @@ import { Tag } from "@/components/Tag";
 import type { KnowledgeStore } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { EventTimeline } from "./EventTimeline";
+import { BindingsGraph } from "./BindingsGraph";
 
 export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeStore; account: string; onViewLogs: () => void }) {
   const isReady = store.status === "ready";
@@ -41,22 +42,12 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
         <div className={cn("grid gap-8", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
           <div className="rounded-lg border border-border bg-white p-5">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-2">
               <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
               <Tag>{store.bound_agents?.length ?? 0}</Tag>
             </div>
             {store.bound_agents && store.bound_agents.length > 0 ? (
-              <div className="divide-y divide-border">
-                {store.bound_agents.map((agent) => (
-                  <div key={agent.deployment_id} className="flex items-center justify-between py-2.5">
-                    <div className="flex items-center gap-2">
-                      <Bot className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="text-body-sm text-foreground font-medium">{agent.display_name || agent.agent_name}</span>
-                    </div>
-                    <span className="font-mono text-mono-sm text-muted-foreground">as {agent.knowledge_name}</span>
-                  </div>
-                ))}
-              </div>
+              <BindingsGraph storeName={store.name} provider={store.provider} agents={store.bound_agents} />
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Bot className="size-10 text-muted-foreground" />
