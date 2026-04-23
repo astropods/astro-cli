@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -109,6 +110,11 @@ func (a *Applier) ApplyDeploymentSpec(
 			})
 		}
 	}
+
+	// Compute a content hash of ConfigMap + Secret data. When injected as a pod
+	// template annotation, it forces a rolling restart when only env vars change
+	// (k8s does not restart pods for ConfigMap/Secret content changes alone).
+	envHash := hashEnvData(resolved)
 
 	// Phase 3: Create Services
 	// Model services
@@ -717,6 +723,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
+			EnvHash:     envHash,
 			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
@@ -1230,4 +1237,29 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 	}
 
 	return result
+}
+
+// hashEnvData computes a short hex hash of the resolved ConfigMap + Secret data.
+// Used as a pod template annotation to trigger rolling restarts when env vars change.
+func hashEnvData(resolved *deployment.ResolvedEnv) string {
+	h := sha256.New()
+	keys := make([]string, 0, len(resolved.ConfigMapData)+len(resolved.SecretData))
+	for k := range resolved.ConfigMapData {
+		keys = append(keys, "cm:"+k)
+	}
+	for k := range resolved.SecretData {
+		keys = append(keys, "s:"+k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		h.Write([]byte(k))
+		h.Write([]byte{0})
+		if strings.HasPrefix(k, "cm:") {
+			h.Write([]byte(resolved.ConfigMapData[strings.TrimPrefix(k, "cm:")]))
+		} else {
+			h.Write([]byte(resolved.SecretData[strings.TrimPrefix(k, "s:")]))
+		}
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }

@@ -42,6 +42,7 @@ type DeploymentConfig struct {
 	// Sidecar containers colocated in the same pod
 	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
 	LocalMode bool                       // Skip security hardening for provider containers (local K8s only)
+	EnvHash   string                     // Content hash of ConfigMap+Secret data; triggers rolling restart on env-only changes
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -113,6 +114,12 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		hardenPodSpec(&podSpec)
 	}
 
+	// Pod template annotations — used to force rolling restarts on env-only changes.
+	podAnnotations := map[string]string{}
+	if cfg.EnvHash != "" {
+		podAnnotations["astro.dev/env-hash"] = cfg.EnvHash
+	}
+
 	depl := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
@@ -130,7 +137,8 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels:      labels,
+					Annotations: podAnnotations,
 				},
 				Spec: podSpec,
 			},

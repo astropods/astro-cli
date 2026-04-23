@@ -39,6 +39,7 @@ type StatefulSetConfig struct {
 	PostStartCommand []string                          // Lifecycle postStart exec command
 	LocalMode        bool                              // Skip security hardening (local K8s only)
 	FsGroup          int64                             // non-zero → pod/container run as this uid/gid (overrides hardened default of 1000)
+	EnvHash          string                            // Content hash of ConfigMap+Secret data; triggers rolling restart on env-only changes
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage.
@@ -230,6 +231,13 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
+					Annotations: func() map[string]string {
+						a := map[string]string{}
+						if cfg.EnvHash != "" {
+							a["astro.dev/env-hash"] = cfg.EnvHash
+						}
+						return a
+					}(),
 				},
 				Spec: func() corev1.PodSpec {
 					var extraVolumes []corev1.Volume
