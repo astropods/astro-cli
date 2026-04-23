@@ -194,7 +194,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
       {/* Knowledge bindings */}
       {hasKnowledgeEntries && (
-        <FormSection title="Knowledge" description="Bind to a managed store or deploy self-hosted.">
+        <FormSection title="Knowledge" description="Connect a knowledge store to give your agent access to indexed data.">
           <KnowledgeBindingPicker
             entries={form.knowledgeEntries!}
             bindings={form.knowledgeBindings}

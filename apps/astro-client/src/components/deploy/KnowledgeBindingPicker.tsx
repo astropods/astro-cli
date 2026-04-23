@@ -1,5 +1,5 @@
-import { Package, CloudCog } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { Package } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeStore, KnowledgeBindingInfo, KnowledgeProvider } from "@/lib/api";
@@ -30,120 +31,112 @@ export function KnowledgeBindingPicker({
   if (entryNames.length === 0) return null;
 
   return (
-    <div className="space-y-2">
-      {entryNames.map((name) => {
-        const entry = entries[name];
-        const provider = (entry.provider ?? resolvedBindings[name]?.provider) as KnowledgeProvider | undefined;
-        const providerLabel = provider ? PROVIDER_LABELS[provider] ?? provider : undefined;
-        const compatibleStores = stores.filter(
-          (s) => s.provider === provider && s.status === "ready"
-        );
-        const rawArn = bindings[name] || entry.binding || "";
-        const isBound = rawArn !== "";
-        const selectValue = isBound ? rawArn : "__builtin__";
-        const resolved = resolvedBindings[name];
+    <div className="rounded-[6px] border border-border divide-y divide-border">
+      {entryNames.map((name) => (
+        <KnowledgeBindingEntry
+          key={name}
+          name={name}
+          entry={entries[name]}
+          binding={bindings[name]}
+          resolvedBinding={resolvedBindings[name]}
+          stores={stores}
+          onBind={(arn) => {
+            const next = { ...bindings };
+            if (arn) {
+              next[name] = arn;
+            } else {
+              delete next[name];
+            }
+            onChange(next);
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
-        return (
-          <div
-            key={name}
-            className={cn(
-              "rounded-[6px] border transition-[border-color,background-color]",
-              isBound
-                ? "border-primary/40 bg-primary/5"
-                : "border-border bg-transparent",
-            )}
+function KnowledgeBindingEntry({
+  name,
+  entry,
+  binding,
+  resolvedBinding,
+  stores,
+  onBind,
+}: {
+  name: string;
+  entry: { provider?: string; binding?: string };
+  binding: string | undefined;
+  resolvedBinding: KnowledgeBindingInfo | undefined;
+  stores: KnowledgeStore[];
+  onBind: (arn: string | null) => void;
+}) {
+  const provider = (entry.provider ?? resolvedBinding?.provider) as KnowledgeProvider | undefined;
+  const providerLabel = provider ? PROVIDER_LABELS[provider] ?? provider : undefined;
+  const compatibleStores = stores.filter(
+    (s) => s.provider === provider && s.status === "ready"
+  );
+  const rawArn = binding || entry.binding || "";
+  const isBound = rawArn !== "";
+  const [mode, setMode] = useState<"new" | "existing">(isBound ? "existing" : "new");
+
+  return (
+    <div className="px-5 py-4">
+      <div className="flex items-center gap-3">
+        <div className="flex size-10 items-center justify-center rounded-md bg-stone-200 shrink-0">
+          {provider ? (
+            <ProviderIcon provider={provider} className="size-5" />
+          ) : (
+            <Package className="size-5 text-muted-foreground" strokeWidth={1.5} />
+          )}
+        </div>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-[14px] font-semibold text-foreground truncate">{name}</span>
+          {providerLabel && (
+            <span className="text-[13px] font-normal text-muted-foreground">{providerLabel}</span>
+          )}
+        </div>
+        <ToggleGroup
+          type="single"
+          variant="word"
+          value={mode}
+          onValueChange={(value) => {
+            if (!value) return;
+            const next = value as "new" | "existing";
+            setMode(next);
+            if (next === "new") {
+              onBind(null);
+            }
+          }}
+          className="shrink-0 [&_button]:cursor-pointer"
+        >
+          <ToggleGroupItem value="new">Built in</ToggleGroupItem>
+          <ToggleGroupItem value="existing">Existing</ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+
+      {mode === "existing" && (
+        <div className="mt-4 pl-[52px]">
+          <Select
+            value={rawArn || undefined}
+            onValueChange={(value) => onBind(value)}
           >
-            <div className="flex items-center gap-4 px-4 py-3">
-              {/* Provider icon + entry name */}
-              <div className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-sm shrink-0 transition-colors",
-                isBound ? "bg-primary/10" : "bg-stone-200",
-              )}>
-                {provider ? (
-                  <ProviderIcon provider={provider} className="size-5" />
-                ) : (
-                  <Package className="size-5 text-muted-foreground" strokeWidth={1.5} />
-                )}
-              </div>
-
-              <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                <span className="text-[13px] font-medium text-foreground truncate">{name}</span>
-                {providerLabel && (
-                  <span className="text-[11px] text-muted-foreground">{providerLabel}</span>
-                )}
-              </div>
-
-              {/* Store selector */}
-              <div className="shrink-0 w-[220px]">
-                <Select
-                  value={selectValue}
-                  onValueChange={(value) => {
-                    const next = { ...bindings };
-                    if (value === "__builtin__") {
-                      delete next[name];
-                    } else {
-                      next[name] = value;
-                    }
-                    onChange(next);
-                  }}
-                >
-                  <SelectTrigger className="h-9 text-body-sm">
-                    <SelectValue>
-                      {isBound ? (
-                        <span className="flex items-center gap-1.5">
-                          <CloudCog className="size-3.5 shrink-0 text-primary" strokeWidth={1.5} />
-                          <span className="truncate">{resolved?.name ?? "Managed store"}</span>
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1.5">
-                          <Package className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                          <span>Built-in</span>
-                        </span>
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__builtin__">
-                      <span className="flex items-center gap-2">
-                        <Package className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                        Built-in
-                      </span>
-                    </SelectItem>
-                    {compatibleStores.map((store) => (
-                      <SelectItem key={store.arn} value={store.arn}>
-                        <span className="flex items-center gap-2">
-                          <CloudCog className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                          <span>{store.name}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Resolved status dot — always reserve space to avoid layout shift */}
-              <span
-                className={cn(
-                  "size-2 shrink-0 rounded-full transition-colors",
-                  !resolved
-                    ? "bg-transparent"
-                    : resolved.status === "ready"
-                      ? "bg-teal-500"
-                      : resolved.status === "error"
-                        ? "bg-coral-600"
-                        : "bg-yellow-500",
-                )}
-              />
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Hint when no compatible stores exist */}
-      {entryNames.length > 0 && stores.length === 0 && (
-        <p className="text-[11px] text-muted-foreground px-1 pt-1">
-          No managed knowledge stores available. Create one from the Knowledge page to bind it here.
-        </p>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a store" />
+            </SelectTrigger>
+            <SelectContent>
+              {compatibleStores.map((store) => (
+                <SelectItem key={store.arn} value={store.arn}>
+                  {store.name}
+                </SelectItem>
+              ))}
+              {compatibleStores.length === 0 && (
+                <SelectItem value="__empty__" disabled>
+                  No compatible stores
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
       )}
     </div>
   );
