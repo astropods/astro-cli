@@ -1,5 +1,7 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Run gofmt on staged Go files
 STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
@@ -11,3 +13,33 @@ if [ -n "$STAGED_GO" ]; then
     echo "$UNFORMATTED" | xargs git add
   fi
 fi
+
+# Run golangci-lint and go vet for each Go module that has staged files.
+# Discovers modules automatically by walking up to the nearest go.mod.
+if [ -z "$STAGED_GO" ]; then
+  echo "No Go changes staged, skipping lint."
+  exit 0
+fi
+
+if ! command -v golangci-lint &>/dev/null; then
+  echo "golangci-lint not found, installing..."
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+fi
+
+# Collect module roots for all staged Go files, deduplicate, then lint each.
+while IFS= read -r file; do
+  d="$REPO_ROOT/$(dirname "$file")"
+  while [ "$d" != "$REPO_ROOT" ] && [ "$d" != "/" ]; do
+    if [ -f "$d/go.mod" ]; then
+      echo "$d"
+      break
+    fi
+    d="$(dirname "$d")"
+  done
+done <<< "$STAGED_GO" | sort -u | while IFS= read -r mod_dir; do
+  rel="${mod_dir#$REPO_ROOT/}"
+  echo "[$rel] Running golangci-lint..."
+  (cd "$mod_dir" && golangci-lint run ./...)
+  echo "[$rel] Running go vet..."
+  (cd "$mod_dir" && go vet ./...)
+done
