@@ -18,16 +18,6 @@ export default function Blueprints() {
   const { activeAccount, setActiveAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
   const isReady = isAuthenticated && !!activeAccount;
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  useEffect(() => {
-    if (accounts.length === 0) return;
-    const accountParam = searchParams.get("account");
-    if (!accountParam) return;
-    const match = accounts.find((a) => a.name === accountParam);
-    if (match) setActiveAccount(match.name);
-    setSearchParams({}, { replace: true });
-  }, [accounts, searchParams, setActiveAccount, setSearchParams]);
   const { data, isLoading, isError, error, refetch } = useAccountBlueprints(activeAccount, {
     enabled: isReady,
   });
