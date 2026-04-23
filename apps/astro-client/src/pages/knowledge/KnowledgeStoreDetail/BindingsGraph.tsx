@@ -38,7 +38,7 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
   const cardBg = "var(--color-white, #fff)";
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" role="img" aria-label="Knowledge store bindings graph">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto max-w-[320px]" role="img" aria-label="Knowledge store bindings graph">
       <defs>
         <marker id="bind-arrow" markerWidth="4" markerHeight="3" refX="4" refY="1.5" orient="auto">
           <polygon points="0 0, 4 1.5, 0 3" fill={borderColor} />
