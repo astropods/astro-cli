@@ -90,10 +90,8 @@ export function useGitHubAccountDisconnect(account: string) {
     onSuccess: () => {
       // Invalidate agent-level github queries so BP panels reflect the disconnect.
       queryClient.invalidateQueries({ queryKey: ['github', account] });
-      // Cancel any refetch of accountStatus triggered above — it races with server propagation
-      // and can flip the toggle back on. The caller sets accountStatus directly.
+      // Cancel any in-flight refetch — it races with server propagation and can flip the toggle back on.
       queryClient.cancelQueries({ queryKey: githubKeys.accountStatus(account) });
-      queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
     },
   });
 }

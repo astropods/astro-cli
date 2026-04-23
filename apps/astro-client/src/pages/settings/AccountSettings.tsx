@@ -126,15 +126,13 @@ function GitHubSection() {
   const connected = status?.connected ?? false;
   const connections = connectionsData?.connections ?? [];
 
-  // Clean up OAuth callback params after redirect.
   useEffect(() => {
     if (!fromOAuth) return;
     setSearchParams((p) => { p.delete('github_connected'); p.delete('github_login'); return p; }, { replace: true });
-  }, [fromOAuth]);
+  }, [fromOAuth, setSearchParams]);
 
   const handleConnect = () => {
-    const redirectTo = `/settings/account`;
-    connect.mutate(redirectTo, {
+    connect.mutate("/settings/account", {
       onSuccess: (data) => {
         if (data.redirect_url) {
           window.location.href = data.redirect_url;
@@ -144,12 +142,13 @@ function GitHubSection() {
   };
 
   const handleDisconnect = () => {
-    const previous = queryClient.getQueryData(githubKeys.accountStatus(account));
-    queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
+    const key = githubKeys.accountStatus(account);
+    const previous = queryClient.getQueryData(key);
+    queryClient.setQueryData(key, { connected: false });
     setConfirmOpen(false);
     disconnect.mutate(undefined, {
       onError: () => {
-        queryClient.setQueryData(githubKeys.accountStatus(account), previous);
+        queryClient.setQueryData(key, previous);
       },
     });
   };
