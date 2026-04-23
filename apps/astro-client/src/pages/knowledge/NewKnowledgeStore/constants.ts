@@ -10,7 +10,9 @@ export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
   mysql: "Relational",
 };
 
-export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "qdrant", "redis", "neo4j", "mysql", "pinecone"];
+// Only providers available for new store creation.
+// Others (qdrant, neo4j, pinecone, mysql) are disabled for now — will be re-enabled later.
+export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
 export const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
 
 export const STORAGE_OPTIONS: { value: string; label: string }[] = [

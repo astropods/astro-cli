@@ -19,8 +19,10 @@ export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
   mysql: 3306,
 };
 
-export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "qdrant", "redis", "neo4j"];
-export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "qdrant", "redis", "neo4j", "pinecone", "mysql"];
+// Only providers available for new store creation.
+// Others (qdrant, neo4j, pinecone, mysql) are disabled for now — will be re-enabled later.
+export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
+export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
 
 /** Which credential fields to show for each provider in the connect dialog. */
 export const PROVIDER_FIELDS: Record<KnowledgeProvider, string[]> = {
