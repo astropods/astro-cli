@@ -1203,10 +1203,23 @@ Bun.serve({
     }
 
     // GitHub account-level endpoints
+    // Exact /github match must come before sub-path patterns.
+    const githubAccountMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github$/);
+    if (githubAccountMatch) {
+      if (request.method === "GET") {
+        return json({ connected: githubAccountConnected, github_login: githubAccountConnected ? "testgh" : null });
+      }
+      if (request.method === "DELETE") {
+        githubAccountConnected = false;
+        githubConnections = [];
+        return json({ ok: true });
+      }
+    }
+
     const githubConnectMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/connect$/);
     if (githubConnectMatch && request.method === "POST") {
       githubAccountConnected = true;
-      return json({ connected: true });
+      return json({ connected: true, github_login: "testgh" });
     }
 
     const githubReposMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/repos$/);
@@ -1245,8 +1258,8 @@ Bun.serve({
     if (githubStatusMatch && request.method === "GET") {
       const agentName = githubStatusMatch[2]!;
       const conn = githubConnections.find((c) => c.agent_name === agentName);
-      if (!conn) return json({ repo_full_name: null, branch: null, builds: [] });
-      return json({ repo_full_name: conn.repo_full_name, branch: "main", builds: [] });
+      if (!conn) return json({ connected: false, repo_full_name: null, branch: null, builds: [] });
+      return json({ connected: true, repo_full_name: conn.repo_full_name, branch: "main", builds: [] });
     }
 
     return json({ error: "not_found", path: pathname }, 404);
