@@ -1,6 +1,9 @@
 package colorextract
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -283,4 +286,115 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+func TestEnsureCurrent_ReturnsAsIs_WhenVersionMatches(t *testing.T) {
+	current := AvatarColors{
+		Version: CurrentVersion,
+		Accent:  "#ff0000",
+		Base:    "#800000",
+		Glow:    "#ff8080",
+	}
+	j, _ := json.Marshal(current)
+
+	readCalled := false
+	storeCalled := false
+
+	result := EnsureCurrent(
+		context.Background(),
+		j,
+		func(ctx context.Context) ([]byte, error) { readCalled = true; return nil, nil },
+		func(ctx context.Context, j []byte) error { storeCalled = true; return nil },
+	)
+
+	if readCalled {
+		t.Error("readAvatar should not be called when version is current")
+	}
+	if storeCalled {
+		t.Error("storeColors should not be called when version is current")
+	}
+	if string(result) != string(j) {
+		t.Errorf("expected same JSON back, got %s", result)
+	}
+}
+
+func TestEnsureCurrent_ReExtracts_WhenVersionStale(t *testing.T) {
+	stale := `{"version":1,"accent":"#ff0000","base":"#800000"}`
+
+	// Use the test image as the avatar source
+	avatarBytes, err := os.ReadFile("testdata/identity_test.jpg")
+	if err != nil {
+		t.Fatalf("read test image: %v", err)
+	}
+
+	var stored []byte
+	result := EnsureCurrent(
+		context.Background(),
+		json.RawMessage(stale),
+		func(ctx context.Context) ([]byte, error) { return avatarBytes, nil },
+		func(ctx context.Context, j []byte) error { stored = j; return nil },
+	)
+
+	// Should have re-extracted and stored
+	if stored == nil {
+		t.Fatal("storeColors should have been called")
+	}
+
+	// Result should contain the current version
+	var parsed AvatarColors
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if parsed.Version != CurrentVersion {
+		t.Errorf("expected version %d, got %d", CurrentVersion, parsed.Version)
+	}
+	if parsed.Accent == "" {
+		t.Error("accent should be populated")
+	}
+}
+
+func TestEnsureCurrent_ReExtracts_WhenNoVersion(t *testing.T) {
+	// Old-format JSON with no version field
+	noVersion := `{"accent":"#ff0000","base":"#800000"}`
+
+	avatarBytes, err := os.ReadFile("testdata/identity_test.jpg")
+	if err != nil {
+		t.Fatalf("read test image: %v", err)
+	}
+
+	var stored []byte
+	result := EnsureCurrent(
+		context.Background(),
+		json.RawMessage(noVersion),
+		func(ctx context.Context) ([]byte, error) { return avatarBytes, nil },
+		func(ctx context.Context, j []byte) error { stored = j; return nil },
+	)
+
+	if stored == nil {
+		t.Fatal("storeColors should have been called for versionless JSON")
+	}
+
+	var parsed AvatarColors
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if parsed.Version != CurrentVersion {
+		t.Errorf("expected version %d, got %d", CurrentVersion, parsed.Version)
+	}
+}
+
+func TestEnsureCurrent_FallsBack_WhenReadFails(t *testing.T) {
+	stale := `{"version":1,"accent":"#ff0000"}`
+
+	result := EnsureCurrent(
+		context.Background(),
+		json.RawMessage(stale),
+		func(ctx context.Context) ([]byte, error) { return nil, fmt.Errorf("read error") },
+		func(ctx context.Context, j []byte) error { t.Error("store should not be called"); return nil },
+	)
+
+	// Should return the stale JSON rather than nil
+	if string(result) != stale {
+		t.Errorf("expected stale JSON fallback, got %s", result)
+	}
 }
