@@ -49,6 +49,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          aria-label="Switch account"
           className={cn(
             "flex h-8 w-full cursor-pointer items-center justify-between px-2.5 text-sm leading-none text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700 sm:w-48",
             inputBase,

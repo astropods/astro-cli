@@ -22,7 +22,7 @@ describe("BlueprintDetailBreadcrumb", () => {
     const accountLinks = screen.getAllByRole("link", { name: /acme/i });
     expect(accountLinks.length).toBeGreaterThan(0);
     for (const link of accountLinks) {
-      expect(link).toHaveAttribute("href", "/acme");
+      expect(link).toHaveAttribute("href", "/blueprints?account=acme");
     }
   });
 });
