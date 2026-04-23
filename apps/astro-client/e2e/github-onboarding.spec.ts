@@ -138,6 +138,9 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
 test("shows error in publishing panel when subdirectory does not exist in the repo", async ({ page }) => {
   test.setTimeout(60_000);
 
+  // Clear any connections intercept left by a prior test so my-repo isn't marked as linked/disabled.
+  await page.unroute("**/api/v1/accounts/*/github/connections");
+
   // Override link to return a 422 subdirectory-not-found error
   await page.route("**/api/v1/agents/*/*/github/link", (route) =>
     route.fulfill({
