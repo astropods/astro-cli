@@ -112,7 +112,7 @@ func (c *Client) DeleteConnection(ctx context.Context, in DeleteConnectionInput)
 
 	if resp.StatusCode >= 400 {
 		var buf bytes.Buffer
-		buf.ReadFrom(resp.Body) //nolint:errcheck
+		buf.ReadFrom(resp.Body) //nolint:errcheck,gosec
 		return fmt.Errorf("pipes: delete connection returned %d: %s", resp.StatusCode, buf.String())
 	}
 	return nil
