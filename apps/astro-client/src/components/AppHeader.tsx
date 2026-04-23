@@ -150,14 +150,14 @@ export function AppHeader() {
             {(isAuthenticated || isLoading) && (
               <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
             )}
-            <Button variant="outline" size="icon" className="min-[480px]:hidden" aria-label="Explore" asChild>
+            <Button variant="outline" size="icon" className="group min-[480px]:hidden" aria-label="Explore" asChild>
               <Link to={explorePath}>
-                <Telescope className="size-4" strokeWidth={1.5} />
+                <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
               </Link>
             </Button>
-            <Button variant="outline" size="sm" className="hidden min-[480px]:flex gap-1.5 text-[13px] font-normal" asChild>
+            <Button variant="outline" size="sm" className="group hidden min-[480px]:flex gap-1.5 text-[13px] font-normal" asChild>
               <Link to={explorePath}>
-                <Telescope className="size-4" strokeWidth={1.5} />
+                <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
                 Explore
               </Link>
             </Button>
@@ -329,9 +329,9 @@ export function AppHeader() {
         )}
 
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" asChild className="gap-1.5 mr-2 text-[13px] font-normal">
+          <Button variant="outline" size="sm" asChild className="group gap-1.5 mr-2 text-[13px] font-normal">
             <Link to={explorePath}>
-              <Telescope className="size-4" strokeWidth={1.5} />
+              <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
               Explore
             </Link>
           </Button>
