@@ -126,7 +126,7 @@ function GitHubSection() {
   }, [searchParams]);
 
   const handleConnect = () => {
-    const redirectTo = `/${account}/settings/account?github_connected=true`;
+    const redirectTo = `/${account}/settings/account`;
     connect.mutate(redirectTo, {
       onSuccess: (data) => {
         if (data.redirect_url) {

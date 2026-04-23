@@ -94,6 +94,9 @@ type DeleteConnectionInput struct {
 // Calls DELETE /user_management/users/:user_id/connected_accounts/:provider — not yet in the SDK.
 func (c *Client) DeleteConnection(ctx context.Context, in DeleteConnectionInput) error {
 	url := fmt.Sprintf("%s/user_management/users/%s/connected_accounts/%s", c.endpoint, in.UserID, in.Provider)
+	if in.OrganizationID != "" {
+		url += "?organization_id=" + in.OrganizationID
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
 	if err != nil {
