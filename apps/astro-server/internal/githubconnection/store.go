@@ -168,10 +168,10 @@ func (s *Store) GetByRepo(ctx context.Context, repoFullName string) (*Connection
 	return &c, nil
 }
 
-// ListByAccount returns all connections for an account (agent_name + repo_full_name only).
+// ListByAccount returns all connections for an account.
 func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT agent_name, repo_full_name
+		SELECT agent_name, repo_full_name, created_at
 		FROM github_connections
 		WHERE account_id = $1
 		ORDER BY agent_name
@@ -183,7 +183,7 @@ func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connect
 	var conns []*Connection
 	for rows.Next() {
 		var c Connection
-		if err := rows.Scan(&c.AgentName, &c.RepoFullName); err != nil {
+		if err := rows.Scan(&c.AgentName, &c.RepoFullName, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		conns = append(conns, &c)

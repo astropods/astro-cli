@@ -372,12 +372,13 @@ func GitHubAccountListConnections(log *logger.Logger, ghStore *githubconnection.
 		}
 
 		type connection struct {
-			AgentName    string `json:"agent_name"`
-			RepoFullName string `json:"repo_full_name"`
+			AgentName    string    `json:"agent_name"`
+			RepoFullName string    `json:"repo_full_name"`
+			CreatedAt    time.Time `json:"created_at"`
 		}
 		out := make([]connection, 0, len(conns))
 		for _, conn := range conns {
-			out = append(out, connection{AgentName: conn.AgentName, RepoFullName: conn.RepoFullName})
+			out = append(out, connection{AgentName: conn.AgentName, RepoFullName: conn.RepoFullName, CreatedAt: conn.CreatedAt})
 		}
 		c.JSON(http.StatusOK, gin.H{"connections": out})
 	}

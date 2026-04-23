@@ -921,8 +921,8 @@ class ApiClient {
     );
   }
 
-  async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string }> }> {
-    return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string }> }>(
+  async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }> {
+    return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }>(
       `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`
     );
   }

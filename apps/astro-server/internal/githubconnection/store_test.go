@@ -107,6 +107,34 @@ func TestStore_GetByRepo_Success(t *testing.T) {
 	}
 }
 
+func TestStore_ListByAccount(t *testing.T) {
+	store, mock := newTestStore(t)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("agent-a", "owner/repo-a", now).
+			AddRow("agent-b", "owner/repo-b", now))
+
+	conns, err := store.ListByAccount(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conns) != 2 {
+		t.Fatalf("got %d connections, want 2", len(conns))
+	}
+	if conns[0].AgentName != "agent-a" || conns[0].RepoFullName != "owner/repo-a" {
+		t.Errorf("conns[0] = {%q, %q}, want {agent-a, owner/repo-a}", conns[0].AgentName, conns[0].RepoFullName)
+	}
+	if conns[1].CreatedAt.IsZero() {
+		t.Errorf("conns[1].CreatedAt is zero, expected a valid timestamp")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestStore_Delete(t *testing.T) {
 	store, mock := newTestStore(t)
 

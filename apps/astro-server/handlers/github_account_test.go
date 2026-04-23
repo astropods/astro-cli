@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -342,6 +343,86 @@ func TestGitHubAccountDisconnect_Unauthenticated(t *testing.T) {
 	}
 	if resp["error"] != "not authenticated" {
 		t.Errorf("expected 'not authenticated' error, got %v", resp["error"])
+	}
+}
+
+// --- GitHubAccountListConnections tests ---
+
+func TestGitHubAccountListConnections_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	store := githubconnection.New(db)
+
+	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("my-agent", "owner/my-repo", now))
+
+	injectAcct := func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
+		c.Next()
+	}
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/github/connections",
+		injectAcct,
+		GitHubAccountListConnections(log, store),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/connections", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Connections []struct {
+			AgentName    string `json:"agent_name"`
+			RepoFullName string `json:"repo_full_name"`
+			CreatedAt    string `json:"created_at"`
+		} `json:"connections"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Connections) != 1 {
+		t.Fatalf("got %d connections, want 1", len(resp.Connections))
+	}
+	c := resp.Connections[0]
+	if c.AgentName != "my-agent" {
+		t.Errorf("agent_name = %q, want %q", c.AgentName, "my-agent")
+	}
+	if c.RepoFullName != "owner/my-repo" {
+		t.Errorf("repo_full_name = %q, want %q", c.RepoFullName, "owner/my-repo")
+	}
+	if c.CreatedAt == "" {
+		t.Errorf("created_at is empty")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestGitHubAccountListConnections_Unauthenticated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	router := gin.New()
+	// No account middleware — GetAccountFromContext will return false.
+	router.GET("/api/v1/accounts/:account/github/connections", GitHubAccountListConnections(log, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/connections", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status %d, got %d: %s", http.StatusUnauthorized, rec.Code, rec.Body.String())
 	}
 }
 

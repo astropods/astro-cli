@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { MetaFunction } from "react-router";
-import { useSearchParams } from "react-router";
+import { useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,8 @@ import { githubKeys } from "@/api/queries/keys";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { AstroIcon } from "@/components/ui/astro-icon";
+import { ArrowRight } from "lucide-react";
 
 export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }];
 
@@ -155,50 +157,69 @@ function GitHubSection() {
 
   return (
     <>
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <GitHubIcon className="size-5 shrink-0 text-foreground" aria-hidden />
-          <div className="min-w-0">
-            {isLoading ? (
-              <div className="h-4 w-32 rounded animate-pulse bg-muted" />
-            ) : connected ? (
-              <>
-                <span className="text-[13px] font-medium text-foreground">@{status?.github_login}</span>
-                {connections.length > 0 && (
-                  <p className="text-[12px] text-muted-foreground mt-0.5">
-                    {connections.length} repo{connections.length !== 1 ? "s" : ""} connected
-                  </p>
-                )}
-              </>
-            ) : (
-              <span className="text-[13px] text-muted-foreground">Not connected</span>
-            )}
+      <div className="border border-border rounded-md">
+        <div className="flex items-center justify-between gap-4 px-3 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <GitHubIcon className="size-5 shrink-0 text-foreground" aria-hidden />
+            <div className="min-w-0">
+              {isLoading ? (
+                <div className="h-4 w-32 rounded animate-pulse bg-muted" />
+              ) : connected ? (
+                <>
+                  <span className="text-[13px] font-medium text-foreground">@{status?.github_login}</span>
+                  {connections.length > 0 && (
+                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                      {connections.length} repo{connections.length !== 1 ? "s" : ""} connected
+                    </p>
+                  )}
+                </>
+              ) : (
+                <span className="text-[13px] text-muted-foreground">Not connected</span>
+              )}
+            </div>
           </div>
+          {isLoading ? null : connected ? (
+            <Switch
+              checked={true}
+              disabled={disconnect.isPending}
+              onCheckedChange={() => setConfirmOpen(true)}
+            />
+          ) : (
+            <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+              {connect.isPending ? "Connecting…" : "Connect GitHub"}
+            </Button>
+          )}
         </div>
-        {isLoading ? null : connected ? (
-          <Switch
-            checked={true}
-            disabled={disconnect.isPending}
-            onCheckedChange={() => setConfirmOpen(true)}
-          />
-        ) : (
-          <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
-            {connect.isPending ? "Connecting…" : "Connect GitHub"}
-          </Button>
+
+        {connected && connections.length > 0 && (
+          <div className="border-t border-border divide-y divide-border">
+            {connections.map((c) => (
+              <div key={`${c.agent_name}:${c.repo_full_name}`} className="flex items-center gap-2.5 px-3 py-2.5 text-[12px]">
+                <a
+                  href={`https://github.com/${c.repo_full_name}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
+                  <span className="font-mono">{c.repo_full_name}</span>
+                </a>
+                <ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                <Link
+                  to={`/${account}/${c.agent_name}`}
+                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <AstroIcon className="size-3.5 shrink-0" />
+                  <span>{c.agent_name}</span>
+                </Link>
+                <span className="ml-auto text-muted-foreground">
+                  Connected on {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-
-      {connected && connections.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {connections.map((c) => (
-            <li key={`${c.agent_name}:${c.repo_full_name}`} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <span className="font-mono">{c.repo_full_name}</span>
-              <span className="text-border">·</span>
-              <span>{c.agent_name}</span>
-            </li>
-          ))}
-        </ul>
-      )}
 
       <ConfirmationDialog
         open={confirmOpen}
