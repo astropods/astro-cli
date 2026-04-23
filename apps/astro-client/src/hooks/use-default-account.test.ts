@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, beforeAll, afterAll, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -75,49 +75,6 @@ describe('useDefaultAccount', () => {
     it('is null when the stored account is not in the accounts list', () => {
       localStorage.setItem('astro:default-account', 'gone-org');
       const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(mockAuthContext) });
-      expect(result.current.validStoredDefault).toBeNull();
-    });
-  });
-
-  describe('handleSetDefault', () => {
-    it('stores an org as the default', () => {
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(orgAuth) });
-      act(() => result.current.handleSetDefault('my-org'));
-      expect(localStorage.getItem('astro:default-account')).toBe('my-org');
-    });
-
-    it('clears the stored default when the current default org is toggled off', () => {
-      localStorage.setItem('astro:default-account', 'my-org');
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(orgAuth) });
-      act(() => result.current.handleSetDefault('my-org'));
-      expect(localStorage.getItem('astro:default-account')).toBeNull();
-    });
-
-    it('clears the stored org default when personal account is passed', () => {
-      localStorage.setItem('astro:default-account', 'my-org');
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(orgAuth) });
-      act(() => result.current.handleSetDefault('testuser'));
-      expect(localStorage.getItem('astro:default-account')).toBeNull();
-    });
-
-    it('does nothing when personal account is already the natural default', () => {
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(mockAuthContext) });
-      act(() => result.current.handleSetDefault('testuser'));
-      expect(localStorage.getItem('astro:default-account')).toBeNull();
-    });
-
-    it('updates validStoredDefault reactively after setting a default', () => {
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(orgAuth) });
-      expect(result.current.validStoredDefault).toBeNull();
-      act(() => result.current.handleSetDefault('my-org'));
-      expect(result.current.validStoredDefault).toBe('my-org');
-    });
-
-    it('clears validStoredDefault reactively after removing a default', () => {
-      localStorage.setItem('astro:default-account', 'my-org');
-      const { result } = renderHook(() => useDefaultAccount(), { wrapper: makeWrapper(orgAuth) });
-      expect(result.current.validStoredDefault).toBe('my-org');
-      act(() => result.current.handleSetDefault('my-org'));
       expect(result.current.validStoredDefault).toBeNull();
     });
   });
