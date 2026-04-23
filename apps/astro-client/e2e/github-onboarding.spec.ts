@@ -133,7 +133,43 @@ test("repo already linked to another blueprint shows as disabled in the repo pic
   await expect(page.getByRole("button", { name: /another-repo/ })).toBeVisible({ timeout: 5_000 });
 });
 
-// ─── Test 4: Archiving a blueprint releases its repo ─────────────────────────
+// ─── Test 4: Subpath not found shows inline error ────────────────────────────
+
+test("shows error in publishing panel when subdirectory does not exist in the repo", async ({ page }) => {
+  test.setTimeout(60_000);
+
+  // Override link to return a 422 subdirectory-not-found error
+  await page.route("**/api/v1/agents/*/*/github/link", (route) =>
+    route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify({ error: 'subdirectory "svc" not found in testuser/my-repo on branch main' }),
+    }),
+  );
+
+  await goToSourceStep(page, "mygithub");
+  await page.getByText(/set up with github/i).click();
+  await connectGitHub(page);
+  await openRepoPicker(page);
+
+  await page.getByRole("button", { name: /my-repo/ }).click();
+
+  // Type a subpath that doesn't exist
+  await expect(page.getByPlaceholder("services/my-agent")).toBeVisible({ timeout: 5_000 });
+  await page.getByPlaceholder("services/my-agent").fill("svc");
+
+  // Open the confirm dialog and confirm
+  await page.getByRole("button", { name: /create blueprint/i }).click();
+  await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("dialog").getByRole("button", { name: /create blueprint/i }).click();
+
+  // Error message should appear in the publishing panel
+  await expect(page.getByText(/subdirectory.*not found/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /^back$/i }).last()).toBeVisible({ timeout: 5_000 });
+});
+
+// ─── Test 5: Archiving a blueprint releases its repo ─────────────────────────
+
 
 test.skip("archiving a blueprint releases its GitHub repo so it can be reused", async ({ page }) => {
   test.setTimeout(60_000);
