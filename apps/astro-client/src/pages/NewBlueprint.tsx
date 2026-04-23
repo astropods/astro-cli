@@ -42,6 +42,26 @@ type SourcePath = "fresh" | "import" | null;
 
 const WIZARD_STATE_KEY = "astro:new-blueprint-wizard";
 
+type OAuthReturn = {
+  login: string | undefined;
+  savedWizard: { name: string; selectedOrg: string; visibility: "public" | "private" } | null;
+};
+
+// Read OAuth callback state synchronously from the URL and sessionStorage.
+// Called as a lazy useState initializer so state is correct on the very first render —
+// the carousel starts at the source step with no CSS transition at all.
+function readOAuthReturn(): OAuthReturn | null {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("github_connected") !== "true") return null;
+  const login = params.get("github_login") ?? undefined;
+  let savedWizard: OAuthReturn["savedWizard"] = null;
+  try {
+    const saved = sessionStorage.getItem(WIZARD_STATE_KEY);
+    if (saved) savedWizard = JSON.parse(saved);
+  } catch { /* ignore */ }
+  return { login, savedWizard };
+}
+
 function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9-\s]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 64);
 }
@@ -103,32 +123,41 @@ function NewBlueprintContent() {
     [accounts],
   );
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [, setSearchParams] = useSearchParams();
+
+  // Read OAuth callback state once, synchronously, before the first render so the
+  // carousel starts at the source step immediately — no CSS transition, no blank flash.
+  const [oauthReturn] = useState<OAuthReturn | null>(readOAuthReturn);
 
   // Step state
-  const [activeStep, setActiveStep] = useState<Step>("setup");
-  const [completedSteps, setCompletedSteps] = useState<Set<Step>>(new Set());
+  const [activeStep, setActiveStep] = useState<Step>(() => oauthReturn ? "source" : "setup");
+  const [completedSteps, setCompletedSteps] = useState<Set<Step>>(() =>
+    oauthReturn ? new Set<Step>(["setup"]) : new Set()
+  );
   const isAlreadyPublished = completedSteps.has("publishing");
 
   // Form state
-  const [name, setName] = useState("");
-  const [selectedOrg, setSelectedOrg] = useState(userAccount);
-  const [visibility, setVisibility] = useState<"public" | "private">("private");
+  const [name, setName] = useState(() => oauthReturn?.savedWizard?.name ?? "");
+  const [selectedOrg, setSelectedOrg] = useState(() => oauthReturn?.savedWizard?.selectedOrg ?? userAccount);
+  const [visibility, setVisibility] = useState<"public" | "private">(() => oauthReturn?.savedWizard?.visibility ?? "private");
   const [avatarFile, setAvatarFile] = useState<Blob | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [showLinkConfirm, setShowLinkConfirm] = useState(false);
   const slug = useMemo(() => slugify(name), [name]);
 
-  // Source step state
-  const [{ sourcePath, githubConnected, selectedRepo, selectedBranch, scanResult }, dispatch] = useReducer(sourceReducer, initialSourceState);
+  // Source step state — start connected if returning from OAuth
+  const [{ sourcePath, githubConnected, selectedRepo, selectedBranch, scanResult }, dispatch] = useReducer(
+    sourceReducer,
+    oauthReturn ? { ...initialSourceState, sourcePath: "import", githubConnected: true } : initialSourceState,
+  );
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
   const isCreatingBlueprint = createBlueprint.isPending || uploadAvatar.isPending;
   const navigate = useNavigate();
 
-  const [githubLogin, setGithubLogin] = useState<string | undefined>(undefined);
+  const [githubLogin, setGithubLogin] = useState<string | undefined>(() => oauthReturn?.login);
   const [repoQuery, setRepoQuery] = useState("");
 
   const accountConnect = useGitHubAccountConnect(selectedOrg);
@@ -137,28 +166,18 @@ function NewBlueprintContent() {
 
   const repos = accountRepos.data?.repos ?? [];
   const isLoadingRepos = accountRepos.isLoading;
+  // Fall back to deriving the login from the first repo when the github_login URL param
+  // was absent (server GetLogin best-effort failure) or the connect response omitted it.
+  const effectiveLogin = githubLogin ?? repos[0]?.full_name.split("/")[0];
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
 
-  // Restore wizard state when returning from GitHub OAuth
+  // Clean up OAuth callback state: remove sessionStorage entry and strip the
+  // github_connected params from the URL so a refresh doesn't re-trigger.
   useEffect(() => {
-    if (searchParams.get("github_connected") !== "true") return;
-    const saved = sessionStorage.getItem(WIZARD_STATE_KEY);
-    if (saved) {
-      try {
-        const { name: n, selectedOrg: org, visibility: vis } = JSON.parse(saved) as { name: string; selectedOrg: string; visibility: "public" | "private" };
-        setName(n);
-        setSelectedOrg(org);
-        setVisibility(vis);
-        sessionStorage.removeItem(WIZARD_STATE_KEY);
-      } catch { /* ignore */ }
-    }
-    const login = searchParams.get("github_login");
-    if (login) setGithubLogin(login);
-    dispatch({ type: "GITHUB_CONNECTED" });
-    setActiveStep("source");
-    setCompletedSteps(new Set<Step>(["setup"]));
+    if (!oauthReturn) return;
+    sessionStorage.removeItem(WIZARD_STATE_KEY);
     setSearchParams({}, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -430,10 +449,10 @@ function NewBlueprintContent() {
                                           <>
                                             <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
                                               <CheckCircleIcon className="size-3.5 text-green-700" />
-                                              {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
+                                              {effectiveLogin ? `${effectiveLogin} connected` : "GitHub connected"}
                                             </p>
                                             <RepoPicker
-                                              githubLogin={githubLogin}
+                                              githubLogin={effectiveLogin}
                                               selectedRepo={selectedRepo}
                                               selectedBranch={selectedBranch}
                                               isLoadingRepos={isLoadingRepos}
