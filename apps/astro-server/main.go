@@ -289,6 +289,39 @@ func runAPI(
 	ksStore := knowledgestore.NewStore(db)
 	log.Info("Agent index and stores initialized")
 
+	/*
+	   One-shot, idempotent backfill of deployments.source_account_id for rows
+	   created before the column existed. Runs in a goroutine so it can never
+	   delay API startup or the readiness probe — the read path already
+	   tolerates NULL via SourceAccountFromSpec fallback, so serving traffic
+	   before the backfill finishes is safe. Already-populated rows are
+	   skipped by the column-IS-NULL filter, so this is cheap on subsequent
+	   restarts.
+	*/
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		res, err := deploymentStore.BackfillSourceAccountIDs(ctx)
+		if err != nil {
+			log.Warn("source_account_id backfill failed",
+				"error", err,
+				"scanned", res.Scanned,
+				"from_spec", res.FromSpec,
+				"from_self", res.FromSelf,
+				"spec_misses", res.SpecMisses,
+			)
+			return
+		}
+		if res.Scanned > 0 {
+			log.Info("source_account_id backfill complete",
+				"scanned", res.Scanned,
+				"from_spec", res.FromSpec,
+				"from_self", res.FromSelf,
+				"spec_misses", res.SpecMisses,
+			)
+		}
+	}()
+
 	// Initialize Kubernetes client
 	var k8sClient k8s.ClusterClient
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)

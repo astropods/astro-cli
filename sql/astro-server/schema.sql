@@ -102,6 +102,7 @@ CREATE TABLE public.workos_event_errors (
 CREATE TABLE public.deployments (
     id varchar(11) NOT NULL,
     account_id uuid NOT NULL,
+    source_account_id uuid,
     agent_name varchar NOT NULL,
     build_id varchar NOT NULL,
     namespace varchar NOT NULL,
@@ -120,10 +121,13 @@ CREATE TABLE public.deployments (
     drift_checked_at timestamptz,
     avatar_colors jsonb,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
-    CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+    CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT deployments_source_account_id_fkey FOREIGN KEY (source_account_id) REFERENCES public.accounts(id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
+
+CREATE INDEX idx_deployments_source_account_agent ON public.deployments(source_account_id, agent_name) WHERE source_account_id IS NOT NULL;
 
 CREATE UNIQUE INDEX idx_deployments_active_display_name ON public.deployments(account_id, display_name) WHERE status = 'active' AND display_name != '';
 

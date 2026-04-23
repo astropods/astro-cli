@@ -21,9 +21,16 @@ func NewStore(db *sql.DB) *Store {
 }
 
 // Deployment represents a single deployment record.
+//
+// SourceAccountID is the account that published the agent blueprint. On cross-
+// account deployments this differs from AccountID (the target account that
+// owns the deployment). Nil for legacy rows predating the column; read paths
+// that need the source account should fall back to parsing
+// deployment_spec_json via SourceAccountFromSpec + account lookup.
 type Deployment struct {
 	ID                 string           `json:"id"`
 	AccountID          string           `json:"account_id"`
+	SourceAccountID    *string          `json:"source_account_id,omitempty"`
 	AgentName          string           `json:"agent_name"`
 	BuildID            string           `json:"build_id"`
 	Namespace          string           `json:"namespace"`
@@ -45,6 +52,7 @@ type Deployment struct {
 type SaveDeploymentParams struct {
 	ID               string
 	AccountID        string
+	SourceAccountID  string
 	AgentName        string
 	DisplayName      string
 	BuildID          string
@@ -62,7 +70,7 @@ func nilIfEmpty(s string) interface{} {
 }
 
 // deploymentColumns is the SELECT column list for full deployment reads.
-const deploymentColumns = `id, account_id, agent_name, build_id, namespace, display_name,
+const deploymentColumns = `id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
        deployment_spec_json, encrypted_data_key, kms_key_arn,
        status, error_message, error_details, status_changed_at, current_revision,
        deployed_at, undeployed_at, avatar_colors`
@@ -72,7 +80,7 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	var d Deployment
 	var errorDetails []byte
 	err := row.Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
 		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
 		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors,
@@ -137,13 +145,13 @@ func (s *Store) GetDeploymentByID(id string) (*Deployment, error) {
 func (s *Store) GetActiveDeployment(accountID, agentName string) (*Deployment, error) {
 	var d Deployment
 	err := s.db.QueryRow(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, source_account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE account_id = $1 AND agent_name = $2 AND status = 'active'
 		ORDER BY deployed_at DESC
 		LIMIT 1
 	`, accountID, agentName).Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -158,7 +166,7 @@ func (s *Store) GetActiveDeployment(accountID, agentName string) (*Deployment, e
 // GetActiveDeployments returns all active deployments for an agent.
 func (s *Store) GetActiveDeployments(accountID, agentName string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, source_account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE account_id = $1 AND agent_name = $2 AND status = 'active'
 		ORDER BY deployed_at DESC
@@ -172,7 +180,7 @@ func (s *Store) GetActiveDeployments(accountID, agentName string) ([]*Deployment
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 			&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
@@ -189,11 +197,11 @@ func (s *Store) GetActiveDeployments(accountID, agentName string) ([]*Deployment
 func (s *Store) GetActiveDeploymentByDisplayName(accountID, displayName string) (*Deployment, error) {
 	var d Deployment
 	err := s.db.QueryRow(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, source_account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE account_id = $1 AND display_name = $2 AND status = 'active'
 	`, accountID, displayName).Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -208,7 +216,7 @@ func (s *Store) GetActiveDeploymentByDisplayName(accountID, displayName string) 
 // GetActiveDeploymentsByAccount returns all active deployments for an account.
 func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, source_account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE account_id = $1 AND status = 'active'
 		ORDER BY deployed_at DESC
@@ -222,7 +230,7 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 			&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
@@ -279,7 +287,7 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 // GetDeploymentHistory returns all deployment records for an agent, ordered by deployed_at DESC.
 func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, source_account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE account_id = $1 AND agent_name = $2
 		ORDER BY deployed_at DESC
@@ -293,7 +301,7 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 	for rows.Next() {
 		var d Deployment
 		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 			&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
@@ -316,7 +324,7 @@ type DeploymentWithAccount struct {
 // ListAllActive returns all active deployments across all accounts, joined with account names.
 func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	rows, err := s.db.Query(`
-		SELECT d.id, d.account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
+		SELECT d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
 		       d.deployment_spec_json, d.status, d.deployed_at, d.undeployed_at,
 		       a.name AS account_name
 		FROM deployments d
@@ -333,7 +341,7 @@ func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	for rows.Next() {
 		var d DeploymentWithAccount
 		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 			&d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 			&d.AccountName,
 		); err != nil {
@@ -351,7 +359,7 @@ func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 // joined with account names. Includes async fields (status, error_message, etc).
 func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 	rows, err := s.db.Query(`
-		SELECT d.id, d.account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
+		SELECT d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
 		       d.deployment_spec_json, d.status, d.error_message, d.status_changed_at,
 		       d.current_revision, d.deployed_at, d.undeployed_at,
 		       a.name AS account_name, d.drift_report
@@ -369,7 +377,7 @@ func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 	for rows.Next() {
 		var d DeploymentWithAccount
 		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 			&d.DeploymentSpecJSON, &d.Status, &d.ErrorMessage, &d.StatusChangedAt,
 			&d.CurrentRevision, &d.DeployedAt, &d.UndeployedAt,
 			&d.AccountName, &d.DriftReportJSON,
@@ -520,15 +528,15 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	// Insert new deployment with status='pending' and current_revision=1
 	var d Deployment
 	err = tx.QueryRow(`
-		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace, display_name,
+		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, encrypted_data_key, kms_key_arn,
 		    status, status_changed_at, current_revision, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 1, NOW())
-		RETURNING id, account_id, agent_name, build_id, namespace, display_name,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 1, NOW())
+		RETURNING id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, status, deployed_at
-	`, p.ID, p.AccountID, p.AgentName, p.BuildID, p.Namespace, p.DisplayName,
+	`, p.ID, p.AccountID, nilIfEmpty(p.SourceAccountID), p.AgentName, p.BuildID, p.Namespace, p.DisplayName,
 		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), StatusPending).Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
 	if err != nil {
@@ -594,20 +602,22 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 		return nil, fmt.Errorf("failed to get next revision: %w", err)
 	}
 
-	// Update deployment row
+	// Update deployment row. source_account_id is refreshed on every redeploy
+	// so the column stays truthful even if the publisher is re-keyed.
 	var d Deployment
 	err = tx.QueryRow(`
 		UPDATE deployments
 		SET build_id = $2, deployment_spec_json = $3, encrypted_data_key = $4,
 		    kms_key_arn = $5, display_name = $6, status = $7,
 		    error_message = NULL, error_details = NULL,
-		    status_changed_at = NOW(), current_revision = $8, deployed_at = NOW()
+		    status_changed_at = NOW(), current_revision = $8, deployed_at = NOW(),
+		    source_account_id = COALESCE($9, source_account_id)
 		WHERE id = $1
-		RETURNING id, account_id, agent_name, build_id, namespace, display_name,
+		RETURNING id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, status, deployed_at
 	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN),
-		p.DisplayName, StatusPending, nextRevision).Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+		p.DisplayName, StatusPending, nextRevision, nilIfEmpty(p.SourceAccountID)).Scan(
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
 	if err != nil {

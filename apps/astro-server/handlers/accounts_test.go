@@ -470,12 +470,12 @@ func TestDeleteAccount_Success(t *testing.T) {
 	rev := 1
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
+			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil, nil,
@@ -524,7 +524,7 @@ func TestDeleteAccount_NoDeployments(t *testing.T) {
 	// No deployments
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
@@ -585,12 +585,12 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 	rev := 1
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			"dep-1", "acct-1", "my-agent", "build-1", "astro-abc-0",
+			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil, nil,

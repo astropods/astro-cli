@@ -521,7 +521,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		params := deploymentstore.SaveDeploymentParams{
 			ID: dctx.deploymentID, AccountID: dctx.acct.ID,
-			AgentName: dctx.agentName, DisplayName: dctx.displayName,
+			SourceAccountID: dctx.sourceAccountID,
+			AgentName:       dctx.agentName, DisplayName: dctx.displayName,
 			BuildID: dctx.buildID, Namespace: dctx.k8sNS,
 			SpecJSON: string(specJSON),
 		}
@@ -2358,6 +2359,24 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 	}
 }
 
+// resolveSourceAccountName returns the publishing account's name for a
+// deployment. It prefers the deployments.source_account_id column (always
+// set on writes after the migration) and falls back to parsing
+// deployment_spec_json.source.account for legacy rows that predate the
+// column. Returns "" when neither source is available; callers treat that
+// as "same account" and use the URL account.
+func resolveSourceAccountName(log *logger.Logger, accountStore *account.AccountStore, d *deploymentstore.Deployment) string {
+	if d.SourceAccountID != nil && *d.SourceAccountID != "" {
+		if acct, err := accountStore.GetByID(*d.SourceAccountID); err == nil && acct != nil {
+			return acct.Name
+		} else if err != nil {
+			log.Warn("Failed to resolve source_account_id; falling back to spec JSON",
+				"deployment_id", d.ID, "source_account_id", *d.SourceAccountID, "error", err)
+		}
+	}
+	return deploymentstore.SourceAccountFromSpec(d.DeploymentSpecJSON)
+}
+
 // resolveAgentForTemplate loads the account + agent used to build a
 // deployment template. The caller is responsible for any access-control
 // decisions on the returned agent (e.g. private-visibility membership
@@ -2542,13 +2561,14 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				prefillExisting = &revExisting
 			}
 
-			// Cross-account deployments store the real publisher in
-			// deployment_spec_json.source.account. Use it for the build lookup
-			// instead of the URL account, which is the *target* workspace.
+			// Cross-account deployments resolve the publisher account from the
+			// deployments.source_account_id column. Legacy rows (pre-migration)
+			// leave the column NULL; fall back to parsing
+			// deployment_spec_json.source.account, then to the URL account.
 			// When Revision > 0, prefillExisting.DeploymentSpecJSON already
-			// holds the historical revision's spec, so this picks up the
-			// source account as it was at that revision.
-			sourceAccountName := deploymentstore.SourceAccountFromSpec(prefillExisting.DeploymentSpecJSON)
+			// holds the historical revision's spec, so the JSON fallback
+			// picks up the source account as it was at that revision.
+			sourceAccountName := resolveSourceAccountName(log, accountStore, prefillExisting)
 			lookupAccountName := accountName
 			if sourceAccountName != "" {
 				lookupAccountName = sourceAccountName

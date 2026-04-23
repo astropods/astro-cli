@@ -120,14 +120,25 @@ func setupConfigureE2E(
 	}
 
 	depSpec := buildDeploymentSpecJSON(sourceAcct.Name, targetAcct.Name, agentName, pinnedBuild, includeSourceInSpec)
+	/*
+	   Populate source_account_id on writes when the spec has a source block.
+	   The legacy case (includeSourceInSpec=false) intentionally leaves the
+	   column empty so the handler falls back through SourceAccountFromSpec
+	   (which will also be empty) to the URL account.
+	*/
+	var sourceAccountID string
+	if includeSourceInSpec {
+		sourceAccountID = sourceAcct.ID
+	}
 	deployment, err := deployStore.SaveDeploymentPending(ds.SaveDeploymentParams{
-		ID:          deployid.New(),
-		AccountID:   targetAcct.ID,
-		AgentName:   agentName,
-		DisplayName: "E2E Cross-Account Bot",
-		BuildID:     pinnedBuild,
-		Namespace:   "astro-" + deployid.Compact(deployid.New()) + "-0",
-		SpecJSON:    depSpec,
+		ID:              deployid.New(),
+		AccountID:       targetAcct.ID,
+		SourceAccountID: sourceAccountID,
+		AgentName:       agentName,
+		DisplayName:     "E2E Cross-Account Bot",
+		BuildID:         pinnedBuild,
+		Namespace:       "astro-" + deployid.Compact(deployid.New()) + "-0",
+		SpecJSON:        depSpec,
 	}, nil)
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)

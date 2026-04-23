@@ -76,16 +76,30 @@ func (q *mockQueue) InsertDeployJob(_ context.Context, _ string) error   { retur
 func (q *mockQueue) InsertUndeployJob(_ context.Context, _ string) error { return nil }
 func (q *mockQueue) InsertWakeUpJob(_ context.Context, _ string) error   { return nil }
 
+// deploymentByIDColumns lists the columns scanned by scanDeployment, in order.
+var deploymentByIDColumns = []string{
+	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"status", "error_message", "error_details", "status_changed_at", "current_revision",
+	"deployed_at", "undeployed_at", "avatar_colors",
+}
+
 // deploymentByIDRow returns a sqlmock.Rows matching the deploymentColumns scan in scanDeployment.
+// Leaves source_account_id NULL, matching legacy / un-backfilled deployments.
 func deploymentByIDRow(id, accountID, agentName, buildID, namespace, displayName, specJSON, status string, now time.Time, undeployedAt *time.Time) *sqlmock.Rows {
+	return deploymentByIDRowWithSource(id, accountID, "", agentName, buildID, namespace, displayName, specJSON, status, now, undeployedAt)
+}
+
+// deploymentByIDRowWithSource is the column-aware variant: pass the source
+// account ID to simulate a backfilled / post-migration row, or "" for legacy.
+func deploymentByIDRowWithSource(id, accountID, sourceAccountID, agentName, buildID, namespace, displayName, specJSON, status string, now time.Time, undeployedAt *time.Time) *sqlmock.Rows {
 	rev := 1
-	return sqlmock.NewRows([]string{
-		"id", "account_id", "agent_name", "build_id", "namespace",
-		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at", "avatar_colors",
-	}).AddRow(
-		id, accountID, agentName, buildID, namespace,
+	var src interface{} = nil
+	if sourceAccountID != "" {
+		src = sourceAccountID
+	}
+	return sqlmock.NewRows(deploymentByIDColumns).AddRow(
+		id, accountID, src, agentName, buildID, namespace,
 		displayName, specJSON, []byte(nil), (*string)(nil),
 		status, (*string)(nil), json.RawMessage(nil), now, &rev,
 		now, undeployedAt, nil,
@@ -94,12 +108,7 @@ func deploymentByIDRow(id, accountID, agentName, buildID, namespace, displayName
 
 // emptyDeploymentByIDRows returns an empty sqlmock.Rows matching the deploymentColumns layout.
 func emptyDeploymentByIDRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{
-		"id", "account_id", "agent_name", "build_id", "namespace",
-		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at", "avatar_colors",
-	})
+	return sqlmock.NewRows(deploymentByIDColumns)
 }
 
 func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
@@ -346,12 +355,12 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	// GetVisibleDeploymentsByAccount
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			depID, "acct-1", agentName, buildID, namespace, "My Agent",
+			depID, "acct-1", nil, agentName, buildID, namespace, "My Agent",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
@@ -411,12 +420,12 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			depID, "acct-1", agentName, buildID, namespace, "Sas Bot",
+			depID, "acct-1", nil, agentName, buildID, namespace, "Sas Bot",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
@@ -752,7 +761,7 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	// GetVisibleDeploymentsByAccount returns no rows
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
@@ -895,17 +904,17 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 	// Two active deployments
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			depID1, "acct-1", "agent-a", "b1", ns1, "Agent A",
+			depID1, "acct-1", nil, "agent-a", "b1", ns1, "Agent A",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		).AddRow(
-			depID2, "acct-1", "agent-b", "b1", ns2, "Agent B",
+			depID2, "acct-1", nil, "agent-b", "b1", ns2, "Agent B",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
@@ -1031,12 +1040,12 @@ func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
-			depID, "acct-1", agentName, buildID, namespace, "My Agent",
+			depID, "acct-1", nil, agentName, buildID, namespace, "My Agent",
 			`{}`, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
@@ -1703,7 +1712,7 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	// No existing deployment lookup (GetActiveDeployment returns no rows).
 	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment
 						WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "deployed_at", "undeployed_at",
 		}))
@@ -1713,9 +1722,9 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
 	// Revision insert
 	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1784,9 +1793,9 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"next_revision"}).AddRow(2))
 	deployMock.ExpectQuery(`UPDATE deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow(depID, "acct-1", "my-agent", "build-1", "astro-existing", "My Agent", "{}", "pending", now))
+		}).AddRow(depID, "acct-1", nil, "my-agent", "build-1", "astro-existing", "My Agent", "{}", "pending", now))
 	// Revision insert
 	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -2001,12 +2010,12 @@ func setupWakeUpRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 // deploymentByIDRowWithStatus is like deploymentByIDRow but allows specifying a custom current_revision.
 func deploymentByIDRowWithStatus(id, accountID, agentName, buildID, namespace, displayName, specJSON, status string, revision *int, now time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "account_id", "agent_name", "build_id", "namespace",
+		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
 		"deployed_at", "undeployed_at", "avatar_colors",
 	}).AddRow(
-		id, accountID, agentName, buildID, namespace,
+		id, accountID, nil, agentName, buildID, namespace,
 		displayName, specJSON, []byte(nil), (*string)(nil),
 		status, (*string)(nil), json.RawMessage(nil), now, revision,
 		now, (*time.Time)(nil), nil,
@@ -2204,7 +2213,7 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 
 	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment — no existing
 						WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "deployed_at", "undeployed_at",
 		}))
@@ -2213,9 +2222,9 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
 	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
@@ -2457,7 +2466,7 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 			"status", "deployed_at", "undeployed_at",
 		}))
@@ -2466,9 +2475,9 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-sched-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+		}).AddRow("new-sched-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
 	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).

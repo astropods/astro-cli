@@ -35,7 +35,7 @@ func newTestK8sClient(handler http.Handler) k8s.ClusterClient {
 }
 
 var testDeployColumns = []string{
-	"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at", "avatar_colors",
@@ -56,7 +56,7 @@ func k8sNamespaceListHandler(namespaces ...string) http.Handler {
 
 func addDeployRow(rows *sqlmock.Rows, id, namespace, status string) {
 	now := time.Now()
-	rows.AddRow(id, "acct-1", "agent", "build-1", namespace, "agent",
+	rows.AddRow(id, "acct-1", nil, "agent", "build-1", namespace, "agent",
 		"{}", nil, nil,
 		status, nil, nil, now, nil,
 		now, nil, nil)
@@ -201,7 +201,7 @@ func TestMaintainNamespaceOwnership_SourceAccountPopulated(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows(testDeployColumns)
 	// Row with a spec that has source.account set
-	rows.AddRow("dep-1", "acct-1", "agent", "build-1", "astro-abc-0", "agent",
+	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-abc-0", "agent",
 		`{"source":{"account":"source-team","name":"agent","build":"build-1"}}`, nil, nil,
 		"active", nil, nil, now, nil,
 		now, nil, nil)
