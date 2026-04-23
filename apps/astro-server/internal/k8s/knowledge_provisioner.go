@@ -226,6 +226,26 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 	return nil
 }
 
+// KnowledgeSecretReader reads plaintext credentials from a knowledge store's k8s Secret.
+// Implements knowledgestore.SecretReader for the no-KMS fallback path.
+type KnowledgeSecretReader struct {
+	Client ClusterClient
+}
+
+// ReadCredentials reads the credentials Secret for a store and returns plaintext key-value pairs.
+func (r *KnowledgeSecretReader) ReadCredentials(ctx context.Context, storeID, namespace string) (map[string]string, error) {
+	secretName := KnowledgeResourceName(storeID) + "-creds"
+	secret, err := r.Client.Clientset().CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("read secret %s/%s: %w", namespace, secretName, err)
+	}
+	result := make(map[string]string, len(secret.Data))
+	for k, v := range secret.Data {
+		result[k] = string(v)
+	}
+	return result, nil
+}
+
 // ApplyKnowledgeSecret creates or updates the credentials secret in the store's namespace.
 // The StatefulSet mounts this via envFrom; the reconciler calls this to recreate it after
 // a cluster migration or accidental deletion.

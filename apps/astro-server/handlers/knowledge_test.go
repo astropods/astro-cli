@@ -346,7 +346,8 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore))
+	// No secret reader — simulates no k8s client available.
+	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -358,8 +359,8 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected 404 when no credentials stored, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when no KMS and no secret reader, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

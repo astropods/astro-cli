@@ -166,38 +166,19 @@ func (d *Deployer) resolveBoundKnowledge(
 			Provider: store.Provider,
 		}
 
-		// Resolve store credentials: decrypt via KMS when available,
-		// otherwise read directly from the k8s Secret (local/no-KMS mode).
-		var plainCreds map[string]string
-		if len(store.EncryptedDataKey) > 0 {
-			creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
-			if credErr != nil {
-				d.Log.Warn("Failed to get store credentials", "error", credErr, "store_id", store.ID)
-				continue
-			}
-			kmsClient := d.kmsClient(ctx)
-			if kmsClient == nil {
-				d.Log.Warn("KMS client unavailable, cannot decrypt store credentials", "store_id", store.ID)
-				continue
-			}
-			var decErr error
-			plainCreds, decErr = knowledgestore.DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, creds)
-			if decErr != nil {
-				d.Log.Warn("Failed to decrypt store credentials", "error", decErr, "store_id", store.ID)
-				continue
-			}
-		} else {
-			// No KMS — read credentials directly from the k8s Secret.
-			secretName := k8s.KnowledgeResourceName(store.ID) + "-creds"
-			secret, getErr := d.K8sClient.Clientset().CoreV1().Secrets(storeNS).Get(ctx, secretName, metav1.GetOptions{})
-			if getErr != nil {
-				d.Log.Warn("Failed to read store credentials secret", "error", getErr, "store_id", store.ID, "secret", secretName)
-				continue
-			}
-			plainCreds = make(map[string]string, len(secret.Data))
-			for k, v := range secret.Data {
-				plainCreds[k] = string(v)
-			}
+		// Resolve store credentials via unified resolver (KMS or k8s Secret fallback).
+		creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
+		if credErr != nil {
+			d.Log.Warn("Failed to get store credentials", "error", credErr, "store_id", store.ID)
+			continue
+		}
+		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
+			ctx, store, creds, d.kmsClient(ctx),
+			&k8s.KnowledgeSecretReader{Client: d.K8sClient}, storeNS,
+		)
+		if resolveErr != nil {
+			d.Log.Warn("Failed to resolve store credentials", "error", resolveErr, "store_id", store.ID)
+			continue
 		}
 		storageKeyMap := spec.CredentialStorageKeyMap(store.Provider)
 		for storageKey, val := range plainCreds {

@@ -1087,9 +1087,9 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 	}
 }
 
-// GetKnowledgeStoreCredentials decrypts and returns the store's credentials.
-// Reads from the DB — does not depend on the K8s secret existing.
-func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store) gin.HandlerFunc {
+// GetKnowledgeStoreCredentials resolves and returns the store's credentials.
+// Uses KMS decryption when available, falls back to reading the k8s Secret.
+func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, secretReader knowledgestore.SecretReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -1110,29 +1110,24 @@ func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.St
 			return
 		}
 
-		if len(creds) == 0 {
-			// KMS was not configured at creation time.
-			c.JSON(http.StatusNotFound, gin.H{"error": "credentials not stored (KMS was not configured at creation)"})
-			return
+		var kmsClient envelope.KMSClient
+		if len(ks.EncryptedDataKey) > 0 {
+			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
+			if awsErr != nil {
+				log.Error("Failed to load AWS config", "error", awsErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
+				return
+			}
+			kmsClient = kms.NewFromConfig(awsCfg)
 		}
 
-		if len(ks.EncryptedDataKey) == 0 || ks.KMSKeyARN == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "missing encryption key"})
-			return
-		}
-
-		awsCfg, err := awsconfig.LoadDefaultConfig(c.Request.Context())
-		if err != nil {
-			log.Error("Failed to load AWS config", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
-			return
-		}
-		kmsClient := kms.NewFromConfig(awsCfg)
-
-		plainCreds, err := knowledgestore.DecryptCredentials(c.Request.Context(), kmsClient, ks.EncryptedDataKey, creds)
-		if err != nil {
-			log.Error("Failed to decrypt credentials", "error", err, "store_id", ks.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt credentials"})
+		storeNS := k8s.KnowledgeNamespace(ks.AccountID)
+		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
+			c.Request.Context(), ks, creds, kmsClient, secretReader, storeNS,
+		)
+		if resolveErr != nil {
+			log.Error("Failed to resolve credentials", "error", resolveErr, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})
 			return
 		}
 

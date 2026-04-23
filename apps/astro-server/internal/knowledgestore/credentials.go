@@ -94,6 +94,39 @@ func DecryptCredentials(ctx context.Context, kmsClient envelope.KMSClient, encry
 	return result, nil
 }
 
+// SecretReader reads plaintext credentials from an external source (e.g. a k8s Secret).
+// Used as the fallback when KMS is not configured.
+type SecretReader interface {
+	ReadCredentials(ctx context.Context, storeID, namespace string) (map[string]string, error)
+}
+
+// ResolveCredentials returns plaintext credentials for a knowledge store.
+// It tries KMS decryption first (when EncryptedDataKey is set), then falls
+// back to reading from the k8s Secret via the SecretReader.
+func ResolveCredentials(
+	ctx context.Context,
+	store *KnowledgeStore,
+	dbCreds []Credential,
+	kmsClient envelope.KMSClient,
+	secretReader SecretReader,
+	namespace string,
+) (map[string]string, error) {
+	// Path 1: KMS decryption — credentials stored encrypted in the DB.
+	if len(store.EncryptedDataKey) > 0 && len(dbCreds) > 0 {
+		if kmsClient == nil {
+			return nil, fmt.Errorf("KMS client required but not available")
+		}
+		return DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, dbCreds)
+	}
+
+	// Path 2: no KMS — read directly from the k8s Secret.
+	if secretReader != nil {
+		return secretReader.ReadCredentials(ctx, store.ID, namespace)
+	}
+
+	return nil, fmt.Errorf("no credentials available (KMS not configured and no secret reader)")
+}
+
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
