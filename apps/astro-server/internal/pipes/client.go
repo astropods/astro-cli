@@ -91,27 +91,18 @@ type DeleteConnectionInput struct {
 }
 
 // DeleteConnection revokes the OAuth connection for a provider on behalf of a user.
-// Calls DELETE /data-integrations/:slug/connections — not yet in the SDK.
+// Calls DELETE /data-integrations/:slug/connections/:user_id — not yet in the SDK.
 func (c *Client) DeleteConnection(ctx context.Context, in DeleteConnectionInput) error {
-	body := map[string]string{
-		"user_id": in.UserID,
-	}
+	url := fmt.Sprintf("%s/data-integrations/%s/connections/%s", c.endpoint, in.Provider, in.UserID)
 	if in.OrganizationID != "" {
-		body["organization_id"] = in.OrganizationID
+		url += "?organization_id=" + in.OrganizationID
 	}
 
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("pipes: marshal request: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/data-integrations/%s/connections", c.endpoint, in.Provider)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("pipes: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
