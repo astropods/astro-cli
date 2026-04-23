@@ -4274,3 +4274,371 @@ func TestPostTemplate_SchedulesInResponse(t *testing.T) {
 		t.Errorf("resp.Schedules[nightly]: expected '0 4 * * *', got %q", resp.Schedules["nightly"])
 	}
 }
+
+// ===== Cross-account prefill: source.account in deployment spec =====
+//
+// These tests exercise the Configure prefill path through the HTTP handler
+// with sqlmock. Each test arranges the mock queue around a specific shape
+// of deployment_spec_json (cross-account / same-account / legacy) and
+// asserts the externally visible template response. The mock queue also
+// acts as a contract: any unexpected DB call (for example, an extra
+// IsMember check against the wrong account, or a GetLatestVersion call
+// when a pinned build is expected) fails the test.
+
+// postTemplateFor sends a POST to the deployment-template endpoint for the
+// given URL account/name, enabling tests where the URL (target) account
+// differs from the source account carried in the deployment spec.
+func postTemplateFor(t *testing.T, router *gin.Engine, urlAccount, urlAgent, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/agents/"+urlAccount+"/"+urlAgent+"/deployment-template",
+		strings.NewReader(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// expectAccountLookupFor stubs a GetByName (or GetByID) query that returns a
+// single account row for the given bind argument. The sqlmock FIFO queue
+// distinguishes GetByName vs GetByID by the single bind argument (name vs id).
+func expectAccountLookupFor(mock sqlmock.Sqlmock, arg, id, name string) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs(arg).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow(id, name, "organization", nil, nil, now, now, "", nil))
+}
+
+// expectAgentLookupFor stubs the two queries inside Index.Get (agents row +
+// versions list) for a specific (accountID, agentName) pair with the given
+// visibility. Used when the source account differs from the URL account.
+func expectAgentLookupFor(mock sqlmock.Sqlmock, accountID, agentName, visibility string) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs(accountID, agentName).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow(accountID, agentName, "registry.io", visibility, nil, false, nil, now, now))
+	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs(accountID, agentName).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-old", accountID, `{"name":"my-agent","agent":{"image":"example:build-old"}}`, "", "", "[]", now, now))
+}
+
+// expectPinnedVersionFor stubs Index.GetVersion for a specific (accountID,
+// agentName, buildID) triple, returning a row whose spec image pins the
+// requested build so the template's source.build is observable.
+func expectPinnedVersionFor(mock sqlmock.Sqlmock, accountID, agentName, buildID string) {
+	now := time.Now()
+	image := "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-" + accountID + "/" + agentName + ":" + buildID
+	specJSON := `{"name":"` + agentName + `","agent":{"image":"` + image + `"}}`
+	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs(accountID, agentName, buildID).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow(buildID, accountID, specJSON, "", "", "[]", now, now))
+}
+
+// TestPostTemplate_CrossAccountPrefill_UsesSourceAccount covers the
+// cross-account shape: the deployment lives under the target account (URL)
+// but its spec carries source.account="publisher", and the pinned build
+// only exists under the source account. The handler must resolve the build
+// under the source account and return a template whose source/target
+// reflect the publisher and the workspace respectively.
+func TestPostTemplate_CrossAccountPrefill_UsesSourceAccount(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-crossacct-1"
+	targetAcctID := "target-acct"
+	sourceAcctID := "source-acct"
+	storedSpec := `{"source":{"account":"publisher","name":"my-agent","build":"build-1"},"interfaces":{"adapters":["web"]}}`
+
+	// Load the deployment under the target account.
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, targetAcctID, "my-agent", "build-1", "astro-abc123",
+			"Cross-Account Bot", storedSpec, "active", now, nil))
+	// Auth is scoped to the deployment's account (target), not source.
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs(targetAcctID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// generateTemplate resolves everything under "publisher"
+	// (source.account), not under "myorg" (URL account).
+	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
+	expectAgentLookupFor(indexMock, sourceAcctID, "my-agent", "public")
+	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", "build-1")
+	// GetDeploymentVariables (empty).
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}))
+	// mergeDeploymentPrefill looks up the target account by ID to set
+	// target.account on the template.
+	expectAccountLookupFor(accountMock, targetAcctID, targetAcctID, "myorg")
+
+	// URL uses "myorg" (target) while the deployment spec points at
+	// "publisher" (source).
+	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Template reflects the cross-account shape:
+	// - template.source.account is the publisher name
+	// - template.source.build is the deployment's pinned build
+	// - target.account is the deployment's workspace
+	if resp.Template.Source.Account != "publisher" {
+		t.Errorf("template.source.account: expected %q, got %q", "publisher", resp.Template.Source.Account)
+	}
+	if resp.Template.Source.Build != "build-1" {
+		t.Errorf("template.source.build: expected %q, got %q", "build-1", resp.Template.Source.Build)
+	}
+	if resp.Template.Target.Account != "myorg" {
+		t.Errorf("template.target.account: expected %q, got %q", "myorg", resp.Template.Target.Account)
+	}
+	if resp.Template.Target.DeploymentID != depID {
+		t.Errorf("template.target.deployment_id: expected %q, got %q", depID, resp.Template.Target.DeploymentID)
+	}
+
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled index expectations: %v", err)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled account expectations: %v", err)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled deploy expectations: %v", err)
+	}
+}
+
+// TestPostTemplate_SameAccountPrefill verifies the common case where a
+// deployment's source.account equals the URL account. The agent and build
+// lookup happen under that single account and the template reflects it.
+func TestPostTemplate_SameAccountPrefill(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-sameacct-1"
+	acctID := "acct-1"
+	storedSpec := `{"source":{"account":"myorg","name":"my-agent","build":"build-1"}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"Same-Account Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs(acctID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// source.account == "myorg" (the URL account), so the lookup happens
+	// under "myorg" — same query shape as a legacy record.
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}))
+	expectAccountLookupFor(accountMock, acctID, acctID, "myorg")
+
+	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	if resp.Template.Source.Account != "myorg" {
+		t.Errorf("template.source.account: expected %q, got %q", "myorg", resp.Template.Source.Account)
+	}
+	if resp.Template.Source.Build != "build-1" {
+		t.Errorf("template.source.build: expected %q, got %q", "build-1", resp.Template.Source.Build)
+	}
+	if resp.Template.Target.DeploymentID != depID {
+		t.Errorf("template.target.deployment_id: expected %q, got %q", depID, resp.Template.Target.DeploymentID)
+	}
+
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled index expectations: %v", err)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled account expectations: %v", err)
+	}
+}
+
+// TestPostTemplate_LegacyPrefill_FallsBackToURLAccount covers deployments
+// whose spec omits source.account. With no publisher recorded, the handler
+// resolves the agent and its build under the URL account.
+func TestPostTemplate_LegacyPrefill_FallsBackToURLAccount(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-legacy-1"
+	acctID := "acct-1"
+	// No source.account in the spec — legacy shape.
+	storedSpec := `{"interfaces":{"adapters":["web"]}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"Legacy Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs(acctID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// SourceAccountFromSpec returns "", so generateTemplate uses
+	// c.Param("account") = "myorg" for both the agent and version lookups.
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}))
+	expectAccountLookupFor(accountMock, acctID, acctID, "myorg")
+
+	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	if resp.Template.Source.Account != "myorg" {
+		t.Errorf("source.account: expected %q, got %q", "myorg", resp.Template.Source.Account)
+	}
+	if resp.Template.Source.Build != "build-1" {
+		t.Errorf("source.build: expected %q, got %q", "build-1", resp.Template.Source.Build)
+	}
+
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled index expectations: %v", err)
+	}
+}
+
+// TestPostTemplate_CrossAccountPrefill_AuthStaysOnDeploymentAccount verifies
+// the auth boundary for cross-account Configure. A user who is only a
+// member of the deployment's target account can open Configure even when
+// the source agent is private in another account. The test exercises this
+// by seeding exactly one IsMember query (against the target account); if
+// the handler also called IsMember against the source account, sqlmock
+// would reject that call as unexpected and fail the test.
+func TestPostTemplate_CrossAccountPrefill_AuthStaysOnDeploymentAccount(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-auth-1"
+	targetAcctID := "target-acct"
+	sourceAcctID := "source-acct"
+	storedSpec := `{"source":{"account":"publisher","name":"my-agent","build":"build-1"}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, targetAcctID, "my-agent", "build-1", "astro-abc123",
+			"Private Cross-Acct Bot", storedSpec, "active", now, nil))
+	// The only membership check allowed is against the deployment's target account.
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs(targetAcctID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
+	// Agent is private in the source account. An extra visibility check
+	// would call IsMember(source-acct, user-1); that query is intentionally
+	// not mocked so the test fails if it happens.
+	expectAgentLookupFor(indexMock, sourceAcctID, "my-agent", "private")
+	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", "build-1")
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}))
+	expectAccountLookupFor(accountMock, targetAcctID, targetAcctID, "myorg")
+
+	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("target-account member should reach private source agent via existing deployment, got %d: %s",
+			rec.Code, rec.Body.String())
+	}
+
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected or missing account queries (auth should stay on target account): %v", err)
+	}
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled index expectations: %v", err)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled deploy expectations: %v", err)
+	}
+}
+
+// TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild verifies that a
+// cross-account Configure call returns the deployed build even when the
+// source account has a newer one available. The mock queue only accepts
+// the 3-arg GetVersion(sourceAcctID, name, "build-old"); the 2-arg
+// GetLatestVersion is intentionally not mocked so a call to the latest
+// version would fail the test.
+func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-pinned-1"
+	targetAcctID := "target-acct"
+	sourceAcctID := "source-acct"
+	pinnedBuild := "build-old"
+	storedSpec := `{"source":{"account":"publisher","name":"my-agent","build":"` + pinnedBuild + `"}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, targetAcctID, "my-agent", pinnedBuild, "astro-abc123",
+			"Pinned Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs(targetAcctID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
+
+	// The source account has two builds — "build-new" (latest) and
+	// "build-old" (deployed). Index.Get lists them newest-first; the
+	// handler then asks for the pinned one, not the latest.
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs(sourceAcctID, "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow(sourceAcctID, "my-agent", "registry.io", "public", nil, false, nil, now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs(sourceAcctID, "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-new", sourceAcctID, `{"name":"my-agent","agent":{"image":"example:build-new"}}`, "", "", "[]", now.Add(time.Hour), now.Add(time.Hour)).
+			AddRow(pinnedBuild, sourceAcctID, `{"name":"my-agent","agent":{"image":"example:build-old"}}`, "", "", "[]", now, now))
+	// Pinned lookup — only the deployed build is mocked. A GetLatestVersion
+	// (2-arg) call would not match any expectation and fail the test.
+	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", pinnedBuild)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+		}))
+	expectAccountLookupFor(accountMock, targetAcctID, targetAcctID, "myorg")
+
+	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	if resp.Template.Source.Build != pinnedBuild {
+		t.Errorf("source.build: expected pinned %q, got %q (latest build leaked through)",
+			pinnedBuild, resp.Template.Source.Build)
+	}
+
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled index expectations: %v", err)
+	}
+}

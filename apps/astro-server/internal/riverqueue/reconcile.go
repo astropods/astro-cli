@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -186,7 +185,7 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 
 	for _, dep := range deps {
 		dbNamespaces[dep.Namespace] = dep
-		sourceAccount := sourceAccountFromSpec(dep.DeploymentSpecJSON)
+		sourceAccount := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON)
 		_, err := w.db.ExecContext(ctx, `
 			INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, source_account, scanned_at)
 			VALUES ($1, $2, $3, $4, $5, $6)
@@ -246,23 +245,6 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 			"agent", agentName,
 		)
 	}
-}
-
-// sourceAccountFromSpec extracts the source.account field from a deployment spec JSON.
-// Returns empty string if the spec is empty or unparseable.
-func sourceAccountFromSpec(specJSON string) string {
-	if specJSON == "" || specJSON == "{}" {
-		return ""
-	}
-	var spec struct {
-		Source struct {
-			Account string `json:"account"`
-		} `json:"source"`
-	}
-	if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
-		return ""
-	}
-	return spec.Source.Account
 }
 
 // isKEDAScaledDown checks if all ScaledObjects in the namespace have Active=False.

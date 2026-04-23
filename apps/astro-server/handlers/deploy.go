@@ -2360,6 +2360,14 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 // generateTemplate resolves an agent build and generates a deployment template.
 // buildIDOverride, when non-empty, pins the build instead of using latest.
+// sourceAccountOverride, when non-empty, replaces the URL :account param as the
+// account used to look up the agent and its build. This is how the prefill path
+// supports cross-account deployments whose spec references a source account
+// different from the workspace account in the URL.
+// skipVisibilityCheck bypasses the per-call private-agent membership check when
+// the caller has already authorized the user against the deployment's target
+// account; re-checking against the source account would incorrectly deny
+// cross-account Configure access.
 func generateTemplate(
 	c *gin.Context,
 	log *logger.Logger,
@@ -2367,8 +2375,13 @@ func generateTemplate(
 	accountStore *account.AccountStore,
 	cfg *config.Config,
 	buildIDOverride string,
+	sourceAccountOverride string,
+	skipVisibilityCheck bool,
 ) (*spec.AstroDeploymentSpec, bool) {
-	accountName := c.Param("account")
+	accountName := sourceAccountOverride
+	if accountName == "" {
+		accountName = c.Param("account")
+	}
 	name := c.Param("name")
 
 	user, exists := middleware.GetUser(c)
@@ -2390,7 +2403,7 @@ func generateTemplate(
 		return nil, false
 	}
 
-	if agent.Visibility == "private" {
+	if agent.Visibility == "private" && !skipVisibilityCheck {
 		if !isAccountMember(c, accountStore, accountID, user.ID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
 			return nil, false
@@ -2513,8 +2526,16 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				prefillExisting = &revExisting
 			}
 
+			// Cross-account deployments store the real publisher in
+			// deployment_spec_json.source.account. Use it for the build lookup
+			// instead of the URL account, which is the *target* workspace.
+			// When Revision > 0, prefillExisting.DeploymentSpecJSON already
+			// holds the historical revision's spec, so this picks up the
+			// source account as it was at that revision.
+			sourceAccountName := deploymentstore.SourceAccountFromSpec(prefillExisting.DeploymentSpecJSON)
+
 			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
-			cacheKey := accountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
+			cacheKey := accountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision) + ":" + sourceAccountName
 			if base, ok := cache.get(cacheKey); ok {
 				resp := deployment.ShapeTemplate(base, &req)
 				c.JSON(http.StatusOK, resp)
@@ -2522,7 +2543,10 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			}
 
 			// Cache miss — full generation pipeline.
-			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
+			// Auth was already enforced above against the deployment's account;
+			// skip generateTemplate's visibility recheck so cross-account
+			// Configure does not require source-account membership.
+			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride, sourceAccountName, true)
 			if !ok {
 				return
 			}
@@ -2560,7 +2584,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			return
 		}
 
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride)
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride, "", false)
 		if !ok {
 			return
 		}

@@ -184,9 +184,9 @@ func TestSourceAccountFromSpec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sourceAccountFromSpec(tt.specJSON)
+			got := deploymentstore.SourceAccountFromSpec(tt.specJSON)
 			if got != tt.want {
-				t.Errorf("sourceAccountFromSpec(%q) = %q, want %q", tt.specJSON, got, tt.want)
+				t.Errorf("SourceAccountFromSpec(%q) = %q, want %q", tt.specJSON, got, tt.want)
 			}
 		})
 	}
