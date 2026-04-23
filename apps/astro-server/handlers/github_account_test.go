@@ -221,6 +221,7 @@ func TestGitHubWebhook_WrongBranch(t *testing.T) {
 	// The push is to "feat" but the connection tracks "main".
 	payloadBody := `{"ref":"refs/heads/feat","after":"abc123def456","repository":{"full_name":"owner/repo"}}`
 
+	// GetByRepoBase: returns the connection so HMAC can be verified.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs(repoFullName).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -230,6 +231,15 @@ func TestGitHubWebhook_WrongBranch(t *testing.T) {
 		}).AddRow("conn-2", "acct-1", "testaccount", "test-agent",
 			"user-1", "org-1", repoFullName, "main",
 			int64(12345), webhookSecret, now, now))
+
+	// ListByRepoAndBranch: no connections for branch "feat" — push is ignored.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs(repoFullName, "feat").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "account_name", "agent_name",
+			"workos_user_id", "workos_org_id", "repo_full_name", "branch",
+			"webhook_id", "webhook_secret", "created_at", "updated_at",
+		}))
 
 	router := gin.New()
 	router.POST("/webhooks/github", GitHubWebhook(log, store, nil))

@@ -492,7 +492,7 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 		for _, conn := range conns {
 			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
 				if gh := githubclient.New(token.AccessToken); gh != nil {
-					if delErr := gh.DeleteWebhook(c.Request.Context(), conn.RepoFullName, conn.WebhookID); delErr != nil {
+					if delErr := gh.DeleteWebhook(c.Request.Context(), githubconnection.RepoBase(conn.RepoFullName), conn.WebhookID); delErr != nil {
 						log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
 					} else {
 						deletedWebhooks[conn.WebhookID] = true
@@ -815,7 +815,11 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		c.Status(http.StatusAccepted)
+		if enqueued > 0 {
+			c.Status(http.StatusAccepted)
+		} else {
+			c.Status(http.StatusOK)
+		}
 	}
 }
 
