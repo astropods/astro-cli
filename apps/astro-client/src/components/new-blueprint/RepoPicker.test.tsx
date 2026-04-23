@@ -110,6 +110,35 @@ describe("RepoPicker", () => {
     expect(screen.getByText("Branch")).toBeInTheDocument();
   });
 
+  it("subpath input appears after repo selection", () => {
+    render(<RepoPicker {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    expect(screen.getByText("Subdirectory")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("services/my-agent")).toBeInTheDocument();
+  });
+
+  it("typing a subpath includes it in onChange repoFullName", () => {
+    const onChange = vi.fn();
+    render(<RepoPicker {...baseProps()} onChange={onChange} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    onChange.mockClear();
+    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "svc/worker" } });
+    expect(onChange).toHaveBeenCalledWith({ repoFullName: "testuser/my-agent/svc/worker", branch: "main" });
+  });
+
+  it("clearing the subpath restores bare repo name in onChange", () => {
+    const onChange = vi.fn();
+    render(<RepoPicker {...baseProps()} onChange={onChange} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "svc/worker" } });
+    onChange.mockClear();
+    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "" } });
+    expect(onChange).toHaveBeenCalledWith({ repoFullName: "testuser/my-agent", branch: "main" });
+  });
+
   it("renders all server-returned repos — no client-side cap", () => {
     const manyRepos: GitHubRepo[] = Array.from({ length: 150 }, (_, i) => ({
       full_name: `testuser/repo-${i}`,
