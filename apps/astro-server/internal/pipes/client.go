@@ -91,12 +91,9 @@ type DeleteConnectionInput struct {
 }
 
 // DeleteConnection revokes the OAuth connection for a provider on behalf of a user.
-// Calls DELETE /data-integrations/:slug/connections/:user_id — not yet in the SDK.
+// Calls DELETE /user_management/users/:user_id/connected_accounts/:provider — not yet in the SDK.
 func (c *Client) DeleteConnection(ctx context.Context, in DeleteConnectionInput) error {
-	url := fmt.Sprintf("%s/data-integrations/%s/connections/%s", c.endpoint, in.Provider, in.UserID)
-	if in.OrganizationID != "" {
-		url += "?organization_id=" + in.OrganizationID
-	}
+	url := fmt.Sprintf("%s/user_management/users/%s/connected_accounts/%s", c.endpoint, in.UserID, in.Provider)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
 	if err != nil {
