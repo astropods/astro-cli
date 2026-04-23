@@ -1,7 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { RepoPicker } from "./RepoPicker";
 import type { GitHubRepo } from "@/lib/api";
+
+vi.mock("@/api/queries/github", () => ({
+  useGitHubAccountRepos: vi.fn(),
+  useGitHubAccountConnections: vi.fn(),
+  useGitHubAccountDirs: vi.fn(),
+}));
+
+import { useGitHubAccountRepos, useGitHubAccountConnections, useGitHubAccountDirs } from "@/api/queries/github";
 
 const REPOS: GitHubRepo[] = [
   { full_name: "testuser/my-agent", default_branch: "main", private: false },
@@ -11,17 +19,19 @@ const REPOS: GitHubRepo[] = [
 
 function baseProps() {
   return {
+    account: "testuser",
+    agentName: "new-agent",
     githubLogin: "testuser",
-    selectedRepo: null,
-    selectedBranch: "main",
-    isLoadingRepos: false,
-    repos: REPOS,
-    connections: undefined,
-    onSelectRepo: vi.fn(),
-    onSelectBranch: vi.fn(),
-    onSearchChange: vi.fn(),
+    enabled: true,
+    onChange: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: REPOS }, isLoading: false } as any);
+  vi.mocked(useGitHubAccountConnections).mockReturnValue({ data: { connections: [] } } as any);
+  vi.mocked(useGitHubAccountDirs).mockReturnValue({ data: { dirs: [] }, isLoading: false } as any);
+});
 
 describe("RepoPicker", () => {
   it("renders search input with placeholder", () => {
@@ -29,19 +39,21 @@ describe("RepoPicker", () => {
     expect(screen.getByPlaceholderText(/search repositories/i)).toBeInTheDocument();
   });
 
-  it("shows loading state when isLoadingRepos is true", () => {
-    render(<RepoPicker {...baseProps()} isLoadingRepos repos={[]} />);
+  it("shows loading state when repos are loading", () => {
+    vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: undefined, isLoading: true } as any);
+    render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByText(/loading repositories/i)).toBeInTheDocument();
   });
 
-  it("shows empty state when no repos", () => {
-    render(<RepoPicker {...baseProps()} repos={[]} />);
+  it("shows empty state when no repos match", () => {
+    vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: [] }, isLoading: false } as any);
+    render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "xyz" } });
     expect(screen.getByText(/no repos matching/i)).toBeInTheDocument();
   });
 
-  it("renders all passed repos when dropdown is open", () => {
+  it("renders all repos when dropdown is open", () => {
     render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByRole("button", { name: /my-agent/ })).toBeInTheDocument();
@@ -49,33 +61,36 @@ describe("RepoPicker", () => {
     expect(screen.getByRole("button", { name: /another-repo/ })).toBeInTheDocument();
   });
 
-  it("calls onSelectRepo when a repo is clicked", () => {
-    const onSelectRepo = vi.fn();
-    render(<RepoPicker {...baseProps()} onSelectRepo={onSelectRepo} />);
+  it("calls onChange when a repo is clicked", () => {
+    const onChange = vi.fn();
+    render(<RepoPicker {...baseProps()} onChange={onChange} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
-    expect(onSelectRepo).toHaveBeenCalledWith(REPOS[0]);
+    expect(onChange).toHaveBeenCalledWith({ repoFullName: "testuser/my-agent", branch: "main" });
   });
 
-  it("calls onSearchChange when user types", () => {
-    const onSearchChange = vi.fn();
-    render(<RepoPicker {...baseProps()} onSearchChange={onSearchChange} />);
-    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "agent" } });
-    // onSearchChange is debounced — called after 300ms; just verify the input reflects the value
-    expect(screen.getByPlaceholderText(/search repositories/i)).toHaveValue("agent");
+  it("shows the selected repo name after selection", () => {
+    render(<RepoPicker {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    expect(screen.getByText("testuser/my-agent")).toBeInTheDocument();
   });
 
   it("disables repos that are already linked", () => {
-    const connections = [{ agent_name: "other-agent", repo_full_name: "testuser/my-agent" }];
-    render(<RepoPicker {...baseProps()} connections={connections} />);
+    vi.mocked(useGitHubAccountConnections).mockReturnValue({
+      data: { connections: [{ agent_name: "other-agent", repo_full_name: "testuser/my-agent" }] },
+    } as any);
+    render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByRole("button", { name: /my-agent/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /another-repo/ })).not.toBeDisabled();
   });
 
   it("shows 'linked to' hint for disabled repos", () => {
-    const connections = [{ agent_name: "other-agent", repo_full_name: "testuser/my-agent" }];
-    render(<RepoPicker {...baseProps()} connections={connections} />);
+    vi.mocked(useGitHubAccountConnections).mockReturnValue({
+      data: { connections: [{ agent_name: "other-agent", repo_full_name: "testuser/my-agent" }] },
+    } as any);
+    render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     expect(screen.getByText(/linked to other-agent/i)).toBeInTheDocument();
   });
@@ -85,19 +100,16 @@ describe("RepoPicker", () => {
     expect(screen.getByText(/testuser/)).toBeInTheDocument();
   });
 
-  it("shows selected repo full name when repo is selected", () => {
-    render(<RepoPicker {...baseProps()} selectedRepo={REPOS[0]} />);
-    expect(screen.getByText("testuser/my-agent")).toBeInTheDocument();
-  });
-
-  it("branch selector is collapsed when no repo is selected", () => {
+  it("branch selector is collapsed before repo selection", () => {
     const { container } = render(<RepoPicker {...baseProps()} />);
     expect(container.querySelector(".grid-rows-\\[0fr\\]")).toBeInTheDocument();
   });
 
-  it("branch selector is expanded when a repo is selected", () => {
-    const { container } = render(<RepoPicker {...baseProps()} selectedRepo={REPOS[0]} />);
-    expect(container.querySelector(".grid-rows-\\[1fr\\]")).toBeInTheDocument();
+  it("branch selector appears after repo selection", () => {
+    render(<RepoPicker {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    expect(screen.getByText("Branch")).toBeInTheDocument();
   });
 
   it("renders all server-returned repos — no client-side cap", () => {
@@ -106,7 +118,8 @@ describe("RepoPicker", () => {
       default_branch: "main",
       private: false,
     }));
-    render(<RepoPicker {...baseProps()} repos={manyRepos} />);
+    vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: manyRepos }, isLoading: false } as any);
+    render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "repo" } });
     expect(screen.getAllByRole("button", { name: /repo-/ })).toHaveLength(150);
   });

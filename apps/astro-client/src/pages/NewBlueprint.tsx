@@ -27,7 +27,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
-import { GitHubRepoPicker, type GitHubRepoPickerValue } from "@/components/new-blueprint/GitHubRepoPicker";
+import { RepoPicker, type RepoPickerValue } from "@/components/new-blueprint/RepoPicker";
 import { LinkConfirmDialog } from "@/components/new-blueprint/LinkConfirmDialog";
 
 export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
@@ -138,7 +138,7 @@ function NewBlueprintContent() {
 
   // Source step state
   const [{ sourcePath, githubConnected, scanResult }, dispatch] = useReducer(sourceReducer, initialSourceState);
-  const [pickerValue, setPickerValue] = useState<GitHubRepoPickerValue>({ repoFullName: null, branch: "main" });
+  const [pickerValue, setPickerValue] = useState<RepoPickerValue>({ repoFullName: null, branch: "main" });
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
@@ -422,7 +422,7 @@ function NewBlueprintContent() {
                                               <CheckCircleIcon className="size-3.5 text-green-700" />
                                               {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
                                             </p>
-                                            <GitHubRepoPicker
+                                            <RepoPicker
                                               account={selectedOrg}
                                               agentName={slug}
                                               githubLogin={githubLogin}

@@ -23,7 +23,7 @@ import {
   useGitHubBuildLogs,
   useGitHubRebuild,
 } from "@/api/queries/github";
-import { GitHubRepoPicker, type GitHubRepoPickerValue } from "@/components/new-blueprint/GitHubRepoPicker";
+import { RepoPicker, type RepoPickerValue } from "@/components/new-blueprint/RepoPicker";
 import type { GitHubBuild } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -448,7 +448,7 @@ interface RepoSelectorDialogProps {
 }
 
 function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorDialogProps) {
-  const [pickerValue, setPickerValue] = useState<GitHubRepoPickerValue>({ repoFullName: null, branch: "main" });
+  const [pickerValue, setPickerValue] = useState<RepoPickerValue>({ repoFullName: null, branch: "main" });
   const link = useGitHubLink(account, name);
   const rebuild = useGitHubRebuild(account, name);
 
@@ -477,7 +477,7 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
         </DialogHeader>
 
         <div className="py-2">
-          <GitHubRepoPicker
+          <RepoPicker
             account={account}
             agentName={name}
             enabled={open}

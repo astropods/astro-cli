@@ -5,39 +5,44 @@ import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tag } from "@/components/Tag";
+import { SubpathPicker } from "./SubpathPicker";
+import { useGitHubAccountRepos, useGitHubAccountConnections } from "@/api/queries/github";
 import type { GitHubRepo } from "@/lib/api";
 
-type Connection = { agent_name: string; repo_full_name: string };
-
-type RepoPickerProps = {
-  githubLogin: string | undefined;
-  selectedRepo: GitHubRepo | null;
-  selectedBranch: string;
-  isLoadingRepos: boolean;
-  repos: GitHubRepo[];
-  connections?: Connection[];
-  onSelectRepo: (repo: GitHubRepo | null) => void;
-  onSelectBranch: (branch: string) => void;
-  onSearchChange: (q: string) => void;
+export type RepoPickerValue = {
+  repoFullName: string | null;
+  branch: string;
 };
 
-export function RepoPicker({
-  githubLogin,
-  selectedRepo,
-  selectedBranch,
-  isLoadingRepos,
-  repos,
-  connections,
-  onSelectRepo,
-  onSelectBranch,
-  onSearchChange,
-}: RepoPickerProps) {
+type Props = {
+  account: string;
+  agentName: string;
+  githubLogin?: string;
+  enabled?: boolean;
+  onChange: (value: RepoPickerValue) => void;
+};
+
+export function RepoPicker({ account, agentName, githubLogin, enabled = true, onChange }: Props) {
   const [query, setQuery] = useState("");
+  const [apiQuery, setApiQuery] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState("main");
+  const [subpath, setSubpath] = useState("");
   const [repoOpen, setRepoOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: reposData, isLoading: isLoadingRepos } = useGitHubAccountRepos(account, {
+    enabled,
+    q: apiQuery,
+    login: githubLogin,
+  });
+  const { data: connectionsData } = useGitHubAccountConnections(account, { enabled });
+
+  const repos = reposData?.repos ?? [];
+  const connections = connectionsData?.connections;
 
   const branches = [
     "main",
@@ -47,7 +52,20 @@ export function RepoPicker({
       : []),
   ];
 
-  // Close on outside click
+  const takenSubpaths = selectedRepo
+    ? (connectionsData?.connections ?? [])
+        .filter(c => {
+          const slash = c.repo_full_name.indexOf("/", c.repo_full_name.indexOf("/") + 1);
+          return slash !== -1
+            && c.repo_full_name.slice(0, slash) === selectedRepo.full_name
+            && c.agent_name !== agentName;
+        })
+        .map(c => ({
+          subpath: c.repo_full_name.slice(selectedRepo.full_name.length + 1),
+          agentName: c.agent_name,
+        }))
+    : [];
+
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -59,26 +77,38 @@ export function RepoPicker({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
+  const toRepoFullName = useCallback((repo: GitHubRepo, sub: string): string => {
+    const cleaned = sub.trim().replace(/^\/+|\/+$/g, "");
+    return cleaned ? `${repo.full_name}/${cleaned}` : repo.full_name;
+  }, []);
+
   function handleQueryChange(value: string) {
     setQuery(value);
     setRepoOpen(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onSearchChange(value), 120);
+    debounceRef.current = setTimeout(() => setApiQuery(value), 120);
   }
 
-  function handleSelectRepo(repo: GitHubRepo) {
-    onSelectRepo(repo);
+  const handleSelectRepo = useCallback((repo: GitHubRepo) => {
+    setSelectedRepo(repo);
+    const branch = repo.default_branch ?? "main";
+    setSelectedBranch(branch);
+    setSubpath("");
     setQuery("");
     setRepoOpen(false);
-  }
+    onChange({ repoFullName: repo.full_name, branch });
+  }, [onChange]);
 
-  function handleClear() {
-    onSelectRepo(null);
+  const handleClear = useCallback(() => {
+    setSelectedRepo(null);
+    setSelectedBranch("main");
+    setSubpath("");
     setQuery("");
+    setApiQuery("");
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    onSearchChange("");
+    onChange({ repoFullName: null, branch: "main" });
     setTimeout(() => inputRef.current?.focus(), 0);
-  }
+  }, [onChange]);
 
   const handleCaretClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -86,6 +116,19 @@ export function RepoPicker({
     setRepoOpen(next);
     if (next) setTimeout(() => inputRef.current?.focus(), 0);
   }, [repoOpen]);
+
+  const handleSelectBranch = useCallback((branch: string) => {
+    setSelectedBranch(branch);
+    setBranchOpen(false);
+    onChange({ repoFullName: selectedRepo ? toRepoFullName(selectedRepo, subpath) : null, branch });
+  }, [onChange, selectedRepo, subpath, toRepoFullName]);
+
+  const handleSubpathChange = useCallback((newSubpath: string) => {
+    setSubpath(newSubpath);
+    if (selectedRepo) {
+      onChange({ repoFullName: toRepoFullName(selectedRepo, newSubpath), branch: selectedBranch });
+    }
+  }, [onChange, selectedRepo, selectedBranch, toRepoFullName]);
 
   return (
     <div ref={containerRef} className="px-4 py-3 space-y-3">
@@ -133,7 +176,7 @@ export function RepoPicker({
               {query ? (
                 <button
                   type="button"
-                  onClick={() => { setQuery(""); onSearchChange(""); inputRef.current?.focus(); }}
+                  onClick={() => { setQuery(""); setApiQuery(""); inputRef.current?.focus(); }}
                   className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Clear search"
                 >
@@ -156,7 +199,7 @@ export function RepoPicker({
           )}
         </div>
 
-        {/* Repo dropdown — inline so the card grows naturally */}
+        {/* Repo dropdown */}
         <div className={cn(
           "grid transition-[grid-template-rows] duration-150 ease-out",
           repoOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
@@ -201,7 +244,7 @@ export function RepoPicker({
         </div>
       </div>
 
-      {/* Branch selector — slides in when a repo is selected, expands inline */}
+      {/* Branch selector — slides in when a repo is selected */}
       <div className={cn(
         "grid transition-[grid-template-rows] duration-150 ease-out",
         selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
@@ -212,7 +255,6 @@ export function RepoPicker({
               <GitBranch className="size-3.5" />
               Branch
             </Label>
-
             <div>
               <button
                 type="button"
@@ -225,8 +267,6 @@ export function RepoPicker({
                   branchOpen && "rotate-180",
                 )} />
               </button>
-
-              {/* Branch list — inline so it pushes the card down */}
               <div className={cn(
                 "grid transition-[grid-template-rows] duration-150 ease-out",
                 branchOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
@@ -237,7 +277,7 @@ export function RepoPicker({
                       <button
                         key={branch}
                         type="button"
-                        onClick={() => { onSelectBranch(branch); setBranchOpen(false); }}
+                        onClick={() => handleSelectBranch(branch)}
                         className={cn(
                           "w-full flex items-center justify-between px-3 py-2.5 text-sm text-left transition-colors",
                           selectedBranch === branch ? "bg-primary/5" : "hover:bg-muted/60",
@@ -251,8 +291,25 @@ export function RepoPicker({
                 </div>
               </div>
             </div>
-
           </div>
+        </div>
+      </div>
+
+      {/* Subpath picker — slides in when a repo is selected */}
+      <div className={cn(
+        "grid transition-[grid-template-rows] duration-150 ease-out",
+        selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}>
+        <div className="overflow-hidden">
+          <SubpathPicker
+            account={account}
+            repo={selectedRepo?.full_name ?? ""}
+            branch={selectedBranch}
+            value={subpath}
+            onChange={handleSubpathChange}
+            enabled={enabled && !!selectedRepo}
+            takenSubpaths={takenSubpaths}
+          />
         </div>
       </div>
 
