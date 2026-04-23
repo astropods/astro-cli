@@ -7,8 +7,8 @@ const CARD_H = 28;
 const CARD_W = 120;
 const GAP_X = 60;
 const AGENT_GAP_Y = 8;
-const PAD_X = 8;
-const PAD_Y = 12;
+const PAD_X = 4;
+const PAD_Y = 4;
 
 interface Props {
   storeName: string;
@@ -38,7 +38,7 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
   const cardBg = "var(--color-white, #fff)";
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto max-h-[280px]" role="img" aria-label="Knowledge store bindings graph">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" role="img" aria-label="Knowledge store bindings graph">
       <defs>
         <marker id="bind-arrow" markerWidth="4" markerHeight="3" refX="4" refY="1.5" orient="auto">
           <polygon points="0 0, 4 1.5, 0 3" fill={borderColor} />
