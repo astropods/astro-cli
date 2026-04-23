@@ -80,4 +80,15 @@ describe("LinkConfirmDialog", () => {
     const btn = screen.queryByRole("button", { name: /create blueprint/i });
     expect(btn == null || !btn.checkVisibility()).toBe(true);
   });
+
+  it("shows subdirectory row when subpath is provided", () => {
+    render(<LinkConfirmDialog {...baseProps()} subpath="services/my-agent" />);
+    expect(screen.getByText("Subdirectory")).toBeInTheDocument();
+    expect(screen.getByText("services/my-agent")).toBeInTheDocument();
+  });
+
+  it("hides subdirectory row when subpath is not provided", () => {
+    render(<LinkConfirmDialog {...baseProps()} />);
+    expect(screen.queryByText("Subdirectory")).not.toBeInTheDocument();
+  });
 });
