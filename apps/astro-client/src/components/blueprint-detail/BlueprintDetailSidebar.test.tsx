@@ -64,7 +64,7 @@ describe("BlueprintDetailSidebar", () => {
       />,
     );
 
-    expect(screen.getByText("More agents")).toBeInTheDocument();
+    expect(screen.getByText("More blueprints")).toBeInTheDocument();
     expect(screen.getByText("alert-router")).toBeInTheDocument();
     expect(screen.getByText(/steve_jobs/)).toBeInTheDocument();
   });
@@ -77,6 +77,6 @@ describe("BlueprintDetailSidebar", () => {
       />,
     );
 
-    expect(screen.queryByText("More agents")).not.toBeInTheDocument();
+    expect(screen.queryByText("More blueprints")).not.toBeInTheDocument();
   });
 });
