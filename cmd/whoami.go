@@ -73,10 +73,8 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  Name:    %s %s\n", profile.User.FirstName, profile.User.LastName)
 		}
 		fmt.Printf("  Email:   %s\n", profile.User.Email)
-		if profile.User.AccountName != "" {
-			fmt.Printf("  Account: %s\n", profile.User.AccountName)
-		} else if len(profile.Accounts) > 0 {
-			fmt.Printf("  Account: %s\n", profile.Accounts[0].Name)
+		if account, err := storage.GetCurrentAccount(); err == nil {
+			fmt.Printf("  Account: %s\n", account)
 		} else {
 			yellow := color.New(color.FgYellow)
 			yellow.Println("  Account: (none — visit the dashboard to choose your username)") //nolint:errcheck,gosec

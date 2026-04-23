@@ -19,6 +19,7 @@ var (
 	version         = "dev"
 	commit          = ""
 	binaryName      = buildinfo.BinaryName
+	isDevBuild      = binaryName == buildinfo.DevBinaryName
 	downloadBaseURL = "" // e.g. https://download.astropods.ai
 )
 

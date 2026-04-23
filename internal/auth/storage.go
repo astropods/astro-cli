@@ -32,11 +32,13 @@ type Credentials struct {
 
 // Profile represents a single authentication profile
 type Profile struct {
-	AccessToken  string          `json:"access_token,omitempty"`  //nolint:gosec
-	RefreshToken string          `json:"refresh_token,omitempty"` //nolint:gosec
-	ExpiresAt    time.Time       `json:"expires_at,omitempty"`
-	User         *StoredUser     `json:"user,omitempty"`
-	Accounts     []StoredAccount `json:"accounts,omitempty"`
+	AccessToken     string          `json:"access_token,omitempty"`  //nolint:gosec
+	RefreshToken    string          `json:"refresh_token,omitempty"` //nolint:gosec
+	ExpiresAt       time.Time       `json:"expires_at,omitempty"`
+	User            *StoredUser     `json:"user,omitempty"`
+	Accounts        []StoredAccount `json:"accounts,omitempty"`
+	CurrentAccount  string          `json:"current_account,omitempty"`
+	PreviousAccount string          `json:"previous_account,omitempty"`
 }
 
 // StoredUser represents user info stored with credentials
@@ -303,4 +305,84 @@ func (s *Storage) HasValidCredentials() bool {
 	}
 
 	return profile.AccessToken != "" && time.Now().Before(profile.ExpiresAt)
+}
+
+// SetCurrentAccount records the active account in the current profile. name must
+// match an account name already stored in the profile. The previous account is
+// saved so that SwitchToPreviousAccount can restore it.
+func (s *Storage) SetCurrentAccount(name string) error {
+	creds, err := s.LoadCredentials()
+	if err != nil {
+		return err
+	}
+
+	profile, ok := creds.Profiles[creds.CurrentProfile]
+	if !ok {
+		return errors.New("no current profile found")
+	}
+
+	found := false
+	for _, a := range profile.Accounts {
+		if a.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %q not found; run 'ast account list' to see available accounts", name)
+	}
+
+	// Resolve the effective current account before overwriting it. If CurrentAccount
+	// is unset, the implicit current is the personal account — capture that so
+	// SwitchToPreviousAccount can return to it after the first explicit switch.
+	prev := profile.CurrentAccount
+	if prev == "" && profile.User != nil {
+		prev = profile.User.AccountName
+	}
+
+	profile.PreviousAccount = prev
+	profile.CurrentAccount = name
+	return s.SaveCredentials(creds)
+}
+
+// SwitchToPreviousAccount switches back to the account that was active before the
+// last account switch. Returns an error if there is no previous account recorded.
+func (s *Storage) SwitchToPreviousAccount() (string, error) {
+	creds, err := s.LoadCredentials()
+	if err != nil {
+		return "", err
+	}
+
+	profile, ok := creds.Profiles[creds.CurrentProfile]
+	if !ok {
+		return "", errors.New("no current profile found")
+	}
+
+	if profile.PreviousAccount == "" {
+		return "", errors.New("no previous account to switch to")
+	}
+
+	prev := profile.PreviousAccount
+	profile.PreviousAccount = profile.CurrentAccount
+	profile.CurrentAccount = prev
+	return prev, s.SaveCredentials(creds)
+}
+
+// GetCurrentAccount returns the active org name. If none is explicitly set, it
+// falls back to the personal account name.
+func (s *Storage) GetCurrentAccount() (string, error) {
+	profile, err := s.GetCurrentProfile()
+	if err != nil {
+		return "", err
+	}
+
+	if profile.CurrentAccount != "" {
+		return profile.CurrentAccount, nil
+	}
+
+	if profile.User != nil && profile.User.AccountName != "" {
+		return profile.User.AccountName, nil
+	}
+
+	return "", errors.New("no account set; run 'ast login' to authenticate")
 }
