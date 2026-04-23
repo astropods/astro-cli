@@ -7,7 +7,8 @@ import { ChatBubbleLeftRightIcon, Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
-import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate, formatDateLong } from "@/lib/deployment-utils";
+import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { formatDateLong } from "@/lib/format-utils";
 import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
 import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";

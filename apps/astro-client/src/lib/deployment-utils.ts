@@ -80,22 +80,6 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-/** Formats a date as "April 22nd, 2026 at 14:30:45" in the given timezone (defaults to browser local). */
-export function formatDateLong(dateStr: string, timezone?: string): string {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const fmt = (opts: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat('en-US', { timeZone: tz, ...opts }).format(date);
-  const dayNum = parseInt(fmt({ day: 'numeric' }), 10);
-  const v = dayNum % 100;
-  const suffixes = ['th', 'st', 'nd', 'rd'];
-  const suffix = suffixes[(v - 20) % 10] ?? suffixes[v] ?? 'th';
-  const month = fmt({ month: 'long' });
-  const year = fmt({ year: 'numeric' });
-  const time = fmt({ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  return `${month} ${dayNum}${suffix}, ${year} at ${time}`;
-}
 
 export function formatDaysActive(isoString: string): string {
   const days = Math.floor((Date.now() - new Date(isoString).getTime()) / (1000 * 60 * 60 * 24));
