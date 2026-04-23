@@ -48,8 +48,12 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
             {store.bound_agents && store.bound_agents.length > 0 ? (
               <div className="divide-y divide-border">
                 {store.bound_agents.map((agent) => (
-                  <div key={agent} className="flex items-center gap-2 py-2.5">
-                    <span className="font-mono text-mono-sm text-foreground">{agent}</span>
+                  <div key={agent.deployment_id} className="flex items-center justify-between py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="text-body-sm text-foreground font-medium">{agent.display_name || agent.agent_name}</span>
+                    </div>
+                    <span className="font-mono text-mono-sm text-muted-foreground">as {agent.knowledge_name}</span>
                   </div>
                 ))}
               </div>

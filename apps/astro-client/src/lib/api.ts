@@ -1536,7 +1536,14 @@ export interface KnowledgeStore {
   created_at: string;
   updated_at: string;
   events?: KnowledgeEvent[];
-  bound_agents?: string[];
+  bound_agents?: BoundAgent[];
+}
+
+export interface BoundAgent {
+  deployment_id: string;
+  agent_name: string;
+  display_name?: string;
+  knowledge_name: string;
 }
 
 export type KnowledgeStoreListResponse = KnowledgeStore[];

@@ -117,21 +117,22 @@ type KnowledgeEndpointResponse struct {
 
 // KnowledgeResponse is the API representation of a knowledge store.
 type KnowledgeResponse struct {
-	ID           string                     `json:"id"`
-	ARN          string                     `json:"arn"`
-	Name         string                     `json:"name"`
-	Provider     string                     `json:"provider"`
-	Mode         string                     `json:"mode"`
-	Status       string                     `json:"status"`
-	Storage      string                     `json:"storage"`
-	StorageClass *string                    `json:"storage_class,omitempty"`
-	Public       bool                       `json:"public"`
-	PublicHost   *string                    `json:"public_host,omitempty"`
-	Endpoint     *KnowledgeEndpointResponse `json:"endpoint,omitempty"`
-	Error        *string                    `json:"error,omitempty"`
-	CreatedAt    time.Time                  `json:"created_at"`
-	UpdatedAt    time.Time                  `json:"updated_at"`
-	Events       []KnowledgeEvent           `json:"events,omitempty"`
+	ID           string                      `json:"id"`
+	ARN          string                      `json:"arn"`
+	Name         string                      `json:"name"`
+	Provider     string                      `json:"provider"`
+	Mode         string                      `json:"mode"`
+	Status       string                      `json:"status"`
+	Storage      string                      `json:"storage"`
+	StorageClass *string                     `json:"storage_class,omitempty"`
+	Public       bool                        `json:"public"`
+	PublicHost   *string                     `json:"public_host,omitempty"`
+	Endpoint     *KnowledgeEndpointResponse  `json:"endpoint,omitempty"`
+	Error        *string                     `json:"error,omitempty"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	UpdatedAt    time.Time                   `json:"updated_at"`
+	Events       []KnowledgeEvent            `json:"events,omitempty"`
+	BoundAgents  []knowledgestore.BoundAgent `json:"bound_agents,omitempty"`
 }
 
 // KnowledgeCredentialsResponse holds decrypted credentials for a knowledge store.
@@ -547,6 +548,11 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 		}
 
 		resp := toKnowledgeResponse(ks)
+
+		// Include bound agents.
+		if agents, bindErr := ksStore.GetBoundAgents(c.Request.Context(), ks.ID); bindErr == nil && len(agents) > 0 {
+			resp.BoundAgents = agents
+		}
 
 		// Include PrivateLink endpoint info if present.
 		if ep, epErr := ksStore.GetEndpoint(ks.ID); epErr == nil && ep != nil {

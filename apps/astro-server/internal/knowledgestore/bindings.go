@@ -77,6 +77,41 @@ func (s *Store) GetBindingsForStore(ctx context.Context, storeID string) ([]Bind
 	return refs, rows.Err()
 }
 
+// BoundAgent describes an active deployment bound to a knowledge store.
+type BoundAgent struct {
+	DeploymentID  string `json:"deployment_id"`
+	AgentName     string `json:"agent_name"`
+	DisplayName   string `json:"display_name,omitempty"`
+	KnowledgeName string `json:"knowledge_name"`
+}
+
+// GetBoundAgents returns active deployments bound to a knowledge store,
+// joined with the deployments table for agent/display names.
+func (s *Store) GetBoundAgents(ctx context.Context, storeID string) ([]BoundAgent, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT b.deployment_id, d.agent_name, d.display_name, b.knowledge_name
+		 FROM knowledge_store_bindings b
+		 JOIN deployments d ON d.id = b.deployment_id
+		 WHERE b.knowledge_store_id = $1 AND d.status = 'active'
+		 ORDER BY d.agent_name, b.knowledge_name`,
+		storeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var agents []BoundAgent
+	for rows.Next() {
+		var a BoundAgent
+		if err := rows.Scan(&a.DeploymentID, &a.AgentName, &a.DisplayName, &a.KnowledgeName); err != nil {
+			return nil, err
+		}
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
 // DeleteBindingsForDeployment removes all bindings for a deployment.
 func (s *Store) DeleteBindingsForDeployment(ctx context.Context, deploymentID string) error {
 	_, err := s.db.ExecContext(ctx,
