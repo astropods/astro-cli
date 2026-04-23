@@ -64,6 +64,7 @@ export function useGitHubLink(account: string, name: string) {
       queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, name) });
       queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+      queryClient.invalidateQueries({ queryKey: githubKeys.accountStatus(account) });
     },
   });
 }
@@ -92,8 +93,12 @@ export function useGitHubAccountDisconnect(account: string) {
   return useMutation({
     mutationFn: () => api.gitHubAccountDisconnect(account),
     onSuccess: () => {
-      // Invalidate all github queries for this account — blueprint panels pick this up too.
+      // Invalidate agent-level github queries so BP panels reflect the disconnect.
       queryClient.invalidateQueries({ queryKey: ['github', account] });
+      // Cancel any refetch of accountStatus triggered above — it races with server propagation
+      // and can flip the toggle back on. The caller sets accountStatus directly.
+      queryClient.cancelQueries({ queryKey: githubKeys.accountStatus(account) });
+      queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
     },
   });
 }

@@ -148,10 +148,14 @@ function GitHubSection() {
   };
 
   const handleDisconnect = () => {
+    const previous = queryClient.getQueryData(githubKeys.accountStatus(account));
+    // Optimistically flip to disconnected immediately
+    queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
+    setConfirmOpen(false);
     disconnect.mutate(undefined, {
-      onSuccess: () => {
-        queryClient.setQueryData(githubKeys.accountStatus(account), { connected: false });
-        setConfirmOpen(false);
+      onError: () => {
+        // Rollback if the server call fails
+        queryClient.setQueryData(githubKeys.accountStatus(account), previous);
       },
     });
   };
