@@ -16,8 +16,9 @@ export function meta() {
 export default function Blueprints() {
   const { activeAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
+  const isReady = isAuthenticated && !!activeAccount;
   const { data, isLoading, isError, error, refetch } = useAccountBlueprints(activeAccount, {
-    enabled: isAuthenticated && !!activeAccount,
+    enabled: isReady,
   });
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
@@ -40,7 +41,7 @@ export default function Blueprints() {
       />
       <BlueprintListView
         blueprints={data?.agents ?? []}
-        isLoading={isLoading}
+        isLoading={!isReady || isLoading}
         isError={isError}
         error={error}
         refetch={refetch}
