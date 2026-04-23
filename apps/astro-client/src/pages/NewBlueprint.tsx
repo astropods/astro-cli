@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "r
 import { useAuth } from "../lib/auth";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
+import { repoBase, repoSubPath } from "@/lib/github-utils";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -500,9 +501,9 @@ function NewBlueprintContent() {
                         slug={slug}
                         name={name}
                         selectedOrg={selectedOrg}
-                        repoBase={pickerValue.repoFullName ? pickerValue.repoFullName.split("/").slice(0, 2).join("/") : null}
+                        repoBase={pickerValue.repoFullName ? repoBase(pickerValue.repoFullName) : null}
                         selectedBranch={pickerValue.branch}
-                        subpath={pickerValue.repoFullName ? pickerValue.repoFullName.split("/").slice(2).join("/") || undefined : undefined}
+                        subpath={(pickerValue.repoFullName && repoSubPath(pickerValue.repoFullName)) || undefined}
                         visibility={visibility}
                         isCreatingBlueprint={isCreatingBlueprint}
                         onConfirm={handleConfirmAndPublish}
