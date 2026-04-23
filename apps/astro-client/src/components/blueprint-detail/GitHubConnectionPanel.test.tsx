@@ -82,3 +82,91 @@ describe('GitHubConnectionPanel – RepoSelectorDialog', () => {
     expect(perAgentCalled).toBe(false);
   });
 });
+
+describe('GitHubConnectionPanel – connected account, no repo linked', () => {
+  function useMocksAccountConnectedNoRepo() {
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => HttpResponse.json(notConnected)),
+      http.get('/api/v1/accounts/testuser/github', () =>
+        HttpResponse.json({ connected: true, github_login: 'gh-user' })
+      ),
+      http.get('/api/v1/accounts/testuser/github/repos', () =>
+        HttpResponse.json({ repos: REPOS, has_more: false })
+      ),
+    );
+  }
+
+  function renderNoParam() {
+    return renderWithProviders(
+      <GitHubConnectionPanel account="testuser" name="my-agent" />,
+      { initialEntries: ['/'] },
+    );
+  }
+
+  it('renders without crashing', async () => {
+    useMocksAccountConnectedNoRepo();
+    renderNoParam();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect github repo/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows the "Connect GitHub repo" button when no repo is linked', async () => {
+    useMocksAccountConnectedNoRepo();
+    renderNoParam();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect github repo/i })).toBeInTheDocument();
+    });
+  });
+
+  it('does NOT show repo picker dialog when github_connected param is absent', async () => {
+    useMocksAccountConnectedNoRepo();
+    renderNoParam();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect github repo/i })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Connect GitHub repository')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search repositories/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('GitHubConnectionPanel – direct connect (no OAuth)', () => {
+  function useMocksDirectConnect() {
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => HttpResponse.json(notConnected)),
+      http.get('/api/v1/accounts/testuser/github', () =>
+        HttpResponse.json({ connected: false })
+      ),
+      http.post('/api/v1/accounts/testuser/github/connect', () =>
+        HttpResponse.json({ connected: true, github_login: 'gh-user' })
+      ),
+      http.get('/api/v1/accounts/testuser/github/repos', () =>
+        HttpResponse.json({ repos: REPOS, has_more: false })
+      ),
+    );
+  }
+
+  function renderNoParam() {
+    return renderWithProviders(
+      <GitHubConnectionPanel account="testuser" name="my-agent" />,
+      { initialEntries: ['/'] },
+    );
+  }
+
+  it('clicking "Connect GitHub repo" calls connect and opens the repo picker dialog', async () => {
+    useMocksDirectConnect();
+    renderNoParam();
+
+    const connectBtn = await screen.findByRole('button', { name: /connect github repo/i });
+    fireEvent.click(connectBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Connect GitHub repository')).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText(/search repositories/i)).toBeInTheDocument();
+  });
+});
