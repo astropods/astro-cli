@@ -263,7 +263,7 @@ describe('useGitHubAccountDisconnect', () => {
     expect(called).toBe(true);
   });
 
-  it('sets accountStatus cache to { connected: false } on success', async () => {
+  it('does not overwrite accountStatus cache on success (component owns optimistic update)', async () => {
     server.use(
       http.delete('/api/v1/accounts/:account/github', () =>
         new HttpResponse(null, { status: 204 }),
@@ -272,7 +272,7 @@ describe('useGitHubAccountDisconnect', () => {
 
     const { wrapper, queryClient } = createHookWrapper();
 
-    // Pre-populate so there is something to overwrite.
+    // Pre-populate so there is something to verify against.
     queryClient.setQueryData(githubKeys.accountStatus('testuser'), { connected: true, github_login: 'gh-user' });
 
     const { result } = renderHook(() => useGitHubAccountDisconnect('testuser'), { wrapper });
@@ -281,7 +281,10 @@ describe('useGitHubAccountDisconnect', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(queryClient.getQueryData(githubKeys.accountStatus('testuser'))).toEqual({ connected: false });
+    // The hook no longer writes { connected: false } — the component sets this
+    // optimistically before calling mutate(). cancelQueries prevents a stale
+    // server response from flipping the toggle back on.
+    expect(queryClient.getQueryData(githubKeys.accountStatus('testuser'))).not.toEqual({ connected: false });
   });
 
   it('marks [\'github\', account] query as invalidated on success', async () => {

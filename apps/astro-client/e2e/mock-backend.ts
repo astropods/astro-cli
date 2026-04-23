@@ -464,7 +464,7 @@ let createdBlueprints = new Set<string>();
 
 // GitHub state
 let githubAccountConnected = false;
-let githubConnections: Array<{ agent_name: string; repo_full_name: string }> = [];
+let githubConnections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> = [];
 const githubRepos = [
   { full_name: "testuser/my-repo", default_branch: "main", private: false, permissions: { admin: true } },
   { full_name: "testuser/another-repo", default_branch: "main", private: true, permissions: { admin: true } },
@@ -1237,14 +1237,14 @@ Bun.serve({
       return json({ found: false });
     }
 
-    // GitHub agent-level link/unlink
-    const githubAgentLinkMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/([^/]+)\/link$/);
+    // GitHub agent-level link/unlink: POST|DELETE /api/v1/agents/:account/:name/github/link
+    const githubAgentLinkMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/github\/link$/);
     if (githubAgentLinkMatch) {
       const agentName = githubAgentLinkMatch[2]!;
       if (request.method === "POST") {
         const body = (await request.json()) as { repo_full_name: string; branch?: string };
         githubConnections = githubConnections.filter((c) => c.agent_name !== agentName);
-        githubConnections.push({ agent_name: agentName, repo_full_name: body.repo_full_name });
+        githubConnections.push({ agent_name: agentName, repo_full_name: body.repo_full_name, created_at: nowIso });
         return json({ ok: true });
       }
       if (request.method === "DELETE") {
@@ -1253,13 +1253,19 @@ Bun.serve({
       }
     }
 
-    // GitHub agent status
-    const githubStatusMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/([^/]+)\/status$/);
-    if (githubStatusMatch && request.method === "GET") {
+    // GitHub agent status/disconnect: GET|DELETE /api/v1/agents/:account/:name/github
+    const githubStatusMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/github$/);
+    if (githubStatusMatch) {
       const agentName = githubStatusMatch[2]!;
-      const conn = githubConnections.find((c) => c.agent_name === agentName);
-      if (!conn) return json({ connected: false, repo_full_name: null, branch: null, builds: [] });
-      return json({ connected: true, repo_full_name: conn.repo_full_name, branch: "main", builds: [] });
+      if (request.method === "GET") {
+        const conn = githubConnections.find((c) => c.agent_name === agentName);
+        if (!conn) return json({ connected: false, repo_full_name: null, branch: null, builds: [] });
+        return json({ connected: true, repo_full_name: conn.repo_full_name, branch: "main", builds: [] });
+      }
+      if (request.method === "DELETE") {
+        githubConnections = githubConnections.filter((c) => c.agent_name !== agentName);
+        return json({ ok: true });
+      }
     }
 
     return json({ error: "not_found", path: pathname }, 404);

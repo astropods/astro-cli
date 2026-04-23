@@ -73,7 +73,7 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ redirect_to: "/settings/account" }),
   });
-  await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/${AGENT}/link`, {
+  await fetch(`${MOCK_BACKEND}/api/v1/agents/${ACCOUNT}/${AGENT}/github/link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ repo_full_name: "testuser/my-repo", branch: "main" }),
@@ -85,7 +85,7 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
   expect(before.connections.some((c) => c.agent_name === AGENT)).toBe(true);
 
   // Remove the BP-level link — equivalent to what the UI calls when disconnecting a repo.
-  await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/${AGENT}/link`, { method: "DELETE" });
+  await fetch(`${MOCK_BACKEND}/api/v1/agents/${ACCOUNT}/${AGENT}/github/link`, { method: "DELETE" });
 
   const after = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`)
     .then((r) => r.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
@@ -113,7 +113,7 @@ test("global GitHub disconnect from settings severs all BP connections", async (
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ redirect_to: "/settings/account" }),
   });
-  await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/${AGENT}/link`, {
+  await fetch(`${MOCK_BACKEND}/api/v1/agents/${ACCOUNT}/${AGENT}/github/link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ repo_full_name: "testuser/my-repo", branch: "main" }),
@@ -127,6 +127,9 @@ test("global GitHub disconnect from settings severs all BP connections", async (
   // Toggle the switch to trigger the confirmation dialog, then confirm disconnect.
   await page.getByRole("switch").click();
   await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });
+  // Check the acknowledgement checkbox and type the confirmation phrase to enable the button.
+  await page.getByRole("checkbox").click();
+  await page.getByPlaceholder(`disconnect ${ACCOUNT}`).fill(`disconnect ${ACCOUNT}`);
   await page.getByRole("button", { name: /^disconnect$/i }).click();
 
   // The toggle should immediately flip off (optimistic update).
