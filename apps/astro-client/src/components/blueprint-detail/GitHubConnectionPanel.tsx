@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -18,11 +19,13 @@ import {
   useGitHubStatus,
   useGitHubAccountRepos,
   useGitHubAccountConnect,
+  useGitHubAccountStatus,
   useGitHubLink,
   useGitHubDisconnect,
   useGitHubBuildLogs,
   useGitHubRebuild,
 } from "@/api/queries/github";
+import { githubKeys } from "@/api/queries/keys";
 import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
 import type { GitHubBuild, GitHubRepo } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,7 +41,9 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   const [searchParams, setSearchParams] = useSearchParams();
   const githubConnected = searchParams.get("github_connected") === "true";
 
+  const queryClient = useQueryClient();
   const { data: status, isLoading: statusLoading } = useGitHubStatus(account, name);
+  const { data: accountStatus } = useGitHubAccountStatus(account, { enabled: !!account });
   const connect = useGitHubAccountConnect(account);
   const disconnect = useGitHubDisconnect(account, name);
   const rebuild = useGitHubRebuild(account, name);
@@ -57,6 +62,12 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
     connect.mutate(`/${account}/${name}?github_connected=true`, {
       onSuccess: (data) => {
         if (data.connected) {
+          // Seed account status cache immediately so the header shows the login
+          // without waiting for the accountStatus query to refetch.
+          queryClient.setQueryData(githubKeys.accountStatus(account), {
+            connected: true,
+            github_login: data.github_login,
+          });
           setRepoDialogOpen(true);
         } else if (data.redirect_url) {
           window.location.href = data.redirect_url;
@@ -81,7 +92,11 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
     );
   }
 
-  const githubLogin = (status?.connected ? status.repo_full_name : effectiveRepo)?.split("/")[0];
+  // Show login in header when: repo connected (owner from full_name), pre-connected
+  // repo exists, OR OAuth'd globally but no repo linked yet (account-level login).
+  const githubLogin = status?.connected
+    ? status.repo_full_name?.split("/")[0]
+    : effectiveRepo?.split("/")[0] ?? accountStatus?.github_login;
 
   return (
     <>
