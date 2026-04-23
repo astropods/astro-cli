@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { FolderOpen, Search, X, Loader2 } from "lucide-react";
+import { FolderOpen, Search, X, Loader2, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
@@ -58,7 +58,7 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
           onChange={e => { onChange(e.target.value); setDirOpen(true); }}
           onFocus={() => setDirOpen(true)}
         />
-        {value && (
+        {value ? (
           <Button
             type="button"
             variant="ghost"
@@ -68,12 +68,21 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
           >
             <X className="size-3.5" />
           </Button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setDirOpen(prev => !prev)}
+            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={dirOpen ? "Close directory list" : "Browse directories"}
+          >
+            <ChevronDown className={cn("size-3.5 transition-transform duration-200", dirOpen && "rotate-180")} />
+          </button>
         )}
       </div>
 
       <div className={cn(
         "grid transition-[grid-template-rows] duration-150 ease-out",
-        dirOpen && filteredDirs.length > 0 ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        dirOpen && (isLoading || filteredDirs.length > 0) ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
       )}>
         <div className="overflow-hidden">
           <div className="mt-0.5 max-h-40 overflow-y-auto rounded-sm border border-border bg-background">
@@ -98,7 +107,6 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
                       taken && "opacity-50 cursor-not-allowed",
                     )}
                   >
-                    <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
                     <span className="flex-1 text-left truncate">{dir}</span>
                     {taken && <span className="text-[10px] text-muted-foreground font-normal shrink-0">linked to {taken.agentName}</span>}
                   </Button>
