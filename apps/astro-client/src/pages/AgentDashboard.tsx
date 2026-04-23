@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
-import { createServerApi } from "@/lib/api.server";
+import { getPersonalAccount } from "@/lib/api.server";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
@@ -16,16 +16,9 @@ import type { AgentDeployment, AvatarColors } from "@/lib/api";
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const api = createServerApi(request);
-  try {
-    const auth = await api.getCurrentUser();
-    const account = auth.accounts?.find((a) => a.type === "personal");
-    if (!account) return { count: 0 };
-    const { count } = await api.countDeployments(account.name);
-    return { count };
-  } catch {
-    return { count: 0 };
-  }
+  const ctx = await getPersonalAccount(request);
+  if (!ctx) return { count: 0 };
+  return ctx.api.countDeployments(ctx.accountName).catch(() => ({ count: 0 }));
 }
 
 

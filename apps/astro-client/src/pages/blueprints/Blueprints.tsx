@@ -8,22 +8,15 @@ import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { createServerApi } from "@/lib/api.server";
+import { getPersonalAccount } from "@/lib/api.server";
 import type { Route } from "./+types/Blueprints";
 
 export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const api = createServerApi(request);
-  try {
-    const auth = await api.getCurrentUser();
-    const account = auth.accounts?.find((a) => a.type === "personal");
-    if (!account) return { count: 0 };
-    const { count } = await api.listAccountBlueprints(account.name);
-    return { count };
-  } catch {
-    return { count: 0 };
-  }
+  const ctx = await getPersonalAccount(request);
+  if (!ctx) return { count: 0 };
+  return ctx.api.listAccountBlueprints(ctx.accountName).catch(() => ({ count: 0 }));
 }
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
