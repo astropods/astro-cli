@@ -100,5 +100,4 @@ export const STORAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "20Gi", label: "20 GB" },
   { value: "50Gi", label: "50 GB" },
   { value: "100Gi", label: "100 GB" },
-  { value: "1Ti", label: "1 TB" },
 ];
