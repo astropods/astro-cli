@@ -277,7 +277,8 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 		if req.Branch == "" {
-			req.Branch = "main"
+			c.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
+			return
 		}
 
 		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{

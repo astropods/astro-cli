@@ -28,7 +28,6 @@ function baseProps() {
 beforeEach(() => {
   vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: REPOS }, isLoading: false } as any);
   vi.mocked(useGitHubAccountConnections).mockReturnValue({ data: { connections: [] } } as any);
-
 });
 
 describe("RepoPicker", () => {

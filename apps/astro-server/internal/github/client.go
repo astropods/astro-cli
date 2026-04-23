@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -177,8 +178,11 @@ func (c *Client) CreateWebhook(ctx context.Context, in CreateWebhookInput) (int6
 // path metadata is fetched, not the full tree. Returns false (no error) for a
 // 404 response.
 func (c *Client) PathExists(ctx context.Context, repoFullName, ref, path string) (bool, error) {
-	apiPath := fmt.Sprintf("/repos/%s/contents/%s?ref=%s", repoFullName, url.PathEscape(path), url.QueryEscape(ref))
-	req, err := c.newRequest(ctx, http.MethodGet, apiPath, nil)
+	u := &url.URL{
+		Path:     fmt.Sprintf("/repos/%s/contents/%s", repoFullName, path),
+		RawQuery: url.Values{"ref": {ref}}.Encode(),
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return false, err
 	}
@@ -186,7 +190,10 @@ func (c *Client) PathExists(ctx context.Context, repoFullName, ref, path string)
 	if err != nil {
 		return false, fmt.Errorf("github: check path: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == http.StatusNotFound {
 		return false, nil
 	}

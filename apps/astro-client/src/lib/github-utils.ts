@@ -26,6 +26,8 @@ export function repoLabel(repoFullName: string): string {
 }
 
 // repoHref returns a GitHub URL for the repo, pointing to the subpath directory when present.
+// A branch must be provided to navigate to the subpath tree; without it the link falls back
+// to the repo root regardless of whether a subpath is configured.
 export function repoHref(repoFullName: string, branch?: string): string {
   const base = repoBase(repoFullName);
   const sub = repoSubPath(repoFullName);
