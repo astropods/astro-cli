@@ -18,8 +18,8 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
   const cpuValue = metrics?.cpu_cores != null ? formatCPU(metrics.cpu_cores) : "—";
   const memValue = metrics?.memory_bytes != null ? formatBytes(metrics.memory_bytes) : "—";
-  const storageUsed = metrics?.storage_used != null ? formatBytes(metrics.storage_used) : (store.storage ?? "—");
-  const storageSuffix = metrics?.storage_total != null ? `/ ${formatBytes(metrics.storage_total)}` : undefined;
+  const storageUsed = metrics?.storage_used != null ? formatBytes(metrics.storage_used) : "—";
+  const storageSuffix = metrics?.storage_total != null ? `/ ${formatBytes(metrics.storage_total)}` : (store.storage ? `/ ${store.storage}` : undefined);
   const uptimeValue = metrics?.uptime_seconds != null ? formatUptime(metrics.uptime_seconds) : "—";
 
   return (
