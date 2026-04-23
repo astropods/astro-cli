@@ -885,6 +885,41 @@ describe('DeployBlueprint page', () => {
     });
   });
 
+  // ── Server-Side Validation Failure ─────────────────────────────────
+
+  describe('server-side validation failure', () => {
+    it('shows error and does not navigate when finalize returns validation.valid=false', async () => {
+      // Override the template endpoint to return an invalid validation on finalize.
+      server.use(
+        http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+          const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          const resp = wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }> });
+          // Force validation failure regardless of inputs.
+          resp.validation = {
+            valid: false,
+            errors: [{ field: 'variables.SOME_CRED', message: 'required variable is empty' }],
+          };
+          return HttpResponse.json(resp);
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstallWithAgentsRoute();
+      await waitForForm();
+
+      // Fill credentials so client-side validation passes.
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
+
+      // Should show the validation error, not navigate.
+      await waitFor(() => {
+        expect(screen.getByText(/Validation failed/)).toBeInTheDocument();
+      });
+      expect(screen.getByText(/SOME_CRED/)).toBeInTheDocument();
+      expect(screen.queryByText('Dashboard Page')).not.toBeInTheDocument();
+    });
+  });
+
   // ── Cancel Link ───────────────────────────────────────────────────
 
   describe('cancel link', () => {

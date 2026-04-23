@@ -3059,39 +3059,14 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 		t.Logf("  %s = %s", k, v)
 	}
 
-	// --- Variable schema (targets knowledge containers) ---
-
-	// The "postgres" entry name matches the provider name → gets bare keys.
-	if _, ok := ds.Variables["POSTGRES_USER"]; !ok {
-		t.Error("expected POSTGRES_USER variable (bare key for 'postgres' entry)")
-	}
-	if _, ok := ds.Variables["POSTGRES_PASSWORD"]; !ok {
-		t.Error("expected POSTGRES_PASSWORD variable (bare key for 'postgres' entry)")
-	}
-	if _, ok := ds.Variables["POSTGRES_DATABASE"]; !ok {
-		t.Error("expected POSTGRES_DATABASE variable (bare key for 'postgres' entry)")
-	}
-
-	// Per-name keys for "postgres" entry.
-	if _, ok := ds.Variables["POSTGRES_POSTGRES_USER"]; !ok {
-		t.Error("expected POSTGRES_POSTGRES_USER variable")
-	}
-	if _, ok := ds.Variables["POSTGRES_POSTGRES_PASSWORD"]; !ok {
-		t.Error("expected POSTGRES_POSTGRES_PASSWORD variable")
-	}
-	if _, ok := ds.Variables["POSTGRES_POSTGRES_DATABASE"]; !ok {
-		t.Error("expected POSTGRES_POSTGRES_DATABASE variable")
-	}
-
-	// The "users" entry has a different name → gets suffixed keys.
-	if _, ok := ds.Variables["POSTGRES_USERS_USER"]; !ok {
-		t.Error("expected POSTGRES_USERS_USER variable (suffixed key for 'users' entry)")
-	}
-	if _, ok := ds.Variables["POSTGRES_USERS_PASSWORD"]; !ok {
-		t.Error("expected POSTGRES_USERS_PASSWORD variable (suffixed key for 'users' entry)")
-	}
-	if _, ok := ds.Variables["POSTGRES_USERS_DATABASE"]; !ok {
-		t.Error("expected POSTGRES_USERS_DATABASE variable (suffixed key for 'users' entry)")
+	// Self-hosted credentials are platform-managed (auto-generated at deploy time),
+	// so they must NOT appear in the variables map — only in agent environment.
+	for key, v := range ds.Variables {
+		for _, target := range v.Targets {
+			if strings.HasPrefix(target, "knowledge.") {
+				t.Errorf("unexpected credential variable %s with target %s — self-hosted credentials should not be in variables", key, target)
+			}
+		}
 	}
 
 	// --- Agent environment (credential refs for per-name keys) ---

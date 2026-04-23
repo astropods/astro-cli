@@ -150,8 +150,6 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	}
 
 	// Process knowledge
-	type knowledgeCredVar struct{ key, target string }
-	var knowledgeCredVars []knowledgeCredVar
 	if len(astroSpec.Knowledge) > 0 {
 		// Count provider occurrences among self-hosted knowledge stores
 		knowledgeProviderCount := make(map[string]int)
@@ -214,17 +212,12 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						}
 					}
 
-					// Collect credential variables for self-hosted providers
-					// (injected into the variables map after it's created below).
+					// Wire credential refs into agent environment so the agent
+					// can connect to the knowledge store with proper per-name keys.
+					// Skip "database" — already covered by explicit POSTGRES_DB injection above.
+					// Credentials are auto-generated at deploy time by the platform
+					// (ensureKnowledgeCredentialSecrets) — no user-facing variables needed.
 					for _, cred := range prov.BindCredentials {
-						for _, key := range providerEnvKeys(prov.EnvPrefix, name, strings.ToUpper(cred.Attr), isDup, isFirst) {
-							knowledgeCredVars = append(knowledgeCredVars, knowledgeCredVar{
-								key: key, target: "knowledge." + name,
-							})
-						}
-						// Wire credential refs into agent environment so the agent
-						// can connect to the knowledge store with proper per-name keys.
-						// Skip "database" — already covered by explicit POSTGRES_DB injection above.
 						if cred.Attr != "database" {
 							for _, key := range providerEnvKeys(prov.EnvPrefix, name, strings.ToUpper(cred.Attr), isDup, isFirst) {
 								agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
@@ -280,14 +273,6 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 		// Wire credential references into agent environment
 		agentEnv[ci.Key] = fmt.Sprintf("${variables.%s}", ci.Key)
-	}
-
-	// Inject self-hosted provider credentials collected during the knowledge loop.
-	for _, cv := range knowledgeCredVars {
-		variables[cv.key] = spec.Variable{
-			Secret:  true,
-			Targets: []string{cv.target},
-		}
 	}
 
 	// Collect inputs from all sources into variables map

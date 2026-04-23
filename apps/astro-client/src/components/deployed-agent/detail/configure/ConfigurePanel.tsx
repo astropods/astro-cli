@@ -81,7 +81,8 @@ function ConfigurePanelContent({ deployment, account, onClose, onRedeployStart, 
     if (!form.trySubmit()) return;
     onRedeployStart?.();
     try {
-      await form.deploy();
+      const result = await form.deploy();
+      if (!result) return; // Validation failed — error is shown in form.deployError
       onClose();
       onRedeploy?.();
     } catch {

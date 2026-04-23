@@ -68,7 +68,8 @@ export default function ConfigureDeployment() {
     e.preventDefault();
     if (!form.trySubmit()) return;
     try {
-      await form.deploy();
+      const result = await form.deploy();
+      if (!result) return; // Validation failed — error is shown in form.deployError
       navigate(basePath);
     } catch {
       // form.deployError captures the message

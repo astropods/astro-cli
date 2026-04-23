@@ -119,13 +119,15 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
     if (!form.trySubmit()) return;
     try {
       const result = await form.deploy();
+      if (!result) return; // Validation failed — error is shown in form.deployError
+
       // Upload staged avatar before navigating so we can pass the server URL
       // (not the local blob URL) in nav state — prevents a blob→server URL
       // transition in the reveal overlay that causes an avatar flicker.
       // The upload response also includes extracted avatar_colors.
       let revealAvatarUrl: string | null | undefined = stagedPreviewUrl;
       let revealAvatarColors: AvatarColors | undefined = agent.avatar_colors;
-      if (result?.deployment_id && stagedBlobRef.current) {
+      if (result.deployment_id && stagedBlobRef.current) {
         try {
           const avatarResult = await uploadDeploymentAvatar.mutateAsync({
             id: result.deployment_id,
@@ -141,19 +143,15 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
       }
       const destination = `${dashboardPath}?account=${encodeURIComponent(form.targetAccount)}`;
 
-      if (result?.deployment_id) {
-        navigate(destination, {
-          state: {
-            revealDeploymentId: result.deployment_id,
-            revealAgentName: agent.name,
-            revealDisplayName: form.deployName,
-            revealAvatarUrl,
-            revealAvatarColors,
-          },
-        });
-      } else {
-        navigate(destination);
-      }
+      navigate(destination, {
+        state: {
+          revealDeploymentId: result.deployment_id,
+          revealAgentName: agent.name,
+          revealDisplayName: form.deployName,
+          revealAvatarUrl,
+          revealAvatarColors,
+        },
+      });
     } catch {
       // Error is captured in form.deployError
     }
