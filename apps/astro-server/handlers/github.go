@@ -304,14 +304,16 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		// Remove existing webhook if re-linking to a different base repo,
 		// but only if no other connections still reference that base repo.
 		existing, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
-		existingBase := githubconnection.RepoBase(existing.RepoFullName)
-		if err == nil && existing.WebhookID != 0 && existingBase != newBase {
-			// count <= 1 (not == 0) because the existing connection is still in the DB at this point
-			// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
-			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), existingBase); countErr == nil && count <= 1 {
-				oldGH := githubclient.New(token.AccessToken)
-				if delErr := oldGH.DeleteWebhook(c.Request.Context(), existingBase, existing.WebhookID); delErr != nil {
-					log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
+		if err == nil && existing.WebhookID != 0 {
+			existingBase := githubconnection.RepoBase(existing.RepoFullName)
+			if existingBase != newBase {
+				// count <= 1 (not == 0) because the existing connection is still in the DB at this point
+				// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
+				if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), existingBase); countErr == nil && count <= 1 {
+					oldGH := githubclient.New(token.AccessToken)
+					if delErr := oldGH.DeleteWebhook(c.Request.Context(), existingBase, existing.WebhookID); delErr != nil {
+						log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
+					}
 				}
 			}
 		}
