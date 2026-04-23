@@ -106,7 +106,7 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context) {
 	// Load KMS client once — only if any store actually needs secret recovery.
 	var kmsClient *awskms.Client
 	for _, ks := range stores {
-		secretName := ks.ID + "-credentials"
+		secretName := k8s.KnowledgeSecretName(ks.ID)
 		exists, err := k8s.SecretExists(ctx, w.k8s, ks.AccountID, secretName)
 		if err != nil {
 			w.log.Error("KnowledgeReconcile: failed to check secret existence",

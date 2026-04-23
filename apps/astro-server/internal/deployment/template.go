@@ -199,13 +199,6 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 					}
-					// For postgres, inject auto-derived database name into the agent.
-					if knowledge.Provider == "postgres" {
-						dbName := spec.SanitizeDBName(input.AgentName)
-						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "DB", isDup, isFirst) {
-							agentEnv[key] = dbName
-						}
-					}
 					if prov.URLScheme != "" {
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
 							agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.url}", name, primaryEp)
@@ -214,14 +207,16 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 					// Wire credential refs into agent environment so the agent
 					// can connect to the knowledge store with proper per-name keys.
-					// Skip "database" — already covered by explicit POSTGRES_DB injection above.
 					// Credentials are auto-generated at deploy time by the platform
 					// (ensureKnowledgeCredentialSecrets) — no user-facing variables needed.
 					for _, cred := range prov.BindCredentials {
-						if cred.Attr != "database" {
-							for _, key := range providerEnvKeys(prov.EnvPrefix, name, strings.ToUpper(cred.Attr), isDup, isFirst) {
-								agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
-							}
+						suffix := strings.ToUpper(cred.Attr)
+						// Use "DB" suffix for database (not "DATABASE") to match common conventions.
+						if cred.Attr == "database" {
+							suffix = "DB"
+						}
+						for _, key := range providerEnvKeys(prov.EnvPrefix, name, suffix, isDup, isFirst) {
+							agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
 						}
 					}
 				} else {

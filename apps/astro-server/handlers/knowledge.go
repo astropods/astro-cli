@@ -285,7 +285,7 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 // provisionStoreAsync creates K8s resources after the 202 is sent. Uses context.Background()
 // intentionally — the request context is already cancelled by the time this runs.
 func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, ks *knowledgestore.KnowledgeStore, plainCreds map[string]string, cfg *config.Config) {
-	secretName := ks.ID + "-credentials"
+	secretName := k8s.KnowledgeSecretName(ks.ID)
 
 	if err := k8s.EnsureKnowledgeNamespace(ctx, k8sClient, ks.AccountID); err != nil {
 		log.Error("Failed to ensure knowledge namespace", "error", err, "store_id", ks.ID)

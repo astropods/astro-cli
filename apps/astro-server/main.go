@@ -877,7 +877,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("name", "Store name"),
 					oapispec.Response(200, nil),
 				)
-				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, &k8s.KnowledgeSecretReader{Client: k8sClient}),
+				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

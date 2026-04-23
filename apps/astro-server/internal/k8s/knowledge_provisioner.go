@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -32,6 +33,11 @@ func KnowledgeNamespace(accountID string) string {
 // satisfying the DNS-1035 requirement for Service names.
 func KnowledgeResourceName(storeID string) string {
 	return "kn-" + storeID
+}
+
+// KnowledgeSecretName returns the K8s Secret name for a store's credentials.
+func KnowledgeSecretName(storeID string) string {
+	return storeID + "-credentials"
 }
 
 // knowledgeLabels returns the standard labels for a managed knowledge store resource.
@@ -229,13 +235,13 @@ func ProvisionKnowledgeStore(ctx context.Context, client ClusterClient, p Knowle
 // KnowledgeSecretReader reads plaintext credentials from a knowledge store's k8s Secret.
 // Implements knowledgestore.SecretReader for the no-KMS fallback path.
 type KnowledgeSecretReader struct {
-	Client ClusterClient
+	Clientset kubernetes.Interface
 }
 
 // ReadCredentials reads the credentials Secret for a store and returns plaintext key-value pairs.
 func (r *KnowledgeSecretReader) ReadCredentials(ctx context.Context, storeID, namespace string) (map[string]string, error) {
-	secretName := KnowledgeResourceName(storeID) + "-creds"
-	secret, err := r.Client.Clientset().CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	secretName := KnowledgeSecretName(storeID)
+	secret, err := r.Clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("read secret %s/%s: %w", namespace, secretName, err)
 	}
@@ -296,7 +302,7 @@ func DeleteKnowledgeStore(ctx context.Context, client ClusterClient, accountID, 
 			return fmt.Errorf("delete lb service: %w", err)
 		}
 	}
-	secretName := storeID + "-credentials"
+	secretName := KnowledgeSecretName(storeID)
 	if err := client.Clientset().CoreV1().Secrets(ns).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete secret: %w", err)
 	}

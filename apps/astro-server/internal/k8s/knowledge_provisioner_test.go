@@ -13,7 +13,9 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
 
@@ -502,5 +504,74 @@ func TestKnowledgeLabels_NoARN(t *testing.T) {
 	}
 	if labels["astro.io/component"] != "knowledge" {
 		t.Errorf("expected component 'knowledge', got %q", labels["astro.io/component"])
+	}
+}
+
+// --- KnowledgeSecretName ---
+
+func TestKnowledgeSecretName(t *testing.T) {
+	cases := []struct {
+		storeID string
+		want    string
+	}{
+		{"abc-123", "abc-123-credentials"},
+		{"jrt-ztr-ai0", "jrt-ztr-ai0-credentials"},
+	}
+	for _, tc := range cases {
+		got := KnowledgeSecretName(tc.storeID)
+		if got != tc.want {
+			t.Errorf("KnowledgeSecretName(%q) = %q, want %q", tc.storeID, got, tc.want)
+		}
+	}
+}
+
+// --- KnowledgeSecretReader ---
+
+func TestKnowledgeSecretReader_ReadCredentials(t *testing.T) {
+	clientset := fake.NewClientset()
+	ns := "knowledge-test-ns"
+	storeID := "store-abc"
+
+	// Create the credentials Secret matching the naming convention.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      KnowledgeSecretName(storeID),
+			Namespace: ns,
+		},
+		Data: map[string][]byte{
+			"POSTGRES_USER":     []byte("astro"),
+			"POSTGRES_PASSWORD": []byte("s3cret"),
+			"POSTGRES_DB":       []byte("mydb"),
+		},
+	}
+	_, err := clientset.CoreV1().Secrets(ns).Create(
+		context.Background(), secret, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+
+	reader := &KnowledgeSecretReader{Clientset: clientset}
+	creds, err := reader.ReadCredentials(context.Background(), storeID, ns)
+	if err != nil {
+		t.Fatalf("ReadCredentials: %v", err)
+	}
+
+	if creds["POSTGRES_USER"] != "astro" {
+		t.Errorf("POSTGRES_USER: expected 'astro', got %q", creds["POSTGRES_USER"])
+	}
+	if creds["POSTGRES_PASSWORD"] != "s3cret" {
+		t.Errorf("POSTGRES_PASSWORD: expected 's3cret', got %q", creds["POSTGRES_PASSWORD"])
+	}
+	if creds["POSTGRES_DB"] != "mydb" {
+		t.Errorf("POSTGRES_DB: expected 'mydb', got %q", creds["POSTGRES_DB"])
+	}
+}
+
+func TestKnowledgeSecretReader_NotFound(t *testing.T) {
+	reader := &KnowledgeSecretReader{Clientset: fake.NewClientset()}
+
+	_, err := reader.ReadCredentials(context.Background(), "no-such-store", "no-ns")
+	if err == nil {
+		t.Fatal("expected error for missing secret")
 	}
 }

@@ -2100,25 +2100,33 @@ knowledge:
 		t.Error("deploy secret POSTGRES_USERS_PASSWORD should match users entry's password")
 	}
 
+	// DB credentials (from auto-generated Secret, not hardcoded)
+	if string(deploySecret.Data["POSTGRES_DB"]) != "my_agent" {
+		t.Errorf("deploy secret POSTGRES_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_DB"]))
+	}
+	if string(deploySecret.Data["POSTGRES_ANALYTICS_DB"]) != "my_agent" {
+		t.Errorf("deploy secret POSTGRES_ANALYTICS_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_ANALYTICS_DB"]))
+	}
+	if string(deploySecret.Data["POSTGRES_USERS_DB"]) != "my_agent" {
+		t.Errorf("deploy secret POSTGRES_USERS_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_USERS_DB"]))
+	}
+
 	// Redis credential
 	if string(deploySecret.Data["REDIS_PASSWORD"]) != string(cacheCredSecret.Data["REDIS_PASSWORD"]) {
 		t.Error("deploy secret REDIS_PASSWORD should match cache entry's password")
 	}
 
-	// --- ConfigMap (HOST, PORT, DB — static values) ---
+	// --- ConfigMap (HOST, PORT — static values; DB now in Secret) ---
 
 	analyticsDNS := serviceDNS("my-agent-knowledge-analytics", ns)
 	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
 	assertConfigMapValues(t, r, map[string]string{
 		"POSTGRES_HOST":           analyticsDNS,
 		"POSTGRES_PORT":           "5432",
-		"POSTGRES_DB":             "my_agent",
 		"POSTGRES_ANALYTICS_HOST": analyticsDNS,
 		"POSTGRES_ANALYTICS_PORT": "5432",
-		"POSTGRES_ANALYTICS_DB":   "my_agent",
 		"POSTGRES_USERS_HOST":     usersDNS,
 		"POSTGRES_USERS_PORT":     "5432",
-		"POSTGRES_USERS_DB":       "my_agent",
 	})
 
 	// --- Agent Deployment: no duplicate envFrom for knowledge secrets ---

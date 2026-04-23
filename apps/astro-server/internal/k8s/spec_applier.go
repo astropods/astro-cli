@@ -1154,12 +1154,14 @@ func knowledgeCredSecretName(agentName, knowledgeName string) string {
 }
 
 // generateKnowledgeCredentials returns auto-generated credentials for a provider.
-func generateKnowledgeCredentials(provider string) map[string][]byte {
+// agentName is used to derive the database name for postgres.
+func generateKnowledgeCredentials(provider, agentName string) map[string][]byte {
 	switch provider {
 	case "postgres":
 		return map[string][]byte{
 			"POSTGRES_USER":     []byte("astro"),
 			"POSTGRES_PASSWORD": []byte(randomCredHex(16)),
+			"POSTGRES_DB":       []byte(spec.SanitizeDBName(agentName)),
 		}
 	case "redis":
 		return map[string][]byte{
@@ -1200,7 +1202,7 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 		if knowledge.IsBound() {
 			continue
 		}
-		creds := generateKnowledgeCredentials(knowledge.Provider)
+		creds := generateKnowledgeCredentials(knowledge.Provider, agentName)
 		if len(creds) == 0 {
 			continue
 		}

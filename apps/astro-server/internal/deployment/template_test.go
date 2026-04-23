@@ -3083,10 +3083,10 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_USER", "${knowledge.users.credentials.user}")
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_PASSWORD", "${knowledge.users.credentials.password}")
 
-	// DB uses explicit static injection, not credential refs
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "sasbot")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_DB", "sasbot")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_DB", "sasbot")
+	// DB flows through credential refs (bound stores have their own DB name)
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "${knowledge.postgres.credentials.database}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_DB", "${knowledge.postgres.credentials.database}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_DB", "${knowledge.users.credentials.database}")
 
 	// Redis credentials also get agent env refs
 	assertEnvRef(t, ds.Agent.Environment, "REDIS_PASSWORD", "${knowledge.cache.credentials.password}")

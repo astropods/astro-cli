@@ -174,7 +174,7 @@ func (d *Deployer) resolveBoundKnowledge(
 		}
 		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
 			ctx, store, creds, d.kmsClient(ctx),
-			&k8s.KnowledgeSecretReader{Client: d.K8sClient}, storeNS,
+			&k8s.KnowledgeSecretReader{Clientset: d.K8sClient.Clientset()}, storeNS,
 		)
 		if resolveErr != nil {
 			d.Log.Warn("Failed to resolve store credentials", "error", resolveErr, "store_id", store.ID)
