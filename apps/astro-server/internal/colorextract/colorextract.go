@@ -262,10 +262,6 @@ var (
 		targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
 		targetLightness: 0.26, minLightness: 0.1, maxLightness: 0.45,
 	}
-	targetMuted = swatchTarget{
-		targetSaturation: 0.3, minSaturation: 0.0, maxSaturation: 0.4,
-		targetLightness: 0.5, minLightness: 0.3, maxLightness: 0.7,
-	}
 )
 
 const (
@@ -342,8 +338,6 @@ func pickCardColors(swatches []swatch) *cardColors {
 	if hasDV {
 		used[dvIdx] = true
 	}
-
-	_, _, _ = pickForTarget(swatches, targetMuted, maxPop, used)
 
 	// Accent is the vibrant swatch, falling back to the most populated
 	accent := swatches[0] // swatches are sorted by population
