@@ -114,7 +114,7 @@ describe("RepoPicker", () => {
     render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
-    expect(screen.getByText("Subdirectory")).toBeInTheDocument();
+    expect(screen.getByText("Path")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("services/my-agent")).toBeInTheDocument();
   });
 
