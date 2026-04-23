@@ -97,6 +97,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 
 func runAccountSwitch(cmd *cobra.Command, args []string) error {
 	storage := accountNewStorage()
+	w := cmd.OutOrStdout()
 	green := color.New(color.FgGreen)
 
 	name := ""
@@ -117,8 +118,8 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		green.Print("✓ ") //nolint:errcheck,gosec
-		fmt.Printf("Switched to account %q\n", switched)
+		green.Fprint(w, "✓ ")                                //nolint:errcheck,gosec
+		fmt.Fprintf(w, "Switched to account %q\n", switched) //nolint:errcheck,gosec
 		return nil
 	}
 
@@ -126,8 +127,8 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	green.Print("✓ ") //nolint:errcheck,gosec
-	fmt.Printf("Switched to account %q\n", name)
+	green.Fprint(w, "✓ ")                            //nolint:errcheck,gosec
+	fmt.Fprintf(w, "Switched to account %q\n", name) //nolint:errcheck,gosec
 	return nil
 }
 

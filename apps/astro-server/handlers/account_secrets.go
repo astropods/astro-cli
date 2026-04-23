@@ -180,9 +180,10 @@ func GetAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Handle
 			return
 		}
 
-		v, err := store.Get(acct.ID, c.Param("varName"))
+		varName := c.Param("varName")
+		v, err := store.Get(acct.ID, varName)
 		if err != nil {
-			log.Error("Failed to get account variable", "error", err, "account_id", acct.ID)
+			log.Error("Failed to get account variable", "error", err, "account_id", acct.ID, "name", varName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get variable"})
 			return
 		}
