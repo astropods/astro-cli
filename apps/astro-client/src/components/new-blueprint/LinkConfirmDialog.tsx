@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
-import type { GitHubRepo } from "@/lib/api";
 
 type LinkConfirmDialogProps = {
   open: boolean;
@@ -20,7 +19,7 @@ type LinkConfirmDialogProps = {
   slug: string;
   name: string;
   selectedOrg: string;
-  selectedRepo: GitHubRepo | null;
+  repoBase: string | null;
   selectedBranch: string;
   subpath?: string;
   visibility: "public" | "private";
@@ -35,7 +34,7 @@ export function LinkConfirmDialog({
   slug,
   name,
   selectedOrg,
-  selectedRepo,
+  repoBase,
   selectedBranch,
   subpath,
   visibility,
@@ -83,7 +82,7 @@ export function LinkConfirmDialog({
           <DialogDescription className="text-xs break-all">
             <span className="font-semibold text-foreground">{name || slug}</span>
             {" "}to{" "}
-            <span className="font-mono">{selectedRepo?.full_name}</span>
+            <span className="font-mono">{repoBase}</span>
           </DialogDescription>
         </DialogHeader>
 

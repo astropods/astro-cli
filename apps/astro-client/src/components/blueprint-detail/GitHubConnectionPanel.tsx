@@ -16,7 +16,6 @@ import { SidebarSection } from "./SidebarSection";
 import { BuildLogViewer } from "./BuildLogViewer";
 import {
   useGitHubStatus,
-  useGitHubAccountRepos,
   useGitHubAccountConnect,
   useGitHubAccountStatus,
   useGitHubLink,
@@ -24,9 +23,8 @@ import {
   useGitHubBuildLogs,
   useGitHubRebuild,
 } from "@/api/queries/github";
-import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
-import { SubpathPicker } from "@/components/new-blueprint/SubpathPicker";
-import type { GitHubBuild, GitHubRepo } from "@/lib/api";
+import { GitHubRepoPicker, type GitHubRepoPickerValue } from "@/components/new-blueprint/GitHubRepoPicker";
+import type { GitHubBuild } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface GitHubConnectionPanelProps {
@@ -450,28 +448,20 @@ interface RepoSelectorDialogProps {
 }
 
 function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorDialogProps) {
-  const [repoQuery, setRepoQuery] = useState("");
-  const { data: reposData, isLoading: reposLoading } = useGitHubAccountRepos(account, { enabled: open, q: repoQuery });
+  const [pickerValue, setPickerValue] = useState<GitHubRepoPickerValue>({ repoFullName: null, branch: "main" });
   const link = useGitHubLink(account, name);
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [selectedBranch, setSelectedBranch] = useState("main");
-  const [subpath, setSubpath] = useState("");
-
-  // Default branch to repo default and reset subpath when repo changes.
-  useEffect(() => {
-    if (selectedRepo) setSelectedBranch(selectedRepo.default_branch);
-    setSubpath("");
-  }, [selectedRepo]);
+  const rebuild = useGitHubRebuild(account, name);
 
   function handleLink() {
-    if (!selectedRepo) return;
-    const cleanedSubpath = subpath.trim().replace(/^\/+|\/+$/g, "");
-    const repoFullName = cleanedSubpath
-      ? `${selectedRepo.full_name}/${cleanedSubpath}`
-      : selectedRepo.full_name;
+    if (!pickerValue.repoFullName) return;
     link.mutate(
-      { repo_full_name: repoFullName, branch: selectedBranch },
-      { onSuccess: () => onOpenChange(false) }
+      { repo_full_name: pickerValue.repoFullName, branch: pickerValue.branch },
+      {
+        onSuccess: () => {
+          onOpenChange(false);
+          rebuild.mutate();
+        },
+      }
     );
   }
 
@@ -487,35 +477,12 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
         </DialogHeader>
 
         <div className="py-2">
-          <RepoPicker
-            githubLogin={undefined}
-            selectedRepo={selectedRepo}
-            selectedBranch={selectedBranch}
-            isLoadingRepos={reposLoading}
-            repos={reposData?.repos ?? []}
-            onSelectRepo={setSelectedRepo}
-            onSelectBranch={setSelectedBranch}
-            onSearchChange={setRepoQuery}
+          <GitHubRepoPicker
+            account={account}
+            agentName={name}
+            enabled={open}
+            onChange={setPickerValue}
           />
-
-          {/* Subdirectory picker — slides in when a repo is selected */}
-          <div className={cn(
-            "grid transition-[grid-template-rows] duration-150 ease-out",
-            selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-          )}>
-            <div className="overflow-hidden">
-              <div className="px-4 pb-1">
-                <SubpathPicker
-                  account={account}
-                  repo={selectedRepo?.full_name ?? ""}
-                  branch={selectedBranch}
-                  value={subpath}
-                  onChange={setSubpath}
-                  enabled={!!selectedRepo}
-                />
-              </div>
-            </div>
-          </div>
 
           {link.isError && (
             <p className="text-sm text-destructive px-4 pt-2">
@@ -530,7 +497,7 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
           </Button>
           <Button
             onClick={handleLink}
-            disabled={!selectedRepo || link.isPending}
+            disabled={!pickerValue.repoFullName || link.isPending}
           >
             {link.isPending && <Spinner size={14} className="mr-2" />}
             Connect repository

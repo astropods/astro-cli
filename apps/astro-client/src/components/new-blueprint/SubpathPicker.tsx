@@ -6,6 +6,8 @@ import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useGitHubAccountDirs } from "@/api/queries/github";
 
+type TakenSubpath = { subpath: string; agentName: string };
+
 type SubpathPickerProps = {
   account: string;
   repo: string;
@@ -13,9 +15,10 @@ type SubpathPickerProps = {
   value: string;
   onChange: (value: string) => void;
   enabled?: boolean;
+  takenSubpaths?: TakenSubpath[];
 };
 
-export function SubpathPicker({ account, repo, branch, value, onChange, enabled = true }: SubpathPickerProps) {
+export function SubpathPicker({ account, repo, branch, value, onChange, enabled = true, takenSubpaths }: SubpathPickerProps) {
   const [dirOpen, setDirOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -80,21 +83,27 @@ export function SubpathPicker({ account, repo, branch, value, onChange, enabled 
                 Loading...
               </div>
             ) : (
-              filteredDirs.map(dir => (
-                <Button
-                  key={dir}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => { onChange(dir); setDirOpen(false); }}
-                  className={cn(
-                    "w-full justify-start h-auto px-3 py-2 font-medium rounded-none",
-                    value === dir && "bg-primary/5",
-                  )}
-                >
-                  <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-                  {dir}
-                </Button>
-              ))
+              filteredDirs.map(dir => {
+                const taken = takenSubpaths?.find(t => t.subpath === dir);
+                return (
+                  <Button
+                    key={dir}
+                    type="button"
+                    variant="ghost"
+                    disabled={!!taken}
+                    onClick={() => { onChange(dir); setDirOpen(false); }}
+                    className={cn(
+                      "w-full justify-start h-auto px-3 py-2 font-medium rounded-none",
+                      value === dir && "bg-primary/5",
+                      taken && "opacity-50 cursor-not-allowed",
+                    )}
+                  >
+                    <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1 text-left truncate">{dir}</span>
+                    {taken && <span className="text-[10px] text-muted-foreground font-normal shrink-0">linked to {taken.agentName}</span>}
+                  </Button>
+                );
+              })
             )}
           </div>
         </div>

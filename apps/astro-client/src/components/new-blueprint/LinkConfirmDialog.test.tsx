@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { LinkConfirmDialog } from "./LinkConfirmDialog";
-import type { GitHubRepo } from "@/lib/api";
-
-const REPO: GitHubRepo = { full_name: "testuser/my-agent", default_branch: "main", private: false };
 
 function baseProps() {
   return {
@@ -13,7 +10,7 @@ function baseProps() {
     slug: "my-agent",
     name: "My Agent",
     selectedOrg: "testuser",
-    selectedRepo: REPO,
+    repoBase: "testuser/my-agent",
     selectedBranch: "main",
     visibility: "public" as const,
     isCreatingBlueprint: false,

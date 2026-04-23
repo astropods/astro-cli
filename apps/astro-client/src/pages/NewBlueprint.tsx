@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
 import { useAuth } from "../lib/auth";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubLink, useGitHubAccountScan, useGitHubRebuild, useGitHubAccountConnections } from "@/api/queries";
-import type { GitHubRepo } from "@/lib/api";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -28,8 +27,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
-import { RepoPicker } from "@/components/new-blueprint/RepoPicker";
-import { SubpathPicker } from "@/components/new-blueprint/SubpathPicker";
+import { GitHubRepoPicker, type GitHubRepoPickerValue } from "@/components/new-blueprint/GitHubRepoPicker";
 import { LinkConfirmDialog } from "@/components/new-blueprint/LinkConfirmDialog";
 
 export const meta: MetaFunction = () => [{ title: "New Agent | Astro" }];
@@ -80,36 +78,26 @@ const STEPS: { id: Step; label: string; description: string }[] = [
 type SourceState = {
   sourcePath: SourcePath;
   githubConnected: boolean;
-  selectedRepo: GitHubRepo | null;
-  selectedBranch: string;
   scanResult: "scanning" | "found" | "not-found" | null;
 };
 
 type SourceAction =
   | { type: "SET_SOURCE_PATH"; path: SourcePath }
   | { type: "GITHUB_CONNECTED" }
-  | { type: "SELECT_REPO"; repo: GitHubRepo | null }
-  | { type: "SELECT_BRANCH"; branch: string }
   | { type: "SET_SCAN_RESULT"; result: "scanning" | "found" | "not-found" | null };
 
 const initialSourceState: SourceState = {
   sourcePath: null,
   githubConnected: false,
-  selectedRepo: null,
-  selectedBranch: "main",
   scanResult: null,
 };
 
 function sourceReducer(state: SourceState, action: SourceAction): SourceState {
   switch (action.type) {
     case "SET_SOURCE_PATH":
-      return { ...state, sourcePath: action.path, selectedRepo: null, selectedBranch: "main", scanResult: null };
+      return { ...state, sourcePath: action.path, scanResult: null };
     case "GITHUB_CONNECTED":
       return { ...state, sourcePath: "import", githubConnected: true };
-    case "SELECT_REPO":
-      return { ...state, selectedRepo: action.repo, selectedBranch: action.repo?.default_branch ?? "main", scanResult: null };
-    case "SELECT_BRANCH":
-      return { ...state, selectedBranch: action.branch };
     case "SET_SCAN_RESULT":
       return { ...state, scanResult: action.result };
   }
@@ -148,37 +136,23 @@ function NewBlueprintContent() {
   const [showLinkConfirm, setShowLinkConfirm] = useState(false);
   const slug = useMemo(() => slugify(name), [name]);
 
-  // Source step state — start connected if returning from OAuth
-  const [{ sourcePath, githubConnected, selectedRepo, selectedBranch, scanResult }, dispatch] = useReducer(
-    sourceReducer,
-    oauthReturn ? { ...initialSourceState, sourcePath: "import", githubConnected: true } : initialSourceState,
-  );
+  // Source step state
+  const [{ sourcePath, githubConnected, scanResult }, dispatch] = useReducer(sourceReducer, initialSourceState);
+  const [pickerValue, setPickerValue] = useState<GitHubRepoPickerValue>({ repoFullName: null, branch: "main" });
 
   const createBlueprint = useCreateBlueprint(selectedOrg);
   const uploadAvatar = useUploadBlueprintAvatar();
   const isCreatingBlueprint = createBlueprint.isPending || uploadAvatar.isPending;
   const navigate = useNavigate();
 
-  const [githubLogin, setGithubLogin] = useState<string | undefined>(() => oauthReturn?.login);
-  const [repoQuery, setRepoQuery] = useState("");
+  const [githubLogin, setGithubLogin] = useState<string | undefined>(undefined);
 
   const accountConnect = useGitHubAccountConnect(selectedOrg);
-  const accountRepos = useGitHubAccountRepos(selectedOrg, { enabled: githubConnected, q: repoQuery, login: githubLogin });
-  const accountConnections = useGitHubAccountConnections(selectedOrg, { enabled: githubConnected });
-
-  const repos = accountRepos.data?.repos ?? [];
-  const isLoadingRepos = accountRepos.isLoading;
-  // Fall back to deriving the login from the first repo when the github_login URL param
-  // was absent (server GetLogin best-effort failure) or the connect response omitted it.
-  const effectiveLogin = githubLogin ?? repos[0]?.full_name.split("/")[0];
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
 
-  const [subpath, setSubpath] = useState("");
-
-  // Clean up OAuth callback state: remove sessionStorage entry and strip the
-  // github_connected params from the URL so a refresh doesn't re-trigger.
+  // Restore wizard state when returning from GitHub OAuth
   useEffect(() => {
     if (!oauthReturn) return;
     sessionStorage.removeItem(WIZARD_STATE_KEY);
@@ -239,19 +213,11 @@ function NewBlueprintContent() {
 
   const handleSelectLocal = useCallback(() => {
     dispatch({ type: "SET_SOURCE_PATH", path: "fresh" });
+    setPickerValue({ repoFullName: null, branch: "main" });
   }, []);
 
   const handleBack = useCallback(() => {
     setActiveStep("setup");
-  }, []);
-
-  const handleSelectRepo = useCallback((repo: GitHubRepo | null) => {
-    dispatch({ type: "SELECT_REPO", repo });
-    setSubpath("");
-  }, []);
-
-  const handleSelectBranch = useCallback((branch: string) => {
-    dispatch({ type: "SELECT_BRANCH", branch });
   }, []);
 
   const handleGitHubConnect = useCallback(async () => {
@@ -291,24 +257,19 @@ function NewBlueprintContent() {
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
 
-      if (sourcePath === "import" && selectedRepo) {
-        const cleanedSubpath = subpath.trim().replace(/^\/+|\/+$/g, "");
-        const repoFullName = cleanedSubpath
-          ? `${selectedRepo.full_name}/${cleanedSubpath}`
-          : selectedRepo.full_name;
-
+      if (sourcePath === "import" && pickerValue.repoFullName) {
         // 2. Scan first — lightweight read, no connection needed.
         dispatch({ type: "SET_SCAN_RESULT", result: "scanning" });
         let found = false;
         try {
-          const scan = await accountScan.mutateAsync({ repo: repoFullName, branch: selectedBranch, agentName: slug });
+          const scan = await accountScan.mutateAsync({ repo: pickerValue.repoFullName, branch: pickerValue.branch, agentName: slug });
           found = scan.found;
         } catch { /* treat scan errors as not-found */ }
 
         // 3. Link (always — installs webhook for future pushes).
         await githubLink.mutateAsync({
-          repo_full_name: repoFullName,
-          branch: selectedBranch,
+          repo_full_name: pickerValue.repoFullName,
+          branch: pickerValue.branch,
         }).catch(() => {});
 
         if (found) {
@@ -325,15 +286,15 @@ function NewBlueprintContent() {
     } catch {
       // error state shown in publishing card
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, selectedRepo, selectedBranch, subpath, githubLink, accountScan, rebuild]);
+  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
 
   const handleCreateOrConfirm = useCallback(() => {
-    if (sourcePath === "import" && selectedRepo) {
+    if (sourcePath === "import" && pickerValue.repoFullName) {
       setShowLinkConfirm(true);
     } else {
       handlePublish();
     }
-  }, [sourcePath, selectedRepo, handlePublish]);
+  }, [sourcePath, pickerValue.repoFullName, handlePublish]);
 
   const handleConfirmAndPublish = useCallback(() => {
     setShowLinkConfirm(false);
@@ -459,38 +420,15 @@ function NewBlueprintContent() {
                                           <>
                                             <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
                                               <CheckCircleIcon className="size-3.5 text-green-700" />
-                                              {effectiveLogin ? `${effectiveLogin} connected` : "GitHub connected"}
+                                              {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
                                             </p>
-                                            <RepoPicker
-                                              githubLogin={effectiveLogin}
-                                              selectedRepo={selectedRepo}
-                                              selectedBranch={selectedBranch}
-                                              isLoadingRepos={isLoadingRepos}
-                                              repos={repos}
-                                              connections={accountConnections.data?.connections}
-                                              onSelectRepo={handleSelectRepo}
-                                              onSelectBranch={handleSelectBranch}
-                                              onSearchChange={setRepoQuery}
+                                            <GitHubRepoPicker
+                                              account={selectedOrg}
+                                              agentName={slug}
+                                              githubLogin={githubLogin}
+                                              enabled={githubConnected}
+                                              onChange={setPickerValue}
                                             />
-
-                                            {/* Subdirectory picker — slides in when a repo is selected */}
-                                            <div className={cn(
-                                              "grid transition-[grid-template-rows] duration-150 ease-out",
-                                              selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-                                            )}>
-                                              <div className="overflow-hidden">
-                                                <div className="px-4 pb-3">
-                                                  <SubpathPicker
-                                                    account={selectedOrg}
-                                                    repo={selectedRepo?.full_name ?? ""}
-                                                    branch={selectedBranch}
-                                                    value={subpath}
-                                                    onChange={setSubpath}
-                                                    enabled={!!selectedRepo && githubConnected}
-                                                  />
-                                                </div>
-                                              </div>
-                                            </div>
                                           </>
                                       </div>
                                     </div>
@@ -534,7 +472,7 @@ function NewBlueprintContent() {
                             disabled={
                               isCreatingBlueprint ||
                               !sourcePath ||
-                              (sourcePath === "import" && (!githubConnected || !selectedRepo))
+                              (sourcePath === "import" && (!githubConnected || !pickerValue.repoFullName))
                             }
                           >
                             {isCreatingBlueprint ? (
@@ -554,9 +492,9 @@ function NewBlueprintContent() {
                         slug={slug}
                         name={name}
                         selectedOrg={selectedOrg}
-                        selectedRepo={selectedRepo}
-                        selectedBranch={selectedBranch}
-                        subpath={subpath.trim().replace(/^\/+|\/+$/g, "")}
+                        repoBase={pickerValue.repoFullName ? pickerValue.repoFullName.split("/").slice(0, 2).join("/") : null}
+                        selectedBranch={pickerValue.branch}
+                        subpath={pickerValue.repoFullName ? pickerValue.repoFullName.split("/").slice(2).join("/") || undefined : undefined}
                         visibility={visibility}
                         isCreatingBlueprint={isCreatingBlueprint}
                         onConfirm={handleConfirmAndPublish}
@@ -586,7 +524,7 @@ function NewBlueprintContent() {
                       <div className="text-center">
                         <p className="text-sm font-semibold">
                           {scanResult === "scanning"
-                            ? `Scanning ${selectedRepo?.full_name ?? "repo"}…`
+                            ? `Scanning ${pickerValue.repoFullName ?? "repo"}…`
                             : scanResult === "found"
                             ? `Building ${slug}…`
                             : `Initializing ${slug || "your agent"}…`}
@@ -769,7 +707,7 @@ function NewBlueprintContent() {
                           {scanResult === "found"
                             ? "Build kicked off. Head to your blueprint to track progress in the GitHub sidebar."
                             : scanResult === "not-found"
-                            ? `We didn't find an astropods.yml in ${selectedRepo?.full_name ?? "your repo"}. Push one to trigger your first build. We'll pick it up automatically.`
+                            ? `We didn't find an astropods.yml in ${pickerValue.repoFullName ?? "your repo"}. Push one to trigger your first build. We'll pick it up automatically.`
                             : `Install the Astro CLI, run ast init ${slug}, then ast push to get your first image into the registry.`}
                         </p>
                       </div>
