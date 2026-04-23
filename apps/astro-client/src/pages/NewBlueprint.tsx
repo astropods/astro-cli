@@ -125,6 +125,8 @@ function NewBlueprintContent() {
     oauthReturn ? new Set<Step>(["setup"]) : new Set()
   );
   const isAlreadyPublished = completedSteps.has("publishing");
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [isBlueprintCreated, setIsBlueprintCreated] = useState(false);
 
   // Form state
   const [name, setName] = useState(() => oauthReturn?.savedWizard?.name ?? "");
@@ -239,6 +241,7 @@ function NewBlueprintContent() {
 
   const handlePublish = useCallback(async () => {
     if (isCreatingBlueprint) return;
+    setPublishError(null);
     setCompletedSteps(prev => { const s = new Set(prev); s.add("source"); return s; });
     setActiveStep("publishing");
 
@@ -246,8 +249,9 @@ function NewBlueprintContent() {
       // 1. Create blueprint + upload avatar (with 2s minimum for UX).
       await Promise.all([
         (async () => {
-          if (!isAlreadyPublished) {
+          if (!isAlreadyPublished && !isBlueprintCreated) {
             await createBlueprint.mutateAsync({ name: slug, visibility });
+            setIsBlueprintCreated(true);
           }
           if (avatarFile) {
             await uploadAvatar.mutateAsync({ account: selectedOrg, name: slug, file: avatarFile }).catch(() => {});
@@ -270,7 +274,7 @@ function NewBlueprintContent() {
         await githubLink.mutateAsync({
           repo_full_name: pickerValue.repoFullName,
           branch: pickerValue.branch,
-        }).catch(() => {});
+        });
 
         if (found) {
           dispatch({ type: "SET_SCAN_RESULT", result: "found" });
@@ -283,10 +287,10 @@ function NewBlueprintContent() {
 
       setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
       setActiveStep("review");
-    } catch {
-      // error state shown in publishing card
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
+  }, [isCreatingBlueprint, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
 
   const handleCreateOrConfirm = useCallback(() => {
     if (sourcePath === "import" && pickerValue.repoFullName) {
@@ -505,42 +509,55 @@ function NewBlueprintContent() {
 
                   {/* ── Publishing ── */}
                   {step.id === "publishing" && i <= activeStepIndex && (
-                    <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-12">
-                      <div className="relative flex items-center justify-center">
-                        <div className="absolute size-24 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "1.6s" }} />
-                        <div className="absolute size-20 rounded-full bg-primary/15 animate-ping" style={{ animationDuration: "1.6s", animationDelay: "0.4s" }} />
-                        <div className="relative z-10 size-16 overflow-hidden rounded-md border border-border shadow-sm">
-                          {avatarPreviewUrl ? (
-                            <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
-                          ) : slug ? (
-                            <BlueprintIdentity account={selectedOrg} name={slug} size={64} className="size-full" />
-                          ) : (
-                            <div className="flex size-full items-center justify-center bg-muted">
-                              <ArrowPathIcon className="size-7 animate-spin text-primary" />
-                            </div>
-                          )}
+                    <div className="flex flex-1 flex-col">
+                      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-12">
+                        <div className="relative flex items-center justify-center">
+                          <div className="absolute size-24 rounded-full bg-primary/10 animate-ping" style={{ animationDuration: "1.6s" }} />
+                          <div className="absolute size-20 rounded-full bg-primary/15 animate-ping" style={{ animationDuration: "1.6s", animationDelay: "0.4s" }} />
+                          <div className="relative z-10 size-16 overflow-hidden rounded-2xl border border-border shadow-sm">
+                            {avatarPreviewUrl ? (
+                              <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
+                            ) : slug ? (
+                              <BlueprintIdentity account={selectedOrg} name={slug} size={64} className="size-full" />
+                            ) : (
+                              <div className="flex size-full items-center justify-center bg-muted">
+                                <ArrowPathIcon className="size-7 animate-spin text-primary" />
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        <div className="text-center">
+                          <p className="text-sm font-semibold">
+                            {scanResult === "scanning"
+                              ? `Scanning ${pickerValue.repoFullName ?? "repo"}…`
+                              : scanResult === "found"
+                              ? `Building ${slug}…`
+                              : `Initializing ${slug || "your agent"}…`}
+                          </p>
+                          <p className="mt-1.5 text-xs text-muted-foreground max-w-[280px]">
+                            {scanResult === "scanning"
+                              ? "Looking for astropods.yml. We'll kick off a build if we find one."
+                              : "Registering your blueprint in the registry."}
+                          </p>
+                          <p className="mt-2 font-mono text-xs text-muted-foreground/60">{selectedOrg}/{slug}</p>
+                        </div>
+                        {publishError ? (
+                          <p className="text-xs text-destructive max-w-[280px] text-center">{publishError}</p>
+                        ) : (
+                          <div className="flex gap-2">
+                            {[0, 1, 2].map((j) => (
+                              <div key={j} className="size-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: `${j * 0.15}s` }} />
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-center">
-                        <p className="text-sm font-semibold">
-                          {scanResult === "scanning"
-                            ? `Scanning ${pickerValue.repoFullName ?? "repo"}…`
-                            : scanResult === "found"
-                            ? `Building ${slug}…`
-                            : `Initializing ${slug || "your agent"}…`}
-                        </p>
-                        <p className="mt-1.5 text-xs text-muted-foreground max-w-[280px]">
-                          {scanResult === "scanning"
-                            ? "Looking for astropods.yml. We'll kick off a build if we find one."
-                            : "Registering your blueprint in the registry."}
-                        </p>
-                        <p className="mt-2 font-mono text-xs text-muted-foreground/60">{selectedOrg}/{slug}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {[0, 1, 2].map((j) => (
-                          <div key={j} className="size-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: `${j * 0.15}s` }} />
-                        ))}
-                      </div>
+                      {publishError && (
+                        <div className="border-t border-border px-6 py-4">
+                          <Button variant="outline" size="sm" onClick={() => setActiveStep("source")}>
+                            Back
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
 
