@@ -27,15 +27,17 @@ export default function Blueprints() {
       <PageHeader
         title="Blueprints"
         description="Agent configurations available to deploy in your account."
-        adornment={<PageScopeSwitcher />}
         action={
           isAuthenticated && (
-            <Button asChild size="sm">
-              <Link to="/new/custom">
-                <PlusIcon className="size-4" />
-                Create blueprint
-              </Link>
-            </Button>
+            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+              <PageScopeSwitcher />
+              <Button asChild size="sm">
+                <Link to="/new/custom">
+                  <PlusIcon className="size-4" />
+                  Create blueprint
+                </Link>
+              </Button>
+            </div>
           )
         }
       />

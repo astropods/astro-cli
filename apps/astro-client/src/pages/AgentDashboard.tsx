@@ -88,7 +88,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
         <PageHeader
           title="Agents"
           description="Deployed agents running in your account."
-          adornment={<PageScopeSwitcher />}
+          action={<PageScopeSwitcher />}
         />
 
         {!isAgentsEmpty && <DashboardStats account={userAccount} isLoading={isLoading} />}

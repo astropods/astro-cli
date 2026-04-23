@@ -70,19 +70,21 @@ function KnowledgeStoresContent() {
       <PageHeader
         title="Knowledge Stores"
         description="Account-level databases shared across agent deployments."
-        adornment={<PageScopeSwitcher />}
         action={
-          <div className="flex items-center gap-2 shrink-0">
-            <Button variant="outline" size="sm" asChild>
-              <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
-                Learn more
-              </a>
-            </Button>
-            <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
-              <PlusIcon className="size-4" />
-              Add store
-            </Button>
-          </div>
+          isAuthenticated && (
+            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+              <PageScopeSwitcher />
+              <Button variant="outline" size="sm" asChild>
+                <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
+                  Learn more
+                </a>
+              </Button>
+              <Button size="sm" onClick={() => navigate(newKnowledgePath)}>
+                <PlusIcon className="size-4" />
+                Add store
+              </Button>
+            </div>
+          )
         }
       />
 
