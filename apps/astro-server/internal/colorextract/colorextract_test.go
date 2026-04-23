@@ -204,11 +204,11 @@ func TestPickCardColors(t *testing.T) {
 	}
 }
 
-func TestSaturation(t *testing.T) {
-	if s := saturation(255, 0, 0); s != 1.0 {
+func TestHSLSaturation(t *testing.T) {
+	if _, s, _ := rgbToHSL(255, 0, 0); s != 1.0 {
 		t.Errorf("pure red saturation: got %f, want 1.0", s)
 	}
-	if s := saturation(128, 128, 128); s != 0.0 {
+	if _, s, _ := rgbToHSL(128, 128, 128); s != 0.0 {
 		t.Errorf("gray saturation: got %f, want 0.0", s)
 	}
 }
@@ -234,16 +234,18 @@ func TestCrossValidation_TypeScriptParity(t *testing.T) {
 		t.Fatalf("ExtractFromJPEG: %v", err)
 	}
 
-	// Reference values from the TypeScript implementation.
+	// Reference values from the target-based selection algorithm.
+	// Updated after switching from population-weighted scoring to Android Palette-style
+	// target matching. The new algorithm picks a more vibrant accent.
 	want := AvatarColors{
-		Base:         "#291916",
-		Vibrant:      "#863d2d",
-		VibrantLight: "#e09685",
-		Accent:       "#32130c",
-		AccentLight:  "#e6bc99", // TS reference; Go may produce #e6bb99 (±1 green channel)
-		Background:   "#22100b",
-		Foreground:   "#f6f4f4",
-		Glow:         "#ebb8ad",
+		Base:         "#cbaf97",
+		Vibrant:      "#86552d",
+		VibrantLight: "#e0ae85",
+		Accent:       "#e6ac7c",
+		AccentLight:  "#e6bc99", // from light vibrant target; Go may produce ±1 per channel
+		Background:   "#22160b",
+		Foreground:   "#f6f5f4",
+		Glow:         "#efc9a9",
 	}
 
 	fields := []struct {

@@ -1,59 +1,133 @@
 /**
  * Card-specific color derivation.
  *
- * Takes palette swatches (from mmcq.ts) and derives a full CardColors scheme.
+ * Uses target-based swatch selection (inspired by Android's Palette API)
+ * to pick the best swatch for each role from the MMCQ palette.
  */
 
 import type { CardColors } from "./types";
 import type { RGB, Swatch } from "./mmcq";
 import { rgbToHsl, hslToHex } from "./mmcq";
 
-/** Simple saturation calculation from RGB (HSV saturation). */
-function saturation(r: number, g: number, b: number): number {
-  const max = Math.max(r, g, b) / 255;
-  const min = Math.min(r, g, b) / 255;
-  if (max === 0) return 0;
-  return (max - min) / max;
+// ─── Target-based swatch selection ──────────────────────────────────────────
+
+interface SwatchTarget {
+  targetSaturation: number;
+  minSaturation: number;
+  maxSaturation: number;
+  targetLightness: number;
+  minLightness: number;
+  maxLightness: number;
 }
 
+const VIBRANT: SwatchTarget = {
+  targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+  targetLightness: 0.5,  minLightness: 0.3,   maxLightness: 0.7,
+};
+
+const LIGHT_VIBRANT: SwatchTarget = {
+  targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+  targetLightness: 0.74, minLightness: 0.55,  maxLightness: 0.9,
+};
+
+const DARK_VIBRANT: SwatchTarget = {
+  targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+  targetLightness: 0.26, minLightness: 0.1,   maxLightness: 0.45,
+};
+
+const MUTED: SwatchTarget = {
+  targetSaturation: 0.3, minSaturation: 0.0,  maxSaturation: 0.4,
+  targetLightness: 0.5,  minLightness: 0.3,   maxLightness: 0.7,
+};
+
+// Scoring weights (matching Android Palette defaults)
+const WEIGHT_SATURATION = 0.24;
+const WEIGHT_LIGHTNESS = 0.52;
+const WEIGHT_POPULATION = 0.24;
+
+/** Score how well a swatch matches a target profile. Returns 0-1. */
+function scoreForTarget(
+  swatch: Swatch,
+  target: SwatchTarget,
+  maxPopulation: number,
+): number {
+  const [, s, l] = rgbToHsl(swatch.r, swatch.g, swatch.b);
+
+  // Reject swatches outside the target bounds
+  if (s < target.minSaturation || s > target.maxSaturation) return 0;
+  if (l < target.minLightness || l > target.maxLightness) return 0;
+
+  const satScore = 1 - Math.abs(s - target.targetSaturation);
+  const lumScore = 1 - Math.abs(l - target.targetLightness);
+  const popScore = maxPopulation > 0 ? swatch.population / maxPopulation : 0;
+
+  return satScore * WEIGHT_SATURATION
+       + lumScore * WEIGHT_LIGHTNESS
+       + popScore * WEIGHT_POPULATION;
+}
+
+/** Pick the best swatch for a given target, excluding already-used swatches. */
+function pickForTarget(
+  swatches: Swatch[],
+  target: SwatchTarget,
+  maxPopulation: number,
+  used: Set<number>,
+): { swatch: Swatch; index: number } | null {
+  let best: { swatch: Swatch; index: number; score: number } | null = null;
+  for (let i = 0; i < swatches.length; i++) {
+    if (used.has(i)) continue;
+    const score = scoreForTarget(swatches[i], target, maxPopulation);
+    if (score > 0 && (!best || score > best.score)) {
+      best = { swatch: swatches[i], index: i, score };
+    }
+  }
+  return best;
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
 /**
- * Pick card colors from a palette of swatches.
+ * Pick card colors from a palette of swatches using target-based selection.
  *
- * - accent: the most vibrant dominant color
- * - accentLight: a lighter variant of a secondary color
- * - background: accent hue darkened to ~12% lightness (still has color)
- * - foreground: accent hue lightened to ~92% lightness
+ * Each role (vibrant, light vibrant, dark vibrant, muted) independently picks
+ * the best-matching swatch. The "accent" is the vibrant swatch (or the most
+ * populated swatch as fallback).
  */
 export function pickCardColors(swatches: Swatch[]): CardColors | null {
   if (swatches.length === 0) return null;
 
-  // Score by: saturation * sqrt(population share) — balances vibrancy with dominance
-  const totalPop = swatches.reduce((sum, s) => sum + s.population, 0);
-  const scored = swatches.map((s) => ({
-    ...s,
-    score: saturation(s.r, s.g, s.b) * Math.sqrt(s.population / totalPop),
-  }));
-  scored.sort((a, b) => b.score - a.score);
+  const maxPop = Math.max(...swatches.map((s) => s.population));
+  const used = new Set<number>();
 
-  const accent = scored[0];
+  // Pick vibrant first — this becomes our "accent"
+  const vibrant = pickForTarget(swatches, VIBRANT, maxPop, used);
+  if (vibrant) used.add(vibrant.index);
+
+  const lightVibrant = pickForTarget(swatches, LIGHT_VIBRANT, maxPop, used);
+  if (lightVibrant) used.add(lightVibrant.index);
+
+  const darkVibrant = pickForTarget(swatches, DARK_VIBRANT, maxPop, used);
+  if (darkVibrant) used.add(darkVibrant.index);
+
+  const muted = pickForTarget(swatches, MUTED, maxPop, used);
+
+  // Accent is vibrant, falling back to the most populated swatch
+  const accent = vibrant?.swatch ?? swatches[0];
   const [accentH, accentS] = rgbToHsl(accent.r, accent.g, accent.b);
 
-  // Find a secondary swatch with sufficient color distance
-  let secondary = scored[1] ?? accent;
-  for (const s of scored.slice(1)) {
-    const dr = s.r - accent.r;
-    const dg = s.g - accent.g;
-    const db = s.b - accent.b;
-    if (Math.sqrt(dr * dr + dg * dg + db * db) > 80) {
-      secondary = s;
-      break;
-    }
+  // For accentLight, prefer light vibrant, then fall back to a derived color
+  const accentLightSwatch = lightVibrant?.swatch;
+  let accentLightHex: string;
+  if (accentLightSwatch) {
+    const [slH, slS] = rgbToHsl(accentLightSwatch.r, accentLightSwatch.g, accentLightSwatch.b);
+    accentLightHex = hslToHex(slH, Math.min(slS, 0.6), 0.75);
+  } else {
+    accentLightHex = hslToHex(accentH, Math.min(accentS, 0.4), 0.75);
   }
-  const [secH, secS] = rgbToHsl(secondary.r, secondary.g, secondary.b);
 
   return {
     accent: accent.hex,
-    accentLight: hslToHex(secH, Math.min(secS, 0.6), 0.75),
+    accentLight: accentLightHex,
     background: hslToHex(accentH, Math.min(accentS, 0.5), 0.09),
     foreground: hslToHex(accentH, Math.min(accentS, 0.1), 0.96),
     glow: hslToHex(accentH, Math.min(accentS, 0.9), 0.8),

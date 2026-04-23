@@ -234,7 +234,7 @@ func extractPalette(data []byte, paletteSize, quality int) []swatch {
 	return swatches
 }
 
-// --- Card Color Derivation ---
+// --- Target-based Swatch Selection (Android Palette algorithm) ---
 
 type cardColors struct {
 	accent      string
@@ -244,62 +244,126 @@ type cardColors struct {
 	glow        string
 }
 
-// saturation computes HSV saturation from RGB 0-255.
-func saturation(r, g, b int) float64 {
-	max := math.Max(float64(r), math.Max(float64(g), float64(b))) / 255
-	min := math.Min(float64(r), math.Min(float64(g), float64(b))) / 255
-	if max == 0 {
-		return 0
-	}
-	return (max - min) / max
+type swatchTarget struct {
+	targetSaturation, minSaturation, maxSaturation float64
+	targetLightness, minLightness, maxLightness    float64
 }
 
-// pickCardColors selects the dominant accent + secondary color from swatches,
-// then derives a full color scheme.
+var (
+	targetVibrant = swatchTarget{
+		targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+		targetLightness: 0.5, minLightness: 0.3, maxLightness: 0.7,
+	}
+	targetLightVibrant = swatchTarget{
+		targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+		targetLightness: 0.74, minLightness: 0.55, maxLightness: 0.9,
+	}
+	targetDarkVibrant = swatchTarget{
+		targetSaturation: 1.0, minSaturation: 0.35, maxSaturation: 1.0,
+		targetLightness: 0.26, minLightness: 0.1, maxLightness: 0.45,
+	}
+	targetMuted = swatchTarget{
+		targetSaturation: 0.3, minSaturation: 0.0, maxSaturation: 0.4,
+		targetLightness: 0.5, minLightness: 0.3, maxLightness: 0.7,
+	}
+)
+
+const (
+	weightSaturation = 0.24
+	weightLightness  = 0.52
+	weightPopulation = 0.24
+)
+
+// scoreForTarget returns 0-1 indicating how well a swatch matches a target.
+func scoreForTarget(s swatch, t swatchTarget, maxPop int) float64 {
+	_, sat, lum := rgbToHSL(s.r, s.g, s.b)
+	if sat < t.minSaturation || sat > t.maxSaturation {
+		return 0
+	}
+	if lum < t.minLightness || lum > t.maxLightness {
+		return 0
+	}
+	satScore := 1 - math.Abs(sat-t.targetSaturation)
+	lumScore := 1 - math.Abs(lum-t.targetLightness)
+	popScore := 0.0
+	if maxPop > 0 {
+		popScore = float64(s.population) / float64(maxPop)
+	}
+	return satScore*weightSaturation + lumScore*weightLightness + popScore*weightPopulation
+}
+
+// pickForTarget picks the best swatch for a target, skipping indices in used.
+func pickForTarget(swatches []swatch, t swatchTarget, maxPop int, used map[int]bool) (swatch, int, bool) {
+	bestIdx := -1
+	bestScore := 0.0
+	for i, s := range swatches {
+		if used[i] {
+			continue
+		}
+		score := scoreForTarget(s, t, maxPop)
+		if score > 0 && score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+	if bestIdx < 0 {
+		return swatch{}, -1, false
+	}
+	return swatches[bestIdx], bestIdx, true
+}
+
+// pickCardColors uses target-based selection to pick the best swatch for each
+// role from the MMCQ palette, then derives a full color scheme.
 func pickCardColors(swatches []swatch) *cardColors {
 	if len(swatches) == 0 {
 		return nil
 	}
 
-	totalPop := 0
+	maxPop := 0
 	for _, s := range swatches {
-		totalPop += s.population
-	}
-
-	type scored struct {
-		swatch
-		score float64
-	}
-	scoredSwatches := make([]scored, len(swatches))
-	for i, s := range swatches {
-		sat := saturation(s.r, s.g, s.b)
-		scoredSwatches[i] = scored{s, sat * math.Sqrt(float64(s.population)/float64(totalPop))}
-	}
-	sort.Slice(scoredSwatches, func(i, j int) bool {
-		return scoredSwatches[i].score > scoredSwatches[j].score
-	})
-
-	accent := scoredSwatches[0].swatch
-	accentH, accentS, _ := rgbToHSL(accent.r, accent.g, accent.b)
-
-	secondary := accent
-	if len(scoredSwatches) > 1 {
-		secondary = scoredSwatches[1].swatch
-	}
-	for _, s := range scoredSwatches[1:] {
-		dr := float64(s.r - accent.r)
-		dg := float64(s.g - accent.g)
-		db := float64(s.b - accent.b)
-		if math.Sqrt(dr*dr+dg*dg+db*db) > 80 {
-			secondary = s.swatch
-			break
+		if s.population > maxPop {
+			maxPop = s.population
 		}
 	}
-	secH, secS, _ := rgbToHSL(secondary.r, secondary.g, secondary.b)
+
+	used := map[int]bool{}
+
+	vibrant, vibrantIdx, hasVibrant := pickForTarget(swatches, targetVibrant, maxPop, used)
+	if hasVibrant {
+		used[vibrantIdx] = true
+	}
+
+	lightVibrant, lvIdx, hasLV := pickForTarget(swatches, targetLightVibrant, maxPop, used)
+	if hasLV {
+		used[lvIdx] = true
+	}
+
+	_, dvIdx, hasDV := pickForTarget(swatches, targetDarkVibrant, maxPop, used)
+	if hasDV {
+		used[dvIdx] = true
+	}
+
+	_, _, _ = pickForTarget(swatches, targetMuted, maxPop, used)
+
+	// Accent is the vibrant swatch, falling back to the most populated
+	accent := swatches[0] // swatches are sorted by population
+	if hasVibrant {
+		accent = vibrant
+	}
+	accentH, accentS, _ := rgbToHSL(accent.r, accent.g, accent.b)
+
+	// AccentLight from light vibrant or derived
+	var accentLightHex string
+	if hasLV {
+		lvH, lvS, _ := rgbToHSL(lightVibrant.r, lightVibrant.g, lightVibrant.b)
+		accentLightHex = hslToHex(lvH, math.Min(lvS, 0.6), 0.75)
+	} else {
+		accentLightHex = hslToHex(accentH, math.Min(accentS, 0.4), 0.75)
+	}
 
 	return &cardColors{
 		accent:      accent.hex,
-		accentLight: hslToHex(secH, math.Min(secS, 0.6), 0.75),
+		accentLight: accentLightHex,
 		background:  hslToHex(accentH, math.Min(accentS, 0.5), 0.09),
 		foreground:  hslToHex(accentH, math.Min(accentS, 0.1), 0.96),
 		glow:        hslToHex(accentH, math.Min(accentS, 0.9), 0.8),

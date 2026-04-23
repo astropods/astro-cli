@@ -29,5 +29,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", ".react-router/"]
+  "include": ["src", ".react-router/"],
+  "exclude": ["src/stories/ColorDiagnostics3D.tsx", "src/stories/ColorDiagnostics.stories.tsx"]
 }

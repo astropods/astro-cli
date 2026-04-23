@@ -40,8 +40,11 @@ function deriveCtaColors(hex: string) {
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
   if (max !== min) {
     const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
     switch (max) {
       case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
       case g: h = ((b - r) / d + 2) / 6; break;
@@ -49,9 +52,11 @@ function deriveCtaColors(hex: string) {
     }
   }
   const hDeg = Math.round(h * 360);
+  // Clamp saturation to 35-75% range
+  const ctaSat = Math.round(Math.min(75, Math.max(35, s * 100)));
   return {
-    base: `hsl(${hDeg} 50% 45%)`,
-    darkBase: `hsl(${hDeg} 50% 32%)`,
+    base: `hsl(${hDeg} ${ctaSat}% 45%)`,
+    darkBase: `hsl(${hDeg} ${ctaSat}% 32%)`,
   };
 }
 
@@ -158,11 +163,15 @@ export function HoloButton({ accentHex, proximityPadding = 16, className, childr
 
   return (
     <div
-      className="relative"
+      className="relative w-full"
       onPointerMove={handleProximityMove}
       onPointerLeave={handleProximityLeave}
-      style={{ margin: `-${pad}px`, padding: `${pad}px` }}
     >
+      {/* Invisible expanded hit area for proximity detection */}
+      <div
+        className="pointer-events-auto absolute"
+        style={{ inset: `-${pad}px` }}
+      />
       {renderContent(lightRef, colors.base, "dark:hidden")}
       {renderContent(darkRef, colors.darkBase, "hidden dark:flex")}
     </div>
