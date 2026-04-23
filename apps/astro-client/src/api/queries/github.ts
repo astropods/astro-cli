@@ -112,6 +112,10 @@ export function useGitHubAccountConnect(account: string) {
     mutationFn: (redirectTo: string) => api.gitHubConnectAccount(account, redirectTo),
     onSuccess: (data) => {
       if (data.connected) {
+        queryClient.setQueryData(githubKeys.accountStatus(account), {
+          connected: true,
+          github_login: data.github_login,
+        });
         queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
       }
     },

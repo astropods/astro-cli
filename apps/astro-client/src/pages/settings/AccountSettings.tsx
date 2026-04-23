@@ -136,11 +136,6 @@ function GitHubSection() {
       onSuccess: (data) => {
         if (data.redirect_url) {
           window.location.href = data.redirect_url;
-        } else if (data.connected) {
-          queryClient.setQueryData(githubKeys.accountStatus(account), {
-            connected: true,
-            github_login: data.github_login,
-          });
         }
       },
     });
