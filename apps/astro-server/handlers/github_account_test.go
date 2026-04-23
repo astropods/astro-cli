@@ -361,8 +361,8 @@ func TestGitHubAccountListConnections_Success(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
-			AddRow("my-agent", "owner/my-repo", now))
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
+			AddRow("my-agent", "owner/my-repo", int64(42), now))
 
 	injectAcct := func(c *gin.Context) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})

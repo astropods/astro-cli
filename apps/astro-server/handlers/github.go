@@ -436,16 +436,22 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 		}
 
 		// Best-effort webhook removal using the account's OAuth token.
+		// deletedWebhooks tracks webhook IDs already removed so that multiple
+		// blueprints sharing the same repo (e.g. different monorepo subpaths)
+		// don't trigger redundant GitHub API calls for the same webhook.
 		token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 			Provider:       "github",
 			UserID:         session.UserID,
 			OrganizationID: session.OrganizationID,
 		})
+		deletedWebhooks := make(map[int64]bool)
 		for _, conn := range conns {
-			if tokenErr == nil && conn.WebhookID != 0 {
+			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
 				if gh := githubclient.New(token.AccessToken); gh != nil {
 					if delErr := gh.DeleteWebhook(c.Request.Context(), conn.RepoFullName, conn.WebhookID); delErr != nil {
 						log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
+					} else {
+						deletedWebhooks[conn.WebhookID] = true
 					}
 				}
 			}

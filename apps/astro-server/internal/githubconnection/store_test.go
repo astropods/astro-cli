@@ -113,9 +113,9 @@ func TestStore_ListByAccount(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
-			AddRow("agent-a", "owner/repo-a", now).
-			AddRow("agent-b", "owner/repo-b", now))
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
+			AddRow("agent-a", "owner/repo-a", int64(10), now).
+			AddRow("agent-b", "owner/repo-b", int64(10), now)) // same webhook_id simulates two subpaths in one monorepo
 
 	conns, err := store.ListByAccount(context.Background(), "acct-1")
 	if err != nil {
@@ -126,6 +126,9 @@ func TestStore_ListByAccount(t *testing.T) {
 	}
 	if conns[0].AgentName != "agent-a" || conns[0].RepoFullName != "owner/repo-a" {
 		t.Errorf("conns[0] = {%q, %q}, want {agent-a, owner/repo-a}", conns[0].AgentName, conns[0].RepoFullName)
+	}
+	if conns[0].WebhookID != 10 {
+		t.Errorf("conns[0].WebhookID = %d, want 10", conns[0].WebhookID)
 	}
 	if conns[1].CreatedAt.IsZero() {
 		t.Errorf("conns[1].CreatedAt is zero, expected a valid timestamp")
