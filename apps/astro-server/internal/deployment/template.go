@@ -201,10 +201,12 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 					}
-					// For postgres, inject auto-derived database name into the agent
+					// For postgres, inject auto-derived database name into the agent.
 					if knowledge.Provider == "postgres" {
 						dbName := spec.SanitizeDBName(input.AgentName)
-						agentEnv["POSTGRES_DB"] = dbName
+						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "DB", isDup, isFirst) {
+							agentEnv[key] = dbName
+						}
 					}
 					if prov.URLScheme != "" {
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
