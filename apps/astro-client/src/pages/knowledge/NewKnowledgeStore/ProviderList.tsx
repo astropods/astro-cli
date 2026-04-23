@@ -1,8 +1,7 @@
 import { Tag } from "@/components/Tag";
-import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
+import { PROVIDER_LABELS, ALL_PROVIDERS, MANAGED_SET, PROVIDER_CATEGORIES } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
-import { ALL_PROVIDERS, MANAGED_SET, PROVIDER_CATEGORIES } from "./constants";
 
 export function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }) {
   return (

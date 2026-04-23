@@ -79,3 +79,26 @@ export function validateStoreName(name: string): string | null {
   if (!/^[a-z0-9-]+$/.test(name)) return "Name must contain only lowercase letters, digits, and hyphens";
   return null;
 }
+
+// ── Provider catalog (single source of truth for the client) ─────────────────
+
+export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
+  postgres: "Relational",
+  qdrant: "Vector search",
+  redis: "Key-value",
+  neo4j: "Graph database",
+  pinecone: "Vector search",
+  mysql: "Relational",
+};
+
+/** Providers available for new store creation. To enable a provider, add it here. */
+export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
+export const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
+
+export const STORAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "10Gi", label: "10 GB" },
+  { value: "20Gi", label: "20 GB" },
+  { value: "50Gi", label: "50 GB" },
+  { value: "100Gi", label: "100 GB" },
+  { value: "1Ti", label: "1 TB" },
+];

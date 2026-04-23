@@ -25,7 +25,7 @@ import {
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { MANAGED_SET, STORAGE_OPTIONS } from "./constants";
+import { MANAGED_SET, STORAGE_OPTIONS } from "@/components/knowledge/knowledge-utils";
 import { ProvisioningStage } from "./ProvisioningStage";
 import { SuccessStage } from "./SuccessStage";
 
