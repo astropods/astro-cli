@@ -90,7 +90,7 @@ func (m *TokenManager) refreshToken(ctx context.Context, profile *Profile) (*Pro
 		profile.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	} else {
 		// Parse expiry from JWT if expires_in not provided
-		if exp, err := parseJWTExpiry(tokenResp.AccessToken); err == nil {
+		if exp, err := ParseJWTExpiry(tokenResp.AccessToken); err == nil {
 			profile.ExpiresAt = exp
 		} else {
 			// Fallback to 5 minutes if we can't parse
@@ -234,8 +234,8 @@ func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
 	return newProfile.AccessToken, nil
 }
 
-// parseJWTExpiry extracts the expiry time from a JWT token
-func parseJWTExpiry(tokenString string) (time.Time, error) {
+// ParseJWTExpiry extracts the expiry time from a JWT token
+func ParseJWTExpiry(tokenString string) (time.Time, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return time.Time{}, errors.New("invalid JWT format")

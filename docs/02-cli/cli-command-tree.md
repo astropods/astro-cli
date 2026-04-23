@@ -36,6 +36,7 @@ The current CLI has a flat, inconsistent command structure that mixes local proj
 |---|---|
 | `account list` | List all accounts you belong to |
 | `account switch <name>` | Set working account; scopes all subsequent commands |
+| `account token` | Print an API token scoped to the active account |
 
 The active account is persisted in the credential store alongside auth tokens. The credential store records all accounts the user belongs to and which is currently active. `account list` reads from the credential store; `account switch` updates the active entry.
 

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 // Build-time configuration (set via ldflags)
@@ -43,8 +45,8 @@ func ConfigDir(binaryName string) (string, error) {
 	switch binaryName {
 	case "ast-preview":
 		dir = ".ast-preview"
-	case "ast-dev":
-		dir = ".ast-dev"
+	case buildinfo.DevBinaryName:
+		dir = "." + buildinfo.DevBinaryName
 	}
 	return filepath.Join(home, dir), nil
 }

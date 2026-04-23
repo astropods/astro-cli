@@ -106,8 +106,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Dev binary: skip push, default to native platform
-	isDevBinary := binaryName == "ast-dev"
-	if isDevBinary {
+	if isDevBuild {
 		skipPush = true
 		if !cmd.Flags().Changed("platform") {
 			pushPlatform = nativePlatform()
@@ -353,7 +352,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
 		// Retag locally-built platform images to registry paths so the local server can resolve them
-		if isDevBinary {
+		if isDevBuild {
 			retag := func(local, remote string) error {
 				cmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
 				if out, err := cmd.CombinedOutput(); err != nil {

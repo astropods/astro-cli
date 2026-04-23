@@ -39,10 +39,12 @@ otherwise in the CLI config directory with restricted permissions.`,
 }
 
 var noBrowser bool
+var loginAccount string
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
 	loginCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't automatically open browser")
+	loginCmd.Flags().StringVar(&loginAccount, "account", "", "Switch to this account after login")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -202,6 +204,17 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
+	// Optionally switch to a specific account after login.
+	activeAccount := profile.User.AccountName
+	if loginAccount != "" {
+		if err := storage.SetCurrentAccount(loginAccount); err != nil {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("  Warning: could not switch to account %q: %v\n", loginAccount, err) //nolint:errcheck,gosec
+		} else {
+			activeAccount = loginAccount
+		}
+	}
+
 	// Success message
 	fmt.Println()
 	green.Print("✓ ")                          //nolint:errcheck,gosec
@@ -215,8 +228,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("  Logged in as: %s\n", profile.User.Email)
 		}
-		if profile.User.AccountName != "" {
-			fmt.Printf("  Account: %s\n", profile.User.AccountName)
+		if activeAccount != "" {
+			fmt.Printf("  Account: %s\n", activeAccount)
 		}
 
 		// List organizations the user belongs to
