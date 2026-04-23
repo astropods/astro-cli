@@ -495,6 +495,15 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 			}
 		}
 
+		// Revoke the OAuth token in WorkOS Pipes so subsequent status checks return not-connected.
+		if err := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		}); err != nil {
+			log.Warn("github: revoke pipes connection on account disconnect", "error", err)
+		}
+
 		log.Info("GitHub account disconnected", "account", acct.Name, "connections_removed", len(conns))
 		c.Status(http.StatusNoContent)
 	}

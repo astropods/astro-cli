@@ -83,6 +83,50 @@ type GetAuthorizationURLInput struct {
 	ReturnTo       string
 }
 
+// DeleteConnectionInput holds parameters for revoking a provider OAuth connection.
+type DeleteConnectionInput struct {
+	Provider       string
+	UserID         string
+	OrganizationID string
+}
+
+// DeleteConnection revokes the OAuth connection for a provider on behalf of a user.
+// Calls DELETE /data-integrations/:slug/connections — not yet in the SDK.
+func (c *Client) DeleteConnection(ctx context.Context, in DeleteConnectionInput) error {
+	body := map[string]string{
+		"user_id": in.UserID,
+	}
+	if in.OrganizationID != "" {
+		body["organization_id"] = in.OrganizationID
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("pipes: marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/data-integrations/%s/connections", c.endpoint, in.Provider)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("pipes: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("pipes: delete connection request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode >= 400 {
+		var buf bytes.Buffer
+		buf.ReadFrom(resp.Body) //nolint:errcheck
+		return fmt.Errorf("pipes: delete connection returned %d: %s", resp.StatusCode, buf.String())
+	}
+	return nil
+}
+
 // GetAuthorizationURL returns the OAuth URL to redirect the user to.
 // Calls POST /data-integrations/:slug/authorize — not yet in the SDK.
 func (c *Client) GetAuthorizationURL(ctx context.Context, in GetAuthorizationURLInput) (string, error) {
