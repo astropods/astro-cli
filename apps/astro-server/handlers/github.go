@@ -404,15 +404,16 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 			return
 		}
 
-		login := ""
+		resp := gin.H{"connected": true}
 		if gh := githubclient.New(token.AccessToken); gh != nil {
-			var loginErr error
-			login, loginErr = gh.GetLogin(c.Request.Context())
+			login, loginErr := gh.GetLogin(c.Request.Context())
 			if loginErr != nil {
 				log.Warn("github: failed to fetch login for account status", "error", loginErr)
+			} else if login != "" {
+				resp["github_login"] = login
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
