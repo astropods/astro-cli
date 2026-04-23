@@ -16,7 +16,7 @@ function CodeBlock({ command, label }: { command: string; label?: string }) {
   return (
     <div>
       {label && <p className="text-muted-foreground mb-1.5 text-xs">{label}</p>}
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 font-mono text-mono-md text-foreground">
+      <div className="flex items-center justify-between gap-3 rounded-[4px] border border-stone-200 bg-white px-4 py-3 font-mono text-mono-md text-foreground">
         <code className="overflow-x-auto whitespace-nowrap text-foreground">
           <span className="mr-2">$</span>
           {command}
@@ -45,7 +45,7 @@ function StepNumber({ n, isLast = false }: { n: number; isLast?: boolean }) {
 
 function YmlBlock({ content }: { content: string }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border-strong bg-surface">
+    <div className="overflow-hidden rounded-[4px] border border-border-strong bg-surface">
       <div className="flex items-center justify-between border-b border-border-strong bg-stone-200 px-4 py-2 dark:bg-muted/30">
         <span className="text-[11px] leading-4 font-mono text-muted-foreground">astropods.yml</span>
         <CopyButton copyText={content} className="border-stone-300/60 bg-transparent text-stone-500 hover:border-stone-400/60 hover:bg-stone-300/40 hover:text-stone-700" />
@@ -101,7 +101,7 @@ export function BlueprintDetailContent({
 
       {/* Draft: FINISH SETTING UP — hidden when a build exists or readme is available */}
       {isDraft && !readme && !hasBuild && (
-        <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
+        <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
           <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <div className="flex items-center gap-2">
               {githubRepoName
@@ -234,7 +234,7 @@ export function BlueprintDetailContent({
 
       {/* README — shown even while draft when AGENT.md content is available */}
       {readme && (
-        <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
+        <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
           <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">

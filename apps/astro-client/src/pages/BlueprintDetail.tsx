@@ -304,13 +304,13 @@ function BlueprintDetailInner({
           <div
             className="absolute inset-0 dark:hidden"
             style={{
-              background: `radial-gradient(ellipse 80% 70% at 25% 0%, color-mix(in oklch, ${effectiveBlueprint.avatar_colors?.glow ?? 'var(--color-teal-500)'} 30%, transparent) 0%, transparent 80%)`,
+              background: `radial-gradient(ellipse 80% 70% at 25% 0%, color-mix(in oklch, ${effectiveBlueprint.avatar_colors?.glow ?? 'var(--color-teal-500)'} 25%, transparent) 0%, transparent 80%)`,
             }}
           />
           <div
             className="absolute inset-0 hidden dark:block"
             style={{
-              background: `radial-gradient(ellipse 80% 70% at 25% 0%, color-mix(in oklch, ${effectiveBlueprint.avatar_colors?.glow ?? 'var(--color-teal-500)'} 24%, transparent) 0%, transparent 80%)`,
+              background: `radial-gradient(ellipse 80% 70% at 25% 0%, color-mix(in oklch, ${effectiveBlueprint.avatar_colors?.base ?? 'var(--color-teal-500)'} 24%, transparent) 0%, transparent 80%)`,
             }}
           />
           {/* Light-mode grid (more pronounced) */}
@@ -322,7 +322,7 @@ function BlueprintDetailInner({
                   fill="none"
                   stroke={effectiveBlueprint.avatar_colors?.vibrant_light ?? 'var(--color-teal-700)'}
                   strokeWidth="0.75"
-                  strokeOpacity="0.5"
+                  strokeOpacity="0.35"
                 />
               </pattern>
             </defs>
@@ -335,9 +335,9 @@ function BlueprintDetailInner({
                 <path
                   d="M 8 0 L 0 0 0 8"
                   fill="none"
-                  stroke={effectiveBlueprint.avatar_colors?.vibrant_light ?? 'var(--color-teal-700)'}
+                  stroke="white"
                   strokeWidth="0.5"
-                  strokeOpacity="0.2"
+                  strokeOpacity="0.12"
                 />
               </pattern>
             </defs>
