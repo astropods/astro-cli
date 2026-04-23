@@ -17,6 +17,7 @@ import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountConnections } from "@/api/queries/github";
 import { githubKeys } from "@/api/queries/keys";
+import { repoHref, repoLabel } from "@/lib/github-utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
@@ -196,13 +197,13 @@ function GitHubSection() {
             {connections.map((c) => (
               <div key={`${c.agent_name}:${c.repo_full_name}`} className="flex items-center gap-2.5 px-3 py-2.5 text-[12px]">
                 <a
-                  href={`https://github.com/${c.repo_full_name}`}
+                  href={repoHref(c.repo_full_name)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
-                  <span className="font-mono">{c.repo_full_name}</span>
+                  <span className="font-mono">{repoLabel(c.repo_full_name)}</span>
                 </a>
                 <ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                 <Link
