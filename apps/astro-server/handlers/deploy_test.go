@@ -1125,6 +1125,111 @@ func TestUndeploy_InactiveDeployment(t *testing.T) {
 	}
 }
 
+func TestUndeploy_UndeployingDeployment(t *testing.T) {
+	router, deployMock, _ := setupUndeployTest(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// GetDeploymentByID returns an already-undeploying record
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "undeploying", now, nil))
+
+	body := `{"deployment_id":"` + depID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for already-undeploying deployment, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUndeploy_PendingDeployment(t *testing.T) {
+	router, deployMock, accountMock := setupUndeployTest(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// GetDeploymentByID returns a pending deployment (not yet provisioned)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "pending", now, nil))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// UpdateStatus (undeploying)
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := `{"deployment_id":"` + depID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 for pending deployment undeploy, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "undeploying" {
+		t.Errorf("expected status 'undeploying', got %v", resp["status"])
+	}
+}
+
+func TestUndeploy_ProvisioningDeployment(t *testing.T) {
+	router, deployMock, accountMock := setupUndeployTest(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// GetDeploymentByID returns a provisioning deployment
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "provisioning", now, nil))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// UpdateStatus (undeploying)
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := `{"deployment_id":"` + depID + `"}`
+	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 for provisioning deployment undeploy, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "undeploying" {
+		t.Errorf("expected status 'undeploying', got %v", resp["status"])
+	}
+}
+
 func TestUndeploy_FailedDeployment(t *testing.T) {
 	router, deployMock, accountMock := setupUndeployTest(t)
 

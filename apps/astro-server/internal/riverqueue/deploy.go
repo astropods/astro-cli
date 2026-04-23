@@ -97,6 +97,18 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		return nil // no retry — user needs to fix the spec
 	}
 
+	// Re-read status to guard against a concurrent undeploy requested during Apply.
+	refreshed, err := w.store.GetDeploymentByID(dep.ID)
+	if err != nil {
+		return fmt.Errorf("re-read after apply: %w", err)
+	}
+	if refreshed == nil || refreshed.Status != deploymentstore.StatusProvisioning {
+		w.log.Info("Deploy: status changed during apply, skipping active transition",
+			"deployment_id", dep.ID,
+			"status", statusOrNil(refreshed),
+		)
+		return nil
+	}
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
 		return fmt.Errorf("set active: %w", err)
 	}

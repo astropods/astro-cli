@@ -665,13 +665,13 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			return
 		}
 
-		// Look up deployment by ID — accept active or scaled_down
+		// Look up deployment by ID
 		dep, err := deployStore.GetDeploymentByID(req.DeploymentID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 			return
 		}
-		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusFailed) {
+		if dep == nil || dep.Status == deploymentstore.StatusUndeploying || dep.Status == deploymentstore.StatusUndeployed {
 			c.JSON(http.StatusNotFound, gin.H{"error": "active deployment not found"})
 			return
 		}
