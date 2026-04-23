@@ -21,19 +21,19 @@ Returns empty for empty specs, missing `source`, or parse failures. Callers trea
 
 ### Prefill uses the publisher for the build lookup
 
-`generateTemplate` in `handlers/deploy.go` gains two new parameters:
-
-- `sourceAccountOverride string` — when non-empty, replaces `c.Param("account")` for the agent/version lookup.
-- `skipVisibilityCheck bool` — skips the private-agent membership recheck inside `generateTemplate`.
+`generateTemplate` in `handlers/deploy.go` is refactored to take a pre-resolved `(*account.Account, *agentindex.Agent)` pair and generate the template from those. Each call site in `PostDeploymentTemplate` now resolves its own account + agent up front via a new `resolveAgentForTemplate` helper and decides explicitly whether to run the private-agent visibility gate (`enforcePrivateAgentMembership`). This replaces the previous design where `generateTemplate` did the lookups and an opaque boolean controlled whether it also ran the membership check.
 
 `PostDeploymentTemplate`'s prefill branch (`deployment_id` present) now:
 
-1. Reads `deployment_spec_json.source.account` via `SourceAccountFromSpec` (using the historical revision's spec when a revision is requested).
-2. Passes that value as `sourceAccountOverride` so the agent and build are looked up under the publisher.
-3. Authorizes once against the deployment's target account — the same check that already gates the prefill branch — and passes `skipVisibilityCheck=true` so `generateTemplate` does not re-run a private-agent membership check against the publisher account. Re-running it would start requiring source-account membership for every cross-account Configure, which would break the publishing model whenever a publisher's agent is private.
-4. The fresh-template branch (no `deployment_id`) is unchanged: it still uses the URL account and keeps the visibility check on.
+1. Reads `deployment_spec_json.source.account` via `SourceAccountFromSpec` (using the historical revision's spec when a revision is requested), falling back to the URL account when the field is absent.
+2. Resolves the agent + account under that publisher and calls `generateTemplate` — no source-agent visibility check.
+3. Keeps authorization scoped to the deployment's target account, the same check that already gated the prefill branch. Requiring source-account membership here would break cross-account Configure for any private agent that had already been published and deployed downstream.
 
-The cache key for the prefill branch is extended with `sourceAccountName` so two deployments with the same `(account, agent, build, deployment_id, revision)` but different publishers never collide.
+The fresh-template branch (no `deployment_id`) resolves the agent under the URL account, runs `enforcePrivateAgentMembership`, then calls `generateTemplate`. Its observable behavior is unchanged.
+
+The cache key for the prefill branch is extended with `sourceAccountName`, placed directly after the URL account for readability (`accountName:sourceAccount:agentName:build:deployment:revision`), so two deployments with the same `(account, agent, build, deployment_id, revision)` but different publishers never collide.
+
+`source.account` lives in `deployment_spec_json`, not on a dedicated column of the `deployments` table. The only existing `source_account` column lives on `namespace_ownership` and is a derived mirror that the reconcile worker writes from the same JSON field. Promoting it to a first-class column on `deployments` is worth doing but is out of scope here; parsing the JSON is what `reconcile` already does and is now centralized via `SourceAccountFromSpec`.
 
 ### Pinning semantics preserved
 

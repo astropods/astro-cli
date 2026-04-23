@@ -2358,59 +2358,75 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 	}
 }
 
-// generateTemplate resolves an agent build and generates a deployment template.
+// resolveAgentForTemplate loads the account + agent used to build a
+// deployment template. The caller is responsible for any access-control
+// decisions on the returned agent (e.g. private-visibility membership
+// checks) — this function only resolves the records.
+func resolveAgentForTemplate(
+	c *gin.Context,
+	accountStore *account.AccountStore,
+	agentIndex *agentindex.Index,
+	accountName, agentName string,
+) (*account.Account, *agentindex.Agent, bool) {
+	acct, err := accountStore.GetByName(accountName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return nil, nil, false
+	}
+	agent, err := agentIndex.Get(acct.ID, agentName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return nil, nil, false
+	}
+	return acct, agent, true
+}
+
+// enforcePrivateAgentMembership is the private-visibility gate: a private
+// agent is only visible to members of its owning account. Returns true if
+// access is allowed; on denial it writes the response and returns false.
+func enforcePrivateAgentMembership(
+	c *gin.Context,
+	accountStore *account.AccountStore,
+	acct *account.Account,
+	agent *agentindex.Agent,
+) bool {
+	if agent.Visibility != "private" {
+		return true
+	}
+	user, exists := middleware.GetUser(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return false
+	}
+	if !isAccountMember(c, accountStore, acct.ID, user.ID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return false
+	}
+	return true
+}
+
+// generateTemplate resolves an agent build and generates a deployment
+// template from a pre-resolved (account, agent) pair.
 // buildIDOverride, when non-empty, pins the build instead of using latest.
-// sourceAccountOverride, when non-empty, replaces the URL :account param as the
-// account used to look up the agent and its build. This is how the prefill path
-// supports cross-account deployments whose spec references a source account
-// different from the workspace account in the URL.
-// skipVisibilityCheck bypasses the per-call private-agent membership check when
-// the caller has already authorized the user against the deployment's target
-// account; re-checking against the source account would incorrectly deny
-// cross-account Configure access.
+//
+// Access control is the caller's responsibility: fresh-template callers
+// run enforcePrivateAgentMembership before calling in; prefill callers rely
+// on the deployment's own target-account membership check and do not need
+// to re-check source-agent visibility.
 func generateTemplate(
 	c *gin.Context,
 	log *logger.Logger,
 	agentIndex *agentindex.Index,
-	accountStore *account.AccountStore,
 	cfg *config.Config,
+	acct *account.Account,
+	agent *agentindex.Agent,
 	buildIDOverride string,
-	sourceAccountOverride string,
-	skipVisibilityCheck bool,
 ) (*spec.AstroDeploymentSpec, bool) {
-	accountName := sourceAccountOverride
-	if accountName == "" {
-		accountName = c.Param("account")
-	}
-	name := c.Param("name")
-
-	user, exists := middleware.GetUser(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-		return nil, false
-	}
-
-	acct, err := accountStore.GetByName(accountName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-		return nil, false
-	}
 	accountID := acct.ID
-
-	agent, err := agentIndex.Get(accountID, name)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
-		return nil, false
-	}
-
-	if agent.Visibility == "private" && !skipVisibilityCheck {
-		if !isAccountMember(c, accountStore, accountID, user.ID) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
-			return nil, false
-		}
-	}
+	name := agent.Name
 
 	var agentVersion *agentindex.AgentVersion
+	var err error
 	if buildIDOverride != "" {
 		agentVersion, err = agentIndex.GetVersion(accountID, name, buildIDOverride)
 	} else if buildParam := c.Query("build"); buildParam != "" {
@@ -2429,13 +2445,13 @@ func generateTemplate(
 
 	specBytes, err := json.Marshal(agentVersion.Spec)
 	if err != nil {
-		log.Error("Failed to marshal stored spec", "error", err, "account", accountName, "agent", name)
+		log.Error("Failed to marshal stored spec", "error", err, "account", acct.Name, "agent", name)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
 		return nil, false
 	}
 	var astroSpec spec.AstroSpec
 	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", accountName, "agent", name, "raw", string(specBytes))
+		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", acct.Name, "agent", name, "raw", string(specBytes))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
 		return nil, false
 	}
@@ -2533,20 +2549,29 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// holds the historical revision's spec, so this picks up the
 			// source account as it was at that revision.
 			sourceAccountName := deploymentstore.SourceAccountFromSpec(prefillExisting.DeploymentSpecJSON)
+			lookupAccountName := accountName
+			if sourceAccountName != "" {
+				lookupAccountName = sourceAccountName
+			}
 
 			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
-			cacheKey := accountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision) + ":" + sourceAccountName
+			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
 				resp := deployment.ShapeTemplate(base, &req)
 				c.JSON(http.StatusOK, resp)
 				return
 			}
 
-			// Cache miss — full generation pipeline.
-			// Auth was already enforced above against the deployment's account;
-			// skip generateTemplate's visibility recheck so cross-account
-			// Configure does not require source-account membership.
-			template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride, sourceAccountName, true)
+			// Cache miss. Resolve the source account + agent. No private-
+			// visibility gate here: auth was enforced above against the
+			// deployment's account, and requiring source-account membership
+			// would break cross-account Configure for any private agent that
+			// has already been published and deployed downstream.
+			acct, agent, ok := resolveAgentForTemplate(c, accountStore, agentIndex, lookupAccountName, agentName)
+			if !ok {
+				return
+			}
+			template, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
 			if !ok {
 				return
 			}
@@ -2584,7 +2609,16 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			return
 		}
 
-		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg, buildIDOverride, "", false)
+		// Fresh requests gate access on the agent's visibility because there
+		// is no prior deployment to anchor authorization against.
+		acct, agent, ok := resolveAgentForTemplate(c, accountStore, agentIndex, accountName, agentName)
+		if !ok {
+			return
+		}
+		if !enforcePrivateAgentMembership(c, accountStore, acct, agent) {
+			return
+		}
+		template, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
 		if !ok {
 			return
 		}
