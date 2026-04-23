@@ -6,7 +6,7 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { accountProfilePath } from "@/lib/routes";
+import { blueprintsAccountPath } from "@/lib/routes";
 
 function HeartButton({
   iconOnly,
@@ -107,7 +107,7 @@ export function BlueprintDetailBreadcrumb({
     <PageBreadcrumb
       items={[
         { label: "Blueprints", to: "/blueprints" },
-        { label: account, to: accountProfilePath(account) },
+        { label: account, to: blueprintsAccountPath(account) },
         { label: blueprintName },
       ]}
       mobileItems={[
@@ -118,7 +118,7 @@ export function BlueprintDetailBreadcrumb({
               {account}
             </span>
           ),
-          to: accountProfilePath(account),
+          to: blueprintsAccountPath(account),
         },
       ]}
       actions={

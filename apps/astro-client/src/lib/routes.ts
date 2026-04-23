@@ -13,6 +13,10 @@ export function deploymentConfigurePath(account: string, deploymentId: string) {
   return `${deploymentPath(account, deploymentId)}/configure`;
 }
 
+export function blueprintsAccountPath(account: string) {
+  return `/blueprints?account=${encodeURIComponent(account)}`;
+}
+
 export const knowledgePath = "/knowledge";
 export const newKnowledgePath = "/knowledge/new";
 
