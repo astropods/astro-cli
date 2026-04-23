@@ -127,6 +127,7 @@ function NewBlueprintContent() {
   const isAlreadyPublished = completedSteps.has("publishing");
   const [publishError, setPublishError] = useState<string | null>(null);
   const [isBlueprintCreated, setIsBlueprintCreated] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Form state
   const [name, setName] = useState(() => oauthReturn?.savedWizard?.name ?? "");
@@ -240,7 +241,8 @@ function NewBlueprintContent() {
   }, [accountConnect, name, selectedOrg, visibility]);
 
   const handlePublish = useCallback(async () => {
-    if (isCreatingBlueprint) return;
+    if (isPublishing) return;
+    setIsPublishing(true);
     setPublishError(null);
     setCompletedSteps(prev => { const s = new Set(prev); s.add("source"); return s; });
     setActiveStep("publishing");
@@ -289,8 +291,10 @@ function NewBlueprintContent() {
       setActiveStep("review");
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setIsPublishing(false);
     }
-  }, [isCreatingBlueprint, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
+  }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
 
   const handleCreateOrConfirm = useCallback(() => {
     if (sourcePath === "import" && pickerValue.repoFullName) {
@@ -551,13 +555,18 @@ function NewBlueprintContent() {
                           </div>
                         )}
                       </div>
-                      {publishError && (
-                        <div className="border-t border-border px-6 py-4">
-                          <Button variant="outline" size="sm" onClick={() => setActiveStep("source")}>
+                      <div className="border-t border-border px-6 py-4">
+                        <span className={isPublishing ? "cursor-not-allowed" : undefined}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isPublishing}
+                            onClick={() => setActiveStep("source")}
+                          >
                             Back
                           </Button>
-                        </div>
-                      )}
+                        </span>
+                      </div>
                     </div>
                   )}
 
