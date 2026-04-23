@@ -288,7 +288,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
           <div className="space-y-1.5 pt-0.5">
             <Label size="md" className="flex items-center gap-1.5">
               <FolderOpen className="size-3.5" />
-              Subdirectory
+              Path
               <span className="font-normal text-muted-foreground">(optional)</span>
             </Label>
             <div className={cn(inputBase, inputFocusWithin, "flex h-9 items-center gap-2 px-3")}>

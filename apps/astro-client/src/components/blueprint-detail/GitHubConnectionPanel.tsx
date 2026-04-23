@@ -485,7 +485,7 @@ function RepoSelectorDialog({ account, name, open, onOpenChange }: RepoSelectorD
           />
 
           {link.isError && (
-            <p className="text-sm text-destructive px-4 pt-2">
+            <p className="text-sm text-destructive px-4">
               {link.error instanceof Error ? link.error.message : "Failed to link repository"}
             </p>
           )}
