@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -36,6 +37,27 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Namespace always comes from ApplierConfig (server-owned)
 
+	// Ensure namespace exists (must precede any k8s resource creation).
+	if err := a.ensureNamespace(ctx); err != nil {
+		return result, fmt.Errorf("failed to ensure namespace: %w", err)
+	}
+
+	// Phase 0: Ensure knowledge credential Secrets exist.
+	// These are created once and reused across redeployments so passwords stay stable.
+	// Must run before ResolveDeploymentSpecEnv so credential values are available
+	// for ${knowledge.*.credentials.*} reference resolution.
+	credResult := a.ensureKnowledgeCredentialSecrets(ctx, ds, accountName, agentName, buildID)
+	knowledgeCredSecrets := credResult.SecretNames
+
+	// Merge self-hosted credentials into bound credentials for unified resolution.
+	allCredentials := a.boundCredentials
+	if len(credResult.Credentials) > 0 {
+		if allCredentials == nil {
+			allCredentials = make(map[string]string, len(credResult.Credentials))
+		}
+		maps.Copy(allCredentials, credResult.Credentials)
+	}
+
 	// Resolve all ${} references and build ConfigMap/Secret data
 	rctx := deployment.ResolveContext{
 		Namespace:        a.namespace,
@@ -43,7 +65,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		BuildID:          buildID,
 		SecretName:       deployment.GenerateSecretName(agentName, buildID),
 		BoundKnowledge:   a.boundKnowledge,
-		BoundCredentials: a.boundCredentials,
+		BoundCredentials: allCredentials,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -63,15 +85,6 @@ func (a *Applier) ApplyDeploymentSpec(
 	if len(resolved.ConfigMapData) > 0 {
 		configMapName = deployment.GenerateConfigMapName(agentName, buildID)
 	}
-
-	// Ensure namespace exists
-	if err := a.ensureNamespace(ctx); err != nil {
-		return result, fmt.Errorf("failed to ensure namespace: %w", err)
-	}
-
-	// Phase 0: Ensure knowledge credential Secrets exist.
-	// These are created once and reused across redeployments so passwords stay stable.
-	knowledgeCredSecrets := a.ensureKnowledgeCredentialSecrets(ctx, ds, accountName, agentName, buildID)
 
 	// Phase 1: Create Secret (credentials)
 	if resolved.HasSecretValues() {
@@ -1157,16 +1170,25 @@ func randomCredHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// knowledgeCredResult holds the outputs of ensureKnowledgeCredentialSecrets.
+type knowledgeCredResult struct {
+	SecretNames []string          // k8s Secret names (for envFrom on knowledge containers and agent)
+	Credentials map[string]string // "entryName.attr" → value (for credential reference resolution)
+}
+
 // ensureKnowledgeCredentialSecrets creates credential Secrets for self-hosted
 // knowledge stores that need them (postgres, redis). If the Secret already exists
 // (from a previous deploy), it is left untouched so credentials remain stable.
-// Returns the list of created/existing secret names.
+// Returns the secret names and a credentials map keyed by "entryName.attr" for
+// use in credential reference resolution (${knowledge.*.credentials.*}).
 func (a *Applier) ensureKnowledgeCredentialSecrets(
 	ctx context.Context,
 	ds *spec.AstroDeploymentSpec,
 	accountName, agentName, buildID string,
-) []string {
-	var secretNames []string
+) knowledgeCredResult {
+	result := knowledgeCredResult{
+		Credentials: make(map[string]string),
+	}
 
 	for name, knowledge := range ds.Knowledge {
 		if knowledge.IsBound() {
@@ -1190,13 +1212,23 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 
 		_, err := a.clientset.CoreV1().Secrets(a.namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil && errors.IsAlreadyExists(err) {
-			// Secret from a previous deploy — reuse it.
+			// Secret from a previous deploy — reuse it and read back stable values.
 			err = nil
+			if existing, getErr := a.clientset.CoreV1().Secrets(a.namespace).Get(ctx, secretName, metav1.GetOptions{}); getErr == nil {
+				creds = existing.Data
+			}
 		}
 		if err == nil {
-			secretNames = append(secretNames, secretName)
+			result.SecretNames = append(result.SecretNames, secretName)
+			// Map storage keys to reference attributes for credential ref resolution.
+			storageKeyMap := spec.CredentialStorageKeyMap(knowledge.Provider)
+			for storageKey, data := range creds {
+				if attr, ok := storageKeyMap[storageKey]; ok {
+					result.Credentials[name+"."+attr] = string(data)
+				}
+			}
 		}
 	}
 
-	return secretNames
+	return result
 }

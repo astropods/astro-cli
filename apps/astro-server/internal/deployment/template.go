@@ -222,6 +222,14 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 								key: key, target: "knowledge." + name,
 							})
 						}
+						// Wire credential refs into agent environment so the agent
+						// can connect to the knowledge store with proper per-name keys.
+						// Skip "database" — already covered by explicit POSTGRES_DB injection above.
+						if cred.Attr != "database" {
+							for _, key := range providerEnvKeys(prov.EnvPrefix, name, strings.ToUpper(cred.Attr), isDup, isFirst) {
+								agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
+							}
+						}
 					}
 				} else {
 					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", spec.SanitizeEnvName(name))

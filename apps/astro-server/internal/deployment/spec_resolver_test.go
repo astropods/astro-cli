@@ -1004,3 +1004,54 @@ func TestHasSecretValues(t *testing.T) {
 		t.Error("expected true for populated secret values")
 	}
 }
+
+func TestResolveDeploymentSpecEnv_KnowledgeCredentialRefs(t *testing.T) {
+	// Credential refs (${knowledge.*.credentials.*}) should resolve from
+	// BoundCredentials for both bound and self-hosted entries.
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"POSTGRES_HOST":     "${knowledge.postgres.host}",
+				"POSTGRES_PORT":     "${knowledge.postgres.http.port}",
+				"POSTGRES_USER":     "${knowledge.postgres.credentials.user}",
+				"POSTGRES_PASSWORD": "${knowledge.postgres.credentials.password}",
+			},
+		},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {
+				Image:     "pgvector:latest",
+				Endpoints: httpEndpoints(5432),
+				Provider:  "postgres",
+			},
+		},
+	}
+
+	rctx := ResolveContext{
+		Namespace: "ns",
+		AgentName: "agent",
+		BoundCredentials: map[string]string{
+			"postgres.user":     "astro",
+			"postgres.password": "s3cret",
+		},
+	}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Credential refs resolve to secret data (not configmap).
+	if result.SecretData["POSTGRES_USER"] != "astro" {
+		t.Errorf("POSTGRES_USER: expected astro, got %q", result.SecretData["POSTGRES_USER"])
+	}
+	if result.SecretData["POSTGRES_PASSWORD"] != "s3cret" {
+		t.Errorf("POSTGRES_PASSWORD: expected s3cret, got %q", result.SecretData["POSTGRES_PASSWORD"])
+	}
+
+	// HOST/PORT resolve to configmap.
+	if !strings.Contains(result.ConfigMapData["POSTGRES_HOST"], "agent-knowledge-postgres") {
+		t.Errorf("POSTGRES_HOST: expected DNS name, got %q", result.ConfigMapData["POSTGRES_HOST"])
+	}
+	if result.ConfigMapData["POSTGRES_PORT"] != "5432" {
+		t.Errorf("POSTGRES_PORT: expected 5432, got %q", result.ConfigMapData["POSTGRES_PORT"])
+	}
+}

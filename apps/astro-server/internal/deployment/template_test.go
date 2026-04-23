@@ -1638,9 +1638,10 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 				"anthropic": {Provider: "anthropic"},
 			},
 			Knowledge: map[string]spec.Knowledge{
-				"vectors": {Provider: "qdrant", Persistent: true},
-				"cache":   {Provider: "redis"},
-				"custom":  {Container: &spec.ContainerConfig{Image: "mydb:latest", Port: 5432}},
+				"vectors":  {Provider: "qdrant", Persistent: true},
+				"cache":    {Provider: "redis"},
+				"custom":   {Container: &spec.ContainerConfig{Image: "mydb:latest", Port: 5432}},
+				"postgres": {Provider: "postgres", Persistent: true},
 			},
 			Integrations: map[string]spec.Integration{
 				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
@@ -3058,12 +3059,28 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 		t.Logf("  %s = %s", k, v)
 	}
 
+	// --- Variable schema (targets knowledge containers) ---
+
 	// The "postgres" entry name matches the provider name → gets bare keys.
 	if _, ok := ds.Variables["POSTGRES_USER"]; !ok {
 		t.Error("expected POSTGRES_USER variable (bare key for 'postgres' entry)")
 	}
 	if _, ok := ds.Variables["POSTGRES_PASSWORD"]; !ok {
 		t.Error("expected POSTGRES_PASSWORD variable (bare key for 'postgres' entry)")
+	}
+	if _, ok := ds.Variables["POSTGRES_DATABASE"]; !ok {
+		t.Error("expected POSTGRES_DATABASE variable (bare key for 'postgres' entry)")
+	}
+
+	// Per-name keys for "postgres" entry.
+	if _, ok := ds.Variables["POSTGRES_POSTGRES_USER"]; !ok {
+		t.Error("expected POSTGRES_POSTGRES_USER variable")
+	}
+	if _, ok := ds.Variables["POSTGRES_POSTGRES_PASSWORD"]; !ok {
+		t.Error("expected POSTGRES_POSTGRES_PASSWORD variable")
+	}
+	if _, ok := ds.Variables["POSTGRES_POSTGRES_DATABASE"]; !ok {
+		t.Error("expected POSTGRES_POSTGRES_DATABASE variable")
 	}
 
 	// The "users" entry has a different name → gets suffixed keys.
@@ -3073,6 +3090,31 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 	if _, ok := ds.Variables["POSTGRES_USERS_PASSWORD"]; !ok {
 		t.Error("expected POSTGRES_USERS_PASSWORD variable (suffixed key for 'users' entry)")
 	}
+	if _, ok := ds.Variables["POSTGRES_USERS_DATABASE"]; !ok {
+		t.Error("expected POSTGRES_USERS_DATABASE variable (suffixed key for 'users' entry)")
+	}
+
+	// --- Agent environment (credential refs for per-name keys) ---
+
+	// Bare keys (first alphabetically = "postgres")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USER", "${knowledge.postgres.credentials.user}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_PASSWORD", "${knowledge.postgres.credentials.password}")
+
+	// Per-name keys for "postgres" entry
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_USER", "${knowledge.postgres.credentials.user}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_PASSWORD", "${knowledge.postgres.credentials.password}")
+
+	// Per-name keys for "users" entry (not first, no bare keys)
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_USER", "${knowledge.users.credentials.user}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_PASSWORD", "${knowledge.users.credentials.password}")
+
+	// DB uses explicit static injection, not credential refs
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "sasbot")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_DB", "sasbot")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_DB", "sasbot")
+
+	// Redis credentials also get agent env refs
+	assertEnvRef(t, ds.Agent.Environment, "REDIS_PASSWORD", "${knowledge.cache.credentials.password}")
 }
 
 // Test that RestoreBindingsFromSpec extracts bound entries from a stored

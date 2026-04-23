@@ -191,6 +191,60 @@ func TestValidateReferences_InvalidSourceAttribute(t *testing.T) {
 	}
 }
 
+func TestValidateReferences_CredentialRefSelfHosted(t *testing.T) {
+	// Credential refs should be valid for self-hosted provider-mode entries.
+	ds := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
+			"pg": {Image: "pgvector:latest", Provider: "postgres", Endpoints: map[string]Endpoint{"http": {Port: 5432}}},
+		},
+	}
+
+	refs := []Reference{
+		{Raw: "${knowledge.pg.credentials.user}", Kind: RefKnowledge, Name: "pg", Endpoint: "credentials", Attribute: "user"},
+		{Raw: "${knowledge.pg.credentials.password}", Kind: RefKnowledge, Name: "pg", Endpoint: "credentials", Attribute: "password"},
+	}
+
+	errs := ValidateReferences(refs, ds)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors for self-hosted credential refs, got: %v", errs)
+	}
+}
+
+func TestValidateReferences_CredentialRefInvalidAttr(t *testing.T) {
+	ds := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
+			"pg": {Image: "pgvector:latest", Provider: "postgres", Endpoints: map[string]Endpoint{"http": {Port: 5432}}},
+		},
+	}
+
+	refs := []Reference{
+		{Raw: "${knowledge.pg.credentials.bogus}", Kind: RefKnowledge, Name: "pg", Endpoint: "credentials", Attribute: "bogus"},
+	}
+
+	errs := ValidateReferences(refs, ds)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for invalid credential attr, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestValidateReferences_CredentialRefNoProvider(t *testing.T) {
+	// Container-mode entry with no provider — credentials ref should fail.
+	ds := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
+			"custom": {Image: "mydb:latest", Endpoints: map[string]Endpoint{"http": {Port: 5432}}},
+		},
+	}
+
+	refs := []Reference{
+		{Raw: "${knowledge.custom.credentials.user}", Kind: RefKnowledge, Name: "custom", Endpoint: "credentials", Attribute: "user"},
+	}
+
+	errs := ValidateReferences(refs, ds)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for container-mode credential ref, got %d: %v", len(errs), errs)
+	}
+}
+
 func TestIsReference(t *testing.T) {
 	if !IsReference("${models.llm.host}") {
 		t.Error("expected true for reference string")

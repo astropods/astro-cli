@@ -99,14 +99,13 @@ func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
 				}
 			case "credentials":
-				// Credential references: only valid for bound entries.
-				if !k.IsBound() {
-					errs = append(errs, fmt.Sprintf("%s: credentials references are only valid for bound knowledge entries", ref.Raw))
-				} else {
-					validKeys := CredentialKeys(k.Provider)
-					if !slices.Contains(validKeys, ref.Attribute) {
-						errs = append(errs, fmt.Sprintf("%s: invalid credential %q for provider %q", ref.Raw, ref.Attribute, k.Provider))
-					}
+				// Credential references: valid for any provider-mode entry
+				// with bind credentials (both bound and self-hosted).
+				validKeys := CredentialKeys(k.Provider)
+				if len(validKeys) == 0 {
+					errs = append(errs, fmt.Sprintf("%s: provider %q has no bind credentials", ref.Raw, k.Provider))
+				} else if !slices.Contains(validKeys, ref.Attribute) {
+					errs = append(errs, fmt.Sprintf("%s: invalid credential %q for provider %q", ref.Raw, ref.Attribute, k.Provider))
 				}
 			default:
 				// Endpoint reference: for bound entries, look up from provider registry.
