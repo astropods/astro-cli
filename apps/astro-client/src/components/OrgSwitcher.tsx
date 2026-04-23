@@ -10,6 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { inputBase, inputFocusVisible } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import type { Account } from "@/lib/api";
 
@@ -28,47 +30,43 @@ function AccountIcon({ account }: { account: Account }) {
   );
 }
 
-export function OrgSwitcher({
-  activeAccount,
-  onChange,
-}: OrgSwitcherProps) {
+export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
   const { accounts } = useAuth();
+  const [open, setOpen] = useState(false);
 
   const sorted = useMemo(
     () =>
       [...accounts].sort((a, b) =>
-        a.type === "personal"
-          ? -1
-          : b.type === "personal"
-            ? 1
-            : a.name.localeCompare(b.name),
+        a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name),
       ),
     [accounts],
   );
 
   const activeAccountObj = sorted.find((a) => a.name === activeAccount);
-  const [open, setOpen] = useState(false);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Switch account"
-          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700"
+          className={cn(
+            "flex h-8 w-full cursor-pointer items-center justify-between px-2.5 text-sm leading-none text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-stone-700 sm:w-48",
+            inputBase,
+            inputFocusVisible,
+          )}
         >
           {activeAccountObj && (
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-2">
               <AccountIcon account={activeAccountObj} />
-              <span className="max-w-28 truncate">
+              <span className="truncate">
                 {activeAccountObj.name}
               </span>
             </span>
           )}
-          <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+          <ChevronDown className="size-4 shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-48">
         {sorted.map((a) => {
           const isActive = a.name === activeAccount;
           return (
@@ -87,7 +85,7 @@ export function OrgSwitcher({
           );
         })}
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild className="gap-2">
+        <DropdownMenuItem asChild className="cursor-pointer gap-2">
           <Link to="/organization/new">
             <PlusIcon className="size-4" />
             Create organization
