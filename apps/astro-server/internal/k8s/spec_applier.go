@@ -717,8 +717,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
-			ExtraSecretNames: knowledgeCredSecrets, // knowledge store credentials (POSTGRES_USER, etc.)
-			Healthcheck:      ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
