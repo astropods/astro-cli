@@ -84,7 +84,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
-
 	}
 
 	if cfg.OMClient != nil {
