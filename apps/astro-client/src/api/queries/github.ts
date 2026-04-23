@@ -107,8 +107,14 @@ export function useGitHubAccountDisconnect(account: string) {
 }
 
 export function useGitHubAccountConnect(account: string) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (redirectTo: string) => api.gitHubConnectAccount(account, redirectTo),
+    onSuccess: (data) => {
+      if (data.connected) {
+        queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
+      }
+    },
   });
 }
 

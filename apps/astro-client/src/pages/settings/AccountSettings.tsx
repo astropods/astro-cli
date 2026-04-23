@@ -124,10 +124,9 @@ function GitHubSection() {
   const connected = status?.connected ?? false;
   const connections = connectionsData?.connections ?? [];
 
-  // Clean up OAuth callback params and refresh the connections list.
+  // Clean up OAuth callback params after redirect.
   useEffect(() => {
     if (!fromOAuth) return;
-    queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
     setSearchParams((p) => { p.delete('github_connected'); p.delete('github_login'); return p; }, { replace: true });
   }, [fromOAuth]);
 
@@ -142,7 +141,6 @@ function GitHubSection() {
             connected: true,
             github_login: data.github_login,
           });
-          queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
         }
       },
     });
