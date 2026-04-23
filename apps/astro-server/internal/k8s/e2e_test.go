@@ -2015,3 +2015,160 @@ func keysOf(m map[string][]byte) []string {
 	}
 	return keys
 }
+
+// TestE2E_PostgresKnowledge_CredentialFlow verifies the full credential flow
+// for postgres knowledge entries: auto-generated Secrets for knowledge containers,
+// credential refs resolved into the deployment Secret for the agent, and no
+// duplicate envFrom sources on the agent pod.
+func TestE2E_PostgresKnowledge_CredentialFlow(t *testing.T) {
+	r := runE2E(t, `
+spec: package/v1
+name: my-agent
+agent:
+  image: my-agent:latest
+knowledge:
+  analytics:
+    provider: postgres
+    persistent: true
+  users:
+    provider: postgres
+    persistent: true
+  cache:
+    provider: redis
+`, e2eOpts{})
+
+	requireNoErrors(t, r)
+	ns := r.Namespace
+
+	// --- Per-entry credential Secrets (for knowledge containers) ---
+
+	// Analytics postgres entry's credential Secret
+	analyticsCredSecret := r.getSecret(t, ns, knowledgeCredSecretName("my-agent", "analytics"))
+	if string(analyticsCredSecret.Data["POSTGRES_USER"]) != "astro" {
+		t.Errorf("analytics cred secret POSTGRES_USER: expected 'astro', got %q", string(analyticsCredSecret.Data["POSTGRES_USER"]))
+	}
+	if len(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) == 0 {
+		t.Error("analytics cred secret POSTGRES_PASSWORD: expected non-empty")
+	}
+
+	// Users postgres entry's credential Secret
+	usersCredSecret := r.getSecret(t, ns, knowledgeCredSecretName("my-agent", "users"))
+	if string(usersCredSecret.Data["POSTGRES_USER"]) != "astro" {
+		t.Errorf("users cred secret POSTGRES_USER: expected 'astro', got %q", string(usersCredSecret.Data["POSTGRES_USER"]))
+	}
+	if len(usersCredSecret.Data["POSTGRES_PASSWORD"]) == 0 {
+		t.Error("users cred secret POSTGRES_PASSWORD: expected non-empty")
+	}
+
+	// Each entry should have its own password (not shared).
+	if string(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) == string(usersCredSecret.Data["POSTGRES_PASSWORD"]) {
+		t.Error("analytics and users should have different auto-generated passwords")
+	}
+
+	// Redis cache entry's credential Secret
+	cacheCredSecret := r.getSecret(t, ns, knowledgeCredSecretName("my-agent", "cache"))
+	if len(cacheCredSecret.Data["REDIS_PASSWORD"]) == 0 {
+		t.Error("cache cred secret REDIS_PASSWORD: expected non-empty")
+	}
+
+	// --- Deployment Secret (resolved credential refs for agent) ---
+
+	deploySecretName := deployment.GenerateSecretName("my-agent", r.DeploymentSpec.Source.Build)
+	deploySecret := r.getSecret(t, ns, deploySecretName)
+
+	// Bare keys (first alphabetically = "analytics")
+	if string(deploySecret.Data["POSTGRES_USER"]) != "astro" {
+		t.Errorf("deploy secret POSTGRES_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_USER"]))
+	}
+	if string(deploySecret.Data["POSTGRES_PASSWORD"]) != string(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) {
+		t.Error("deploy secret POSTGRES_PASSWORD should match analytics entry's password")
+	}
+
+	// Per-name keys for "analytics" entry
+	if string(deploySecret.Data["POSTGRES_ANALYTICS_USER"]) != "astro" {
+		t.Errorf("deploy secret POSTGRES_ANALYTICS_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_ANALYTICS_USER"]))
+	}
+	if string(deploySecret.Data["POSTGRES_ANALYTICS_PASSWORD"]) != string(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) {
+		t.Error("deploy secret POSTGRES_ANALYTICS_PASSWORD should match analytics entry's password")
+	}
+
+	// Per-name keys for "users" entry
+	if string(deploySecret.Data["POSTGRES_USERS_USER"]) != "astro" {
+		t.Errorf("deploy secret POSTGRES_USERS_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_USERS_USER"]))
+	}
+	if string(deploySecret.Data["POSTGRES_USERS_PASSWORD"]) != string(usersCredSecret.Data["POSTGRES_PASSWORD"]) {
+		t.Error("deploy secret POSTGRES_USERS_PASSWORD should match users entry's password")
+	}
+
+	// Redis credential
+	if string(deploySecret.Data["REDIS_PASSWORD"]) != string(cacheCredSecret.Data["REDIS_PASSWORD"]) {
+		t.Error("deploy secret REDIS_PASSWORD should match cache entry's password")
+	}
+
+	// --- ConfigMap (HOST, PORT, DB — static values) ---
+
+	analyticsDNS := serviceDNS("my-agent-knowledge-analytics", ns)
+	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
+	assertConfigMapValues(t, r, map[string]string{
+		"POSTGRES_HOST":           analyticsDNS,
+		"POSTGRES_PORT":           "5432",
+		"POSTGRES_DB":             "my_agent",
+		"POSTGRES_ANALYTICS_HOST": analyticsDNS,
+		"POSTGRES_ANALYTICS_PORT": "5432",
+		"POSTGRES_ANALYTICS_DB":   "my_agent",
+		"POSTGRES_USERS_HOST":     usersDNS,
+		"POSTGRES_USERS_PORT":     "5432",
+		"POSTGRES_USERS_DB":       "my_agent",
+	})
+
+	// --- Agent Deployment: no duplicate envFrom for knowledge secrets ---
+
+	agentDepl, err := r.Clientset.AppsV1().Deployments(ns).Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get agent deployment: %v", err)
+	}
+	agentContainer := agentDepl.Spec.Template.Spec.Containers[0]
+	for _, envFrom := range agentContainer.EnvFrom {
+		if envFrom.SecretRef != nil {
+			name := envFrom.SecretRef.Name
+			if strings.Contains(name, "knowledge") && strings.Contains(name, "creds") {
+				t.Errorf("agent should not mount knowledge credential secret %q — credentials flow through deployment secret", name)
+			}
+		}
+	}
+
+	// --- Knowledge StatefulSets: each mounts its own credential Secret ---
+
+	analyticsSS, err := r.Clientset.AppsV1().StatefulSets(ns).Get(
+		context.Background(), "my-agent-knowledge-analytics", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get analytics statefulset: %v", err)
+	}
+	analyticsEnvFrom := analyticsSS.Spec.Template.Spec.Containers[0].EnvFrom
+	foundAnalyticsCreds := false
+	for _, ef := range analyticsEnvFrom {
+		if ef.SecretRef != nil && ef.SecretRef.Name == knowledgeCredSecretName("my-agent", "analytics") {
+			foundAnalyticsCreds = true
+		}
+	}
+	if !foundAnalyticsCreds {
+		t.Error("analytics StatefulSet should mount its own credential secret")
+	}
+
+	usersSS, err := r.Clientset.AppsV1().StatefulSets(ns).Get(
+		context.Background(), "my-agent-knowledge-users", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get users statefulset: %v", err)
+	}
+	usersEnvFrom := usersSS.Spec.Template.Spec.Containers[0].EnvFrom
+	foundUsersCreds := false
+	for _, ef := range usersEnvFrom {
+		if ef.SecretRef != nil && ef.SecretRef.Name == knowledgeCredSecretName("my-agent", "users") {
+			foundUsersCreds = true
+		}
+	}
+	if !foundUsersCreds {
+		t.Error("users StatefulSet should mount its own credential secret")
+	}
+}
