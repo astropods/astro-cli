@@ -159,11 +159,11 @@ func (d *Deployer) resolveBoundKnowledge(
 			boundKnowledge = make(map[string]deployment.BoundKnowledgeInfo)
 			boundCredentials = make(map[string]string)
 		}
+		storeNS := k8s.KnowledgeNamespace(store.AccountID)
+		serviceName := k8s.KnowledgeResourceName(store.ID)
 		boundKnowledge[name] = deployment.BoundKnowledgeInfo{
-			StoreID:   store.ID,
-			AccountID: store.AccountID,
-			Namespace: k8s.KnowledgeNamespace(store.AccountID),
-			Provider:  store.Provider,
+			Host:     deployment.GenerateServiceDNS(serviceName, storeNS),
+			Provider: store.Provider,
 		}
 
 		// Decrypt store credentials and map to "name.key" format.

@@ -9,10 +9,8 @@ import (
 
 // BoundKnowledgeInfo holds resolved info about a knowledge entry bound to a managed store.
 type BoundKnowledgeInfo struct {
-	StoreID   string
-	AccountID string
-	Namespace string // knowledge namespace, e.g. "knlg0-{short-account-id}"
-	Provider  string
+	Host     string // fully-qualified service DNS (e.g. "kn-abc123.knowledge-ns.svc.cluster.local")
+	Provider string
 }
 
 // ResolveContext provides the runtime context needed to resolve ${} references
@@ -144,9 +142,9 @@ func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map
 
 	for name, knowledge := range ds.Knowledge {
 		if knowledge.IsBound() {
-			// Bound entry: resolve to managed store's service DNS and provider registry endpoints.
+			// Bound entry: resolve to managed store's host and provider registry endpoints.
 			if info, ok := rctx.BoundKnowledge[name]; ok {
-				host := GenerateServiceDNS(info.StoreID, info.Namespace)
+				host := info.Host
 				prov := spec.GetProvider(info.Provider)
 				urlScheme := "http"
 				if prov.URLScheme != "" {
