@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -99,6 +100,7 @@ func init() {
 	blueprintListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("card", false, "Show agent description")
+	blueprintGetCmd.Flags().Bool("template", false, "Show deployment variables and secrets")
 
 	// Create flags
 	blueprintCreateCmd.Flags().StringP("visibility", "V", "private", "Set visibility: public or private")
@@ -191,6 +193,19 @@ func blueprintEffectiveBody(bp blueprintItem) string {
 type listBlueprintsResponse struct {
 	Agents []blueprintItem `json:"agents"`
 	Count  int             `json:"count"`
+}
+
+type templateVariable struct {
+	Targets     []string `json:"targets"`
+	Secret      bool     `json:"secret"`
+	Optional    bool     `json:"optional"`
+	Default     string   `json:"default,omitempty"`
+	Label       string   `json:"label,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+type deploymentTemplateResponse struct {
+	Variables map[string]templateVariable `json:"variables"`
 }
 
 // --- handlers ---
@@ -334,7 +349,7 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(bp)
+		return enc.Encode(bp) //nolint:errcheck,gosec
 	}
 
 	bold := lipgloss.NewStyle().Bold(true)
@@ -361,6 +376,15 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 		tw.Flush() //nolint:errcheck,gosec
 	}
 
+	if showTemplate, _ := cmd.Flags().GetBool("template"); showTemplate {
+		tu := apiPath(blueprintBaseURL(), at.Account, "agents", name, "deployment-template")
+		var tmpl deploymentTemplateResponse
+		if _, err := apiCall(cmd.Context(), http.MethodPost, tu, map[string]any{}, at.Token, verbose, &tmpl); err != nil {
+			return err
+		}
+		printDeploymentTemplate(w, tmpl, dim)
+	}
+
 	if showCard, _ := cmd.Flags().GetBool("card"); showCard {
 		if body := blueprintEffectiveBody(bp); body != "" {
 			rendered, err := glamour.Render(body, "auto")
@@ -373,6 +397,66 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+const varDescMaxLen = 60
+
+func truncateDesc(s string) string {
+	if len(s) <= varDescMaxLen {
+		return s
+	}
+	return s[:varDescMaxLen-1] + "…"
+}
+
+func printDeploymentTemplate(w io.Writer, tmpl deploymentTemplateResponse, dim lipgloss.Style) {
+	fmt.Fprintln(w)                                                            //nolint:errcheck,gosec
+	fmt.Fprintln(w, dim.Render("Variables and secrets needed for deployment")) //nolint:errcheck,gosec
+
+	// Sort variables: required first, then optional; alphabetical within each group.
+	var required, optional []string
+	for k, v := range tmpl.Variables {
+		if v.Optional {
+			optional = append(optional, k)
+		} else {
+			required = append(required, k)
+		}
+	}
+	sort.Strings(required)
+	sort.Strings(optional)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	writeVarRows(tw, required, tmpl.Variables, false)
+	writeVarRows(tw, optional, tmpl.Variables, true)
+	tw.Flush() //nolint:errcheck,gosec
+}
+
+func writeVarRows(tw *tabwriter.Writer, keys []string, vars map[string]templateVariable, isOptional bool) {
+	for _, k := range keys {
+		v := vars[k]
+		var notes []string
+		if v.Secret {
+			notes = append(notes, "secret")
+		}
+		if isOptional {
+			if v.Default != "" {
+				notes = append(notes, "default: "+v.Default)
+			} else {
+				notes = append(notes, "optional")
+			}
+		}
+		suffix := ""
+		if len(notes) > 0 {
+			suffix = "(" + strings.Join(notes, ", ") + ")"
+		}
+		desc := v.Description
+		if v.Label != "" && v.Label != k {
+			desc = v.Label
+			if v.Description != "" {
+				desc += " — " + v.Description
+			}
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\n", k, truncateDesc(desc), suffix) //nolint:errcheck,gosec
+	}
 }
 
 func runBlueprintArchive(cmd *cobra.Command, args []string) error {
