@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -860,16 +861,27 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// validRepoSegment matches the characters GitHub allows in owner and repo names.
+var validRepoSegment = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // validateRepoFullName checks that name has at least two slash-separated segments
-// (owner/repo) and contains no "..", ".", or empty components.
+// (owner/repo), that each segment contains only [A-Za-z0-9._-], and that no segment
+// exceeds GitHub's 100-character limit. This prevents shell/URL injection because
+// repo_full_name flows into GitHub API URLs and git-clone init container commands.
 func validateRepoFullName(name string) error {
 	segments := strings.Split(name, "/")
 	if len(segments) < 2 {
 		return errors.New("repo_full_name must be owner/repo[/subpath]")
 	}
 	for _, seg := range segments {
-		if seg == ".." || seg == "." || seg == "" {
+		if seg == "" || seg == "." || seg == ".." {
 			return errors.New("invalid repo_full_name: illegal path segment")
+		}
+		if len(seg) > 100 {
+			return errors.New("invalid repo_full_name: segment exceeds maximum length")
+		}
+		if !validRepoSegment.MatchString(seg) {
+			return errors.New("invalid repo_full_name: segment contains invalid characters")
 		}
 	}
 	return nil
