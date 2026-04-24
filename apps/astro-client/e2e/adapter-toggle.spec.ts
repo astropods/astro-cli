@@ -37,8 +37,11 @@ test.describe("adapter toggle UX", () => {
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
-    // Fill the agent variable
-    await page.getByLabel("Openai Api Key").fill("sk-test-value");
+    // Fill the agent variable only if vault didn't auto-fill it
+    const apiKeyInput = page.getByLabel("Openai Api Key");
+    if (await apiKeyInput.isVisible() && !(await apiKeyInput.inputValue())) {
+      await apiKeyInput.fill("sk-test-value");
+    }
 
     // Toggle Slack on but leave tokens empty
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
