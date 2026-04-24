@@ -8,12 +8,14 @@
 
 ## Abstract
 
-When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself. Agent detail pages have no OG metadata at all. This spec upgrades both surfaces by generating server-side PNG images that are specific to each entity and injecting or replacing the relevant Open Graph meta tags.
+When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself. Blueprint pages are the right scope for this work: blueprints are designed to be shared (publicly or within an org), and their badge shows only information the URL already implies.
 
-The two page types use distinct image styles and rendering approaches, reflecting their different roles in the product:
+Agent deployment pages are explicitly excluded from this spec. Unfurling deployment pages introduces an access control problem that cannot be solved cleanly at the OG layer — see the Access Control section for the full reasoning.
 
-- **Agent pages** use the existing `astro-trading-card` package to produce a portrait trading card (dark, holographic-styled), rendered to PNG via Resvg.
+The two in-scope page types use distinct image styles and rendering approaches:
+
 - **Blueprint pages** upgrade the existing `og:image` from the account avatar to a new Satori-rendered card that mirrors the blueprint listing UI — a clean, light landscape card with icon, name, description, deploy count, and owner.
+- **Agent (blueprint) pages** use the existing `astro-trading-card` package to produce a portrait trading card (dark, holographic-styled), rendered to PNG via Resvg.
 
 ---
 
@@ -28,10 +30,34 @@ The core technical gap is the same in both cases: there is no server-side mechan
 
 ---
 
+## Access Control Boundary
+
+Not all Astro pages are safe to unfurl, and the distinction matters architecturally.
+
+**How unfurling actually works:**
+
+When a user pastes a URL into Slack or LinkedIn, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG from a separate, also unauthenticated request. Platforms then cache the result aggressively.
+
+This means **session-aware OG tag injection is not a reliable access control mechanism**. Even if the SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached card. The badge PNG endpoint is also inherently stateless — it cannot verify org membership.
+
+**Blueprints are safe to unfurl** because:
+- They are designed to be shared (the product intent is discovery).
+- The badge image shows only information the URL already reveals: name, description, deploy count, owner handle. There is no information in the card that isn't already implied by knowing the blueprint exists.
+- Private blueprints: access control is enforced on the *page*, not the badge. The card is a "cover image," not a data disclosure.
+
+**Deployment pages are not safe to unfurl** because:
+- Deployments are org-scoped. The URL (`/agents/:account/:id`) contains an opaque deployment ID that does not itself reveal anything — but a badge image would confirm the deployment exists, show its agent name, and potentially surface org-internal details.
+- The platform caching problem means an in-org user's unfurl can produce a card that an out-of-org user later sees.
+- There is no clean way to enforce org membership at the badge PNG layer without a stateful, authenticated image-generation service, which is a significantly larger investment.
+
+**If deployment unfurling is revisited in the future**, the correct approach is an explicit "Share" flow: a button that generates a time-limited, signed share URL (e.g., `/share/d/:token`) that decouples the shareable preview from the authenticated deployment page. The token encodes what the user is allowed to share and expires independently of the session.
+
+---
+
 ## Goals
 
-- **G1:** Agent detail page URLs unfurl with a trading card PNG as the preview image.
-- **G2:** Blueprint page URLs replace the current account-avatar `og:image` with a UI-style landscape card PNG specific to the blueprint.
+- **G1:** Blueprint page URLs replace the current account-avatar `og:image` with a UI-style landscape card PNG specific to the blueprint.
+- **G2:** Agent (blueprint) page URLs unfurl with a trading card PNG as the preview image.
 - **G3:** All PNG images are generated server-side on demand with no browser involved.
 - **G4:** OG tags are populated with accurate, entity-specific data.
 - **G5:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
@@ -39,8 +65,9 @@ The core technical gap is the same in both cases: there is no server-side mechan
 
 ## Non-Goals
 
+- Deployment page unfurling (excluded; see Access Control section).
 - Animated or video preview cards.
-- Uploading pre-generated PNGs to S3/CDN (can be layered on later as a caching optimization).
+- Uploading pre-generated PNGs to S3/CDN (can be layered on as a caching optimization later).
 - Per-user or per-session personalization of the card image.
 - Changing the visual design of the trading card itself.
 
