@@ -1205,7 +1205,6 @@
   "required": [
     "spec",
     "name",
-    "meta",
     "agent"
   ],
   "title": "Astro AI Spec",

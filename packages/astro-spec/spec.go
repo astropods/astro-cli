@@ -13,7 +13,7 @@ import (
 type AstroSpec struct {
 	Spec         string                    `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
 	Name         string                    `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
-	Meta         Meta                      `json:"meta" yaml:"meta"`
+	Meta         Meta                      `json:"meta,omitempty" yaml:"meta,omitempty"`
 	Agent        Container                 `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
 	Models       map[string]Model          `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
 	Knowledge    map[string]Knowledge      `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`

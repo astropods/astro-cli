@@ -82,7 +82,7 @@ export function BlueprintDetailContent({
   githubRepoName,
   visibility = "private",
 }: BlueprintDetailContentProps) {
-  const astropodsYml = generateAstropodsYml(name, visibility);
+  const astropodsYml = generateAstropodsYml(name);
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
       <BlueprintDetailHeader

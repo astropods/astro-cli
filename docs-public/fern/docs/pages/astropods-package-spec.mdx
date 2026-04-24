@@ -5,7 +5,7 @@ slug: astropods-package-spec
 ---
 
 <Versions>
-<Version version="v1.4 (Draft) - 2026-04-08" default>
+<Version version="v1.5 (Draft) - 2026-04-24" default>
 
 ## Abstract
 
@@ -15,6 +15,7 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
+| v1.5    | 2026-04-24 | Deprecated `meta.visibility`. Visibility is managed via the platform UI and API, not the spec. |
 | v1.4    | 2026-04-08 | Removed `dev.overrides.playgroundImage` — playground UI is now bundled into the messaging container and served automatically when the `web` adapter is enabled. |
 | v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. Component `inputs` now injected into knowledge, tool, and ingestion containers during `ast dev`. |
 | v1.2    | 2026-03-13 | Deprecated `meta.description` and `meta.tags` in favor of [Agent Card](/agent-card-spec) frontmatter. |
@@ -61,7 +62,7 @@ A conforming document MUST contain the following top-level fields:
 | ----------- | ------------------------ | ------------ | ------------------------------------------------------------------ |
 | `spec`      | string                   | **REQUIRED** | Spec version identifier. MUST be `package/v1`.                     |
 | `name`      | string                   | **REQUIRED** | Unique agent name.                                                 |
-| `meta`      | object                   | **REQUIRED** | Agent metadata.                                                    |
+| `meta`      | object                   | **DEPRECATED** | Agent metadata. See Section 2.1.                                 |
 | `agent`     | object                   | **REQUIRED** | Agent definition.                                                  |
 | `models`    | map\<string, Model\>     | OPTIONAL     | Model entries (LLMs, embedding models, etc).                       |
 | `knowledge` | map\<string, Knowledge\> | OPTIONAL     | Knowledge store entries.                                           |
@@ -79,7 +80,7 @@ Map keys serve as entry names and are used in credential injection (see [Section
 | ------------- | -------- | -------- | --------------------------------- |
 | `description` | string   | **DEPRECATED** | Human-readable agent description. Moved to [Agent Card](/agent-card-spec) frontmatter. |
 | `tags`        | string[] | **DEPRECATED** | Classification tags. Moved to [Agent Card](/agent-card-spec) frontmatter. |
-| `visibility`  | string   | OPTIONAL | Agent visibility. MUST be one of `public` or `private`. |
+| `visibility`  | string   | **DEPRECATED** | Agent visibility. Use the platform UI or API instead. |
 
 ---
 
@@ -538,9 +539,6 @@ Schema ID: `https://astropods.com/schema/package.json`
 ```yaml
 spec: package/v1
 name: engineering-assistant
-
-meta:
-  visibility: private
 
 agent:
   build:

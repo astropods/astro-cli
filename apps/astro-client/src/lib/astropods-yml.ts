@@ -1,10 +1,7 @@
-export function generateAstropodsYml(name: string, visibility: string): string {
+export function generateAstropodsYml(name: string): string {
   return [
     `spec: package/v1`,
     `name: ${name}`,
-    ``,
-    `meta:`,
-    `  visibility: ${visibility}`,
     ``,
     `agent:`,
     `  build:`,
