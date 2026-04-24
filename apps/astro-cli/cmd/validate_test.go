@@ -45,8 +45,8 @@ func TestValidateSpecFile_Valid(t *testing.T) {
 }
 
 func TestValidateSpecFile_MissingRequiredField(t *testing.T) {
-	// Missing top-level `meta` (required by schema)
-	specPath := writeSpecFile(t, "spec: package/v1\nname: demo\nagent:\n  image: demo:latest\n")
+	// Missing top-level `agent` (required by schema)
+	specPath := writeSpecFile(t, "spec: package/v1\nname: demo\n")
 
 	var gotErr error
 	out := captureStdout(t, func() {
@@ -56,8 +56,8 @@ func TestValidateSpecFile_MissingRequiredField(t *testing.T) {
 	if gotErr == nil {
 		t.Fatal("expected validation error, got nil")
 	}
-	if !strings.Contains(out, "meta") {
-		t.Errorf("expected 'meta' in error output, got: %q", out)
+	if !strings.Contains(out, "agent") {
+		t.Errorf("expected 'agent' in error output, got: %q", out)
 	}
 }
 
