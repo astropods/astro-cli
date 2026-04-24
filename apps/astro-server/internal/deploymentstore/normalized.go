@@ -603,14 +603,18 @@ func SaveNormalizedSpec(
 				webSvcID = svcID
 			}
 		}
-		// Messaging ingress — when web adapter is enabled
+		// Messaging ingress — when web adapter is enabled.
+		// Uses GenerateMessagingIngressHost (not GenerateIngressHost) to match
+		// the hostname that spec_applier creates in K8s.
 		if webEnabled && webSvcID > 0 {
 			httpEp := ds.Interfaces.Endpoints["http"]
-			ingressDomain := ""
-			if nsCfg != nil {
-				ingressDomain = nsCfg.IngressDomain
+			host := ""
+			if httpEp.Expose != nil && httpEp.Expose.Domain != "" {
+				host = httpEp.Expose.Domain
+			} else if nsCfg != nil && nsCfg.IngressDomain != "" && nsCfg.Namespace != "" {
+				host = k8s.GenerateMessagingIngressHost(agentName, nsCfg.Namespace, nsCfg.IngressDomain)
 			}
-			if host := resolveIngressHost(&httpEp, ingressDomain); host != "" {
+			if host != "" {
 				if err := insertIngress(webSvcID, &Ingress{
 					Hostname: host, Path: "/", TLSEnabled: true,
 				}); err != nil {

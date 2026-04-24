@@ -13,6 +13,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	_ "github.com/lib/pq"
 )
@@ -380,5 +381,248 @@ func TestSasbot_SpecParse(t *testing.T) {
 	}
 	if len(s.Variables) != 8 {
 		t.Errorf("variables: %d", len(s.Variables))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Ingress hostname consistency tests
+//
+// These verify that SaveNormalizedSpec stores the same ingress hostnames that
+// the spec applier (k8s.ApplyDeploymentSpec) would create in K8s. If these
+// diverge, the drift detector reports every ingress as missing + extra.
+// ---------------------------------------------------------------------------
+
+// TestIngressHostname_AgentMatchesSpecApplier verifies the agent ingress
+// hostname stored by the normalizer matches k8s.GenerateIngressHost.
+func TestIngressHostname_AgentMatchesSpecApplier(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+	accountID := ensureTestAccount(t, db)
+
+	const (
+		agentName = "weather-poet"
+		namespace = "astro-abc123-0"
+		domain    = "agents.astropods.ai"
+	)
+
+	dsSpec := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/weather-poet:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Endpoints: map[string]spec.Endpoint{
+				"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true}},
+			},
+		},
+	}
+
+	nsCfg := &ds.NormalizedSpecConfig{Namespace: namespace, IngressDomain: domain}
+	depID := deployid.New()
+	_, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
+		ID: depID, AccountID: accountID, AgentName: agentName,
+		DisplayName: "Agent Ingress Test", BuildID: "b1", Namespace: namespace,
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	ings, err := store.GetIngresses(depID)
+	if err != nil {
+		t.Fatalf("GetIngresses: %v", err)
+	}
+	if len(ings) == 0 {
+		t.Fatal("expected at least 1 ingress, got 0")
+	}
+
+	wantHost := k8s.GenerateIngressHost(agentName, namespace, domain)
+	if ings[0].Hostname != wantHost {
+		t.Errorf("agent ingress hostname mismatch:\n  normalizer stored: %s\n  spec applier uses: %s", ings[0].Hostname, wantHost)
+	}
+}
+
+// TestIngressHostname_MessagingMatchesSpecApplier verifies the messaging (web
+// adapter) ingress uses GenerateMessagingIngressHost, not GenerateIngressHost.
+func TestIngressHostname_MessagingMatchesSpecApplier(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+	accountID := ensureTestAccount(t, db)
+
+	const (
+		agentName = "weather-poet"
+		namespace = "astro-abc123-0"
+		domain    = "agents.astropods.ai"
+	)
+
+	dsSpec := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/weather-poet:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+		},
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters:  []string{"web"},
+			Image:     "messaging:latest",
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+			Endpoints: map[string]spec.Endpoint{
+				"http": {Port: 3000, Protocol: "http"},
+			},
+		},
+	}
+
+	nsCfg := &ds.NormalizedSpecConfig{Namespace: namespace, IngressDomain: domain}
+	depID := deployid.New()
+	_, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
+		ID: depID, AccountID: accountID, AgentName: agentName,
+		DisplayName: "Messaging Ingress Test", BuildID: "b1", Namespace: namespace,
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	ings, err := store.GetIngresses(depID)
+	if err != nil {
+		t.Fatalf("GetIngresses: %v", err)
+	}
+
+	wantHost := k8s.GenerateMessagingIngressHost(agentName, namespace, domain)
+	wrongHost := k8s.GenerateIngressHost(agentName, namespace, domain)
+
+	found := false
+	for _, ing := range ings {
+		if ing.Hostname == wantHost {
+			found = true
+		}
+		if ing.Hostname == wrongHost {
+			t.Errorf("messaging ingress used agent-style hostname instead of messaging-style:\n  stored:   %s\n  expected: %s", wrongHost, wantHost)
+		}
+	}
+	if !found {
+		hostnames := make([]string, len(ings))
+		for i, ing := range ings {
+			hostnames[i] = ing.Hostname
+		}
+		t.Errorf("messaging ingress hostname not found:\n  want: %s\n  got:  %v", wantHost, hostnames)
+	}
+}
+
+// TestIngressHostname_IngestionMatchesSpecApplier verifies the ingestion
+// webhook ingress uses GenerateIngestionIngressHost.
+func TestIngressHostname_IngestionMatchesSpecApplier(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+	accountID := ensureTestAccount(t, db)
+
+	const (
+		agentName       = "weather-poet"
+		namespace       = "astro-abc123-0"
+		ingestionDomain = "ingestion.astropods.ai"
+		ingestionName   = "github-hooks"
+	)
+
+	dsSpec := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/weather-poet:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+		},
+		Ingestion: map[string]spec.DeploymentIngestion{
+			ingestionName: {
+				Image:     "ingestion:latest",
+				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Trigger:   spec.DeploymentTrigger{Type: "webhook"},
+				Endpoints: map[string]spec.Endpoint{
+					"http": {Port: 8080, Protocol: "http"},
+				},
+			},
+		},
+	}
+
+	nsCfg := &ds.NormalizedSpecConfig{Namespace: namespace, IngestionIngressDomain: ingestionDomain}
+	depID := deployid.New()
+	_, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
+		ID: depID, AccountID: accountID, AgentName: agentName,
+		DisplayName: "Ingestion Ingress Test", BuildID: "b1", Namespace: namespace,
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	ings, err := store.GetIngresses(depID)
+	if err != nil {
+		t.Fatalf("GetIngresses: %v", err)
+	}
+
+	wantHost := k8s.GenerateIngestionIngressHost(agentName, namespace, ingestionName, ingestionDomain)
+
+	found := false
+	for _, ing := range ings {
+		if ing.Hostname == wantHost {
+			found = true
+		}
+	}
+	if !found {
+		hostnames := make([]string, len(ings))
+		for i, ing := range ings {
+			hostnames[i] = ing.Hostname
+		}
+		t.Errorf("ingestion ingress hostname not found:\n  want: %s\n  got:  %v", wantHost, hostnames)
+	}
+}
+
+// TestIngressHostname_SasbotAllThreeTypes verifies all three ingress types
+// from the real sasbot spec produce hostnames matching what the spec applier
+// would generate. This is a regression guard against normalizer/applier drift.
+func TestIngressHostname_SasbotAllThreeTypes(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+
+	const (
+		namespace       = "astro-sasbot-e2e-0"
+		domain          = "agents.astropods.ai"
+		ingestionDomain = "ingestion.astropods.ai"
+	)
+
+	nsCfg := &ds.NormalizedSpecConfig{
+		Namespace:              namespace,
+		IngressDomain:          domain,
+		IngestionIngressDomain: ingestionDomain,
+	}
+	d := saveSasbot(t, db, store, parseSasbotSpec(t), nsCfg)
+
+	ings, err := store.GetIngresses(d.ID)
+	if err != nil {
+		t.Fatalf("GetIngresses: %v", err)
+	}
+
+	hostnames := make(map[string]bool, len(ings))
+	for _, ing := range ings {
+		hostnames[ing.Hostname] = true
+	}
+
+	// The sasbot spec has: agent (exposed http endpoint), messaging (web adapter), ingestion webhook
+	checks := []struct {
+		label string
+		host  string
+	}{
+		{"messaging", k8s.GenerateMessagingIngressHost("sasbot", namespace, domain)},
+		{"ingestion/webhook", k8s.GenerateIngestionIngressHost("sasbot", namespace, "webhook", ingestionDomain)},
+	}
+
+	for _, c := range checks {
+		if !hostnames[c.host] {
+			t.Errorf("%s ingress hostname not found in DB:\n  want: %s\n  got:  %v", c.label, c.host, hostnames)
+		}
 	}
 }
