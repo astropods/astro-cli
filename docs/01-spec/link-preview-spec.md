@@ -14,7 +14,7 @@ This spec covers three distinct sharing behaviors depending on what gets shared 
 The user clicks the three-dot menu on a deployed agent card and shares to LinkedIn and X. The platform posts a pre-filled message with a description and blueprint link. What unfurls is the **agent badge** (the trading card). This works because the Share button mints a short-lived signed share URL (`/share/d/:token`) — not the raw deployment URL — which carries the agent badge as its OG image. The user clicking Share is the explicit authorization event.
 
 **Case 2 — Blueprint URL pasted anywhere.**
-A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn or X unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG.
+A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn, X, or Slack unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG. Slack is also the primary internal testing ground for blueprint unfurling.
 
 **Case 3 — Deployment URL pasted anywhere.**
 A raw deployment URL (e.g., `https://astropod.ai/sohumdalal/agents/abg-ieb-2i9`) returns a 404 or not-authorized page and emits no OG metadata. There is no unfurl. Deployments are org-scoped and are not discoverable via raw URL sharing.
@@ -427,7 +427,7 @@ The token payload encodes the deployment's account and agent name, signed with a
 3. Add `/badge/blueprint/:account/:name.png` handler in `server.ts`
 4. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > blueprint.png`
 5. In `BlueprintDetail.tsx` loader, replace `ogImage` with badge endpoint URL; add width/height tags
-6. Verify unfurl with LinkedIn Post Inspector and Twitter Card Validator against staging
+6. Verify unfurl with LinkedIn Post Inspector and Twitter Card Validator against staging; paste blueprint URL into a Slack channel as a final check
 
 **Phase 2 — Agent badge endpoint + signed share URL:**
 1. Create `src/badge-agent.ts` and `src/share-token.ts`
