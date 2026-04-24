@@ -31,17 +31,17 @@ Three new store methods replace `GetByRepo`:
 
 ### Linking
 
-`repo_full_name` is validated on link: must have at least two segments, no `..`, `.`, or empty path components. Validation runs before any external API calls.
+`repo_full_name` is validated on link: must have at least two slash-separated segments, each containing only `[A-Za-z0-9._-]`, with a maximum length of 100 characters per segment. This blocks shell and URL metacharacters that could be injected into GitHub API calls or git-clone commands.
 
-Webhook deduplication: before creating a new webhook, the handler calls `GetByRepoBase` to check if any existing connection already has a webhook on the same base repo. If found, the new connection inherits the existing `webhook_id` and `webhook_secret` — no new GitHub webhook is created.
+Webhook deduplication: before creating a new webhook, the handler calls `GetByRepoBase` to check if any existing connection **in the same account** already has a webhook on the same base repo. If found, the new connection inherits the existing `webhook_id` and `webhook_secret` — no new GitHub webhook is created. The account scope prevents account B from inheriting account A's webhook secret via a cross-account lookup.
 
 ### Webhook fan-out
 
-On push, `GetByRepoBase` retrieves the shared webhook secret for HMAC verification. Then `ListByRepoAndBranch` returns all matching connections. For each connection with a non-empty subpath, a path filter checks whether any changed file (union of `added`, `removed`, `modified` across all commits) starts with `{subPath}/`. Connections that don't match are skipped — no build record is created.
+On push, `GetByRepoBase` retrieves the shared webhook secret for HMAC verification. Then `ListByRepoAndBranch` returns all matching connections. Every connection receives a build — there is no subpath path filtering. Filtering based on the push payload's commits list was removed because GitHub truncates that list at 20 entries, making it unreliable. If any connection fails to enqueue, the handler returns 500 so GitHub's redelivery UI surfaces the partial failure.
 
-### Disconnect
+### Disconnect (account-level)
 
-Delete runs first, then `CountByRepoBase` determines whether to remove the webhook. The webhook is deleted only if count reaches zero.
+The connection row is deleted first, then `CountByRepoBase` determines whether to remove the webhook. Deleting before counting ensures the post-deletion count is accurate, so webhooks shared with other accounts are preserved.
 
 ## Migration
 
