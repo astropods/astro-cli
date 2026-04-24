@@ -686,17 +686,11 @@ type githubPushPayload struct {
 			Name string `json:"name"`
 		} `json:"author"`
 	} `json:"head_commit"`
-	Commits []struct {
-		Added    []string `json:"added"`
-		Removed  []string `json:"removed"`
-		Modified []string `json:"modified"`
-	} `json:"commits"`
 }
 
 // GitHubWebhook handles POST /webhooks/github.
 // Receives push events from GitHub. No session auth — verified via HMAC.
-// Fan-out: each connection for the pushed repo+branch gets its own build,
-// subject to path filtering for subpath connections.
+// Fan-out: every connection for the pushed repo+branch gets its own build.
 func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue githubBuildQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader("X-GitHub-Event") != "push" {
@@ -755,14 +749,6 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			commitAuthor = payload.HeadCommit.Author.Name
 		}
 
-		// Collect all changed files across all commits for path filtering.
-		var changedFiles []string
-		for _, commit := range payload.Commits {
-			changedFiles = append(changedFiles, commit.Added...)
-			changedFiles = append(changedFiles, commit.Removed...)
-			changedFiles = append(changedFiles, commit.Modified...)
-		}
-
 		// Fan-out: query all connections for this repo+branch.
 		conns, err := ghStore.ListByRepoAndBranch(c.Request.Context(), payload.Repository.FullName, branch)
 		if err != nil {
@@ -773,11 +759,6 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 
 		var attempted, enqueued int
 		for _, conn := range conns {
-			subPath := githubconnection.RepoSubPath(conn.RepoFullName)
-			if subPath != "" && !filesTouchSubPath(changedFiles, subPath) {
-				continue
-			}
-
 			attempted++
 			buildID := randomHex(8)
 			buildRecordID, err := ghStore.CreateBuild(c.Request.Context(), &githubconnection.Build{
@@ -885,17 +866,6 @@ func validateRepoFullName(name string) error {
 		}
 	}
 	return nil
-}
-
-// filesTouchSubPath reports whether any file in files has subPath+"/" as a prefix.
-func filesTouchSubPath(files []string, subPath string) bool {
-	prefix := subPath + "/"
-	for _, f := range files {
-		if strings.HasPrefix(f, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 // GitHubHandlerConfig holds config values needed by GitHub handlers.
