@@ -564,10 +564,10 @@ func TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts(t *testing.T) 
 	}
 }
 
-// TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret verifies that when account B
-// links a repo already connected by account A, B gets its own webhook rather than
-// inheriting A's webhook_id and webhook_secret.
-func TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret(t *testing.T) {
+// TestGitHubLink_ReusesExistingWebhookAcrossAccounts verifies that when account B
+// links a repo already connected by account A, B reuses A's webhook rather than
+// creating a new one. One webhook per base repo is shared across all accounts.
+func TestGitHubLink_ReusesExistingWebhookAcrossAccounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	stub, restore := installExternalAPIStub(t)
@@ -592,22 +592,18 @@ func TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret(t *testing.T) {
 		WithArgs("acct-B", "owner/repo").
 		WillReturnRows(sqlmock.NewRows(connCols()))
 
-	// GetByRepoBase returns account A's connection for the same base repo.
+	// GetByRepoBase finds account A's existing webhook on the same base repo.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE repo_full_name`).
 		WithArgs("owner/repo").
 		WillReturnRows(connRow("conn-A", "acct-A", "accountA", "agent-a",
-			"owner/repo", "main", "A-secret", 99))
+			"owner/repo", "main", "shared-secret", 99))
 
-	// B's first upsert must use webhook_id=0 and webhook_secret="" — not A's values.
+	// B's upsert inherits A's webhook_id=99 and shared secret — no new webhook created.
 	mock.ExpectExec("INSERT INTO github_connections").
 		WithArgs(
 			"acct-B", "accountB", "agent-b", "user-B", "org-B",
-			"owner/repo", "main", int64(0), "",
+			"owner/repo", "main", int64(99), "shared-secret",
 		).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	// Second upsert persists the newly created webhook ID and secret.
-	mock.ExpectExec("INSERT INTO github_connections").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	router := gin.New()
@@ -629,8 +625,8 @@ func TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	if stub.githubPostHits.Load() == 0 {
-		t.Errorf("expected account B to create its own webhook; got 0 POST /hooks calls")
+	if stub.githubPostHits.Load() != 0 {
+		t.Errorf("expected 0 POST /hooks calls (webhook reused); got %d", stub.githubPostHits.Load())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet SQL expectations: %v", err)
