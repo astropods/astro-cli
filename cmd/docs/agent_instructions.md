@@ -58,8 +58,8 @@ serve(agent);
 
 Variables you need to run your agent, such as your API keys:
 
-| Variable | Description |
-|----------|-------------|
+| Variable            | Description                         |
+| ------------------- | ----------------------------------- |
 | `ANTHROPIC_API_KEY` | Required for the examples (Claude). |
 
 Run `ast configure` to set them. `ast dev` injects them into the agent container.
@@ -68,7 +68,7 @@ Run `ast configure` to set them. `ast dev` injects them into the agent container
 
 ```
 ├── agent/index.ts      # Main agent entry point
-├── astropods.yml       # Spec (schema: https://astropods.ai/schema/package.json)
+├── astropods.yml       # Spec (schema: https://astropods.com/schema/package.json)
 ├── Dockerfile          # Agent container
 ├── package.json
 └── .env                # API keys (set via ast configure; not committed)
@@ -158,11 +158,11 @@ Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(na
 
 ## Packages
 
-| Package | Purpose |
-|---------|---------|
-| `@mastra/core` | LLM agent with tools and memory |
-| `@astropods/adapter-mastra` | Connects Mastra agent to Astro messaging |
-| `@astropods/messaging` | Messaging SDK for direct gRPC connection (when not using an adapter) |
+| Package                     | Purpose                                                              |
+| --------------------------- | -------------------------------------------------------------------- |
+| `@mastra/core`              | LLM agent with tools and memory                                      |
+| `@astropods/adapter-mastra` | Connects Mastra agent to Astro messaging                             |
+| `@astropods/messaging`      | Messaging SDK for direct gRPC connection (when not using an adapter) |
 
 Install: `bun add @mastra/core @astropods/adapter-mastra`
 
