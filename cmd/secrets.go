@@ -451,9 +451,6 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 	}
 
 	printField("Name", meta.Name)
-	if meta.Description != "" {
-		printField("Description", meta.Description)
-	}
 	printField("Created", meta.CreatedAt.Format(dateFmt))
 	printField("Updated", meta.UpdatedAt.Format(dateFmt))
 
@@ -461,6 +458,10 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 		printField("Value", "******")
 	} else if meta.Value != nil {
 		printField("Value", *meta.Value)
+	}
+
+	if meta.Description != "" {
+		printField("Description", meta.Description)
 	}
 
 	return nil
