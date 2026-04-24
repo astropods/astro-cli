@@ -500,7 +500,7 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	return printLogs(resp.Body)
+	return printLogs(cmd.OutOrStdout(), resp.Body)
 }
 
 func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error {
@@ -620,7 +620,7 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 	var confirm string
 	_, _ = fmt.Scanln(&confirm)
 	if strings.ToLower(strings.TrimSpace(confirm)) != "y" {
-		fmt.Println("Aborted.")
+		fmt.Printf("%sCancelled.%s\n", colorDim, colorReset)
 		return nil
 	}
 

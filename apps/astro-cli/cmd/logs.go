@@ -12,25 +12,30 @@ type logEntry struct {
 	Message   string `json:"message"`
 }
 
+func (e *logEntry) parts() (ts, level, msg string) {
+	level = e.Level
+	if level == "" {
+		level = "INFO"
+	}
+	return e.Timestamp, level, e.Message
+}
+
 // printLogs decodes a JSON log response and prints each entry as a formatted line.
-func printLogs(body io.Reader) error {
+func printLogs(w io.Writer, body io.Reader) error {
 	var entries []logEntry
 	if err := json.NewDecoder(body).Decode(&entries); err != nil {
 		return fmt.Errorf("failed to decode logs: %w", err)
 	}
 	if len(entries) == 0 {
-		fmt.Println("No logs found.")
+		fmt.Fprintln(w, "No logs found.") //nolint:errcheck,gosec
 		return nil
 	}
 	for _, e := range entries {
-		level := e.Level
-		if level == "" {
-			level = "INFO"
-		}
-		if e.Timestamp != "" {
-			fmt.Printf("%s %s %s\n", e.Timestamp, level, e.Message)
+		ts, level, msg := e.parts()
+		if ts != "" {
+			fmt.Fprintf(w, "%s %s %s\n", ts, level, msg) //nolint:errcheck,gosec
 		} else {
-			fmt.Printf("%s %s\n", level, e.Message)
+			fmt.Fprintf(w, "%s %s\n", level, msg) //nolint:errcheck,gosec
 		}
 	}
 	return nil
