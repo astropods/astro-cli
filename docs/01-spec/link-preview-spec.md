@@ -14,7 +14,7 @@ This spec covers three distinct sharing behaviors depending on what gets shared 
 The user clicks the three-dot menu on a deployed agent card and shares to LinkedIn and X. The platform posts a pre-filled message with a description and blueprint link. What unfurls is the **agent badge** (the trading card). This works because the Share button mints a short-lived signed share URL (`/share/d/:token`) — not the raw deployment URL — which carries the agent badge as its OG image. The user clicking Share is the explicit authorization event.
 
 **Case 2 — Blueprint URL pasted anywhere.**
-A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn, X, or Slack unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG. Slack is also the primary internal testing ground for blueprint unfurling.
+A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn, X, or Slack unfurls as the **blueprint card** only if the blueprint's visibility is set to **public**. If the blueprint is private, the badge endpoint returns 404 and no OG tags are emitted — the link appears as plain text. Slack is the primary internal testing ground for blueprint unfurling.
 
 **Case 3 — Deployment URL pasted anywhere.**
 A raw deployment URL (e.g., `https://astropod.ai/sohumdalal/agents/abg-ieb-2i9`) returns a 404 or not-authorized page and emits no OG metadata. There is no unfurl. Deployments are org-scoped and are not discoverable via raw URL sharing.
@@ -42,10 +42,12 @@ When a user pastes a URL into LinkedIn or X, the platform dispatches an unauthen
 
 This means session-aware OG tag injection is not a reliable access control mechanism on its own. Even if the page SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached version.
 
-**Blueprints are safe to unfurl now** because:
-- Blueprints are designed to be shared — the product intent is discovery.
-- The badge shows only information the URL already implies: name, description, deploy count, owner handle. Nothing in the card is a data disclosure beyond what knowing the blueprint slug already reveals.
-- For private blueprints, access control is enforced on the page itself. The card is a cover image, not a data leak.
+**Blueprint unfurling is gated on visibility.** Blueprints have a user-controlled visibility setting (public or private). The badge endpoint checks this field before generating a PNG:
+
+- **Public blueprint:** badge renders and OG tags are emitted. The blueprint is intentionally discoverable.
+- **Private blueprint:** badge endpoint returns 404 and the page emits no OG tags. The link appears as plain text — no card, no image, no metadata disclosure.
+
+This means visibility is enforced in two places: the badge PNG endpoint (returns 404 if private) and the `BlueprintDetail.tsx` loader (omits OG tags if private). Both checks are necessary — a crawler that somehow has the badge URL directly should also get 404.
 
 **Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Pasting a raw deployment URL into LinkedIn or X produces no unfurl. This is a deliberate product decision, not a gap: until fine-grained access control (FGAC) exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Without that check, any unfurl would effectively make deployment existence discoverable to anyone with the URL.
 
@@ -57,7 +59,7 @@ The signed Share flow (see In-App Share Flow section) is the correct path for de
 
 ## Goals
 
-- **G1:** Blueprint page URLs unfurl with a blueprint-specific landscape card PNG (replacing the current account avatar).
+- **G1:** Public blueprint URLs unfurl with a blueprint-specific landscape card PNG (replacing the current account avatar). Private blueprint URLs emit no OG tags and return 404 from the badge endpoint.
 - **G2:** The Share button on the agent card mints a signed share URL that unfurls the agent badge (trading card) on LinkedIn and X.
 - **G3:** The Share button pre-fills a message with the agent description and blueprint link alongside the agent badge unfurl.
 - **G4:** The agent trading card is downloadable as SVG or high-quality PNG from the same Share menu.
@@ -181,6 +183,19 @@ Colors SHOULD use `deriveCardColors()` if a dominant avatar color is available, 
 **Route:** `GET /badge/blueprint/:account/:name.png`
 
 Renders a landscape card that mirrors the blueprint listing UI. This format is natively landscape (~1200×630px) — the standard OG image aspect ratio — which avoids the letterboxing issue that the portrait trading card has on X/Twitter.
+
+This endpoint MUST check the blueprint's visibility before rendering. If the blueprint is private, it returns `404 Not Found` with no body. This prevents the badge from being accessible even if someone constructs the URL directly.
+
+#### Response
+
+| Scenario | Status | Body |
+|----------|--------|------|
+| Success (public blueprint) | `200 OK` | PNG binary, `Content-Type: image/png` |
+| Private blueprint | `404 Not Found` | Empty body |
+| Blueprint not found | `404 Not Found` | Empty body |
+| Upstream API error | `502 Bad Gateway` | Empty body |
+
+The `BlueprintDetail.tsx` loader MUST also check visibility and omit all OG tags when the blueprint is private — so neither the page HTML nor the badge URL leaks any information.
 
 #### Visual Design
 
