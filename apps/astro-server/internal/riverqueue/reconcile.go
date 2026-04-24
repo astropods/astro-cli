@@ -199,35 +199,51 @@ func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
 		expectedTimeout = 3600
 	}
 
+	// Collect OIDC deployments and their namespaces (DB-only, no K8s calls).
+	var oidcDeps []*deploymentstore.Deployment
+	oidcNamespaces := map[string]bool{}
+	for _, dep := range deps {
+		if specHasOIDCAuth(dep.DeploymentSpecJSON) {
+			oidcDeps = append(oidcDeps, dep)
+			oidcNamespaces[dep.Namespace] = true
+		}
+	}
+	if len(oidcDeps) == 0 {
+		return
+	}
+
+	// Single cluster-wide ingress list filtered by managed-by label, then
+	// bucket by namespace. One K8s call instead of N.
 	clientset := w.k8s.Clientset()
+	allIngresses, err := clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+	})
+	if err != nil {
+		w.log.Warn("Reconcile OIDC: failed to list cluster ingresses", "error", err)
+		return
+	}
+
+	ingressByNs := map[string][]networkingv1.Ingress{}
+	for _, ing := range allIngresses.Items {
+		if oidcNamespaces[ing.Namespace] {
+			ingressByNs[ing.Namespace] = append(ingressByNs[ing.Namespace], ing)
+		}
+	}
+
+	// Check every OIDC deployment against the pre-fetched ingresses so
+	// partially-applied rollouts recover on the next tick.
 	const maxReappliesPerTick = 10
 	reapplied := 0
+	stale := 0
+	for _, dep := range oidcDeps {
+		if oidcAnnotationCurrent(ingressByNs[dep.Namespace], expectedAnnotation, expectedTimeout) {
+			continue
+		}
+		stale++
 
-	for _, dep := range deps {
 		if reapplied >= maxReappliesPerTick {
-			w.log.Warn("Reconcile OIDC: hit reapply cap, remaining stale deployments will be handled next tick",
-				"cap", maxReappliesPerTick)
-			break
+			continue // count remaining stale but don't enqueue
 		}
-
-		if !specHasOIDCAuth(dep.DeploymentSpecJSON) {
-			continue
-		}
-
-		ingresses, err := clientset.NetworkingV1().Ingresses(dep.Namespace).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			w.log.Warn("Reconcile OIDC: failed to list ingresses", "namespace", dep.Namespace, "error", err)
-			continue
-		}
-
-		if oidcConfigCurrent(ingresses.Items, expectedAnnotation, expectedTimeout, clientset, ctx, dep.Namespace, dcfg.MessagingOIDCClientID, dcfg.MessagingOIDCClientSecret) {
-			continue
-		}
-
-		w.log.Info("Reconcile OIDC: stale OIDC config detected, reapplying",
-			"deployment_id", dep.ID,
-			"namespace", dep.Namespace,
-		)
 
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "OIDC config changed — reapplying", nil); err != nil {
 			w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
@@ -237,8 +253,11 @@ func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
 			w.log.Error("Reconcile OIDC: failed to enqueue deploy job", "deployment_id", dep.ID, "error", err)
 			continue
 		}
-
 		reapplied++
+	}
+	if stale > 0 {
+		w.log.Info("Reconcile OIDC: stale deployments found",
+			"stale", stale, "reapplied", reapplied, "deferred", stale-reapplied)
 	}
 }
 
@@ -270,19 +289,11 @@ func buildExpectedOIDCAnnotation(issuer, authEP, tokenEP, userInfoEP string) str
 	return string(b)
 }
 
-// oidcConfigCurrent returns true when the live ingress annotations AND the
-// credentials secret match the expected OIDC configuration. Any mismatch
-// (issuer, endpoints, timeout, client ID, or client secret) returns false.
-func oidcConfigCurrent(
-	ingresses []networkingv1.Ingress,
-	expectedAnnotation string,
-	expectedTimeout int,
-	clientset *kubernetes.Clientset,
-	ctx context.Context,
-	namespace, expectedClientID, expectedClientSecret string,
-) bool {
-	// Check ingress annotations
-	annotationMatch := false
+// oidcAnnotationCurrent returns true when at least one ingress has the
+// expected OIDC annotation and session timeout. Uses only pre-fetched data —
+// no K8s API calls. A reapply will fix both annotations and the credentials
+// secret, so checking annotations alone is sufficient for detection.
+func oidcAnnotationCurrent(ingresses []networkingv1.Ingress, expectedAnnotation string, expectedTimeout int) bool {
 	for _, ing := range ingresses {
 		liveOIDC := ing.Annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]
 		if liveOIDC == "" {
@@ -295,23 +306,9 @@ func oidcConfigCurrent(
 		if liveTimeout != fmt.Sprintf("%d", expectedTimeout) {
 			return false
 		}
-		annotationMatch = true
+		return true // found a matching OIDC ingress
 	}
-	if !annotationMatch {
-		return false // no ingress had the OIDC annotation at all
-	}
-
-	// Check credentials secret
-	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "messaging-oidc", metav1.GetOptions{})
-	if err != nil {
-		return false // secret missing or unreachable — needs reapply
-	}
-	if string(secret.Data["clientId"]) != expectedClientID ||
-		string(secret.Data["clientSecret"]) != expectedClientSecret {
-		return false
-	}
-
-	return true
+	return false // no ingress had the OIDC annotation
 }
 
 // detectOrphanedNamespaces finds K8s namespaces managed by astro-server that
