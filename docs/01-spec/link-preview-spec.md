@@ -54,25 +54,25 @@ There are two independent badge routes, one per page type. Both are handled by t
 
 ```
 [Social platform crawler]
-         │  GET /:account/:name          (agent page)
-         │  GET /blueprints/:account/:name   (blueprint page)
-         ▼
-[Bun SSR server — React Router SSR]
-   meta() export returns og:image pointing at badge route
-         │
-         ├─► GET /badge/agent/:account/:name.png
-         │       1. Fetch agent from API
-         │       2. agentToCardData()
-         │       3. generateCard()          ← astro-trading-card
-         │       4. Resvg().render()        ← @resvg/resvg-js
-         │       5. Return PNG
-         │
-         └─► GET /badge/blueprint/:account/:name.png
-                 1. Fetch blueprint from API
-                 2. blueprintToCardProps()
-                 3. satori(<BlueprintCard />)  ← satori (JSX → SVG)
-                 4. Resvg().render()           ← @resvg/resvg-js
-                 5. Return PNG
+  GET /:account/:name               (agent page)
+  GET /blueprints/:account/:name    (blueprint page)
+
+[Bun SSR server - React Router SSR]
+  meta() export returns og:image pointing at badge route
+
+  GET /badge/agent/:account/:name.png
+    1. Fetch agent from API
+    2. agentToCardData()
+    3. generateCard()         -- astro-trading-card
+    4. Resvg().render()       -- @resvg/resvg-js
+    5. Return PNG
+
+  GET /badge/blueprint/:account/:name.png
+    1. Fetch blueprint from API
+    2. blueprintToCardProps()
+    3. satori(BlueprintCard)  -- satori (JSX -> SVG)
+    4. Resvg().render()       -- @resvg/resvg-js
+    5. Return PNG
 ```
 
 ---
@@ -157,15 +157,16 @@ Renders a landscape card that mirrors the blueprint listing UI. This format is n
 The blueprint card matches the blueprint listing UI card design:
 
 ```
-┌─────────────────────────────────────────────────────────┐  ← light gray bg
-│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · │  ← dot grid pattern
-│  ┌──────┐  release-note-helper                          │
-│  │  @@  │  An agent that helps you craft release notes  │
-│  └──────┘  from Jira issues and GitHub PRs              │
-│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · │
-│  ─────────────────────────────────────────────────────  │  ← divider
-│  0 deploys                        ◉ sohumdalal          │
-└─────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+|  . . . . . . . . . . . . . . . . . . .  (dot grid bg)   |
+|                                                          |
+|  [avatar]  release-note-helper                           |
+|            An agent that helps you craft release notes   |
+|            from Jira issues and GitHub PRs               |
+|                                                          |
+|  -------------------------------------------------------- |
+|  0 deploys                            (o) sohumdalal     |
++----------------------------------------------------------+
 ```
 
 | Property | Value |
@@ -205,17 +206,15 @@ async function handleBlueprintBadge(account: string, name: string): Promise<Resp
   const blueprint = await res.json();
   const props = blueprintToCardProps(blueprint);
 
-  const svg = await satori(
-    <BlueprintCard {...props} />,
-    {
+  const element = BlueprintCard(props); // JSX: <BlueprintCard {...props} />
+  const svg = await satori(element, {
       width: 1200,
       height: 630,
       fonts: [
         { name: "Inter", data: font, weight: 400 },
         { name: "Inter", data: fontBold, weight: 700 },
       ],
-    }
-  );
+  });
 
   const png = new Resvg(svg).render().asPng();
 
