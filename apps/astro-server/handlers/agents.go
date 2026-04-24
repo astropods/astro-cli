@@ -276,11 +276,13 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
-			if agent.AvatarColors != nil {
+			if agent.AvatarColors != nil && avatarStore != nil {
 				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
 					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
 					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
 				)
+			} else if agent.AvatarColors != nil {
+				resp.AvatarColors = *agent.AvatarColors
 			}
 			responses = append(responses, resp)
 		}
@@ -362,11 +364,13 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
 			}
-			if agent.AvatarColors != nil {
+			if agent.AvatarColors != nil && avatarStore != nil {
 				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
 					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
 					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
 				)
+			} else if agent.AvatarColors != nil {
+				resp.AvatarColors = *agent.AvatarColors
 			}
 			responses = append(responses, resp)
 		}
@@ -457,11 +461,13 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
 		}
-		if agent.AvatarColors != nil {
+		if agent.AvatarColors != nil && avatarStore != nil {
 			resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
 				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
 				func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
 			)
+		} else if agent.AvatarColors != nil {
+			resp.AvatarColors = *agent.AvatarColors
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count
