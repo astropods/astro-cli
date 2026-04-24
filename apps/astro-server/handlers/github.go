@@ -487,7 +487,6 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 			UserID:         session.UserID,
 			OrganizationID: session.OrganizationID,
 		})
-		deletedWebhooks := make(map[int64]bool)
 		for _, conn := range conns {
 			repoBase := githubconnection.RepoBase(conn.RepoFullName)
 
@@ -498,13 +497,11 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 			// Delete the webhook only after removing the connection row so that
 			// CountByRepoBaseForAccount reflects the post-deletion state. Delete only when
 			// this account has no remaining connections to the base repo.
-			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
+			if tokenErr == nil && conn.WebhookID != 0 {
 				if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, repoBase); countErr == nil && count == 0 {
 					if gh := githubclient.New(token.AccessToken); gh != nil {
 						if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
 							log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
-						} else {
-							deletedWebhooks[conn.WebhookID] = true
 						}
 					}
 				}
