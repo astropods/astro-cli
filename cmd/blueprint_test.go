@@ -194,6 +194,23 @@ func TestBlueprintCreate(t *testing.T) {
 			wantErr:    true,
 		},
 		{
+			name:      "name too short",
+			agentName: "ab",
+			wantErr:   true,
+		},
+		{
+			name:      "name with invalid characters",
+			agentName: "my agent!",
+			wantErr:   true,
+		},
+		{
+			name:       "name with hyphen allowed",
+			agentName:  "my-agent",
+			statusCode: http.StatusCreated,
+			body:       map[string]any{"account": "testaccount", "name": "my-agent"},
+			wantVis:    "private",
+		},
+		{
 			name:       "conflict",
 			agentName:  "existing",
 			statusCode: http.StatusConflict,

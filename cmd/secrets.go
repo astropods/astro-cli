@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,15 @@ import (
 
 // secretsServerURLOverride is set in tests to redirect API calls to a test server.
 var secretsServerURLOverride string
+
+var secretNameRe = regexp.MustCompile(`^[A-Za-z0-9_]{4,}$`)
+
+func validateSecretName(name string) error {
+	if !secretNameRe.MatchString(name) {
+		return fmt.Errorf("secret name must be at least 4 characters and contain only letters, digits, or underscores")
+	}
+	return nil
+}
 
 func secretsBaseURL() string {
 	if secretsServerURLOverride != "" {
@@ -236,6 +246,9 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 
 func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, plain, overwrite bool) error {
 	name := args[0]
+	if err := validateSecretName(name); err != nil {
+		return err
+	}
 
 	at, err := getCurrentAccountToken(cmd.Context())
 	if err != nil {

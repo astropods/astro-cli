@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,6 +20,15 @@ import (
 
 // blueprintServerURLOverride is set in tests to redirect API calls to a test server.
 var blueprintServerURLOverride string
+
+var blueprintNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{4,}$`)
+
+func validateBlueprintName(name string) error {
+	if !blueprintNameRe.MatchString(name) {
+		return fmt.Errorf("blueprint name must be at least 4 characters and contain only letters, digits, underscores, or hyphens")
+	}
+	return nil
+}
 
 // validateVisibility returns an error if v is not "public" or "private".
 func validateVisibility(v string) error {
@@ -239,6 +249,9 @@ func printBlueprintNextSteps(w io.Writer) {
 
 func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	if err := validateBlueprintName(name); err != nil {
+		return err
+	}
 	at, err := getCurrentAccountToken(cmd.Context())
 	if err != nil {
 		return err

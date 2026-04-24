@@ -148,7 +148,7 @@ func TestSecretCreate_Plain(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretCreateCmd.SetOut(buf)
-	require.NoError(t, runSecretCreateWithValue(secretCreateCmd, []string{"X"}, "val", true, false))
+	require.NoError(t, runSecretCreateWithValue(secretCreateCmd, []string{"XVAL"}, "val", true, false))
 
 	vars := received["variables"].([]any)
 	entry := vars[0].(map[string]any)
@@ -188,6 +188,30 @@ func TestSecretCreate_OverwriteFlag(t *testing.T) {
 	require.NoError(t, runSecretCreateWithValue(secretCreateCmd, []string{"EXISTING"}, "val", false, true))
 	require.True(t, postCalled, "POST should be called when --overwrite is set")
 	require.Contains(t, buf.String(), "Created secret")
+}
+
+func TestSecretNameValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "valid", input: "MY_KEY", wantErr: false},
+		{name: "valid with digits", input: "KEY_123", wantErr: false},
+		{name: "too short", input: "KEY", wantErr: true},
+		{name: "hyphen not allowed", input: "MY-KEY", wantErr: true},
+		{name: "space not allowed", input: "MY KEY", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSecretName(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestSecretUpdate(t *testing.T) {
