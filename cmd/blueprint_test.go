@@ -463,3 +463,86 @@ func TestBlueprintUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestBlueprintTemplate(t *testing.T) {
+	blueprintPayload := map[string]any{
+		"account":    "testaccount",
+		"name":       "my-agent",
+		"visibility": "public",
+		"versions":   []any{map[string]any{"build_id": "abc123", "published_at": "2026-01-01T00:00:00Z"}},
+		"metrics":    map[string]any{"deploy_count": 0},
+	}
+	templatePayload := map[string]any{
+		"variables": map[string]any{
+			"API_KEY": map[string]any{
+				"targets":     []any{"env"},
+				"secret":      true,
+				"optional":    false,
+				"label":       "API Key",
+				"description": "The service API key",
+			},
+			"TIMEOUT": map[string]any{
+				"targets":  []any{"env"},
+				"secret":   false,
+				"optional": true,
+				"default":  "30",
+			},
+		},
+		"interfaces": map[string]any{"adapters": []any{}},
+		"schedules":  map[string]any{},
+	}
+
+	cases := []struct {
+		name           string
+		templateStatus int
+		templateBody   any
+		wantErr        bool
+		wantOut        string
+	}{
+		{
+			name:           "shows variables",
+			templateStatus: http.StatusOK,
+			templateBody:   templatePayload,
+			wantOut:        "API_KEY",
+		},
+		{
+			name:           "shows secret in notes",
+			templateStatus: http.StatusOK,
+			templateBody:   templatePayload,
+			wantOut:        "secret",
+		},
+		{
+			name:           "server error on template",
+			templateStatus: http.StatusInternalServerError,
+			templateBody:   map[string]any{"error": "internal error"},
+			wantErr:        true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					jsonHandler(tc.templateStatus, tc.templateBody)(w, r)
+				} else {
+					jsonHandler(http.StatusOK, blueprintPayload)(w, r)
+				}
+			})
+			setupBlueprintTest(t, handler)
+			require.NoError(t, blueprintGetCmd.Flags().Set("template", "true"))
+			t.Cleanup(func() { blueprintGetCmd.Flags().Set("template", "false") }) //nolint:errcheck
+
+			buf := &bytes.Buffer{}
+			blueprintGetCmd.SetOut(buf)
+			blueprintGetCmd.SetContext(context.Background())
+
+			err := runBlueprintGet(blueprintGetCmd, []string{"my-agent"})
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Contains(t, buf.String(), tc.wantOut)
+			}
+		})
+	}
+}
