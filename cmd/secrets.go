@@ -106,6 +106,7 @@ func init() {
 	secretCreateCmd.Flags().BoolVar(&secretPlain, "plain", false, "Store as plaintext instead of an encrypted secret")
 	secretCreateCmd.Flags().StringVar(&secretCreateValue, "value", "", "Value to set (skips interactive prompt)")
 	secretCreateCmd.Flags().BoolVar(&secretCreateOverwrite, "overwrite", false, "Overwrite if the variable already exists")
+	secretCreateCmd.Flags().StringP("description", "d", "", "Optional description for the secret")
 	secretUpdateCmd.Flags().StringVar(&secretUpdateValue, "value", "", "New value (skips interactive prompt)")
 	secretListCmd.Flags().BoolVar(&secretValues, "values", false, "Show variable values")
 	secretListCmd.Flags().Bool("json", false, "Output as JSON")
@@ -264,6 +265,11 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 		}
 	}
 
+	variable := map[string]any{"name": name, "value": value, "secret": !plain}
+	if desc, _ := cmd.Flags().GetString("description"); desc != "" {
+		variable["description"] = desc
+	}
+
 	var result struct {
 		Results []struct {
 			Name   string `json:"name"`
@@ -275,7 +281,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 		cmd.Context(),
 		http.MethodPost,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
-		map[string]any{"variables": []map[string]any{{"name": name, "value": value, "secret": !plain}}},
+		map[string]any{"variables": []map[string]any{variable}},
 		at.Token,
 		verbose,
 		&result)
