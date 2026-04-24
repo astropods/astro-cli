@@ -32,25 +32,37 @@ The core technical gap is the same in both cases: there is no server-side mechan
 
 ## Access Control Boundary
 
-Not all Astro pages are safe to unfurl, and the distinction matters architecturally.
+Not all Astro pages can be unfurled today, and the distinction is not philosophical — it is a product readiness question.
 
 **How unfurling actually works:**
 
-When a user pastes a URL into Slack or LinkedIn, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG from a separate, also unauthenticated request. Platforms then cache the result aggressively.
+When a user pastes a URL into Slack or LinkedIn, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG separately — also unauthenticated. Platforms then cache the result aggressively.
 
-This means **session-aware OG tag injection is not a reliable access control mechanism**. Even if the SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached card. The badge PNG endpoint is also inherently stateless — it cannot verify org membership.
+This means session-aware OG tag injection is not a reliable access control mechanism on its own. Even if the page SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached version.
 
-**Blueprints are safe to unfurl** because:
-- They are designed to be shared (the product intent is discovery).
-- The badge image shows only information the URL already reveals: name, description, deploy count, owner handle. There is no information in the card that isn't already implied by knowing the blueprint exists.
-- Private blueprints: access control is enforced on the *page*, not the badge. The card is a "cover image," not a data disclosure.
+**Blueprints are safe to unfurl now** because:
+- Blueprints are designed to be shared — the product intent is discovery.
+- The badge shows only information the URL already implies: name, description, deploy count, owner handle. Nothing in the card is a data disclosure beyond what knowing the blueprint slug already reveals.
+- For private blueprints, access control is enforced on the page itself. The card is a cover image, not a data leak.
 
-**Deployment pages are not safe to unfurl** because:
-- Deployments are org-scoped. The URL (`/agents/:account/:id`) contains an opaque deployment ID that does not itself reveal anything — but a badge image would confirm the deployment exists, show its agent name, and potentially surface org-internal details.
-- The platform caching problem means an in-org user's unfurl can produce a card that an out-of-org user later sees.
-- There is no clean way to enforce org membership at the badge PNG layer without a stateful, authenticated image-generation service, which is a significantly larger investment.
+**Deployment pages cannot be unfurled yet — this is a prerequisite gap, not a permanent decision.**
 
-**If deployment unfurling is revisited in the future**, the correct approach is an explicit "Share" flow: a button that generates a time-limited, signed share URL (e.g., `/share/d/:token`) that decouples the shareable preview from the authenticated deployment page. The token encodes what the user is allowed to share and expires independently of the session.
+The intended end state for deployment unfurling is org-scoped sharing: if you share a deployment URL with a colleague in the same org, they can open it; anyone outside the org is denied — the same model as a private GitHub repository. This is the right product behavior.
+
+The blocker is that **fine-grained access control (FGAC) does not exist yet**. Without FGAC, there is no mechanism to:
+1. Determine whether a given viewer is a member of the org that owns the deployment.
+2. Gate the badge PNG endpoint on that membership.
+3. Prevent a card generated for an in-org user from being served (via platform cache) to an out-of-org user.
+
+Once FGAC is in place, the path forward for deployment unfurling is an explicit **"Share" flow** rather than automatic OG tags on the deployment page:
+
+1. An in-org user clicks a "Copy share link" button on the deployment page.
+2. FGAC confirms the user has share permission for that deployment.
+3. The server generates a time-limited, signed token and returns a share URL: `/share/d/:token`.
+4. That URL renders a minimal deployment card (agent name, org, status — nothing sensitive) and emits the OG tags.
+5. Anyone with the link can see the card; the token expiry bounds the exposure window. The underlying deployment page still requires org membership.
+
+This model keeps the badge stateless (the token carries the authorization) while letting FGAC control who can generate share links in the first place. It is intentionally out of scope for this spec.
 
 ---
 
