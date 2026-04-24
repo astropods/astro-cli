@@ -8,15 +8,16 @@
 
 ## Abstract
 
-When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself.
+This spec covers three distinct sharing behaviors depending on what gets shared and how:
 
-This spec does two distinct things:
+**Case 1 — Share button on agent card (explicit share intent).**
+The user clicks the three-dot menu on a deployed agent card and shares to LinkedIn, X, or Slack. The platform posts a pre-filled message with a description and blueprint link. What unfurls is the **agent badge** (the trading card). This works because the Share button mints a short-lived signed share URL (`/share/d/:token`) — not the raw deployment URL — which carries the agent badge as its OG image. The user clicking Share is the explicit authorization event.
 
-**1. Blueprint link unfurling.** When a blueprint URL is shared anywhere, it unfurls with a card that mirrors the blueprint listing UI — clean, light, landscape — showing the blueprint's name, description, deploy count, and owner. This is the primary social sharing surface.
+**Case 2 — Blueprint URL pasted anywhere.**
+A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into Slack, LinkedIn, or X unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG.
 
-**2. Agent card download.** The deployed agent trading card (dark, holographic, portrait) is a downloadable artifact — an SVG or high-quality PNG the user can save. It is not used as an OG image. When a user shares from the agent card via the in-app Share menu, they share the *blueprint* URL (with a pre-filled message), not the deployment URL. What unfurls is the blueprint card, not the trading card.
-
-This separation keeps the social surface clean: blueprints are the public-facing entity, deployments are org-scoped. The trading card is a trophy, not a broadcast.
+**Case 3 — Deployment URL pasted anywhere.**
+A raw deployment URL (e.g., `https://astropod.ai/sohumdalal/agents/abg-ieb-2i9`) returns a 404 or not-authorized page and emits no OG metadata. There is no unfurl. Deployments are org-scoped and are not discoverable via raw URL sharing.
 
 ---
 
@@ -46,40 +47,28 @@ This means session-aware OG tag injection is not a reliable access control mecha
 - The badge shows only information the URL already implies: name, description, deploy count, owner handle. Nothing in the card is a data disclosure beyond what knowing the blueprint slug already reveals.
 - For private blueprints, access control is enforced on the page itself. The card is a cover image, not a data leak.
 
-**Deployment pages cannot be unfurled yet — this is a prerequisite gap, not a permanent decision.**
+**Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Pasting a raw deployment URL into Slack or LinkedIn produces no unfurl. This is a deliberate product decision, not a gap: until fine-grained access control (FGAC) exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Without that check, any unfurl would effectively make deployment existence discoverable to anyone with the URL.
 
-The intended end state for deployment unfurling is org-scoped sharing: if you share a deployment URL with a colleague in the same org, they can open it; anyone outside the org is denied — the same model as a private GitHub repository. This is the right product behavior.
+The signed Share flow (see In-App Share Flow section) is the correct path for deployment unfurling today: the user explicitly authorizes the share, the token is the credential, and the raw deployment URL stays dark. This holds until FGAC is in place.
 
-The blocker is that **fine-grained access control (FGAC) does not exist yet**. Without FGAC, there is no mechanism to:
-1. Determine whether a given viewer is a member of the org that owns the deployment.
-2. Gate the badge PNG endpoint on that membership.
-3. Prevent a card generated for an in-org user from being served (via platform cache) to an out-of-org user.
-
-Once FGAC is in place, the path forward for deployment unfurling is an explicit **"Share" flow** rather than automatic OG tags on the deployment page:
-
-1. An in-org user clicks a "Copy share link" button on the deployment page.
-2. FGAC confirms the user has share permission for that deployment.
-3. The server generates a time-limited, signed token and returns a share URL: `/share/d/:token`.
-4. That URL renders a minimal deployment card (agent name, org, status — nothing sensitive) and emits the OG tags.
-5. Anyone with the link can see the card; the token expiry bounds the exposure window. The underlying deployment page still requires org membership.
-
-This model keeps the badge stateless (the token carries the authorization) while letting FGAC control who can generate share links in the first place. It is intentionally out of scope for this spec.
+**Once FGAC exists**, the token-generation step can be gated on org membership, allowing in-org colleagues to open deployment share links while outsiders still see 404. The underlying `/share/d/:token` infrastructure built in this spec does not need to change — FGAC adds the pre-condition for minting a token, not a new mechanism.
 
 ---
 
 ## Goals
 
-- **G1:** Blueprint page URLs replace the current account-avatar `og:image` with a UI-style landscape card PNG specific to the blueprint.
-- **G2:** The deployed agent card (trading card) is downloadable as SVG or PNG from a three-dot Share menu.
-- **G3:** Sharing to LinkedIn, X, or Slack from the agent card pre-fills a message with the blueprint URL — what unfurls is the blueprint card, not the trading card.
-- **G4:** All server-rendered PNGs are generated on demand with no browser involved.
-- **G5:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
-- **G6:** The implementation does not require changes to the Go backend.
+- **G1:** Blueprint page URLs unfurl with a blueprint-specific landscape card PNG (replacing the current account avatar).
+- **G2:** The Share button on the agent card mints a signed share URL that unfurls the agent badge (trading card) on LinkedIn, X, and Slack.
+- **G3:** The Share button pre-fills a message with the agent description and blueprint link alongside the agent badge unfurl.
+- **G4:** The agent trading card is downloadable as SVG or high-quality PNG from the same Share menu.
+- **G5:** Raw deployment URLs return no OG metadata — no unfurl.
+- **G6:** All server-rendered PNGs are generated on demand with no browser involved.
+- **G7:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
+- **G8:** The implementation does not require changes to the Go backend.
 
 ## Non-Goals
 
-- Deployment page OG tags or unfurling (see Access Control section).
-- Agent trading card as an OG image — the card is a download artifact only.
+- Deployment page OG tags (raw deployment URLs explicitly have no unfurl).
 - Animated or video preview cards.
 - Uploading pre-generated PNGs to S3/CDN (can be layered on as a caching optimization later).
 - Per-user or per-session personalization of the card image.
@@ -355,7 +344,7 @@ A lightweight LRU implementation (e.g., `lru-cache` npm package) is preferred ov
 
 ## In-App Share Flow (Agent Card)
 
-The deployed agent card has a three-dot menu. A "Share" option in that menu exposes two distinct actions:
+The deployed agent card has a three-dot menu. A "Share" option in that menu exposes two distinct actions: download and social share.
 
 ### Download
 
@@ -368,32 +357,51 @@ The server-side PNG download is preferred over the existing canvas-based `downlo
 
 ### Share to Social Platform
 
-When the user selects a social platform (LinkedIn, X, or Slack), the app opens that platform's share intent URL with a pre-filled message. The shared URL is the **blueprint URL**, not the deployment URL.
+When the user selects a social platform, the Share button does two things:
 
-**Why the blueprint URL, not the deployment URL:**
-- Deployments are org-scoped. Sharing a deployment URL with someone outside the org is meaningless — they cannot access it.
-- Blueprints are the public-facing entity. The blueprint represents what the agent *is*; the deployment is an instance of it.
-- The blueprint card unfurls cleanly, giving the recipient context without requiring org access.
+1. **Mints a signed share token.** The Bun server generates a short-lived, signed share URL (`/share/d/:token`) for this deployment. The share page at that URL emits OG tags pointing to the agent badge PNG (`/badge/agent/:account/:name.png`). Anyone with the link can view the share page; the token expires after a configurable TTL (suggested: 30 days).
+
+2. **Opens a platform share intent** with a pre-filled message containing the agent description, a link to the blueprint, and the signed share URL.
+
+The signed share URL is what the platform crawls and caches — so what unfurls is the **agent badge** (trading card). The blueprint link in the message text gives the recipient a path to the blueprint itself.
+
+**Why a signed share URL and not the raw deployment URL:**
+Raw deployment URLs intentionally return 404 or not-authorized for unauthenticated requests (see Access Control section). The signed token is the explicit grant: the user clicking Share is the authorization event. This also means the raw deployment URL remains dark — you cannot accidentally trigger an unfurl by pasting it.
 
 **Pre-filled message templates:**
 
 | Platform | Message |
 |----------|---------|
-| LinkedIn | "Just deployed {displayName} on Astro using the {blueprint} blueprint. {blueprintUrl}" |
+| LinkedIn | "Just deployed {displayName} on Astro using the {blueprint} blueprint. Check it out: {blueprintUrl}" |
 | X (Twitter) | "Just deployed {displayName} on Astro using {blueprint} {blueprintUrl}" |
-| Slack | Deep link to Slack compose with the same message body |
+| Slack | Same message body via Slack deep link |
 
-The `{blueprintUrl}` is the canonical blueprint page URL (e.g., `https://astropod.ai/{account}/{blueprintName}`). When the recipient's platform crawls this URL, it fetches the blueprint badge PNG and renders the blueprint card — not the trading card.
+The `{blueprintUrl}` is the canonical blueprint page URL (e.g., `https://astropod.ai/{account}/{blueprintName}`). The share intent URL passed to the platform is the **signed share URL**, not the blueprint URL — so what unfurls is the agent badge, not the blueprint card.
 
 **Share intent URLs:**
 
 ```
-LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url={encodedBlueprintUrl}
-X:        https://x.com/intent/post?text={encodedMessage}&url={encodedBlueprintUrl}
-Slack:    https://slack.com/intl/en-us/share?url={encodedBlueprintUrl}
+LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url={encodedShareUrl}
+X:        https://x.com/intent/post?text={encodedMessage}&url={encodedShareUrl}
+Slack:    https://slack.com/intl/en-us/share?url={encodedShareUrl}
 ```
 
-The message and URL MUST be URL-encoded before being appended to the intent URL. The blueprint URL and display name are available from the deployment page's existing loader data (each deployment knows its source blueprint).
+All values MUST be URL-encoded. The blueprint URL, display name, and blueprint name are available from the deployment page's existing loader data.
+
+### Share Page (`/share/d/:token`)
+
+| Property | Value |
+|----------|-------|
+| Route | `GET /share/d/:token` |
+| Auth required | None — the token is the credential |
+| OG image | `https://{host}/badge/agent/:account/:name.png` |
+| OG title | `{displayName} — deployed on Astro` |
+| OG description | Agent description (max 200 chars) |
+| Page content | Minimal: agent name, description, link to blueprint, link to Astro |
+| Token TTL | 30 days (configurable) |
+| Expired token | Returns 410 Gone with no OG tags |
+
+The token payload encodes the deployment's account and agent name, signed with a server secret. It does not embed the PNG itself — the badge endpoint handles image generation separately. Token generation is handled in the Bun server; no Go backend changes are required.
 
 ---
 
@@ -401,11 +409,13 @@ The message and URL MUST be URL-encoded before being appended to the intent URL.
 
 | File | Change |
 |------|--------|
-| `apps/astro-client/server.ts` | Add `/badge/agent/*` and `/badge/blueprint/*` routes before React Router handler |
-| `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` — serves PNG downloads, not OG images |
+| `apps/astro-client/server.ts` | Add `/badge/agent/*`, `/badge/blueprint/*`, and `/share/d/:token` routes before React Router handler |
+| `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` |
 | `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX component (Satori-compatible, inline styles only) and `generateBlueprintBadgePng()` |
 | `apps/astro-client/src/badge-cache.ts` | **New.** Shared LRU cache instance |
-| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add Share menu (three-dot) with Download SVG, Download PNG, and social share options; no OG meta tags |
+| `apps/astro-client/src/share-token.ts` | **New.** Token mint/verify using HMAC-SHA256; encode/decode account + agent name + expiry |
+| `apps/astro-client/src/pages/SharePage.tsx` | **New.** Minimal share page with OG tags pointing to agent badge PNG; handles expired token (410) |
+| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add three-dot Share menu: Download SVG, Download PNG, share intent links (calls token mint endpoint) |
 | `apps/astro-client/src/pages/blueprints/BlueprintDetail.tsx` | Replace `ogImage` in loader with badge endpoint URL; add `og:image:width` and `og:image:height` |
 | `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `satori`, `lru-cache` |
 
@@ -413,31 +423,29 @@ The message and URL MUST be URL-encoded before being appended to the intent URL.
 
 ## Implementation Order
 
-**Phase 1 — Blueprint badge PNG endpoint (no visible user change):**
-1. Install `@resvg/resvg-js`, `satori`, and `lru-cache`
-2. Create `src/badge-blueprint.tsx`, `src/badge-cache.ts`
+**Phase 1 — Blueprint badge + unfurl (no visible user change until Phase 2):**
+1. Install `@resvg/resvg-js`, `satori`, `lru-cache`
+2. Create `src/badge-blueprint.tsx` and `src/badge-cache.ts`
 3. Add `/badge/blueprint/:account/:name.png` handler in `server.ts`
 4. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > blueprint.png`
+5. In `BlueprintDetail.tsx` loader, replace `ogImage` with badge endpoint URL; add width/height tags
+6. Verify unfurl with LinkedIn Post Inspector and Twitter Card Validator against staging
 
-**Phase 2 — Blueprint OG meta tags (enables unfurling):**
-1. In `BlueprintDetail.tsx` loader, replace `ogImage` derivation with the badge endpoint URL
-2. Add `og:image:width` (1200) and `og:image:height` (630) to the existing `meta()` export
-3. Verify with LinkedIn Post Inspector and Twitter Card Validator against a staging URL
-4. Verify Slack unfurl by pasting a blueprint URL into a test channel
+**Phase 2 — Agent badge endpoint + signed share URL:**
+1. Create `src/badge-agent.ts` and `src/share-token.ts`
+2. Add `/badge/agent/:account/:name.png` handler in `server.ts`
+3. Add `/share/d/:token` handler in `server.ts`; create `src/pages/SharePage.tsx` with OG tags
+4. Verify: `curl http://localhost:3000/badge/agent/postman/research-assistant.png > agent.png`
+5. Verify share page: generate a token manually, load `/share/d/:token`, inspect OG tags
 
-**Phase 3 — Agent card download (server-side PNG):**
-1. Create `src/badge-agent.ts`
-2. Add `/badge/agent/:account/:name.png` handler in `server.ts` (download use only, not OG)
-3. Wire "Download PNG" in the Share menu to fetch this endpoint and trigger a browser download
-
-**Phase 4 — Agent card Share menu (social share intents):**
+**Phase 3 — Agent card Share menu:**
 1. Add three-dot Share menu to `DeployedAgentDetail.tsx`
-2. Implement Download SVG (client-side, `downloadSvg()` already available)
-3. Implement Download PNG (fetch `/badge/agent/*` endpoint, trigger download)
-4. Implement LinkedIn / X / Slack share intent links with pre-filled blueprint URL and message
-5. Verify intent URLs open correctly with expected pre-filled text on each platform
+2. Download SVG: client-side via `downloadSvg()` (already available)
+3. Download PNG: fetch `/badge/agent/*` endpoint, trigger browser download
+4. Share to LinkedIn / X / Slack: call token mint endpoint, construct intent URL with signed share URL + pre-filled message
+5. Verify intent URLs on each platform with expected unfurl (agent badge) and message text (blueprint link)
 
-Phases 1 and 2 are the primary unfurling work and ship as a unit. Phases 3 and 4 are the agent card share UX and can ship independently after.
+Phase 1 is the highest-value work and ships independently. Phase 2 infrastructure is a prerequisite for Phase 3 UX. Phases 2 and 3 ship together.
 
 ---
 
