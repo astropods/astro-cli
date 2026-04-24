@@ -66,7 +66,6 @@ export interface BlueprintDetailContentProps {
   onArchive?: () => void;
   hasBuild?: boolean;
   githubRepoName?: string;
-  visibility?: string;
 }
 
 export function BlueprintDetailContent({
@@ -80,7 +79,6 @@ export function BlueprintDetailContent({
   onArchive,
   hasBuild = false,
   githubRepoName,
-  visibility = "private",
 }: BlueprintDetailContentProps) {
   const astropodsYml = generateAstropodsYml(name);
   return (

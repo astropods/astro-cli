@@ -311,7 +311,6 @@ function BlueprintDetailInner({
           onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}
           hasBuild={hasBuild}
           githubRepoName={githubRepoName}
-          visibility={blueprint.visibility}
           mobileSidebar={
             <SidebarCard
               agent={effectiveBlueprint}

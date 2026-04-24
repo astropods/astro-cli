@@ -64,7 +64,6 @@ export const DraftLocal: Story = {
     categories: ["PRODUCTIVITY"],
     isDraft: true,
     canEdit: true,
-    visibility: "private",
   },
 };
 
@@ -76,6 +75,5 @@ export const DraftGitHub: Story = {
     isDraft: true,
     canEdit: true,
     githubRepoName: "sohumonlocal/api-changelog-writer",
-    visibility: "private",
   },
 };
