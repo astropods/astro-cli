@@ -256,9 +256,9 @@ func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
 	// No credentials file — if validation weren't first, push would fail with "not authenticated".
-	// Spec is missing required top-level `meta`, so validation must fail first.
+	// Spec is missing required top-level `agent`, so validation must fail first.
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
