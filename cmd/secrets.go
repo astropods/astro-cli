@@ -226,6 +226,7 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	var value string
+	description, _ := cmd.Flags().GetString("description")
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -238,11 +239,15 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 					}
 					return nil
 				}),
+			huh.NewInput().
+				Title("Description (optional)").
+				Value(&description),
 		),
 	)
 	if err := form.Run(); err != nil {
 		return err
 	}
+	_ = cmd.Flags().Set("description", strings.TrimSpace(description))
 
 	return runSecretCreateWithValue(cmd, args, value, secretPlain, secretCreateOverwrite)
 }
@@ -335,6 +340,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 		if !isSecret {
 			echoMode = huh.EchoModeNormal
 		}
+		description, _ := cmd.Flags().GetString("description")
 		form := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
@@ -352,11 +358,15 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 						}
 						return nil
 					}),
+				huh.NewInput().
+					Title("Description (optional)").
+					Value(&description),
 			),
 		)
 		if err := form.Run(); err != nil {
 			return err
 		}
+		_ = cmd.Flags().Set("description", strings.TrimSpace(description))
 	}
 
 	return runSecretUpdateWithValue(cmd, args, value, isSecret, verbose)
