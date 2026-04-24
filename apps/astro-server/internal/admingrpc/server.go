@@ -1829,13 +1829,13 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		s.log.Warn("Error iterating river jobs", "error", err)
 	}
 
-	// Get last reconcile scan time from namespace_ownership
+	// Get last reconcile run time from River job history.
 	resp := &adminv1.GetDeploymentJobsResponse{Jobs: jobs}
-	var scannedAt sql.NullTime
+	var finalizedAt sql.NullTime
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT scanned_at FROM namespace_ownership WHERE namespace = $1`, dep.Namespace,
-	).Scan(&scannedAt); err == nil && scannedAt.Valid {
-		resp.LastReconcileAt = scannedAt.Time.Format(time.RFC3339)
+		`SELECT finalized_at FROM river.river_job WHERE kind = 'reconcile' AND state = 'completed' ORDER BY finalized_at DESC LIMIT 1`,
+	).Scan(&finalizedAt); err == nil && finalizedAt.Valid {
+		resp.LastReconcileAt = finalizedAt.Time.Format(time.RFC3339)
 	}
 
 	return resp, nil

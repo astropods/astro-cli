@@ -132,7 +132,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		store:     store,
 		k8s:       cfg.K8sClient,
 		dynClient: dynClient,
-		db:        cfg.DB,
 		log:       cfg.Logger,
 		// queue is set after client creation in New()
 	}

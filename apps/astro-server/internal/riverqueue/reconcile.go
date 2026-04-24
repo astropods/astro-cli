@@ -3,7 +3,6 @@ package riverqueue
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -44,7 +43,6 @@ type ReconcileWorker struct {
 	store     *deploymentstore.Store
 	k8s       k8s.ClusterClient
 	dynClient dynamic.Interface
-	db        *sql.DB
 	queue     *Queue
 	log       *logger.Logger
 }
@@ -309,8 +307,9 @@ func oidcConfigCurrent(
 	return true
 }
 
-// maintainNamespaceOwnership upserts namespace_ownership rows for active deployments
-// and detects orphaned K8s namespaces. Adapted from nsscan.Scanner.Scan.
+// detectOrphanedNamespaces finds K8s namespaces managed by astro-server that
+// have no corresponding deployment in the database, and recovers them as failed
+// deployments so operators can investigate.
 func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 	deps, err := w.store.GetDeploymentsInStatus(
 		deploymentstore.StatusActive,
@@ -323,29 +322,13 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 		deploymentstore.StatusStopped,
 	)
 	if err != nil {
-		w.log.Error("Reconcile: failed to list deployments for ownership", "error", err)
+		w.log.Error("Reconcile: failed to list deployments for orphan detection", "error", err)
 		return
 	}
 
-	scanTime := time.Now()
 	dbNamespaces := make(map[string]*deploymentstore.Deployment, len(deps))
-
 	for _, dep := range deps {
 		dbNamespaces[dep.Namespace] = dep
-		sourceAccount := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON)
-		_, err := w.db.ExecContext(ctx, `
-			INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, source_account, scanned_at)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (namespace) DO UPDATE
-			SET account_id = EXCLUDED.account_id,
-			    agent_name = EXCLUDED.agent_name,
-			    deployment_id = EXCLUDED.deployment_id,
-			    source_account = EXCLUDED.source_account,
-			    scanned_at = EXCLUDED.scanned_at
-		`, dep.Namespace, dep.AccountID, dep.AgentName, dep.ID, sourceAccount, scanTime)
-		if err != nil {
-			w.log.Warn("Reconcile: failed to upsert namespace_ownership", "namespace", dep.Namespace, "error", err)
-		}
 	}
 
 	// Detect orphaned K8s namespaces and recover them as failed deployments.

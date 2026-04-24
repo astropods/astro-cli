@@ -75,14 +75,10 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 	addDeployRow(rows, "dep-1", "astro-abc-0", "pending")
 	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
 
-	mock.ExpectExec("INSERT INTO namespace_ownership").
-		WithArgs("astro-abc-0", "acct-1", "agent", "dep-1", "", sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
+	// No orphan recovery expected — the namespace matches a pending deployment.
 	w := &ReconcileWorker{
 		store: store,
 		k8s:   k8sClient,
-		db:    db,
 		log:   logger.New("error", "json"),
 	}
 
@@ -115,7 +111,6 @@ func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 	w := &ReconcileWorker{
 		store: store,
 		k8s:   k8sClient,
-		db:    db,
 		log:   logger.New("warn", "json"),
 	}
 
@@ -154,15 +149,10 @@ func TestMaintainNamespaceOwnership_AllLiveStatusesIncluded(t *testing.T) {
 	}
 	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
 
-	for range statuses {
-		mock.ExpectExec("INSERT INTO namespace_ownership").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-	}
-
+	// No orphan recovery expected — all K8s namespaces are in the DB.
 	w := &ReconcileWorker{
 		store: store,
 		k8s:   k8sClient,
-		db:    db,
 		log:   logger.New("error", "json"),
 	}
 
@@ -360,40 +350,6 @@ func TestSourceAccountFromSpec(t *testing.T) {
 				t.Errorf("SourceAccountFromSpec(%q) = %q, want %q", tt.specJSON, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestMaintainNamespaceOwnership_SourceAccountPopulated(t *testing.T) {
-	k8sClient := newTestK8sClient(k8sNamespaceListHandler("astro-abc-0"))
-
-	db, mock, _ := sqlmock.New()
-	store := deploymentstore.NewStore(db)
-
-	now := time.Now()
-	rows := sqlmock.NewRows(testDeployColumns)
-	// Row with a spec that has source.account set
-	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-abc-0", "agent",
-		`{"source":{"account":"source-team","name":"agent","build":"build-1"}}`, nil, nil,
-		"active", nil, nil, now, nil,
-		now, nil, nil)
-	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
-
-	// Expect source_account = "source-team" in the upsert
-	mock.ExpectExec("INSERT INTO namespace_ownership").
-		WithArgs("astro-abc-0", "acct-1", "agent", "dep-1", "source-team", sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	w := &ReconcileWorker{
-		store: store,
-		k8s:   k8sClient,
-		db:    db,
-		log:   logger.New("error", "json"),
-	}
-
-	w.maintainNamespaceOwnership(t.Context())
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled DB expectations: %v", err)
 	}
 }
 
