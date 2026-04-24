@@ -336,12 +336,14 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WebhookSecret:        "",
 		}
 
-		// Webhook dedup: reuse existing webhook if another connection already targets the same base repo.
+		// Webhook dedup: reuse existing webhook if another connection in the same account already
+		// targets the same base repo. The AccountID guard prevents account B from inheriting
+		// account A's webhook_id and webhook_secret via the account-blind GetByRepoBase lookup.
 		// Race: two concurrent link requests for the same base repo can both get ErrNoRows here and
 		// both create separate webhooks; the upsert means one silently wins, leaving a duplicate webhook
 		// on GitHub. Fixing this properly requires a DB advisory lock or a unique constraint on
 		// (webhook_id) per base repo with a retry loop. Accepted as low-probability for now.
-		if sharedConn, err := ghStore.GetByRepoBase(c.Request.Context(), newBase); err == nil && sharedConn.WebhookID != 0 {
+		if sharedConn, err := ghStore.GetByRepoBase(c.Request.Context(), newBase); err == nil && sharedConn.WebhookID != 0 && sharedConn.AccountID == acct.ID {
 			conn.WebhookID = sharedConn.WebhookID
 			conn.WebhookSecret = sharedConn.WebhookSecret
 			if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
