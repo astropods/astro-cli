@@ -310,7 +310,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			if existingBase != newBase {
 				// count <= 1 (not == 0) because the existing connection is still in the DB at this point
 				// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
-				if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), existingBase); countErr == nil && count <= 1 {
+				if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, existingBase); countErr == nil && count <= 1 {
 					oldGH := githubclient.New(token.AccessToken)
 					if delErr := oldGH.DeleteWebhook(c.Request.Context(), existingBase, existing.WebhookID); delErr != nil {
 						log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
@@ -337,14 +337,10 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WebhookSecret:        "",
 		}
 
-		// Webhook dedup: reuse existing webhook if any connection already targets the same base repo.
-		// One webhook per base repo serves all accounts — the shared secret is an integrity check
-		// for GitHub's payload, not an access control boundary between our accounts.
-		// Race: two concurrent link requests for the same base repo can both get ErrNoRows here and
-		// both create separate webhooks; the upsert means one silently wins, leaving a duplicate webhook
-		// on GitHub. Fixing this properly requires a DB advisory lock or a unique constraint on
-		// (webhook_id) per base repo with a retry loop. Accepted as low-probability for now.
-		if sharedConn, err := ghStore.GetByRepoBase(c.Request.Context(), newBase); err == nil && sharedConn.WebhookID != 0 {
+		// Webhook dedup: reuse this account's existing webhook if it already has a connection
+		// to the same base repo (e.g. a subpath connection shares the root connection's webhook).
+		// Each account gets its own webhook — cross-account connections create independent webhooks.
+		if sharedConn, err := ghStore.GetByRepoBaseForAccount(c.Request.Context(), acct.ID, newBase); err == nil && sharedConn.WebhookID != 0 {
 			conn.WebhookID = sharedConn.WebhookID
 			conn.WebhookSecret = sharedConn.WebhookSecret
 			if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
@@ -500,11 +496,10 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 			}
 
 			// Delete the webhook only after removing the connection row so that
-			// CountByRepoBase reflects the post-deletion state. If another account's
-			// connection still references the same base repo, count > 0 and we leave
-			// the webhook in place.
+			// CountByRepoBaseForAccount reflects the post-deletion state. Delete only when
+			// this account has no remaining connections to the base repo.
 			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
-				if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), repoBase); countErr == nil && count == 0 {
+				if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, repoBase); countErr == nil && count == 0 {
 					if gh := githubclient.New(token.AccessToken); gh != nil {
 						if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
 							log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
@@ -566,9 +561,9 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 			return
 		}
 
-		// Remove webhook only if no other connections remain for this base repo.
+		// Remove webhook only if this account has no other connections to this base repo.
 		if conn.WebhookID != 0 {
-			if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), repoBase); countErr == nil && count == 0 && pipesClient != nil {
+			if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, repoBase); countErr == nil && count == 0 && pipesClient != nil {
 				token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 					Provider:       "github",
 					UserID:         session.UserID,

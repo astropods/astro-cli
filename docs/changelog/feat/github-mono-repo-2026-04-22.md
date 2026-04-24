@@ -17,10 +17,11 @@ No schema changes are required. The existing `UNIQUE (account_id, agent_name)` c
 
 ### Store (`githubconnection`)
 
-Three new store methods replace `GetByRepo`:
+Four new store methods replace `GetByRepo`:
 
-- **`GetByRepoBase(repoBase)`** — returns any connection matching the base repo (exact or prefix). Used to retrieve the shared webhook secret for HMAC verification.
-- **`CountByRepoBase(repoBase)`** — counts all connections for a base repo across all accounts. Used in disconnect to decide whether to remove the webhook.
+- **`GetByRepoBase(repoBase)`** — returns any connection matching the base repo (exact or prefix). Used to retrieve the webhook secret for HMAC verification on push.
+- **`GetByRepoBaseForAccount(accountID, repoBase)`** — same as above, scoped to one account. Used for webhook dedup on link.
+- **`CountByRepoBaseForAccount(accountID, repoBase)`** — counts connections for a given account and base repo. Used in disconnect to decide whether to remove the webhook.
 - **`ListByRepoAndBranch(repoFullName, branch)`** — returns all connections for a base repo+branch via prefix query (`WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'`). `_` is escaped because GitHub repo names can contain underscores; `%` is not a valid GitHub name character so no escaping is needed for it. Used for webhook fan-out.
 
 ### Spec and build path resolution
@@ -33,7 +34,7 @@ Three new store methods replace `GetByRepo`:
 
 `repo_full_name` is validated on link: must have at least two slash-separated segments, each containing only `[A-Za-z0-9._-]`, with a maximum length of 100 characters per segment. This blocks shell and URL metacharacters that could be injected into GitHub API calls or git-clone commands.
 
-Webhook deduplication: before creating a new webhook, the handler calls `GetByRepoBase` to check if any existing connection **in the same account** already has a webhook on the same base repo. If found, the new connection inherits the existing `webhook_id` and `webhook_secret` — no new GitHub webhook is created. The account scope prevents account B from inheriting account A's webhook secret via a cross-account lookup.
+Webhook deduplication: before creating a new webhook, the handler calls `GetByRepoBaseForAccount` to check if the same account already has a connection to the same base repo. If found, the new connection inherits the existing `webhook_id` and `webhook_secret` — no new GitHub webhook is created. This matches the pre-existing behavior: one webhook per `(account, base repo)`. Subpath connections within an account share the base repo's webhook; connections from different accounts each have their own independent webhook.
 
 ### Webhook fan-out
 
@@ -41,7 +42,7 @@ On push, `GetByRepoBase` retrieves the shared webhook secret for HMAC verificati
 
 ### Disconnect (account-level)
 
-The connection row is deleted first, then `CountByRepoBase` determines whether to remove the webhook. Deleting before counting ensures the post-deletion count is accurate, so webhooks shared with other accounts are preserved.
+The connection row is deleted first, then `CountByRepoBaseForAccount` determines whether to remove the webhook. Deleting before counting ensures the post-deletion count is accurate. The webhook is only removed when the disconnecting account has no remaining connections to that base repo — subpath connections within the same account keep the webhook alive.
 
 ## Migration
 

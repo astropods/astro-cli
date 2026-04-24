@@ -167,7 +167,7 @@ func RepoSubPath(repoFullName string) string {
 }
 
 // GetByRepoBase returns any connection whose repo_full_name equals repoBase or starts
-// with repoBase+"/". Used to retrieve the shared webhook secret for HMAC verification.
+// with repoBase+"/". Used to retrieve the webhook secret for HMAC verification on push.
 func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
@@ -188,15 +188,39 @@ func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection
 	return &c, nil
 }
 
-// CountByRepoBase counts all connections whose repo_full_name equals repoBase or starts
-// with repoBase+"/". Used to decide whether to delete the shared webhook on disconnect.
-// Counts across all accounts — the webhook is shared per base repo regardless of account.
-func (s *Store) CountByRepoBase(ctx context.Context, repoBase string) (int, error) {
+// GetByRepoBaseForAccount returns any connection for the given account whose repo_full_name
+// equals repoBase or starts with repoBase+"/". Used for webhook dedup on link.
+func (s *Store) GetByRepoBaseForAccount(ctx context.Context, accountID, repoBase string) (*Connection, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
+		       webhook_id, webhook_secret, created_at, updated_at
+		FROM github_connections
+		WHERE account_id = $1
+		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
+		LIMIT 1
+	`, accountID, repoBase)
+
+	var c Connection
+	if err := row.Scan(
+		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
+		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+		&c.CreatedAt, &c.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// CountByRepoBaseForAccount counts connections for the given account whose repo_full_name
+// equals repoBase or starts with repoBase+"/". Used to decide whether to delete the webhook
+// on disconnect — webhooks are scoped per account, so only this account's count matters.
+func (s *Store) CountByRepoBaseForAccount(ctx context.Context, accountID, repoBase string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM github_connections
-		WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'
-	`, repoBase).Scan(&n)
+		WHERE account_id = $1
+		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
+	`, accountID, repoBase).Scan(&n)
 	return n, err
 }
 

@@ -507,10 +507,10 @@ func (r *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return r.server.Client().Do(clone)
 }
 
-// TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts verifies that when
-// account A disconnects, a webhook still referenced by account B's connections
-// is not deleted.
-func TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts(t *testing.T) {
+// TestGitHubAccountDisconnect_KeepsWebhookWhenOtherSubpathConnExists verifies that when
+// one agent is disconnected, the shared webhook is preserved if the same account still
+// has other connections to the same base repo (e.g. subpath connections).
+func TestGitHubAccountDisconnect_KeepsWebhookWhenOtherSubpathConnExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	stub, restore := installExternalAPIStub(t)
@@ -532,9 +532,9 @@ func TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts(t *testing.T) 
 		WithArgs("acct-A", "agent-a").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// count=1: another account still references webhook 42, so it must not be deleted.
+	// count=1: a subpath connection for the same account still references webhook 42.
 	mock.ExpectQuery(`SELECT COUNT`).
-		WithArgs("owner/repo").
+		WithArgs("acct-A", "owner/repo").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	pipesClient := pipes.New("fake-workos-key")
@@ -564,10 +564,10 @@ func TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts(t *testing.T) 
 	}
 }
 
-// TestGitHubLink_ReusesExistingWebhookAcrossAccounts verifies that when account B
-// links a repo already connected by account A, B reuses A's webhook rather than
-// creating a new one. One webhook per base repo is shared across all accounts.
-func TestGitHubLink_ReusesExistingWebhookAcrossAccounts(t *testing.T) {
+// TestGitHubLink_ReusesWebhookWithinSameAccount verifies that when an account adds a
+// subpath connection to a repo it already has a webhook for, the existing webhook is
+// reused — no new webhook is created on GitHub.
+func TestGitHubLink_ReusesWebhookWithinSameAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	stub, restore := installExternalAPIStub(t)
@@ -582,42 +582,42 @@ func TestGitHubLink_ReusesExistingWebhookAcrossAccounts(t *testing.T) {
 
 	mock.MatchExpectationsInOrder(false)
 
-	// ghStore.Get(acct-B, agent-b) → no existing connection.
+	// Get(acct-A, agent-svc) → no existing connection.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND agent_name = \$2`).
-		WithArgs("acct-B", "agent-b").
+		WithArgs("acct-A", "agent-svc").
 		WillReturnRows(sqlmock.NewRows(connCols()))
 
-	// GetByRepoForAccount(acct-B, "owner/repo") → no conflict.
+	// GetByRepoForAccount(acct-A, "owner/repo/svc") → no conflict.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND repo_full_name = \$2`).
-		WithArgs("acct-B", "owner/repo").
+		WithArgs("acct-A", "owner/repo/svc").
 		WillReturnRows(sqlmock.NewRows(connCols()))
 
-	// GetByRepoBase finds account A's existing webhook on the same base repo.
-	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE repo_full_name`).
-		WithArgs("owner/repo").
-		WillReturnRows(connRow("conn-A", "acct-A", "accountA", "agent-a",
+	// GetByRepoBaseForAccount(acct-A, "owner/repo") → finds the root connection with webhook 99.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+account_id = \$1.+repo_full_name = \$2 OR`).
+		WithArgs("acct-A", "owner/repo").
+		WillReturnRows(connRow("conn-root", "acct-A", "accountA", "agent-root",
 			"owner/repo", "main", "shared-secret", 99))
 
-	// B's upsert inherits A's webhook_id=99 and shared secret — no new webhook created.
+	// Upsert inherits webhook_id=99 and shared secret — no new webhook created.
 	mock.ExpectExec("INSERT INTO github_connections").
 		WithArgs(
-			"acct-B", "accountB", "agent-b", "user-B", "org-B",
-			"owner/repo", "main", int64(99), "shared-secret",
+			"acct-A", "accountA", "agent-svc", "user-1", "org-1",
+			"owner/repo/svc", "main", int64(99), "shared-secret",
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-B", OrganizationID: "org-B"})
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-B", Name: "accountB"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-1", OrganizationID: "org-1"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-A", Name: "accountA"})
 		c.Next()
 	})
 	router.POST("/agents/:account/:name/github/link",
 		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store,
 			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai"}))
 
-	req := httptest.NewRequest(http.MethodPost, "/agents/accountB/agent-b/github/link",
-		strings.NewReader(`{"repo_full_name":"owner/repo","branch":"main"}`))
+	req := httptest.NewRequest(http.MethodPost, "/agents/accountA/agent-svc/github/link",
+		strings.NewReader(`{"repo_full_name":"owner/repo/svc","branch":"main"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

@@ -141,14 +141,14 @@ func TestStore_GetByRepoBase(t *testing.T) {
 	}
 }
 
-func TestStore_CountByRepoBase(t *testing.T) {
+func TestStore_CountByRepoBaseForAccount(t *testing.T) {
 	store, mock := newTestStore(t)
 
 	mock.ExpectQuery("SELECT COUNT").
-		WithArgs("owner/repo").
+		WithArgs("acct-1", "owner/repo").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
-	n, err := store.CountByRepoBase(context.Background(), "owner/repo")
+	n, err := store.CountByRepoBaseForAccount(context.Background(), "acct-1", "owner/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

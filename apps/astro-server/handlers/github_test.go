@@ -242,9 +242,9 @@ func TestGitHubDisconnect_KeepsWebhookWhenShared(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// CountByRepoBase returns 1 (another connection still uses the webhook).
+	// CountByRepoBaseForAccount returns 1 (a subpath connection for the same account still uses the webhook).
 	mock.ExpectQuery("SELECT COUNT").
-		WithArgs("owner/repo").
+		WithArgs("acct-1", "owner/repo").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	req := httptest.NewRequest(http.MethodDelete, "/agents/myorg/my-agent/github", nil)
@@ -329,9 +329,9 @@ func TestGitHubDisconnect_DeletesWebhookWhenLast(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// CountByRepoBase returns 0 (no more connections for this base repo).
+	// CountByRepoBaseForAccount returns 0 (no more connections for this account and base repo).
 	mock.ExpectQuery("SELECT COUNT").
-		WithArgs("owner/repo").
+		WithArgs("acct-1", "owner/repo").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	// Pipes call will fail (nil pipesClient) → webhook deletion is best-effort, still 204.
