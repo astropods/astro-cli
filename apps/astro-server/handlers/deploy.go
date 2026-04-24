@@ -952,7 +952,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 					allDeployments[i].AvatarColors = colors
 				}
 			}
-			if len(allDeployments[i].AvatarColors) > 0 && avatarStore != nil {
+			if avatarStore != nil {
 				allDeployments[i].AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), allDeployments[i].AvatarColors,
 					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, d.ID) },
 					func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(d.ID, j) },
@@ -1011,6 +1011,10 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 
 		if avatarStore != nil {
 			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
+			result.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), result.AvatarColors,
+				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dbDep.ID) },
+				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(dbDep.ID, j) },
+			)
 		}
 
 		// Check if the messaging ClusterIP service exists in K8s.

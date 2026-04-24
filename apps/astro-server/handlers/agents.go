@@ -13,9 +13,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
-	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
@@ -275,11 +275,17 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			}
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
-			}
-			if agent.AvatarColors != nil {
-				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
-					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
-					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+				var existing json.RawMessage
+				if agent.AvatarColors != nil {
+					existing = *agent.AvatarColors
+				}
+				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), existing,
+					func(ctx context.Context) ([]byte, error) {
+						return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name)
+					},
+					func(ctx context.Context, j []byte) error {
+						return index.SetAvatarColors(agent.AccountID, agent.Name, j)
+					},
 				)
 			}
 			responses = append(responses, resp)
@@ -361,11 +367,17 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			}
 			if avatarStore != nil {
 				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
-			}
-			if agent.AvatarColors != nil {
-				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
-					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
-					func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+				var existing json.RawMessage
+				if agent.AvatarColors != nil {
+					existing = *agent.AvatarColors
+				}
+				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), existing,
+					func(ctx context.Context) ([]byte, error) {
+						return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name)
+					},
+					func(ctx context.Context, j []byte) error {
+						return index.SetAvatarColors(agent.AccountID, agent.Name, j)
+					},
 				)
 			}
 			responses = append(responses, resp)
@@ -456,11 +468,17 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		}
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
-		}
-		if agent.AvatarColors != nil {
-			resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), *agent.AvatarColors,
-				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name) },
-				func(ctx context.Context, j []byte) error { return index.SetAvatarColors(agent.AccountID, agent.Name, j) },
+			var existing json.RawMessage
+			if agent.AvatarColors != nil {
+				existing = *agent.AvatarColors
+			}
+			resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), existing,
+				func(ctx context.Context) ([]byte, error) {
+					return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name)
+				},
+				func(ctx context.Context, j []byte) error {
+					return index.SetAvatarColors(agent.AccountID, agent.Name, j)
+				},
 			)
 		}
 		if heartInfo != nil {
