@@ -319,6 +319,270 @@ func TestHeartbeat_EmitActiveAgents(t *testing.T) {
 	}
 }
 
+func TestHeartbeat_EmitActiveKnowledgeStores(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM knowledge_stores WHERE status != 'error'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
+			AddRow("acct-1", 3).
+			AddRow("acct-2", 1))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitActiveKnowledgeStores(context.Background())
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(received))
+	}
+	if received[0].Type != "active_knowledge_stores" {
+		t.Errorf("expected type 'active_knowledge_stores', got %q", received[0].Type)
+	}
+	if received[0].Subject != "acct-1" {
+		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
+	}
+	data := received[0].Data.(map[string]any)
+	if count := data["count"].(float64); count != 3 {
+		t.Errorf("expected count=3, got %v", count)
+	}
+}
+
+func TestHeartbeat_EmitKnowledgeStorage(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT account_id, name, provider, storage FROM knowledge_stores WHERE mode = 'managed'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "provider", "storage"}).
+			AddRow("acct-1", "my-pg", "postgres", "10Gi").
+			AddRow("acct-1", "my-redis", "redis", "1Gi").
+			AddRow("acct-2", "docs-db", "postgres", "50Gi"))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitKnowledgeStorage(context.Background())
+
+	if len(received) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(received))
+	}
+	for _, ev := range received {
+		if ev.Type != "knowledge_storage_provisioned" {
+			t.Errorf("expected type 'knowledge_storage_provisioned', got %q", ev.Type)
+		}
+	}
+
+	// Verify per-store granularity
+	data0 := received[0].Data.(map[string]any)
+	if data0["store_name"] != "my-pg" {
+		t.Errorf("expected store_name='my-pg', got %v", data0["store_name"])
+	}
+	if gb := data0["storage_gb"].(float64); math.Abs(gb-10) > 0.01 {
+		t.Errorf("expected storage_gb=10, got %v", gb)
+	}
+
+	data2 := received[2].Data.(map[string]any)
+	if data2["store_name"] != "docs-db" {
+		t.Errorf("expected store_name='docs-db', got %v", data2["store_name"])
+	}
+	if gb := data2["storage_gb"].(float64); math.Abs(gb-50) > 0.01 {
+		t.Errorf("expected storage_gb=50, got %v", gb)
+	}
+}
+
+func TestHeartbeat_EmitKnowledgeCompute(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT account_id, name, provider FROM knowledge_stores WHERE mode = 'managed' AND status = 'ready'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "provider"}).
+			AddRow("acct-1", "my-pg", "postgres").
+			AddRow("acct-1", "my-redis", "redis"))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitKnowledgeCompute(context.Background())
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(received))
+	}
+
+	for _, ev := range received {
+		if ev.Type != "knowledge_compute_usage" {
+			t.Errorf("expected type 'knowledge_compute_usage', got %q", ev.Type)
+		}
+		if ev.Subject != "acct-1" {
+			t.Errorf("expected subject 'acct-1', got %q", ev.Subject)
+		}
+	}
+
+	// Verify per-store data with correct CU calculation
+	byStore := map[string]map[string]any{}
+	for _, ev := range received {
+		data := ev.Data.(map[string]any)
+		byStore[data["store_name"].(string)] = data
+	}
+
+	pgData := byStore["my-pg"]
+	if pgData["provider"] != "postgres" {
+		t.Errorf("expected provider='postgres', got %v", pgData["provider"])
+	}
+	if pgData["cpu"] != "250m" {
+		t.Errorf("expected cpu='250m', got %v", pgData["cpu"])
+	}
+	if pgData["memory"] != "256Mi" {
+		t.Errorf("expected memory='256Mi', got %v", pgData["memory"])
+	}
+	// postgres CU = 0.25, interval = 5min = 1/12 hr, CU-hours = 0.25/12 ≈ 0.02083
+	pgCUH := pgData["compute_unit_hours"].(float64)
+	expectedPgCUH := 0.25 * (5.0 / 60.0)
+	if math.Abs(pgCUH-expectedPgCUH) > 0.001 {
+		t.Errorf("postgres CU-hours: expected %f, got %f", expectedPgCUH, pgCUH)
+	}
+
+	redisData := byStore["my-redis"]
+	// redis CU = 0.05, CU-hours = 0.05/12 ≈ 0.00417
+	redisCUH := redisData["compute_unit_hours"].(float64)
+	expectedRedisCUH := 0.05 * (5.0 / 60.0)
+	if math.Abs(redisCUH-expectedRedisCUH) > 0.001 {
+		t.Errorf("redis CU-hours: expected %f, got %f", expectedRedisCUH, redisCUH)
+	}
+}
+
+func TestHeartbeat_EmitActiveKnowledgeEndpoints(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT ks.account_id, COUNT.+ FROM knowledge_store_endpoints kse JOIN knowledge_stores ks").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
+			AddRow("acct-1", 2))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitActiveKnowledgeEndpoints(context.Background())
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(received))
+	}
+	if received[0].Type != "active_knowledge_endpoints" {
+		t.Errorf("expected type 'active_knowledge_endpoints', got %q", received[0].Type)
+	}
+	if received[0].Subject != "acct-1" {
+		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
+	}
+	data := received[0].Data.(map[string]any)
+	if count := data["count"].(float64); count != 2 {
+		t.Errorf("expected count=2, got %v", count)
+	}
+}
+
+func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	// Query only returns ready stores — provisioning/error stores are excluded by SQL
+	mock.ExpectQuery("SELECT account_id, name, provider FROM knowledge_stores WHERE mode = 'managed' AND status = 'ready'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "provider"}))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitKnowledgeCompute(context.Background())
+
+	if len(received) != 0 {
+		t.Errorf("expected 0 events for no ready stores, got %d", len(received))
+	}
+}
+
+func TestHeartbeat_EmitActiveKnowledgeStores_ExcludesErrored(t *testing.T) {
+	// Use in-memory SQLite to verify the WHERE status != 'error' filter
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory db: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`CREATE TABLE knowledge_stores (
+		account_id TEXT NOT NULL,
+		status     TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// acct-1: 2 ready, 1 error
+	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'ready')`)
+	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'ready')`)
+	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'error')`)
+	// acct-2: all errored — should not appear
+	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-2', 'error')`)
+
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	hb := &Heartbeat{client: NewClient(srv.URL), db: db, log: logger.New("error", "json")}
+	hb.emitActiveKnowledgeStores(context.Background())
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event (acct-1 only), got %d", len(received))
+	}
+	if received[0].Subject != "acct-1" {
+		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
+	}
+	data := received[0].Data.(map[string]any)
+	if count := data["count"].(float64); count != 2 {
+		t.Errorf("expected count=2 (errored excluded), got %v", count)
+	}
+}
+
 func TestHeartbeat_EmitActiveAgents_ExcludesArchived(t *testing.T) {
 	// Use an in-memory SQLite DB so we can insert real rows and verify the
 	// WHERE archived_at IS NULL filter actually excludes archived blueprints.
