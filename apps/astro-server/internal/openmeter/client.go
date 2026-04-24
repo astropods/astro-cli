@@ -182,6 +182,10 @@ var RequiredMeters = []string{
 	"agent_builds",
 	"agent_deployments",
 	"members",
+	"knowledge_stores",
+	"knowledge_storage",
+	"knowledge_compute",
+	"knowledge_endpoints",
 }
 
 // ListMeters fetches all meters from OpenMeter.

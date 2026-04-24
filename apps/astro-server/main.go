@@ -811,7 +811,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg),
+				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg, omClient, db),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -819,7 +819,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, omClient, db),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -841,7 +841,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue),
+				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue, omClient, db),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

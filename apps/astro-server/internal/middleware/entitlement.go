@@ -93,11 +93,15 @@ var featureInfo = map[string]struct {
 	name string
 	desc string
 }{
-	"compute":           {name: "Compute", desc: "Your account has consumed its allocated compute-unit-hours for this billing period."},
-	"agents":            {name: "Agents", desc: "Your account has reached the maximum number of registered agents."},
-	"agent_builds":      {name: "Agent Builds", desc: "Your account has reached the maximum number of agent builds for this billing period."},
-	"agent_deployments": {name: "Deployments", desc: "Your account has reached the maximum number of active deployments."},
-	"members":           {name: "Members", desc: "Your account has reached the maximum number of team members."},
+	"compute":             {name: "Compute", desc: "Your account has consumed its allocated compute-unit-hours for this billing period."},
+	"agents":              {name: "Agents", desc: "Your account has reached the maximum number of registered agents."},
+	"agent_builds":        {name: "Agent Builds", desc: "Your account has reached the maximum number of agent builds for this billing period."},
+	"agent_deployments":   {name: "Deployments", desc: "Your account has reached the maximum number of active deployments."},
+	"members":             {name: "Members", desc: "Your account has reached the maximum number of team members."},
+	"knowledge_stores":    {name: "Knowledge Stores", desc: "Your account has reached the maximum number of knowledge stores."},
+	"knowledge_storage":   {name: "Knowledge Storage", desc: "Your account has reached the maximum provisioned storage for knowledge stores."},
+	"knowledge_compute":   {name: "Knowledge Compute", desc: "Your account has consumed its allocated compute for knowledge stores this billing period."},
+	"knowledge_endpoints": {name: "Knowledge Endpoints", desc: "Your account has reached the maximum number of PrivateLink endpoints."},
 }
 
 // LimitResponse builds the JSON response body returned when an entitlement

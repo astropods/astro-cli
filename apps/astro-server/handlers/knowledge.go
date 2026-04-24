@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -20,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -175,7 +178,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 	}
 }
 
-func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, cfg *config.Config) gin.HandlerFunc {
+func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, cfg *config.Config, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -279,6 +282,10 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			go provisionStoreAsync(context.Background(), log, ksStore, k8sClient, ks, plainCreds, cfg)
 		}
 
+		// Emit metering events (fire-and-forget) so entitlement checks see the new store immediately.
+		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
+		go openmeter.EmitKnowledgeStorage(context.Background(), omClient, db, log, acct.ID)
+
 		c.JSON(http.StatusAccepted, toKnowledgeResponse(ks))
 	}
 }
@@ -337,7 +344,7 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -481,6 +488,10 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 			// Re-read so the response reflects the connecting status.
 			ks, _ = ksStore.GetByID(storeID)
 			log.Info("External knowledge store connected with PrivateLink", "store_id", storeID, "provider", req.Provider, "arn", storeARN, "region", region)
+
+			go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
+			go openmeter.EmitActiveKnowledgeEndpoints(context.Background(), omClient, db, log, acct.ID)
+
 			c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 			return
 		}
@@ -501,6 +512,9 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		}
 
 		log.Info("External knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
+
+		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
+
 		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 	}
 }
@@ -589,7 +603,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 	}
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -652,6 +666,11 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete store"})
 			return
 		}
+
+		// Emit updated gauges so entitlement frees up immediately.
+		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
+		go openmeter.EmitKnowledgeStorage(context.Background(), omClient, db, log, acct.ID)
+		go openmeter.EmitActiveKnowledgeEndpoints(context.Background(), omClient, db, log, acct.ID)
 
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
 	}

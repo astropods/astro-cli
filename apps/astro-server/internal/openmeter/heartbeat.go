@@ -31,13 +31,18 @@ func NewHeartbeat(client *Client, db *sql.DB, log *logger.Logger) *Heartbeat {
 	}
 }
 
-// Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, and active members.
+// Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, active members,
+// and knowledge store metrics.
 func (h *Heartbeat) Tick(ctx context.Context) {
 	h.log.Debug("openmeter: tick starting")
 	h.emitComputeUsage(ctx)
 	h.emitActiveDeployments(ctx)
 	h.emitActiveAgents(ctx)
 	h.emitActiveMembers(ctx)
+	h.emitActiveKnowledgeStores(ctx)
+	h.emitKnowledgeStorage(ctx)
+	h.emitKnowledgeCompute(ctx)
+	h.emitActiveKnowledgeEndpoints(ctx)
 	h.log.Debug("openmeter: tick complete")
 }
 
@@ -407,4 +412,184 @@ func parseMemory(s string) float64 {
 		return 0
 	}
 	return v / (1024 * 1024 * 1024)
+}
+
+// emitActiveKnowledgeStores counts knowledge stores (managed + external, excluding errored)
+// per account and emits active_knowledge_stores events.
+func (h *Heartbeat) emitActiveKnowledgeStores(ctx context.Context) {
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT account_id, COUNT(*) AS cnt
+		FROM knowledge_stores
+		WHERE status != 'error'
+		GROUP BY account_id
+	`)
+	if err != nil {
+		h.log.Error("openmeter: failed to query knowledge store counts", "error", err)
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var events []CloudEvent
+	for rows.Next() {
+		var accountID string
+		var count int
+		if err := rows.Scan(&accountID, &count); err != nil {
+			h.log.Error("openmeter: failed to scan knowledge store count", "error", err)
+			continue
+		}
+		events = append(events, NewCloudEvent("active_knowledge_stores", accountID, map[string]any{
+			"count": count,
+		}))
+	}
+
+	if len(events) > 0 {
+		if err := h.client.IngestEvents(ctx, events); err != nil {
+			h.log.Error("openmeter: failed to emit active_knowledge_stores events", "error", err)
+		} else {
+			h.log.Info("openmeter: emitted active_knowledge_stores", "accounts", len(events))
+		}
+	}
+}
+
+// emitKnowledgeStorage emits knowledge_storage_provisioned events per managed store,
+// with provisioned storage parsed from K8s quantity to GB.
+func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT account_id, name, provider, storage
+		FROM knowledge_stores
+		WHERE mode = 'managed' AND status != 'error'
+	`)
+	if err != nil {
+		h.log.Error("openmeter: failed to query knowledge storage", "error", err)
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var events []CloudEvent
+	for rows.Next() {
+		var accountID, name, provider, storage string
+		if err := rows.Scan(&accountID, &name, &provider, &storage); err != nil {
+			h.log.Error("openmeter: failed to scan knowledge storage row", "error", err)
+			continue
+		}
+		gb := parseMemory(storage)
+		if gb <= 0 {
+			continue
+		}
+		events = append(events, NewCloudEvent("knowledge_storage_provisioned", accountID, map[string]any{
+			"storage_gb": gb,
+			"store_name": name,
+			"provider":   provider,
+		}))
+	}
+
+	if len(events) > 0 {
+		if err := h.client.IngestEvents(ctx, events); err != nil {
+			h.log.Error("openmeter: failed to emit knowledge_storage_provisioned events", "error", err)
+		} else {
+			h.log.Info("openmeter: emitted knowledge_storage_provisioned", "events", len(events))
+		}
+	}
+}
+
+// emitKnowledgeCompute emits knowledge_compute_usage events per managed+ready store.
+// CU is derived from per-provider default resource requests using the same formula as
+// deployment compute: CU = max(cpu_cores, memory_gb / 2).
+func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
+	intervalHours := heartbeatInterval.Hours()
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT account_id, name, provider
+		FROM knowledge_stores
+		WHERE mode = 'managed' AND status = 'ready'
+	`)
+	if err != nil {
+		h.log.Error("openmeter: failed to query knowledge stores for compute", "error", err)
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var events []CloudEvent
+	for rows.Next() {
+		var accountID, name, provider string
+		if err := rows.Scan(&accountID, &name, &provider); err != nil {
+			h.log.Error("openmeter: failed to scan knowledge compute row", "error", err)
+			continue
+		}
+		cu := knowledgeCU(provider)
+		if cu <= 0 {
+			continue
+		}
+		res := knowledgeProviderResourceStrings(provider)
+		events = append(events, NewCloudEvent("knowledge_compute_usage", accountID, map[string]any{
+			"compute_unit_hours": cu * intervalHours,
+			"store_name":         name,
+			"provider":           provider,
+			"cpu":                res.cpu,
+			"memory":             res.memory,
+		}))
+	}
+
+	if len(events) > 0 {
+		if err := h.client.IngestEvents(ctx, events); err != nil {
+			h.log.Error("openmeter: failed to emit knowledge_compute_usage events", "error", err)
+		} else {
+			h.log.Info("openmeter: emitted knowledge_compute_usage", "events", len(events))
+		}
+	}
+}
+
+// emitActiveKnowledgeEndpoints counts PrivateLink VPC endpoints per account and emits
+// active_knowledge_endpoints events.
+func (h *Heartbeat) emitActiveKnowledgeEndpoints(ctx context.Context) {
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT ks.account_id, COUNT(*) AS cnt
+		FROM knowledge_store_endpoints kse
+		JOIN knowledge_stores ks ON ks.id = kse.knowledge_store_id
+		WHERE kse.status != 'error'
+		GROUP BY ks.account_id
+	`)
+	if err != nil {
+		h.log.Error("openmeter: failed to query knowledge endpoint counts", "error", err)
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var events []CloudEvent
+	for rows.Next() {
+		var accountID string
+		var count int
+		if err := rows.Scan(&accountID, &count); err != nil {
+			h.log.Error("openmeter: failed to scan knowledge endpoint count", "error", err)
+			continue
+		}
+		events = append(events, NewCloudEvent("active_knowledge_endpoints", accountID, map[string]any{
+			"count": count,
+		}))
+	}
+
+	if len(events) > 0 {
+		if err := h.client.IngestEvents(ctx, events); err != nil {
+			h.log.Error("openmeter: failed to emit active_knowledge_endpoints events", "error", err)
+		} else {
+			h.log.Info("openmeter: emitted active_knowledge_endpoints", "accounts", len(events))
+		}
+	}
+}
+
+// knowledgeProviderResourceStrings returns the default CPU and memory request strings
+// for a knowledge store provider. Used to populate event payloads.
+type providerResources struct{ cpu, memory string }
+
+func knowledgeProviderResourceStrings(provider string) providerResources {
+	defaults := map[string]providerResources{
+		"postgres": {"250m", "256Mi"},
+		"redis":    {"50m", "64Mi"},
+		"qdrant":   {"250m", "512Mi"},
+		"neo4j":    {"500m", "512Mi"},
+	}
+	r, ok := defaults[provider]
+	if !ok {
+		return providerResources{"100m", "128Mi"}
+	}
+	return r
 }
