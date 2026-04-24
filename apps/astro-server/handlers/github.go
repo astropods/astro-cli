@@ -821,8 +821,9 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			)
 		}
 
-		// If eligible connections existed but every enqueue failed, tell GitHub to retry.
-		if attempted > 0 && enqueued == 0 {
+		// If any eligible connection failed to enqueue (partial or total), return 500 so
+		// GitHub's redelivery UI surfaces the problem and operators have a signal to act on.
+		if attempted > 0 && enqueued < attempted {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
