@@ -289,10 +289,13 @@ func buildExpectedOIDCAnnotation(issuer, authEP, tokenEP, userInfoEP string) str
 	return string(b)
 }
 
-// oidcAnnotationCurrent returns true when at least one ingress has the
-// expected OIDC annotation and session timeout. Uses only pre-fetched data —
-// no K8s API calls. A reapply will fix both annotations and the credentials
-// secret, so checking annotations alone is sufficient for detection.
+// oidcAnnotationCurrent checks whether the OIDC ingress annotations are up to
+// date. Returns true (current) when either:
+//   - an ingress has the correct OIDC annotation, or
+//   - no ingress has an OIDC annotation at all (nothing to fix).
+//
+// Returns false (stale) only when an ingress exists with an OIDC annotation
+// that doesn't match the expected config.
 func oidcAnnotationCurrent(ingresses []networkingv1.Ingress, expectedAnnotation string, expectedTimeout int) bool {
 	for _, ing := range ingresses {
 		liveOIDC := ing.Annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]
@@ -308,7 +311,7 @@ func oidcAnnotationCurrent(ingresses []networkingv1.Ingress, expectedAnnotation 
 		}
 		return true // found a matching OIDC ingress
 	}
-	return false // no ingress had the OIDC annotation
+	return true // no OIDC annotation found — nothing to fix
 }
 
 // detectOrphanedNamespaces finds K8s namespaces managed by astro-server that
