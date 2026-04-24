@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -97,6 +98,7 @@ func init() {
 
 	blueprintListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	blueprintGetCmd.Flags().Bool("card", false, "Show agent description")
 
 	// Create flags
 	blueprintCreateCmd.Flags().StringP("visibility", "V", "private", "Set visibility: public or private")
@@ -144,9 +146,15 @@ func blueprintBaseURL() string {
 
 // Response types
 
+type blueprintCard struct {
+	Body string `json:"body"`
+}
+
 type blueprintVersionSummary struct {
-	BuildID     string `json:"build_id"`
-	PublishedAt string `json:"published_at"`
+	BuildID     string         `json:"build_id"`
+	PublishedAt string         `json:"published_at"`
+	Readme      string         `json:"readme,omitempty"`
+	AgentCard   *blueprintCard `json:"agent_card,omitempty"`
 }
 
 type blueprintMetrics struct {
@@ -161,6 +169,23 @@ type blueprintItem struct {
 	ArchivedAt *time.Time                `json:"archived_at,omitempty"`
 	Versions   []blueprintVersionSummary `json:"versions"`
 	Metrics    *blueprintMetrics         `json:"metrics"`
+	DraftCard  *blueprintCard            `json:"draft_card,omitempty"`
+}
+
+// blueprintEffectiveBody mirrors the client's getBlueprintReadme priority:
+// latest version's agent_card.body > draft_card.body > latest version's readme.
+func blueprintEffectiveBody(bp blueprintItem) string {
+	latest := blueprintLatestVersion(bp.Versions)
+	if latest != nil && latest.AgentCard != nil && latest.AgentCard.Body != "" {
+		return latest.AgentCard.Body
+	}
+	if bp.DraftCard != nil && bp.DraftCard.Body != "" {
+		return bp.DraftCard.Body
+	}
+	if latest != nil && latest.Readme != "" {
+		return latest.Readme
+	}
+	return ""
 }
 
 type listBlueprintsResponse struct {
@@ -326,16 +351,26 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	}
 	if len(bp.Versions) == 0 {
 		printBlueprintNextSteps(w)
-		return nil
+	} else {
+		fmt.Fprintln(w)                         //nolint:errcheck,gosec
+		fmt.Fprintln(w, dim.Render("Versions")) //nolint:errcheck,gosec
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		for _, v := range bp.Versions {
+			fmt.Fprintf(tw, "  %s\t%s\n", v.BuildID, v.PublishedAt) //nolint:errcheck,gosec
+		}
+		tw.Flush() //nolint:errcheck,gosec
 	}
 
-	fmt.Fprintln(w)                         //nolint:errcheck,gosec
-	fmt.Fprintln(w, dim.Render("Versions")) //nolint:errcheck,gosec
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, v := range bp.Versions {
-		fmt.Fprintf(tw, "  %s\t%s\n", v.BuildID, v.PublishedAt) //nolint:errcheck,gosec
+	if showCard, _ := cmd.Flags().GetBool("card"); showCard {
+		if body := blueprintEffectiveBody(bp); body != "" {
+			rendered, err := glamour.Render(body, "auto")
+			if err != nil {
+				rendered = body
+			}
+			fmt.Fprintln(w)         //nolint:errcheck,gosec
+			fmt.Fprint(w, rendered) //nolint:errcheck,gosec
+		}
 	}
-	tw.Flush() //nolint:errcheck,gosec
 
 	return nil
 }

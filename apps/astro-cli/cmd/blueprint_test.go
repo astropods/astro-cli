@@ -260,8 +260,10 @@ func TestBlueprintGet(t *testing.T) {
 		statusCode int
 		body       any
 		jsonOutput bool
+		showCard   bool
 		wantErr    bool
 		wantOut    string
+		wantAbsent string
 	}{
 		{
 			name:       "displays detail",
@@ -283,6 +285,45 @@ func TestBlueprintGet(t *testing.T) {
 			wantOut:    "Waiting for first push",
 		},
 		{
+			name:       "renders agent_card body with --card",
+			showCard:   true,
+			statusCode: http.StatusOK,
+			body: map[string]any{
+				"account":    "testaccount",
+				"name":       "my-agent",
+				"visibility": "public",
+				"versions":   []any{map[string]any{"build_id": "abc123", "published_at": "2026-01-01T00:00:00Z", "agent_card": map[string]any{"body": "## Hello\nworld"}}},
+				"metrics":    map[string]any{"deploy_count": 0},
+			},
+			wantOut: "Hello",
+		},
+		{
+			name:       "renders draft_card body with --card when no versions",
+			showCard:   true,
+			statusCode: http.StatusOK,
+			body: map[string]any{
+				"account":    "testaccount",
+				"name":       "my-agent",
+				"visibility": "private",
+				"versions":   []any{},
+				"draft_card": map[string]any{"body": "## Draft\ncontent"},
+			},
+			wantOut: "Draft",
+		},
+		{
+			name:       "card body hidden without --card flag",
+			statusCode: http.StatusOK,
+			body: map[string]any{
+				"account":    "testaccount",
+				"name":       "my-agent",
+				"visibility": "public",
+				"versions":   []any{map[string]any{"build_id": "abc123", "published_at": "2026-01-01T00:00:00Z", "agent_card": map[string]any{"body": "## ShouldNotAppear"}}},
+				"metrics":    map[string]any{"deploy_count": 0},
+			},
+			wantOut:    "my-agent",
+			wantAbsent: "ShouldNotAppear",
+		},
+		{
 			name:       "not found",
 			statusCode: http.StatusNotFound,
 			body:       map[string]any{"error": "not found"},
@@ -297,6 +338,10 @@ func TestBlueprintGet(t *testing.T) {
 				require.NoError(t, blueprintGetCmd.Flags().Set("json", "true"))
 				t.Cleanup(func() { blueprintGetCmd.Flags().Set("json", "false") }) //nolint:errcheck
 			}
+			if tc.showCard {
+				require.NoError(t, blueprintGetCmd.Flags().Set("card", "true"))
+				t.Cleanup(func() { blueprintGetCmd.Flags().Set("card", "false") }) //nolint:errcheck
+			}
 			buf := &bytes.Buffer{}
 			blueprintGetCmd.SetOut(buf)
 			blueprintGetCmd.SetContext(context.Background())
@@ -307,6 +352,9 @@ func TestBlueprintGet(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Contains(t, buf.String(), tc.wantOut)
+				if tc.wantAbsent != "" {
+					assert.NotContains(t, buf.String(), tc.wantAbsent)
+				}
 			}
 		})
 	}
