@@ -8,31 +8,32 @@
 
 ## Abstract
 
-When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Currently, Astro pages return no Open Graph metadata, so pasted links appear as plain text. This spec defines how to add dynamic link previews to both **agent detail pages** and **blueprint pages** by generating server-side PNG images and injecting per-page Open Graph meta tags via React Router's `meta` export.
+When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself. Agent detail pages have no OG metadata at all. This spec upgrades both surfaces by generating server-side PNG images that are specific to each entity and injecting or replacing the relevant Open Graph meta tags.
 
 The two page types use distinct image styles and rendering approaches, reflecting their different roles in the product:
 
 - **Agent pages** use the existing `astro-trading-card` package to produce a portrait trading card (dark, holographic-styled), rendered to PNG via Resvg.
-- **Blueprint pages** use a new Satori-rendered card that mirrors the blueprint listing UI — a clean, light landscape card with icon, name, description, deploy count, and owner.
+- **Blueprint pages** upgrade the existing `og:image` from the account avatar to a new Satori-rendered card that mirrors the blueprint listing UI — a clean, light landscape card with icon, name, description, deploy count, and owner.
 
 ---
 
 ## Problem Statement
 
-Sharing an Astro link today produces no visual preview on any social or messaging platform. This is a missed distribution opportunity: every shared link is a chance to surface an agent's capabilities or a blueprint's purpose to a potential user. The root causes are:
+Sharing an Astro link today produces a weak or absent unfurl depending on the page type:
 
-1. **No `og:image`** — Astro pages return no Open Graph meta tags of any kind.
-2. **SVG can't serve as OG image** — Platforms like LinkedIn, X, and Slack require a raster image (PNG or JPEG) at the `og:image` URL. SVGs are either ignored or blocked.
-3. **No server-side PNG generation** — The `astro-trading-card` package generates SVG strings only. PNG export currently requires a browser canvas, which cannot be invoked during an HTTP request.
+- **Blueprint pages** (`BlueprintDetail.tsx`) already emit `og:title`, `og:description`, `og:image`, and `twitter:card` tags. However, the `og:image` is set to `${assetsBase}/avatars/${account}.jpg` — the account's profile photo. This is generic: every blueprint owned by the same account shows the same image, with no visual information about the blueprint itself.
+- **Agent detail pages** emit no OG metadata whatsoever. Pasted agent URLs appear as plain text on all platforms.
+
+The core technical gap is the same in both cases: there is no server-side mechanism to generate a PNG image that represents a specific entity. The `astro-trading-card` package produces SVG strings, and SVG cannot be served as an `og:image` — platforms like LinkedIn, X, and Slack require a raster image (PNG or JPEG) at that URL.
 
 ---
 
 ## Goals
 
 - **G1:** Agent detail page URLs unfurl with a trading card PNG as the preview image.
-- **G2:** Blueprint page URLs unfurl with a UI-style landscape card PNG as the preview image.
+- **G2:** Blueprint page URLs replace the current account-avatar `og:image` with a UI-style landscape card PNG specific to the blueprint.
 - **G3:** All PNG images are generated server-side on demand with no browser involved.
-- **G4:** OG tags are populated with accurate, page-specific data (not generic site-wide defaults).
+- **G4:** OG tags are populated with accurate, entity-specific data.
 - **G5:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
 - **G6:** The implementation does not require changes to the Go backend.
 
@@ -269,17 +270,17 @@ The `host` MUST be derived from `new URL(request.url).host` in the loader and re
 
 #### Blueprint Detail Page
 
-| Property | Value |
-|----------|-------|
-| `og:type` | `website` |
-| `og:title` | `{blueprint.display_name} — Astro` |
-| `og:description` | `{blueprint.description}` (max 200 chars) |
-| `og:image` | `https://{host}/badge/blueprint/{account}/{name}.png` |
-| `og:image:width` | `1200` |
-| `og:image:height` | `630` |
-| `og:url` | Canonical blueprint page URL |
-| `twitter:card` | `summary_large_image` |
-| `twitter:image` | Same as `og:image` |
+`BlueprintDetail.tsx` already exports a `meta()` function with `og:title`, `og:description`, `og:url`, `og:image`, and `twitter:card`. The only change required is replacing the `ogImage` value passed from the loader — currently `${assetsBase}/avatars/${account}.jpg` — with the new badge endpoint URL. All other tags remain unchanged.
+
+| Property | Current value | New value |
+|----------|--------------|-----------|
+| `og:image` | `${assetsBase}/avatars/${account}.jpg` | `https://{host}/badge/blueprint/{account}/{name}.png` |
+| `og:image:width` | _(not set)_ | `1200` |
+| `og:image:height` | _(not set)_ | `630` |
+| `twitter:image` | Same as `og:image` | Same as new `og:image` |
+| All other tags | Unchanged | Unchanged |
+
+The loader change is minimal: replace the `ogImage` derivation from the account avatar URL to the badge endpoint URL.
 
 ---
 
