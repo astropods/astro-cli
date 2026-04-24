@@ -235,9 +235,9 @@ func TestGitHubWebhook_WrongBranch(t *testing.T) {
 			"user-1", "org-1", repoFullName, "main",
 			int64(12345), webhookSecret, now, now))
 
-	// ListByRepoAndBranch: no connections for branch "feat" — push is ignored.
+	// ListByRepoAndBranchForAccount: no connections for account+branch "feat" — push is ignored.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
-		WithArgs(repoFullName, "feat").
+		WithArgs("acct-1", repoFullName, "feat").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "account_name", "agent_name",
 			"workos_user_id", "workos_org_id", "repo_full_name", "branch",

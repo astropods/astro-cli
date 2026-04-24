@@ -741,8 +741,10 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			commitAuthor = payload.HeadCommit.Author.Name
 		}
 
-		// Fan-out: query all connections for this repo+branch.
-		conns, err := ghStore.ListByRepoAndBranch(c.Request.Context(), payload.Repository.FullName, branch)
+		// Fan-out: query connections for this account+repo+branch. Scoped to the
+		// account that owns the verified webhook so a push from account A does not
+		// trigger builds in account B.
+		conns, err := ghStore.ListByRepoAndBranchForAccount(c.Request.Context(), baseConn.AccountID, payload.Repository.FullName, branch)
 		if err != nil {
 			log.Error("github webhook: list connections", "error", err, "repo", payload.Repository.FullName)
 			c.Status(http.StatusInternalServerError)

@@ -119,9 +119,9 @@ func TestGitHubWebhook_FanOut(t *testing.T) {
 		WithArgs("owner/repo").
 		WillReturnRows(connRow("conn-base", "acct-1", "myorg", "agent-root", "owner/repo", "main", webhookSecret, 42))
 
-	// ListByRepoAndBranch: returns two connections.
+	// ListByRepoAndBranchForAccount: returns two connections scoped to acct-1.
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("owner/repo", "main").
+		WithArgs("acct-1", "owner/repo", "main").
 		WillReturnRows(sqlmock.NewRows(connCols()).
 			AddRow("c1", "acct-1", "myorg", "agent-root", "u1", "o1", "owner/repo", "main", int64(42), webhookSecret, time.Now(), time.Now()).
 			AddRow("c2", "acct-1", "myorg", "agent-svc", "u1", "o1", "owner/repo/svc", "main", int64(42), webhookSecret, time.Now(), time.Now()))
@@ -152,6 +152,57 @@ func TestGitHubWebhook_FanOut(t *testing.T) {
 	}
 }
 
+// TestGitHubWebhook_FanOut_ScopedToVerifyingAccount verifies that a push verified
+// against account A's webhook secret only triggers builds for account A's connections,
+// not for other accounts that have linked the same repo.
+func TestGitHubWebhook_FanOut_ScopedToVerifyingAccount(t *testing.T) {
+	router, mock, q := setupWebhookRouter(t)
+
+	const (
+		secretA = "secret-A"
+		secretB = "secret-B"
+	)
+	body := pushPayload("owner/repo", "main", "deadbeef", []string{"README.md"})
+
+	// GetByRepoBase returns account A's connection (LIMIT 1 — non-deterministic in prod,
+	// but pinned here so HMAC verifies against A's secret).
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("owner/repo").
+		WillReturnRows(connRow("conn-A", "acct-A", "orgA", "agent-a", "owner/repo", "main", secretA, 42))
+
+	// ListByRepoAndBranchForAccount is called with acct-A — returns only A's connections.
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("acct-A", "owner/repo", "main").
+		WillReturnRows(sqlmock.NewRows(connCols()).
+			AddRow("conn-A", "acct-A", "orgA", "agent-a", "u1", "o1",
+				"owner/repo", "main", int64(42), secretA, time.Now(), time.Now()))
+
+	mock.ExpectQuery("INSERT INTO github_builds").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("build-row-A"))
+	mock.ExpectExec("UPDATE github_builds").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", githubSig(secretA, body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(q.enqueued) != 1 {
+		t.Errorf("fan-out leaked: got %d enqueued jobs, want 1 (only account A's connections should build)", len(q.enqueued))
+	}
+	if len(q.enqueued) == 1 && q.enqueued[0].ConnectionID != "conn-A" {
+		t.Errorf("enqueued connection = %q, want %q", q.enqueued[0].ConnectionID, "conn-A")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
 // TestGitHubWebhook_SubPathConnectionBuildsRegardlessOfChangedFiles verifies that
 // every connection for the pushed repo+branch receives a build, including subpath
 // connections, regardless of which files were changed.
@@ -167,7 +218,7 @@ func TestGitHubWebhook_SubPathConnectionBuildsRegardlessOfChangedFiles(t *testin
 		WillReturnRows(connRow("conn-base", "acct-1", "myorg", "agent-root", "owner/repo", "main", webhookSecret, 42))
 
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("owner/repo", "main").
+		WithArgs("acct-1", "owner/repo", "main").
 		WillReturnRows(sqlmock.NewRows(connCols()).
 			AddRow("c1", "acct-1", "myorg", "agent-root", "u1", "o1", "owner/repo", "main", int64(42), webhookSecret, time.Now(), time.Now()).
 			AddRow("c2", "acct-1", "myorg", "agent-svc", "u1", "o1", "owner/repo/svc", "main", int64(42), webhookSecret, time.Now(), time.Now()))
@@ -279,9 +330,9 @@ func TestGitHubWebhook_PartialFanOutFailureIsNotAccepted(t *testing.T) {
 		WillReturnRows(connRow("conn-base", "acct-1", "org1", "agent-root",
 			"owner/repo", "main", webhookSecret, 42))
 
-	// Two connections both match — root + subpath.
+	// Two connections both match — root + subpath, scoped to acct-1.
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("owner/repo", "main").
+		WithArgs("acct-1", "owner/repo", "main").
 		WillReturnRows(sqlmock.NewRows(connCols()).
 			AddRow("c1", "acct-1", "org1", "agent-root", "u1", "o1",
 				"owner/repo", "main", int64(42), webhookSecret, time.Now(), time.Now()).

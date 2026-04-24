@@ -160,7 +160,7 @@ func TestStore_CountByRepoBaseForAccount(t *testing.T) {
 	}
 }
 
-func TestStore_ListByRepoAndBranch(t *testing.T) {
+func TestStore_ListByRepoAndBranchForAccount(t *testing.T) {
 	store, mock := newTestStore(t)
 	now := time.Now()
 
@@ -168,24 +168,24 @@ func TestStore_ListByRepoAndBranch(t *testing.T) {
 		"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
 		"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
 	}
+	// Only acct-1's connections are returned; acct-2's row is excluded by the account filter.
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("owner/repo", "main").
+		WithArgs("acct-1", "owner/repo", "main").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("c1", "acct-1", "myorg", "agent-root", "u1", "o1", "owner/repo", "main", int64(7), "tok", now, now).
 			AddRow("c2", "acct-1", "myorg", "agent-svc", "u1", "o1", "owner/repo/svc", "main", int64(7), "tok", now, now))
 
-	conns, err := store.ListByRepoAndBranch(context.Background(), "owner/repo", "main")
+	conns, err := store.ListByRepoAndBranchForAccount(context.Background(), "acct-1", "owner/repo", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(conns) != 2 {
 		t.Fatalf("got %d connections, want 2", len(conns))
 	}
-	if conns[0].RepoFullName != "owner/repo" {
-		t.Errorf("conns[0].RepoFullName = %q, want %q", conns[0].RepoFullName, "owner/repo")
-	}
-	if conns[1].RepoFullName != "owner/repo/svc" {
-		t.Errorf("conns[1].RepoFullName = %q, want %q", conns[1].RepoFullName, "owner/repo/svc")
+	for _, c := range conns {
+		if c.AccountID != "acct-1" {
+			t.Errorf("connection %q has AccountID %q, want %q", c.ID, c.AccountID, "acct-1")
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

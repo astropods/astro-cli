@@ -224,15 +224,18 @@ func (s *Store) CountByRepoBaseForAccount(ctx context.Context, accountID, repoBa
 	return n, err
 }
 
-// ListByRepoAndBranch returns all connections whose repo_full_name equals repoFullName
-// or starts with repoFullName+"/", filtered by branch. Used for webhook fan-out.
-func (s *Store) ListByRepoAndBranch(ctx context.Context, repoFullName, branch string) ([]*Connection, error) {
+// ListByRepoAndBranchForAccount returns connections for a specific account whose
+// repo_full_name equals repoFullName or starts with repoFullName+"/", filtered by
+// branch. Used for webhook fan-out scoped to the account that owns the verified webhook.
+func (s *Store) ListByRepoAndBranchForAccount(ctx context.Context, accountID, repoFullName, branch string) ([]*Connection, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
 		       webhook_id, webhook_secret, created_at, updated_at
 		FROM github_connections
-		WHERE (repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\') AND branch = $2
-	`, repoFullName, branch)
+		WHERE account_id = $1
+		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
+		  AND branch = $3
+	`, accountID, repoFullName, branch)
 	if err != nil {
 		return nil, err
 	}
