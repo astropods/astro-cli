@@ -148,7 +148,7 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	dim := color.New(color.Faint)
 
 	if len(result.Variables) == 0 {
-		fmt.Fprintf(w, "No secrets found in account %q.\n", at.Account) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "%sNo secrets found in account %s%s\n", colorDim, at.Account, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -49,19 +50,28 @@ func apiPath(serverURL, account string, operation string, parts ...string) strin
 //   - Network or marshalling failures: (-1, err)
 //   - Non-2xx response: (statusCode, err) — err contains the status code and response body
 //   - 2xx response: (statusCode, nil) — dest is populated if non-nil
-func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) (int, error) { //nolint:unparam
+func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	var bodyReader *bytes.Reader
+	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return -1, fmt.Errorf("failed to marshal request body: %w", err)
 		}
+		bodyBytes = b
 		bodyReader = bytes.NewReader(b)
 	} else {
 		bodyReader = bytes.NewReader(nil)
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s%s %s%s\n", colorDim, method, reqURL, colorReset)
+		if len(bodyBytes) > 0 {
+			fmt.Fprintf(os.Stderr, "%sbody: %s%s\n", colorDim, string(bodyBytes), colorReset)
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
@@ -86,6 +96,10 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 		return resp.StatusCode, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s→ %d%s\n", colorDim, resp.StatusCode, colorReset)
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -96,6 +110,37 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+// apiStream makes an authenticated GET request and returns the response body for streaming.
+// The caller must close the returned ReadCloser. Returns (statusCode, body, error).
+func apiStream(ctx context.Context, reqURL string, token string, verbose bool) (int, io.ReadCloser, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%sGET %s%s\n", colorDim, reqURL, colorReset)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return -1, nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	if err != nil {
+		return -1, nil, fmt.Errorf("request failed: %w", err)
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s→ %d%s\n", colorDim, resp.StatusCode, colorReset)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close() //nolint:errcheck,gosec
+		return resp.StatusCode, nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+	return resp.StatusCode, resp.Body, nil
 }
 
 // writeJSON encodes v as indented JSON to w.
