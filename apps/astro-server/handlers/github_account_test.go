@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/gin-gonic/gin"
 )
 
@@ -433,6 +436,240 @@ func TestGitHubAccountListConnections_Unauthenticated(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("expected status %d, got %d: %s", http.StatusUnauthorized, rec.Code, rec.Body.String())
+	}
+}
+
+// --- shared external API stub -------------------------------------------
+//
+// Swaps http.DefaultTransport so outbound HTTPS calls from the WorkOS SDK,
+// pipes.Client, and github.Client are routed to an in-process httptest.Server.
+// All three clients use http.Client with no explicit Transport, so they inherit
+// http.DefaultTransport.
+
+type externalAPIStub struct {
+	workosToken      string
+	githubDeleteHits atomic.Int32
+	githubPostHits   atomic.Int32
+	server           *httptest.Server
+}
+
+func installExternalAPIStub(t *testing.T) (*externalAPIStub, func()) {
+	t.Helper()
+	stub := &externalAPIStub{workosToken: "fake-github-oauth-token"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": stub.workosToken,
+				"scopes":       []string{"repo"},
+			},
+		})
+	})
+	mux.HandleFunc("/user_management/users/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/repos/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/hooks/"):
+			stub.githubDeleteHits.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/hooks"):
+			stub.githubPostHits.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "active": true, "events": []string{"push"}})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+
+	srv := httptest.NewServer(mux)
+	stub.server = srv
+
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	return stub, func() {
+		http.DefaultTransport = old
+		srv.Close()
+	}
+}
+
+type rewriteTransport struct{ server *httptest.Server }
+
+func (r *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = "http"
+	clone.URL.Host = strings.TrimPrefix(r.server.URL, "http://")
+	clone.Host = clone.URL.Host
+	clone.RequestURI = ""
+	return r.server.Client().Do(clone)
+}
+
+// TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts verifies that when
+// account A disconnects, a webhook still referenced by account B's connections
+// is not deleted.
+func TestGitHubAccountDisconnect_KeepsSharedWebhookAcrossAccounts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	store := githubconnection.New(db)
+
+	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs("acct-A").
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
+			AddRow("agent-a", "owner/repo", int64(42), time.Now()))
+
+	mock.ExpectExec("DELETE FROM github_connections").
+		WithArgs("acct-A", "agent-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// count=1: another account still references webhook 42, so it must not be deleted.
+	mock.ExpectQuery(`SELECT COUNT`).
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	pipesClient := pipes.New("fake-workos-key")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-A", OrganizationID: "org-A"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-A", Name: "accountA"})
+		c.Next()
+	})
+	router.DELETE("/accounts/:account/github",
+		GitHubAccountDisconnect(logger.New("error", "json"), pipesClient, store))
+
+	req := httptest.NewRequest(http.MethodDelete, "/accounts/accountA/github", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if stub.githubDeleteHits.Load() != 0 {
+		t.Errorf("expected 0 webhook DELETEs when another account still references it; got %d",
+			stub.githubDeleteHits.Load())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret verifies that when account B
+// links a repo already connected by account A, B gets its own webhook rather than
+// inheriting A's webhook_id and webhook_secret.
+func TestGitHubLink_DoesNotInheritOtherAccountWebhookSecret(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	store := githubconnection.New(db)
+
+	mock.MatchExpectationsInOrder(false)
+
+	// ghStore.Get(acct-B, agent-b) → no existing connection.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND agent_name = \$2`).
+		WithArgs("acct-B", "agent-b").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// GetByRepoForAccount(acct-B, "owner/repo") → no conflict.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND repo_full_name = \$2`).
+		WithArgs("acct-B", "owner/repo").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// GetByRepoBase returns account A's connection for the same base repo.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE repo_full_name`).
+		WithArgs("owner/repo").
+		WillReturnRows(connRow("conn-A", "acct-A", "accountA", "agent-a",
+			"owner/repo", "main", "A-secret", 99))
+
+	// B's first upsert must use webhook_id=0 and webhook_secret="" — not A's values.
+	mock.ExpectExec("INSERT INTO github_connections").
+		WithArgs(
+			"acct-B", "accountB", "agent-b", "user-B", "org-B",
+			"owner/repo", "main", int64(0), "",
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Second upsert persists the newly created webhook ID and secret.
+	mock.ExpectExec("INSERT INTO github_connections").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-B", OrganizationID: "org-B"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-B", Name: "accountB"})
+		c.Next()
+	})
+	router.POST("/agents/:account/:name/github/link",
+		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store,
+			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai"}))
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/accountB/agent-b/github/link",
+		strings.NewReader(`{"repo_full_name":"owner/repo","branch":"main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if stub.githubPostHits.Load() == 0 {
+		t.Errorf("expected account B to create its own webhook; got 0 POST /hooks calls")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestValidateRepoFullName_RejectsMetacharacters verifies that characters outside
+// [A-Za-z0-9._-/] are rejected. These characters are unsafe because repo_full_name
+// flows into GitHub API URLs and git-clone init container commands.
+func TestValidateRepoFullName_RejectsMetacharacters(t *testing.T) {
+	bad := []string{
+		"owner/repo; rm -rf /",
+		"owner/$(curl attacker)/pwn",
+		"owner/repo`id`",
+		"owner/repo?ref=main",
+		"owner/repo#frag",
+		"owner/repo\npath",
+		"owner/re po",
+		"owner/repo\x00",
+		"owner/repo&cmd",
+		"owner/re|po",
+	}
+	for _, input := range bad {
+		t.Run(strconv.Quote(input), func(t *testing.T) {
+			if err := validateRepoFullName(input); err == nil {
+				t.Errorf("validateRepoFullName(%q) should reject characters outside [A-Za-z0-9._-/]", input)
+			}
+		})
+	}
+}
+
+// TestValidateRepoFullName_RejectsOversizedSegments verifies that segments exceeding
+// GitHub's 100-character limit are rejected.
+func TestValidateRepoFullName_RejectsOversizedSegments(t *testing.T) {
+	const maxSegmentLen = 100
+	huge := strings.Repeat("a", maxSegmentLen+1)
+	input := "owner/" + huge
+	if err := validateRepoFullName(input); err == nil {
+		t.Errorf("validateRepoFullName accepted a %d-char segment; GitHub caps names at %d", len(huge), maxSegmentLen)
 	}
 }
 

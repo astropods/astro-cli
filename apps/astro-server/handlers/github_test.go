@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -250,6 +251,133 @@ func TestGitHubDisconnect_KeepsWebhookWhenShared(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// pushPayloadWithCommits builds a GitHub push event with an explicit commits slice.
+func pushPayloadWithCommits(repoFullName, branch, commitSHA string, commits []map[string]any) []byte {
+	payload := map[string]any{
+		"ref":        "refs/heads/" + branch,
+		"after":      commitSHA,
+		"repository": map[string]string{"full_name": repoFullName},
+		"head_commit": map[string]any{
+			"message": "bulk",
+			"author":  map[string]string{"name": "Alice"},
+		},
+		"commits": commits,
+	}
+	b, _ := json.Marshal(payload)
+	return b
+}
+
+// truncatedCommits returns exactly n commits, none of which touch any subpath.
+// Mirrors GitHub's behavior of truncating the commits array at 20.
+func truncatedCommits(n int) []map[string]any {
+	out := make([]map[string]any, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, map[string]any{
+			"added":    []string{"docs/unrelated-" + strconv.Itoa(i) + ".md"},
+			"removed":  []string{},
+			"modified": []string{},
+		})
+	}
+	return out
+}
+
+var errPartialFailureSim = &stubError{"simulated transient db error"}
+
+type stubError struct{ msg string }
+
+func (e *stubError) Error() string { return e.msg }
+
+// TestGitHubWebhook_TruncatedCommitsEnqueueSubPath verifies that a push with exactly
+// 20 commits (GitHub's truncation cap) still enqueues a build for subpath connections.
+// When the commits list is saturated, the handler cannot trust it for path filtering.
+func TestGitHubWebhook_TruncatedCommitsEnqueueSubPath(t *testing.T) {
+	router, mock, q := setupWebhookRouter(t)
+
+	const webhookSecret = "shared-secret"
+	body := pushPayloadWithCommits("owner/repo", "main", "abc1234", truncatedCommits(20))
+
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("owner/repo").
+		WillReturnRows(connRow("conn-base", "acct-1", "org1", "agent-svc",
+			"owner/repo/svc", "main", webhookSecret, 42))
+
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("owner/repo", "main").
+		WillReturnRows(sqlmock.NewRows(connCols()).
+			AddRow("c1", "acct-1", "org1", "agent-svc", "u1", "o1",
+				"owner/repo/svc", "main", int64(42), webhookSecret, time.Now(), time.Now()))
+
+	// A fixed handler should enqueue a build for the subpath connection
+	// despite none of the 20 (truncated) commits touching svc/.
+	mock.ExpectQuery("INSERT INTO github_builds").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("build-row-1"))
+	mock.ExpectExec("UPDATE github_builds").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", githubSig(webhookSecret, body))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if len(q.enqueued) == 0 {
+		t.Errorf("expected build enqueued for subpath connection on 20-commit (truncated) push, got 0")
+	}
+	if w.Code != http.StatusAccepted {
+		t.Errorf("expected 202 when a build is enqueued, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("CreateBuild / UpdateBuildStatus expected but not reached: %v", err)
+	}
+}
+
+// TestGitHubWebhook_PartialFanOutFailureIsNotAccepted verifies that when fan-out
+// enqueues at least one build but another connection's CreateBuild fails,
+// the handler does not return 202 so GitHub can surface the partial failure.
+func TestGitHubWebhook_PartialFanOutFailureIsNotAccepted(t *testing.T) {
+	router, mock, _ := setupWebhookRouter(t)
+
+	const webhookSecret = "secret"
+	body := pushPayload("owner/repo", "main", "deadbeef", []string{"svc/main.go"})
+
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("owner/repo").
+		WillReturnRows(connRow("conn-base", "acct-1", "org1", "agent-root",
+			"owner/repo", "main", webhookSecret, 42))
+
+	// Two connections both match — root + subpath.
+	mock.ExpectQuery("SELECT .+ FROM github_connections").
+		WithArgs("owner/repo", "main").
+		WillReturnRows(sqlmock.NewRows(connCols()).
+			AddRow("c1", "acct-1", "org1", "agent-root", "u1", "o1",
+				"owner/repo", "main", int64(42), webhookSecret, time.Now(), time.Now()).
+			AddRow("c2", "acct-1", "org1", "agent-svc", "u1", "o1",
+				"owner/repo/svc", "main", int64(42), webhookSecret, time.Now(), time.Now()))
+
+	// First CreateBuild succeeds.
+	mock.ExpectQuery("INSERT INTO github_builds").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("build-row-1"))
+	mock.ExpectExec("UPDATE github_builds").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	// Second CreateBuild fails — simulates a transient DB error on the subpath connection.
+	mock.ExpectQuery("INSERT INTO github_builds").
+		WillReturnError(errPartialFailureSim)
+
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", githubSig(webhookSecret, body))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code == http.StatusAccepted {
+		t.Errorf("expected non-202 on partial fan-out failure; got %d", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
 	}
 }
 
