@@ -300,7 +300,7 @@ function BlueprintDetailInner({
       <div className="relative flex flex-1 overflow-y-auto">
         <GradientGridWash colors={effectiveBlueprint.avatar_colors} />
 
-      <div className="relative z-[1] flex min-w-0 flex-1 max-w-[1200px] mx-auto">
+      <div className="relative flex min-w-0 flex-1 max-w-[1200px] mx-auto">
         <BlueprintDetailContent
           account={blueprint.account}
           name={blueprint.name}
