@@ -2852,3 +2852,47 @@ func TestApplyAdapterShaping_NilInterfaces(t *testing.T) {
 		t.Errorf("expected 2 variables, got %d", len(ds.Variables))
 	}
 }
+
+// TestRetemplate_SlackConfigNotLeakedForWebOnly simulates the
+// retemplateDeploymentSpec flow in admingrpc: generate a fresh template,
+// restore the user's adapter selection (web-only), and verify that Slack
+// variables don't leak into the resolved ConfigMap. Without
+// ApplyAdapterShaping after re-templating, SLACK_CONFIG appears in the
+// expected ConfigMap keys even though the user never enabled Slack, causing
+// false-positive drift.
+func TestRetemplate_SlackConfigNotLeakedForWebOnly(t *testing.T) {
+	// Step 1: Generate template (same as retemplateDeploymentSpec)
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+	ds := mustGenerate(t, input)
+
+	// Step 2: Restore user adapters (web only — no slack)
+	userAdapters := []string{"web"}
+	ds.Interfaces.Adapters = userAdapters
+
+	// Step 3: Apply adapter shaping — retemplateDeploymentSpec must do this
+	// after re-generating the template to strip variables for non-selected
+	// adapters. Without this call, SLACK_CONFIG leaks into the resolved env.
+	ApplyAdapterShaping(ds, userAdapters)
+
+	// Step 4: Resolve env (same as spec applier / normalizer)
+	rctx := ResolveContext{
+		Namespace:  "astro-test-0",
+		AgentName:  ds.Source.Name,
+		BuildID:    ds.Source.Build,
+		SecretName: GenerateSecretName(ds.Source.Name, ds.Source.Build),
+	}
+	resolved := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// SLACK_CONFIG should NOT be in ConfigMapData — user only selected "web"
+	if _, ok := resolved.ConfigMapData["SLACK_CONFIG"]; ok {
+		t.Errorf("SLACK_CONFIG leaked into ConfigMapData after retemplate with web-only adapters (value=%q)", resolved.ConfigMapData["SLACK_CONFIG"])
+	}
+
+	// Slack secret vars should not be in SecretData either
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
+		if _, ok := resolved.SecretData[key]; ok {
+			t.Errorf("%s leaked into SecretData after retemplate with web-only adapters", key)
+		}
+	}
+}

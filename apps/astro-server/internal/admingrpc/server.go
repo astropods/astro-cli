@@ -1716,9 +1716,12 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 	storedDS.Agent.Environment = newTemplate.Agent.Environment
 	storedDS.Interfaces = newTemplate.Interfaces
 
-	// Restore user-selected adapters (the template generates empty adapters).
+	// Restore user-selected adapters (the template generates empty adapters)
+	// and strip variables for adapters the user didn't select (e.g. SLACK_CONFIG
+	// when only "web" is enabled).
 	if storedDS.Interfaces != nil && userAdapters != nil {
 		storedDS.Interfaces.Adapters = userAdapters
+		deployment.ApplyAdapterShaping(storedDS, userAdapters)
 	}
 
 	// Restore variable values from the existing deployment.
