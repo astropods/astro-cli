@@ -54,15 +54,22 @@ test("linking a repo via BP panel shows account as globally connected in setting
   await expect(repoButton).toBeVisible({ timeout: 10_000 });
   await repoButton.click();
 
+  const linkResponse = page.waitForResponse(
+    (r) => /\/api\/v1\/agents\/[^/]+\/[^/]+\/github\/link$/.test(r.url()) && r.request().method() === "POST",
+  );
   await dialog.getByRole("button", { name: /connect repository/i }).click();
+  const linkResp = await linkResponse;
+  expect(linkResp.status()).toBe(200);
 
-  // Wait for the link to be recorded in the mock backend rather than asserting
-  // on the HTTP response status — the response may race with dialog state.
-  await expect(async () => {
-    const res = await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`);
-    const data = (await res.json()) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
-    expect(data.connections.some((c) => c.agent_name === AGENT)).toBe(true);
-  }).toPass({ timeout: 10_000 });
+  // Verify the server recorded the connection. The dialog's auto-close after
+  // linking is a UI side effect of cache invalidation timing and is irrelevant
+  // to the contract under test here (account-status propagation). Asserting on
+  // it has been a recurring source of flake; the next navigation tears it down
+  // anyway.
+  const connections = (await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connections`).then((r) =>
+    r.json(),
+  )) as { connections: Array<{ agent_name: string; repo_full_name: string }> };
+  expect(connections.connections.some((c) => c.agent_name === AGENT)).toBe(true);
 
   // Account status query fires fresh and must return connected:true.
   await page.goto("/settings/account", { waitUntil: "networkidle" });
