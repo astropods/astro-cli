@@ -8,14 +8,15 @@
 
 ## Abstract
 
-When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself. Blueprint pages are the right scope for this work: blueprints are designed to be shared (publicly or within an org), and their badge shows only information the URL already implies.
+When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Blueprint pages already emit Open Graph metadata, but the preview image is the **account's profile avatar** — a generic photo with no connection to the blueprint itself.
 
-Agent deployment pages are explicitly excluded from this spec. Unfurling deployment pages introduces an access control problem that cannot be solved cleanly at the OG layer — see the Access Control section for the full reasoning.
+This spec does two distinct things:
 
-The two in-scope page types use distinct image styles and rendering approaches:
+**1. Blueprint link unfurling.** When a blueprint URL is shared anywhere, it unfurls with a card that mirrors the blueprint listing UI — clean, light, landscape — showing the blueprint's name, description, deploy count, and owner. This is the primary social sharing surface.
 
-- **Blueprint pages** upgrade the existing `og:image` from the account avatar to a new Satori-rendered card that mirrors the blueprint listing UI — a clean, light landscape card with icon, name, description, deploy count, and owner.
-- **Agent (blueprint) pages** use the existing `astro-trading-card` package to produce a portrait trading card (dark, holographic-styled), rendered to PNG via Resvg.
+**2. Agent card download.** The deployed agent trading card (dark, holographic, portrait) is a downloadable artifact — an SVG or high-quality PNG the user can save. It is not used as an OG image. When a user shares from the agent card via the in-app Share menu, they share the *blueprint* URL (with a pre-filled message), not the deployment URL. What unfurls is the blueprint card, not the trading card.
+
+This separation keeps the social surface clean: blueprints are the public-facing entity, deployments are org-scoped. The trading card is a trophy, not a broadcast.
 
 ---
 
@@ -69,15 +70,16 @@ This model keeps the badge stateless (the token carries the authorization) while
 ## Goals
 
 - **G1:** Blueprint page URLs replace the current account-avatar `og:image` with a UI-style landscape card PNG specific to the blueprint.
-- **G2:** Agent (blueprint) page URLs unfurl with a trading card PNG as the preview image.
-- **G3:** All PNG images are generated server-side on demand with no browser involved.
-- **G4:** OG tags are populated with accurate, entity-specific data.
+- **G2:** The deployed agent card (trading card) is downloadable as SVG or PNG from a three-dot Share menu.
+- **G3:** Sharing to LinkedIn, X, or Slack from the agent card pre-fills a message with the blueprint URL — what unfurls is the blueprint card, not the trading card.
+- **G4:** All server-rendered PNGs are generated on demand with no browser involved.
 - **G5:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
 - **G6:** The implementation does not require changes to the Go backend.
 
 ## Non-Goals
 
-- Deployment page unfurling (excluded; see Access Control section).
+- Deployment page OG tags or unfurling (see Access Control section).
+- Agent trading card as an OG image — the card is a download artifact only.
 - Animated or video preview cards.
 - Uploading pre-generated PNGs to S3/CDN (can be layered on as a caching optimization later).
 - Per-user or per-session personalization of the card image.
@@ -351,45 +353,91 @@ A lightweight LRU implementation (e.g., `lru-cache` npm package) is preferred ov
 
 ---
 
+## In-App Share Flow (Agent Card)
+
+The deployed agent card has a three-dot menu. A "Share" option in that menu exposes two distinct actions:
+
+### Download
+
+| Option | Behavior |
+|--------|----------|
+| Download SVG | Client-side. Calls `downloadSvg()` from `astro-trading-card/browser`. No server request. |
+| Download PNG | Server-side. Fetches `/badge/agent/:account/:name.png`, which uses Resvg for a high-quality render. Triggered as a file download in the browser. |
+
+The server-side PNG download is preferred over the existing canvas-based `downloadPng()` because Resvg produces sharper output (especially at 2x scale) and is consistent across browsers.
+
+### Share to Social Platform
+
+When the user selects a social platform (LinkedIn, X, or Slack), the app opens that platform's share intent URL with a pre-filled message. The shared URL is the **blueprint URL**, not the deployment URL.
+
+**Why the blueprint URL, not the deployment URL:**
+- Deployments are org-scoped. Sharing a deployment URL with someone outside the org is meaningless — they cannot access it.
+- Blueprints are the public-facing entity. The blueprint represents what the agent *is*; the deployment is an instance of it.
+- The blueprint card unfurls cleanly, giving the recipient context without requiring org access.
+
+**Pre-filled message templates:**
+
+| Platform | Message |
+|----------|---------|
+| LinkedIn | "Just deployed {displayName} on Astro using the {blueprint} blueprint. {blueprintUrl}" |
+| X (Twitter) | "Just deployed {displayName} on Astro using {blueprint} {blueprintUrl}" |
+| Slack | Deep link to Slack compose with the same message body |
+
+The `{blueprintUrl}` is the canonical blueprint page URL (e.g., `https://astropod.ai/{account}/{blueprintName}`). When the recipient's platform crawls this URL, it fetches the blueprint badge PNG and renders the blueprint card — not the trading card.
+
+**Share intent URLs:**
+
+```
+LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url={encodedBlueprintUrl}
+X:        https://x.com/intent/post?text={encodedMessage}&url={encodedBlueprintUrl}
+Slack:    https://slack.com/intl/en-us/share?url={encodedBlueprintUrl}
+```
+
+The message and URL MUST be URL-encoded before being appended to the intent URL. The blueprint URL and display name are available from the deployment page's existing loader data (each deployment knows its source blueprint).
+
+---
+
 ## Files to Modify or Create
 
 | File | Change |
 |------|--------|
 | `apps/astro-client/server.ts` | Add `/badge/agent/*` and `/badge/blueprint/*` routes before React Router handler |
-| `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` |
+| `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` — serves PNG downloads, not OG images |
 | `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX component (Satori-compatible, inline styles only) and `generateBlueprintBadgePng()` |
 | `apps/astro-client/src/badge-cache.ts` | **New.** Shared LRU cache instance |
-| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add `meta()` export with agent OG tags; add `host` to loader |
-| `apps/astro-client/src/pages/blueprints/Blueprints.tsx` | Add `meta()` export with blueprint OG tags; add `host` to loader (confirm route file) |
+| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add Share menu (three-dot) with Download SVG, Download PNG, and social share options; no OG meta tags |
+| `apps/astro-client/src/pages/blueprints/BlueprintDetail.tsx` | Replace `ogImage` in loader with badge endpoint URL; add `og:image:width` and `og:image:height` |
 | `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `satori`, `lru-cache` |
 
 ---
 
 ## Implementation Order
 
-**Phase 1 — Agent badge PNG endpoint:**
-1. Install `@resvg/resvg-js` and `lru-cache`
-2. Create `src/badge-agent.ts` and `src/badge-cache.ts`
-3. Add `/badge/agent/:account/:name.png` handler in `server.ts`
-4. Verify: `curl http://localhost:3000/badge/agent/postman/research-assistant.png > agent.png`
-
-**Phase 2 — Agent OG meta tags:**
-1. Add `host` to agent detail loader
-2. Add `meta()` export to `DeployedAgentDetail.tsx`
-3. Verify with LinkedIn Post Inspector and Twitter Card Validator against staging
-
-**Phase 3 — Blueprint badge PNG endpoint:**
-1. Install `satori`; confirm Inter font files are accessible server-side
-2. Create `src/badge-blueprint.tsx` with `BlueprintCard` component
+**Phase 1 — Blueprint badge PNG endpoint (no visible user change):**
+1. Install `@resvg/resvg-js`, `satori`, and `lru-cache`
+2. Create `src/badge-blueprint.tsx`, `src/badge-cache.ts`
 3. Add `/badge/blueprint/:account/:name.png` handler in `server.ts`
 4. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > blueprint.png`
 
-**Phase 4 — Blueprint OG meta tags:**
-1. Add `host` to blueprint detail loader
-2. Add `meta()` export to the blueprint detail route
-3. Verify Slack unfurl by pasting a blueprint URL into a test channel
+**Phase 2 — Blueprint OG meta tags (enables unfurling):**
+1. In `BlueprintDetail.tsx` loader, replace `ogImage` derivation with the badge endpoint URL
+2. Add `og:image:width` (1200) and `og:image:height` (630) to the existing `meta()` export
+3. Verify with LinkedIn Post Inspector and Twitter Card Validator against a staging URL
+4. Verify Slack unfurl by pasting a blueprint URL into a test channel
 
-Phases ship independently. Phases 1 and 3 are purely additive with no user-visible change. Phases 2 and 4 activate unfurling as soon as they deploy.
+**Phase 3 — Agent card download (server-side PNG):**
+1. Create `src/badge-agent.ts`
+2. Add `/badge/agent/:account/:name.png` handler in `server.ts` (download use only, not OG)
+3. Wire "Download PNG" in the Share menu to fetch this endpoint and trigger a browser download
+
+**Phase 4 — Agent card Share menu (social share intents):**
+1. Add three-dot Share menu to `DeployedAgentDetail.tsx`
+2. Implement Download SVG (client-side, `downloadSvg()` already available)
+3. Implement Download PNG (fetch `/badge/agent/*` endpoint, trigger download)
+4. Implement LinkedIn / X / Slack share intent links with pre-filled blueprint URL and message
+5. Verify intent URLs open correctly with expected pre-filled text on each platform
+
+Phases 1 and 2 are the primary unfurling work and ship as a unit. Phases 3 and 4 are the agent card share UX and can ship independently after.
 
 ---
 
@@ -404,8 +452,8 @@ Agent cards reuse the existing `astro-trading-card` package (which already produ
 **3. On-demand generation, not pre-generation.**  
 Pre-generating PNGs at creation time would require the backend to know about the Bun server (or a separate image service), adding coupling. On-demand generation is simpler, and the LRU + HTTP cache provides sufficient performance for crawlers, which are low-frequency compared to regular user traffic.
 
-**4. Twitter card type: `summary` for agents, `summary_large_image` for blueprints.**  
-The trading card is 350×560px (portrait). `summary_large_image` expects a ~2:1 landscape image and letterboxes portrait images poorly on X. Using `twitter:card = summary` renders it as a square thumbnail instead, which is a better fit. The blueprint card is 1200×630px (native OG landscape), so `summary_large_image` is correct there. If a landscape agent card variant is designed in the future, the agent card type can be upgraded to `summary_large_image`.
+**4. The trading card is a download artifact, not a social broadcast.**  
+The agent trading card (portrait, dark, holographic) is a personal trophy — something the user downloads and keeps. It is not suitable as an OG image for two reasons: (a) it is 350x560px portrait, which letterboxes poorly on every major platform's `summary_large_image` format, and (b) it represents a deployment, which is org-scoped and should not be the thing that reaches people outside the org. Social sharing from the agent card routes to the blueprint instead, which is landscape, public-facing, and carries the right context for someone seeing it cold.
 
 **5. No OG tags in `root.tsx`.**  
 Global fallback OG tags are intentionally omitted from `root.tsx`. Adding them would cause non-agent and non-blueprint pages to unfurl with incorrect metadata. Per-page `meta()` exports are the correct scope.
