@@ -30,6 +30,25 @@ const DEFAULT_ACCENT: CardAccent = {
   vibrantLight: "#85e0d6",
 };
 
+/** sRGB relative luminance (0–1) from a hex color — perceptual brightness. */
+function srgbLuminance(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** Light-mode accent adjustments scaled by perceptual brightness.
+ *  Brighter accents get more oklch darkening and higher mix; darker ones pass through. */
+function lightModeAccent(accentHex: string): { mix: number; mixHover: number; strength: number } {
+  const lum = srgbLuminance(accentHex);
+  const t = Math.min(1, Math.max(0, lum / 0.5));
+  const mix = 26 + t * 16; // 26% (dark accent) → 42% (light accent)
+  const strength = 100 - t * 20; // 100% (dark, no change) → 80% (light, 20% black in oklch)
+  return { mix, mixHover: mix * 0.8, strength };
+}
+
 /** Deterministic fold lines derived from a slug string. */
 function generateFoldLines(slug: string): { position: number; rotation: number }[] {
   // Simple seeded PRNG (Park-Miller LCG)
@@ -62,7 +81,7 @@ function generateFoldLines(slug: string): { position: number; rotation: number }
 
 // className fragments shared by both draft and non-draft card treatments
 const cardVars = "[--card-neutral:oklch(97.76%_0.0106_194.137)] dark:[--card-neutral:#0a1614] [--card-contrast:black] dark:[--card-contrast:white] [--card-grid:rgb(255_255_255/0.5)] dark:[--card-grid:rgb(255_255_255/0.07)]";
-const cardAccentVars = "[--mix:18%] hover:[--mix:14%]";
+const cardAccentVars = "[--mix:var(--mix-base)] hover:[--mix:var(--mix-hover)] dark:[--mix:18%] dark:hover:[--mix:14%]";
 const cardBorder = "border-[0.5px] border-teal-25 dark:border-white/10";
 const gridOverlay = "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,var(--card-grid)_0.5px,transparent_0.5px),linear-gradient(to_bottom,var(--card-grid)_0.5px,transparent_0.5px)]";
 const innerBorderBase = "after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-teal-25 dark:after:border-white/10";
@@ -131,11 +150,16 @@ export function BlueprintCard({
       : cn(draftVars, draftBorder, innerBorderDashed),
   );
 
+  const accentAdj = useMemo(() => lightModeAccent(accent.base), [accent.base]);
+  const darkenedAccent = `color-mix(in oklch, ${accent.base} ${accentAdj.strength}%, black)`;
+
   const cardStyle = hasAccent ? {
-    backgroundColor: `color-mix(in srgb, ${accent.base} var(--mix), var(--card-neutral))`,
+    backgroundColor: `color-mix(in srgb, ${darkenedAccent} var(--mix), var(--card-neutral))`,
     '--card-accent': accent.vibrant,
     '--card-accent-light': accent.vibrantLight,
-    '--card-muted': `color-mix(in srgb, ${accent.base} 70%, var(--card-contrast))`,
+    '--card-muted': `color-mix(in srgb, ${darkenedAccent} 70%, var(--card-contrast))`,
+    '--mix-base': `${accentAdj.mix}%`,
+    '--mix-hover': `${accentAdj.mixHover}%`,
   } as React.CSSProperties : undefined;
 
   const cardOverlays = (
@@ -351,7 +375,7 @@ export function BlueprintCard({
         <div className={cn("relative z-[1] mx-[5px] border-t dark:border-white/10", isDraft ? "border-dashed border-stone-300" : "border-teal-25")} />
         <div
           className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5 pb-3.5")}
-          style={hasAccent ? { color: `color-mix(in srgb, ${accent.base} 70%, var(--card-contrast))` } : undefined}
+          style={hasAccent ? { color: `color-mix(in srgb, ${darkenedAccent} 70%, var(--card-contrast))` } : undefined}
         >
           <span className={cn("text-mono-sm font-mono", hasAccent ? "text-[inherit]" : "text-faint-foreground")}>
             {formattedDeploys} {deployLabel}
