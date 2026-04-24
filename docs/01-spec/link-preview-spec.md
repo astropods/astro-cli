@@ -10,16 +10,17 @@
 
 This spec covers two distinct unfurl behaviors and one intentional non-behavior:
 
-**Case 1 — Share button on agent card.**
-The user clicks the three-dot menu on a deployed agent card and selects "Share on LinkedIn" or "Share on X". This opens the platform's native share intent with a pre-filled message containing the agent description and the **blueprint URL**. What unfurls is the **blueprint card** — the same endpoint and result as Case 2. No tokens are minted; the blueprint URL is the thing being shared.
+**Cases 1 and 2 converge on the same path.**
+Whether a user clicks Share anywhere in the app (Case 1) or pastes a blueprint URL directly into LinkedIn, X, or Slack (Case 2), the outcome is identical: the flow hits a single visibility gate ("is this blueprint public?"), and if yes, the blueprint card PNG unfurls. If no, nothing unfurls. There is no separate social path for the agent badge — it is a download artifact only.
+
+**Case 1 — Share button (anywhere in the app).**
+Clicking Share routes to the `blueprint public?` gate. If the blueprint is public, the platform crawls the blueprint URL and renders the blueprint card. A pre-filled message includes the agent description and blueprint link. Currently only public blueprints can be shared this way; FGAC will later enable private-scope sharing for org members.
 
 **Case 2 — Blueprint URL pasted anywhere.**
-A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn, X, or Slack unfurls as the **blueprint card** only if the blueprint's visibility is set to **public**. If the blueprint is private, the badge endpoint returns 404 and no OG tags are emitted — the link appears as plain text. Slack is the primary internal testing ground for blueprint unfurling.
+A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn, X, or Slack hits the same `blueprint public?` gate. Public = blueprint card unfurls. Private = 404, no card, plain text link. Slack is the primary internal testing ground.
 
 **Case 3 — Deployment URL pasted anywhere.**
-A raw deployment URL (e.g., `https://astropod.ai/sohumdalal/agents/abg-ieb-2i9`) returns a 404 or not-authorized page and emits no OG metadata. There is no unfurl. Deployments are org-scoped and are not discoverable via raw URL sharing.
-
-Cases 1 and 2 converge on the same blueprint badge endpoint — there is no separate social unfurl path for agents. The agent badge (trading card) is a download artifact only.
+A raw deployment URL returns 404 or not-authorized with no OG metadata. No unfurl. Until FGAC exists, there is no way to gate deployment unfurling on org membership, so deployment URLs are intentionally dark.
 
 ---
 
@@ -36,41 +37,43 @@ The core technical gap is the same in both cases: there is no server-side mechan
 
 ## Access Control Boundary
 
-Not all Astro pages can be unfurled today, and the distinction is not philosophical — it is a product readiness question.
+Not all Astro pages can be unfurled today, and the distinction is a product readiness question, not a philosophical one.
 
 **How unfurling actually works:**
 
-When a user pastes a URL into LinkedIn or X, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG separately — also unauthenticated. Platforms then cache the result aggressively.
+When a URL is pasted into LinkedIn or X, the platform dispatches an unauthenticated crawler bot. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG separately — also unauthenticated. Platforms cache the result aggressively.
 
-This means session-aware OG tag injection is not a reliable access control mechanism on its own. Even if the page SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached version.
+This means session-aware OG tag injection is not a reliable access control mechanism. Even if the page SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached version.
 
-**Blueprint unfurling is gated on visibility.** Blueprints have a user-controlled visibility setting (public or private). The badge endpoint checks this field before generating a PNG:
+**Blueprint unfurling is gated on visibility.** Blueprints have a user-controlled visibility setting (public or private). The same gate applies to both the Share button flow (Case 1) and the raw URL paste flow (Case 2):
 
 - **Public blueprint:** badge renders and OG tags are emitted. The blueprint is intentionally discoverable.
 - **Private blueprint:** badge endpoint returns 404 and the page emits no OG tags. The link appears as plain text — no card, no image, no metadata disclosure.
 
-This means visibility is enforced in two places: the badge PNG endpoint (returns 404 if private) and the `BlueprintDetail.tsx` loader (omits OG tags if private). Both checks are necessary — a crawler that somehow has the badge URL directly should also get 404.
+Visibility is enforced in two places: the badge PNG endpoint (returns 404 if private) and the `BlueprintDetail.tsx` loader (omits OG tags if private). Both checks are necessary — a crawler that somehow has the badge URL directly should also get 404.
 
-**Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Pasting a raw deployment URL into LinkedIn or X produces no unfurl. This is a deliberate product decision: until fine-grained access control (FGAC) exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Without that check, any unfurl would effectively make deployment existence discoverable to anyone with the URL.
+**Once FGAC exists**, the Share button in Case 1 will be able to gate sharing on org membership, unlocking private blueprint sharing for authorized members. The underlying badge infrastructure does not change; FGAC adds the pre-condition.
 
-The Share button on the agent card sidesteps this problem entirely by sharing the **blueprint URL** instead of the deployment URL. The blueprint is the public-facing entity; the deployment is the private one. FGAC is not a prerequisite for this flow.
+**Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Until FGAC exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Deployment URLs are intentionally dark. FGAC is the prerequisite for any deployment unfurl story.
 
 ---
 
 ## Goals
 
 - **G1:** Public blueprint URLs unfurl with a blueprint-specific landscape card PNG (replacing the current account avatar). Private blueprint URLs emit no OG tags and return 404 from the badge endpoint.
-- **G2:** The Share button on the agent card pre-fills a platform share intent with the agent description and the blueprint URL. What unfurls is the blueprint card.
-- **G3:** The agent trading card is downloadable as SVG or high-quality PNG from the same Share menu.
-- **G4:** Raw deployment URLs return no OG metadata — no unfurl.
-- **G5:** All server-rendered PNGs are generated on demand with no browser involved.
-- **G6:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
-- **G7:** The implementation does not require changes to the Go backend.
+- **G2:** The Share button (anywhere in the app) routes through the same blueprint visibility gate and produces the same unfurl as pasting the blueprint URL directly.
+- **G3:** The Share button pre-fills a platform message with the agent description and the blueprint URL.
+- **G4:** The agent trading card is downloadable as SVG or high-quality PNG from the Share menu.
+- **G5:** Raw deployment URLs return no OG metadata — no unfurl.
+- **G6:** All server-rendered PNGs are generated on demand with no browser involved.
+- **G7:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
+- **G8:** The implementation does not require changes to the Go backend.
 
 ## Non-Goals
 
-- A separate social unfurl for the agent badge / trading card (blueprint card is the social artifact).
-- Deployment page OG tags (raw deployment URLs explicitly have no unfurl).
+- A separate social unfurl for the agent badge / trading card (blueprint card is the only social artifact).
+- Deployment page OG tags (raw deployment URLs explicitly have no unfurl until FGAC).
+- Private blueprint sharing (blocked until FGAC).
 - Animated or video preview cards.
 - Uploading pre-generated PNGs to S3/CDN (can be layered on as a caching optimization later).
 - Per-user or per-session personalization of the card image.
@@ -82,29 +85,49 @@ The Share button on the agent card sidesteps this problem entirely by sharing th
 
 ### Overview
 
-There is one badge route that matters for social sharing: the blueprint badge. The agent badge route exists for PNG download only. Both are handled by the Bun server before the React Router handler runs.
+There is one badge route for social sharing: the blueprint badge. The agent badge route exists for PNG download only. Both Cases 1 and 2 flow through the same blueprint visibility gate and the same badge endpoint.
 
 ```
-[Social platform crawler]
-  GET /blueprints/:account/:name    (blueprint page)
-  -> reads og:image from HTML
-  -> GET /badge/blueprint/:account/:name.png
+Case 1: User clicks Share (anywhere in app)
+Case 2: User pastes blueprint URL into LinkedIn / X / Slack
+         |
+         v
+    blueprint public?
+         |         \
+        YES         NO --> 404, no unfurl
+         |
+         v
+GET /badge/blueprint/:account/:name.png
+  1. Fetch blueprint from API
+  2. Check visibility -- 404 if private
+  3. blueprintToCardProps()
+  4. satori(BlueprintCard)   -- JSX -> SVG
+  5. Resvg().render()        -- SVG -> PNG
+  6. Return PNG (LRU cached)
+         |
+         v
+Blueprint Card PNG (1200x630, landscape)
+         |
+         v
+LinkedIn  ·  X  ·  Slack
 
-[Bun SSR server]
-  GET /badge/blueprint/:account/:name.png
-    1. Fetch blueprint from API
-    2. Check visibility -- 404 if private
-    3. blueprintToCardProps()
-    4. satori(BlueprintCard)   -- JSX -> SVG
-    5. Resvg().render()        -- SVG -> PNG
-    6. Return PNG (cached)
 
-  GET /badge/agent/:account/:name.png   (download only)
-    1. Fetch agent from API
-    2. agentToCardData()
-    3. generateCard()          -- astro-trading-card
-    4. Resvg().render()        -- SVG -> PNG
-    5. Return PNG
+Case 3: User pastes deployment URL anywhere
+         |
+         v
+404 / Not Authorized
+No OG tags emitted
+No unfurl
+(Until FGAC: no org membership check possible at OG layer)
+
+
+Agent badge endpoint (download only -- not referenced in any OG tag):
+GET /badge/agent/:account/:name.png
+  1. Fetch agent from API
+  2. agentToCardData()
+  3. generateCard()      -- astro-trading-card
+  4. Resvg().render()    -- SVG -> PNG
+  5. Return PNG
 ```
 
 ---
@@ -113,9 +136,7 @@ There is one badge route that matters for social sharing: the blueprint badge. T
 
 **Route:** `GET /badge/blueprint/:account/:name.png`
 
-Renders a landscape card that mirrors the blueprint listing UI. This is the only social-unfurl image endpoint. Portrait format is intentionally not used for social sharing — see Design Decision #3.
-
-This endpoint MUST check the blueprint's visibility before rendering. If the blueprint is private, it returns `404 Not Found` with no body. This prevents the badge from being accessible even if someone constructs the URL directly.
+The only social-unfurl image endpoint. Both the Share button (Case 1) and the raw blueprint URL (Case 2) cause platform crawlers to hit this endpoint when the blueprint is public.
 
 #### Response
 
@@ -129,8 +150,6 @@ This endpoint MUST check the blueprint's visibility before rendering. If the blu
 The `BlueprintDetail.tsx` loader MUST also check visibility and omit all OG tags when the blueprint is private — so neither the page HTML nor the badge URL leaks any information.
 
 #### Visual Design
-
-The blueprint card matches the blueprint listing UI card design:
 
 ```
 +----------------------------------------------------------+
@@ -160,12 +179,7 @@ The blueprint card matches the blueprint listing UI card design:
 
 #### Rendering Approach: Satori
 
-Blueprint cards are rendered with **Satori** (`satori` npm package), which converts a JSX component tree to an SVG string using flexbox layout — the same technology behind `@vercel/og`. The SVG is then passed to Resvg for PNG conversion.
-
-Satori is preferred here over a hand-written SVG template because:
-1. The blueprint card's layout maps naturally to flexbox (which Satori supports natively).
-2. A JSX component can be visually maintained alongside the equivalent UI component, keeping them in sync.
-3. Satori handles text wrapping, line clamping, and image embedding — all required for this card.
+Blueprint cards are rendered with **Satori** (`satori` npm package), which converts a JSX component tree to an SVG string using flexbox layout. The SVG is then passed to Resvg for PNG conversion.
 
 ```typescript
 import satori from "satori";
@@ -204,7 +218,7 @@ async function handleBlueprintBadge(account: string, name: string): Promise<Resp
 }
 ```
 
-The `BlueprintCard` JSX component lives in `src/badge-blueprint.tsx` and is the source of truth for the card's visual design. It MUST NOT import any browser-only APIs, Tailwind classes, or CSS modules — Satori requires inline styles only.
+The `BlueprintCard` JSX component lives in `src/badge-blueprint.tsx`. It MUST NOT import any browser-only APIs, Tailwind classes, or CSS modules — Satori requires inline styles only.
 
 #### Blueprint Data -> CardProps Mapping
 
@@ -220,7 +234,7 @@ The `BlueprintCard` JSX component lives in `src/badge-blueprint.tsx` and is the 
 
 #### Font Loading
 
-Satori requires font data to be loaded as `ArrayBuffer`. Fonts SHOULD be loaded once at server startup (not per-request) and stored in module scope. Inter (Regular 400, Bold 700) is the recommended typeface to match the UI.
+Fonts SHOULD be loaded once at server startup (not per-request) and stored in module scope. Inter (Regular 400, Bold 700) is the recommended typeface to match the UI.
 
 ---
 
@@ -228,7 +242,7 @@ Satori requires font data to be loaded as `ArrayBuffer`. Fonts SHOULD be loaded 
 
 **Route:** `GET /badge/agent/:account/:name.png`
 
-Renders the agent's `astro-trading-card` as a PNG. Used only for the "Download PNG" option in the Share menu — this endpoint is NOT referenced in any OG tag and is NOT the target of social crawlers.
+Used only for the "Download PNG" option in the Share menu. This endpoint is NOT referenced in any OG tag and is NOT the target of social crawlers.
 
 #### Response
 
@@ -280,15 +294,11 @@ Colors SHOULD use `deriveCardColors()` if a dominant avatar color is available, 
 
 ### 3. Open Graph Meta Tags
 
-React Router v7 supports per-route `meta()` exports that run during SSR.
-
-The `host` MUST be derived from `new URL(request.url).host` in the loader and returned as part of loader data — never hardcoded — to work correctly across local, staging, and production environments.
+React Router v7 supports per-route `meta()` exports that run during SSR. The `host` MUST be derived from `new URL(request.url).host` in the loader — never hardcoded — to work correctly across local, staging, and production environments.
 
 #### Blueprint Detail Page
 
-`BlueprintDetail.tsx` already exports a `meta()` function with `og:title`, `og:description`, `og:url`, `og:image`, and `twitter:card`. The only change required is replacing the `ogImage` value passed from the loader — currently `${assetsBase}/avatars/${account}.jpg` — with the new badge endpoint URL. All other tags remain unchanged.
-
-OG tags MUST be omitted entirely when the blueprint is private.
+`BlueprintDetail.tsx` already exports a `meta()` function. The only required change is replacing the `ogImage` value in the loader with the badge endpoint URL. OG tags MUST be omitted entirely when the blueprint is private.
 
 | Property | Current value | New value |
 |----------|--------------|-----------|
@@ -316,7 +326,7 @@ Both badge endpoints SHOULD share a single LRU cache, keyed by the full route st
 | TTL | 1 hour (3600s) |
 | Eviction | LRU |
 
-A lightweight LRU implementation (e.g., `lru-cache` npm package) is preferred over a hand-rolled map to avoid unbounded memory growth. This cache is process-local; persistent caching (S3, Redis) can be layered on as a follow-up. The HTTP `Cache-Control` header handles CDN-level caching independently.
+Use `lru-cache` npm package. The HTTP `Cache-Control` header handles CDN-level caching independently.
 
 ---
 
@@ -329,31 +339,31 @@ A lightweight LRU implementation (e.g., `lru-cache` npm package) is preferred ov
 | `lru-cache` | `apps/astro-client` | Add as dependency |
 | `@postman/astro-trading-card` | `apps/astro-client` | Already present (confirm version) |
 
-`@resvg/resvg-js` ships a prebuilt native binary for each platform and works with Bun's Node-compatible native addon loader. No WASM fallback is needed since the Bun server runs in a controlled server environment (not an edge runtime). The same applies to `satori`, which is pure JavaScript.
-
 ---
 
-## In-App Share Flow (Agent Card)
+## In-App Share Flow
 
-The deployed agent card has a three-dot menu. A "Share" option in that menu exposes two distinct actions: download and social share.
+The Share button can appear anywhere in the app — on the deployed agent card or elsewhere. It exposes two categories of action: **download** and **social share**.
 
 ### Download
 
 | Option | Behavior |
 |--------|----------|
 | Download SVG | Client-side. Calls `downloadSvg()` from `astro-trading-card/browser`. No server request. |
-| Download PNG | Server-side. Fetches `/badge/agent/:account/:name.png`, which uses Resvg for a high-quality render. Triggered as a file download in the browser. |
+| Download PNG | Server-side. Fetches `/badge/agent/:account/:name.png`. Triggered as a file download in the browser. |
 
-The server-side PNG download is preferred over the existing canvas-based `downloadPng()` because Resvg produces sharper output (especially at 2x scale) and is consistent across browsers.
+The server-side PNG download is preferred over the existing canvas-based `downloadPng()` because Resvg produces sharper output and is consistent across browsers.
 
 ### Share to Social Platform
 
-When the user selects a social platform, the client opens the platform's native share intent URL with:
+Clicking "Share on LinkedIn" or "Share on X" opens the platform's native share intent with:
 
 1. The **blueprint URL** as the shared link (e.g., `https://astropod.ai/{account}/{blueprintName}`)
-2. A **pre-filled message** containing the agent display name and blueprint link
+2. A **pre-filled message** containing the agent display name and blueprint URL
 
-The blueprint URL is what the platform crawler fetches and unfurls — it hits the blueprint page, reads `og:image`, and serves the blueprint badge PNG. This is identical to what happens in Case 2. No tokens are minted.
+The platform crawler fetches the blueprint URL, reads `og:image`, and serves the blueprint badge PNG. This is the same path as Case 2 — the visibility gate applies equally.
+
+**Currently:** only public blueprints unfurl. **Once FGAC exists:** private blueprints can be shared to org members.
 
 **Pre-filled message templates:**
 
@@ -369,7 +379,7 @@ LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url={encodedBlueprintU
 X:        https://x.com/intent/post?text={encodedMessage}&url={encodedBlueprintUrl}
 ```
 
-All values MUST be URL-encoded. The blueprint URL, display name, and blueprint name are available from the deployment page's existing loader data.
+All values MUST be URL-encoded.
 
 ---
 
@@ -379,57 +389,60 @@ All values MUST be URL-encoded. The blueprint URL, display name, and blueprint n
 |------|--------|
 | `apps/astro-client/server.ts` | Add `/badge/agent/*` and `/badge/blueprint/*` routes before React Router handler |
 | `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` (download only) |
-| `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX component (Satori-compatible, inline styles only) and `generateBlueprintBadgePng()` |
+| `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX (Satori, inline styles only) and `generateBlueprintBadgePng()` |
 | `apps/astro-client/src/badge-cache.ts` | **New.** Shared LRU cache instance |
-| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add three-dot Share menu: Download SVG, Download PNG, share intent links (blueprint URL) |
-| `apps/astro-client/src/pages/blueprints/BlueprintDetail.tsx` | Replace `ogImage` in loader with badge endpoint URL; add `og:image:width` and `og:image:height`; omit OG tags if private |
+| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add Share menu: Download SVG, Download PNG, share intent links (blueprint URL) |
+| `apps/astro-client/src/pages/blueprints/BlueprintDetail.tsx` | Replace `ogImage` in loader with badge endpoint URL; add width/height; omit OG tags if private |
 | `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `satori`, `lru-cache` |
 
 ---
 
 ## Implementation Order
 
-**Phase 1 — Blueprint badge + unfurl (no visible user change until Phase 2):**
+**Phase 1 — Blueprint badge + unfurl:**
 1. Install `@resvg/resvg-js`, `satori`, `lru-cache`
 2. Create `src/badge-blueprint.tsx` and `src/badge-cache.ts`
 3. Add `/badge/blueprint/:account/:name.png` handler in `server.ts`
 4. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > blueprint.png`
-5. In `BlueprintDetail.tsx` loader, replace `ogImage` with badge endpoint URL; add width/height tags; omit all OG tags if private
-6. Verify unfurl with LinkedIn Post Inspector and Twitter Card Validator against staging; paste blueprint URL into a Slack channel as a final check
+5. In `BlueprintDetail.tsx` loader, replace `ogImage` with badge endpoint URL; add width/height; omit all OG tags if private
+6. Verify unfurl with LinkedIn Post Inspector and Twitter Card Validator against staging; paste blueprint URL into Slack as a final check
 
 **Phase 2 — Agent card Share menu + download:**
 1. Create `src/badge-agent.ts`
 2. Add `/badge/agent/:account/:name.png` handler in `server.ts`
-3. Add three-dot Share menu to `DeployedAgentDetail.tsx`
-4. Download SVG: client-side via `downloadSvg()` (already available)
-5. Download PNG: fetch `/badge/agent/*` endpoint, trigger browser download
+3. Add Share menu to `DeployedAgentDetail.tsx` (and anywhere else it's needed)
+4. Download SVG: client-side via `downloadSvg()`
+5. Download PNG: fetch `/badge/agent/*`, trigger browser download
 6. Share to LinkedIn / X: construct intent URL with blueprint URL + pre-filled message
-7. Verify: share from agent card on each platform; confirm blueprint card unfurls (not agent badge)
+7. Verify: share from agent card on each platform; confirm blueprint card unfurls
 
-Phase 1 is the highest-value work and ships independently. Phase 2 ships as a single unit since the agent endpoint and the share menu ship together.
+Phase 1 ships independently. Phase 2 ships as a single unit.
 
 ---
 
 ## Key Design Decisions
 
 **1. PNG generation location: Bun server (current recommendation) vs. Go backend (investigate).**  
-The `astro-trading-card` package and Satori are TypeScript libraries, which makes the Bun server the natural home for PNG generation. However, the Go backend already contains a pure-Go SVG rasterization pipeline (`oksvg` + `rasterx`, in `internal/identitygen/raster.go`) used for avatar generation. This is worth investigating before committing to the Bun server approach.
+The `astro-trading-card` package and Satori are TypeScript libraries, making the Bun server the natural home for PNG generation. However, the Go backend already contains a pure-Go SVG rasterization pipeline (`oksvg` + `rasterx`, in `internal/identitygen/raster.go`) used for avatar generation. This is worth investigating before committing to the Bun server approach.
 
-If the Go rasterizer can handle the SVG output of both `astro-trading-card` and Satori, the badge endpoints could be served as proper Go API routes — no new Bun dependencies, unified caching, and badges accessible from the same origin as the rest of the API.
+If the Go rasterizer can handle both `astro-trading-card` and Satori SVG output, badge endpoints could be served as proper Go API routes — no new Bun dependencies, unified caching, badges from the same origin as the API.
 
-The risk is SVG compatibility. `oksvg`/`rasterx` supports a limited SVG subset (paths, basic shapes, gradients) and may not handle the trading card's use of `clipPath`, `mask`, embedded images, and custom font rendering. Satori's output is simpler and more likely to be compatible. **Required investigation before Phase 1:** render a sample trading card SVG and a sample Satori blueprint SVG through the existing Go rasterizer and compare output quality. If both render correctly, move badge generation to Go. If only the blueprint renders correctly, use Go for blueprints and `@resvg/resvg-js` in Bun for the agent badge.
+The risk is SVG compatibility: `oksvg`/`rasterx` supports a limited subset and may not handle the trading card's use of `clipPath`, `mask`, embedded images, and custom fonts. **Required investigation before Phase 1:** render a sample trading card SVG and a sample Satori blueprint SVG through the Go rasterizer. If both render correctly, move badge generation to Go. If only the blueprint renders, use Go for blueprints and `@resvg/resvg-js` in Bun for the agent badge.
 
 **2. Different rendering stacks for agents vs. blueprints.**  
-Agent cards reuse the existing `astro-trading-card` package (which already produces polished SVG output) plus Resvg. Blueprint cards use Satori because the target visual is the existing UI card component — JSX with inline styles is the most maintainable way to reproduce and keep that in sync. A single approach for both would require either forcing the UI-style card into a hand-written SVG template (brittle) or rebuilding the trading card in Satori (unnecessary work).
+Agent cards reuse `astro-trading-card` (polished SVG output) plus Resvg. Blueprint cards use Satori because the target visual mirrors the existing UI card component — JSX with inline styles is the most maintainable way to reproduce it and keep it in sync.
 
 **3. The agent trading card is a download artifact, not a social broadcast.**  
-The agent trading card (portrait, dark, holographic) is a personal trophy — something the user downloads and keeps. It is not used as an OG image. The Share button on the agent card shares the **blueprint URL** instead, which unfurls with the blueprint landscape card. This is correct for two reasons: (a) the trading card is portrait-format and letterboxes poorly on every platform's `summary_large_image` layout, and (b) the blueprint — not the deployment — is the public-facing entity that makes sense for someone seeing it cold. The deployment is org-scoped; the blueprint is the thing others can actually act on (clone, deploy, explore).
+The trading card (portrait, dark, holographic) is something the user downloads and keeps. It is not used as an OG image. Social sharing from the agent card routes to the blueprint instead because: (a) the trading card is portrait-format and letterboxes on all platforms' `summary_large_image` layout, and (b) the blueprint — not the deployment — is the public-facing entity that makes sense to someone seeing it cold.
 
-**4. On-demand generation, not pre-generation.**  
+**4. Cases 1 and 2 share the same gate and the same endpoint.**  
+There is no separate "agent share" infrastructure. The Share button is a thin client-side action that constructs a platform intent URL with the blueprint URL. What the platform crawler hits is the blueprint page — same HTML, same `og:image` pointing to the same badge endpoint. This keeps the system simple: one badge endpoint to maintain for social, one visibility gate to enforce.
+
+**5. On-demand generation, not pre-generation.**  
 Pre-generating PNGs at creation time would require the backend to know about the Bun server (or a separate image service), adding coupling. On-demand generation is simpler, and the LRU + HTTP cache provides sufficient performance for crawlers, which are low-frequency compared to regular user traffic.
 
-**5. No OG tags in `root.tsx`.**  
-Global fallback OG tags are intentionally omitted from `root.tsx`. Adding them would cause non-agent and non-blueprint pages to unfurl with incorrect metadata. Per-page `meta()` exports are the correct scope.
+**6. No OG tags in `root.tsx`.**  
+Global fallback OG tags are intentionally omitted. Adding them would cause non-blueprint pages to unfurl with incorrect metadata. Per-page `meta()` exports are the correct scope.
 
-**6. Satori requires inline styles.**  
-Satori does not support Tailwind classes, CSS modules, or external stylesheets — only a flexbox-compatible subset of inline CSS. The `BlueprintCard` component MUST use inline style objects exclusively. It should not be confused with or share styles from the equivalent UI component, which uses Tailwind. They are maintained separately: one for browser rendering, one for server image generation.
+**7. Satori requires inline styles.**  
+Satori does not support Tailwind classes, CSS modules, or external stylesheets — only a flexbox-compatible subset of inline CSS. The `BlueprintCard` component MUST use inline style objects exclusively and is maintained separately from the equivalent browser UI component.
