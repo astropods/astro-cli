@@ -11,11 +11,14 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 type testClusterClient struct {
@@ -165,6 +168,174 @@ func TestMaintainNamespaceOwnership_AllLiveStatusesIncluded(t *testing.T) {
 
 	w.maintainNamespaceOwnership(t.Context())
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OIDC issuer reconciliation tests
+// ---------------------------------------------------------------------------
+
+func TestSpecHasOIDCAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		specJSON string
+		want     bool
+	}{
+		{"oidc enabled", `{"interfaces":{"adapters":["web"],"image":"img","resources":{},"auth":{"web":{"type":"oidc"}}}}`, true},
+		{"no auth", `{"interfaces":{"adapters":["web"],"image":"img","resources":{}}}`, false},
+		{"auth without web", `{"interfaces":{"adapters":["web"],"image":"img","resources":{},"auth":{}}}`, false},
+		{"web type empty", `{"interfaces":{"adapters":["web"],"image":"img","resources":{},"auth":{"web":{"type":""}}}}`, false},
+		{"web type other", `{"interfaces":{"adapters":["web"],"image":"img","resources":{},"auth":{"web":{"type":"custom"}}}}`, false},
+		{"no interfaces", `{}`, false},
+		{"invalid json", `{broken`, false},
+		{"empty string", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := specHasOIDCAuth(tt.specJSON)
+			if got != tt.want {
+				t.Errorf("specHasOIDCAuth() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildExpectedOIDCAnnotation(t *testing.T) {
+	got := buildExpectedOIDCAnnotation(
+		"https://login.example.com",
+		"https://login.example.com/authorize",
+		"https://login.example.com/token",
+		"https://login.example.com/userinfo",
+	)
+	// Must be valid JSON containing all fields
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	if parsed["issuer"] != "https://login.example.com" {
+		t.Errorf("issuer = %q", parsed["issuer"])
+	}
+	if parsed["secretName"] != "messaging-oidc" {
+		t.Errorf("secretName = %q", parsed["secretName"])
+	}
+	if parsed["authorizationEndpoint"] != "https://login.example.com/authorize" {
+		t.Errorf("authorizationEndpoint = %q", parsed["authorizationEndpoint"])
+	}
+}
+
+func TestReconcileOIDCIssuer_SkipsWhenDisabled(t *testing.T) {
+	// When issuer is empty, reconcileOIDCIssuer should return immediately
+	// without querying the store.
+	w := &ReconcileWorker{
+		deployer: &deployer.Deployer{Cfg: &config.Config{}},
+		log:      logger.New("error", "json"),
+	}
+	// If this tried to access the store it would panic (store is nil)
+	w.reconcileOIDCIssuer(t.Context())
+}
+
+func TestReconcileOIDCIssuer_SkipsNonOIDCDeployments(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	cfg := &config.Config{}
+	cfg.Deployment.MessagingOIDCIssuer = "https://login.example.com"
+
+	// Return one active deployment without OIDC auth in its spec
+	rows := sqlmock.NewRows(testDeployColumns)
+	now := time.Now()
+	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-ns-0", "agent",
+		`{"interfaces":{"adapters":["web"],"image":"img","resources":{}}}`, nil, nil,
+		"active", nil, nil, now, nil,
+		now, nil, nil)
+	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
+
+	// K8s client that returns empty ingress list (shouldn't even be called for non-OIDC)
+	k8sClient := newTestK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("K8s API should not be called for non-OIDC deployments")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"apiVersion":"networking.k8s.io/v1","kind":"IngressList","items":[]}`)
+	}))
+
+	w := &ReconcileWorker{
+		deployer: &deployer.Deployer{Cfg: cfg},
+		store:    store,
+		k8s:      k8sClient,
+		log:      logger.New("error", "json"),
+	}
+
+	w.reconcileOIDCIssuer(t.Context())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+func TestReconcileOIDCIssuer_NoReapplyWhenConfigMatches(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	cfg := &config.Config{}
+	cfg.Deployment.MessagingOIDCIssuer = "https://login.example.com"
+	cfg.Deployment.MessagingOIDCAuthEndpoint = "https://login.example.com/authorize"
+	cfg.Deployment.MessagingOIDCTokenEndpoint = "https://login.example.com/token"
+	cfg.Deployment.MessagingOIDCUserInfoEndpoint = "https://login.example.com/userinfo"
+	cfg.Deployment.MessagingOIDCClientID = "client-id-123"
+	cfg.Deployment.MessagingOIDCClientSecret = "client-secret-456"
+	cfg.Deployment.MessagingOIDCSessionTimeout = 3600
+
+	oidcSpec := `{"interfaces":{"adapters":["web"],"image":"img","resources":{},"auth":{"web":{"type":"oidc"}}}}`
+	rows := sqlmock.NewRows(testDeployColumns)
+	now := time.Now()
+	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-ns-0", "agent",
+		oidcSpec, nil, nil,
+		"active", nil, nil, now, nil,
+		now, nil, nil)
+	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
+
+	// Build the exact annotation that the reconciler expects
+	expectedAnnotation := buildExpectedOIDCAnnotation(
+		"https://login.example.com",
+		"https://login.example.com/authorize",
+		"https://login.example.com/token",
+		"https://login.example.com/userinfo",
+	)
+
+	// K8s fake: serve ingress list and secret GET
+	k8sClient := newTestK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/ingresses"):
+			escapedAnnotation, _ := json.Marshal(expectedAnnotation)
+			fmt.Fprintf(w, `{
+				"apiVersion":"networking.k8s.io/v1","kind":"IngressList",
+				"items":[{"metadata":{"name":"agent-web","namespace":"astro-ns-0","annotations":{
+					"alb.ingress.kubernetes.io/auth-idp-oidc":%s,
+					"alb.ingress.kubernetes.io/auth-session-timeout":"3600"
+				}},"spec":{"rules":[]}}]
+			}`, string(escapedAnnotation))
+		case strings.Contains(r.URL.Path, "/secrets/messaging-oidc"):
+			fmt.Fprint(w, `{
+				"apiVersion":"v1","kind":"Secret","metadata":{"name":"messaging-oidc","namespace":"astro-ns-0"},
+				"data":{"clientId":"Y2xpZW50LWlkLTEyMw==","clientSecret":"Y2xpZW50LXNlY3JldC00NTY="}
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	w := &ReconcileWorker{
+		deployer: &deployer.Deployer{Cfg: cfg},
+		store:    store,
+		k8s:      k8sClient,
+		log:      logger.New("error", "json"),
+	}
+
+	w.reconcileOIDCIssuer(t.Context())
+
+	// No UpdateStatus or InsertDeployJob calls expected — all config matches
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled DB expectations: %v", err)
 	}

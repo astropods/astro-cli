@@ -5,18 +5,22 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+
+	spec "github.com/astropods/astro/packages/astro-spec"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -51,6 +55,7 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs])
 	}
 
 	w.reconcileActive(ctx)
+	w.reconcileOIDCIssuer(ctx)
 	w.detectStaleJobs(ctx)
 	w.maintainNamespaceOwnership(ctx)
 
@@ -160,6 +165,148 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// reconcileOIDCConfig detects when any OIDC configuration (issuer, endpoints,
+// client credentials, session timeout) has changed relative to the live K8s
+// state. Any active deployment with auth.web.type=oidc whose ingress
+// annotations or credentials secret are stale is set back to pending and
+// re-enqueued for deploy.
+func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
+	dcfg := w.deployer.Cfg.Deployment
+	if dcfg.MessagingOIDCIssuer == "" {
+		return // OIDC disabled — nothing to reconcile
+	}
+
+	deps, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusActive)
+	if err != nil {
+		w.log.Error("Reconcile OIDC: failed to list active deployments", "error", err)
+		return
+	}
+
+	// Build expected annotation JSON — mirrors k8s/ingress.go BuildIngress.
+	expectedAnnotation := buildExpectedOIDCAnnotation(dcfg.MessagingOIDCIssuer,
+		dcfg.MessagingOIDCAuthEndpoint, dcfg.MessagingOIDCTokenEndpoint,
+		dcfg.MessagingOIDCUserInfoEndpoint)
+
+	expectedTimeout := dcfg.MessagingOIDCSessionTimeout
+	if expectedTimeout == 0 {
+		expectedTimeout = 3600
+	}
+
+	clientset := w.k8s.Clientset()
+	const maxReappliesPerTick = 10
+	reapplied := 0
+
+	for _, dep := range deps {
+		if reapplied >= maxReappliesPerTick {
+			w.log.Warn("Reconcile OIDC: hit reapply cap, remaining stale deployments will be handled next tick",
+				"cap", maxReappliesPerTick)
+			break
+		}
+
+		if !specHasOIDCAuth(dep.DeploymentSpecJSON) {
+			continue
+		}
+
+		ingresses, err := clientset.NetworkingV1().Ingresses(dep.Namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			w.log.Warn("Reconcile OIDC: failed to list ingresses", "namespace", dep.Namespace, "error", err)
+			continue
+		}
+
+		if oidcConfigCurrent(ingresses.Items, expectedAnnotation, expectedTimeout, clientset, ctx, dep.Namespace, dcfg.MessagingOIDCClientID, dcfg.MessagingOIDCClientSecret) {
+			continue
+		}
+
+		w.log.Info("Reconcile OIDC: stale OIDC config detected, reapplying",
+			"deployment_id", dep.ID,
+			"namespace", dep.Namespace,
+		)
+
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "OIDC config changed — reapplying", nil); err != nil {
+			w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
+			continue
+		}
+		if err := w.queue.InsertDeployJob(ctx, dep.ID); err != nil {
+			w.log.Error("Reconcile OIDC: failed to enqueue deploy job", "deployment_id", dep.ID, "error", err)
+			continue
+		}
+
+		reapplied++
+	}
+}
+
+// specHasOIDCAuth returns true if the deployment spec JSON has auth.web.type == "oidc".
+func specHasOIDCAuth(specJSON string) bool {
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(specJSON), &ds); err != nil {
+		return false
+	}
+	return ds.Interfaces != nil &&
+		ds.Interfaces.Auth != nil &&
+		ds.Interfaces.Auth.Web != nil &&
+		ds.Interfaces.Auth.Web.Type == "oidc"
+}
+
+// buildExpectedOIDCAnnotation produces the JSON string that BuildIngress would
+// write to the auth-idp-oidc annotation, so we can compare exactly.
+func buildExpectedOIDCAnnotation(issuer, authEP, tokenEP, userInfoEP string) string {
+	b, err := json.Marshal(map[string]string{ //nolint:gosec // G101 false positive: "messaging-oidc" is a K8s secret name, not a credential
+		"issuer":                issuer,
+		"authorizationEndpoint": authEP,
+		"tokenEndpoint":         tokenEP,
+		"userInfoEndpoint":      userInfoEP,
+		"secretName":            "messaging-oidc",
+	})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// oidcConfigCurrent returns true when the live ingress annotations AND the
+// credentials secret match the expected OIDC configuration. Any mismatch
+// (issuer, endpoints, timeout, client ID, or client secret) returns false.
+func oidcConfigCurrent(
+	ingresses []networkingv1.Ingress,
+	expectedAnnotation string,
+	expectedTimeout int,
+	clientset *kubernetes.Clientset,
+	ctx context.Context,
+	namespace, expectedClientID, expectedClientSecret string,
+) bool {
+	// Check ingress annotations
+	annotationMatch := false
+	for _, ing := range ingresses {
+		liveOIDC := ing.Annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]
+		if liveOIDC == "" {
+			continue
+		}
+		if liveOIDC != expectedAnnotation {
+			return false // annotation exists but is stale
+		}
+		liveTimeout := ing.Annotations["alb.ingress.kubernetes.io/auth-session-timeout"]
+		if liveTimeout != fmt.Sprintf("%d", expectedTimeout) {
+			return false
+		}
+		annotationMatch = true
+	}
+	if !annotationMatch {
+		return false // no ingress had the OIDC annotation at all
+	}
+
+	// Check credentials secret
+	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "messaging-oidc", metav1.GetOptions{})
+	if err != nil {
+		return false // secret missing or unreachable — needs reapply
+	}
+	if string(secret.Data["clientId"]) != expectedClientID ||
+		string(secret.Data["clientSecret"]) != expectedClientSecret {
+		return false
+	}
+
+	return true
 }
 
 // maintainNamespaceOwnership upserts namespace_ownership rows for active deployments
