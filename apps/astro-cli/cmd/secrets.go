@@ -109,6 +109,7 @@ func init() {
 	secretCreateCmd.Flags().BoolVar(&secretCreateOverwrite, "overwrite", false, "Overwrite if the variable already exists")
 	secretCreateCmd.Flags().StringP("description", "d", "", "Optional description for the secret")
 	secretUpdateCmd.Flags().StringVar(&secretUpdateValue, "value", "", "New value (skips interactive prompt)")
+	secretUpdateCmd.Flags().StringP("description", "d", "", "Update the description")
 	secretListCmd.Flags().BoolVar(&secretValues, "values", false, "Show variable values")
 	secretListCmd.Flags().Bool("json", false, "Output as JSON")
 	secretGetCmd.Flags().Bool("json", false, "Output as JSON")
@@ -386,11 +387,16 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 		return err
 	}
 
+	payload := map[string]any{"value": value}
+	if desc, _ := cmd.Flags().GetString("description"); desc != "" {
+		payload["description"] = desc
+	}
+
 	status, err := apiCall(
 		cmd.Context(),
 		http.MethodPut,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
-		map[string]any{"value": value},
+		payload,
 		at.Token,
 		verbose,
 		nil)
