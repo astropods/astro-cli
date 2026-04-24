@@ -464,8 +464,12 @@ Phase 1 is the highest-value work and ships independently. Phase 2 infrastructur
 
 ## Key Design Decisions
 
-**1. PNG generation in the Bun server, not the Go backend.**  
-The `astro-trading-card` package and Satori are both TypeScript libraries. Calling them from Go would require spawning a subprocess or duplicating layout logic — both are poor options. The Bun server already runs TypeScript and is the natural owner of this work. The Go backend is not modified.
+**1. PNG generation location: Bun server (current recommendation) vs. Go backend (investigate).**  
+The `astro-trading-card` package and Satori are TypeScript libraries, which makes the Bun server the natural home for PNG generation. However, the Go backend already contains a pure-Go SVG rasterization pipeline (`oksvg` + `rasterx`, in `internal/identitygen/raster.go`) used for avatar generation. This is worth investigating before committing to the Bun server approach.
+
+If the Go rasterizer can handle the SVG output of both `astro-trading-card` and Satori, the badge endpoints could be served as proper Go API routes — no new Bun dependencies, unified caching, and badges accessible from the same origin as the rest of the API.
+
+The risk is SVG compatibility. `oksvg`/`rasterx` supports a limited SVG subset (paths, basic shapes, gradients) and may not handle the trading card's use of `clipPath`, `mask`, embedded images, and custom font rendering. Satori's output is simpler and more likely to be compatible. **Required investigation before Phase 1:** render a sample trading card SVG and a sample Satori blueprint SVG through the existing Go rasterizer and compare output quality. If both render correctly, move badge generation to Go. If only the blueprint renders correctly, use Go for blueprints and `@resvg/resvg-js` in Bun for the agent badge.
 
 **2. Different rendering stacks for agents vs. blueprints.**  
 Agent cards reuse the existing `astro-trading-card` package (which already produces polished SVG output) plus Resvg. Blueprint cards use Satori because the target visual is the existing UI card component — JSX with inline styles is the most maintainable way to reproduce and keep that in sync. A single approach for both would require either forcing the UI-style card into a hand-written SVG template (brittle) or rebuilding the trading card in Satori (unnecessary work).
