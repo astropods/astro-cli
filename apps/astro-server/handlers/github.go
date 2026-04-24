@@ -769,7 +769,7 @@ func randomHex(n int) string {
 
 // GitHubHandlerConfig holds config values needed by GitHub handlers.
 type GitHubHandlerConfig struct {
-	// WebhookBaseURL is the public API base URL (e.g. https://api.astropods.ai).
+	// WebhookBaseURL is the public API base URL (e.g. https://astropods.com).
 	WebhookBaseURL string
 	// FrontendURL is the base URL of the web app for redirects.
 	FrontendURL string

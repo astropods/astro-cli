@@ -133,7 +133,7 @@ type S3Config struct {
 // GitHubConfig holds GitHub connection configuration.
 type GitHubConfig struct {
 	// GITHUB_CALLBACK_URL — base URL for GitHub OAuth callbacks and webhook delivery
-	// (e.g. https://api.astropods.ai or an ngrok tunnel in local dev).
+	// (e.g. https://astropods.com or an ngrok tunnel in local dev).
 	// Falls back to FRONTEND_URL if not set.
 	CallbackURL string
 	// GITHUB_BUILD_NAMESPACE — K8s namespace for build Jobs (default: as0-builds)

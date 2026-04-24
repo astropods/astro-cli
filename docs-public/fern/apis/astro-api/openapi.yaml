@@ -1,6 +1,6 @@
 openapi: 3.1.0
 servers:
-  - url: https://api.astropods.ai/api/v1
+  - url: https://astropods.com/api/v1
     description: Astro AI API server
 info:
   title: Astro AI API
