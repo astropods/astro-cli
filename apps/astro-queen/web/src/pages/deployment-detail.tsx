@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench, Layers, CheckCircle2 } from "lucide-react";
+import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
@@ -18,6 +18,7 @@ export function DeploymentDetailPage() {
   const { data, isLoading, error, refetch } = useDeployment(id ?? "", 5_000);
   const deleteMut = useDeleteDeployment();
   const wakeUpMut = useWakeUpDeployment();
+  const stopMut = useStopDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
   const repairMut = useRepairNormalizedSpec();
@@ -58,7 +59,7 @@ export function DeploymentDetailPage() {
           <p className="text-sm text-muted-foreground">{dep.namespace}</p>
         </div>
         <div className="flex gap-2">
-          {dep.status === "scaled_down" && (
+          {(dep.status === "scaled_down" || dep.status === "stopped") && (
             <Button
               variant="outline"
               size="sm"
@@ -67,6 +68,21 @@ export function DeploymentDetailPage() {
             >
               <Sun className="size-3.5" />
               Wake Up
+            </Button>
+          )}
+          {dep.status === "active" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (confirm("Pause this deployment? This will scale all workloads to zero.")) {
+                  stopMut.mutate(id!, { onSuccess: () => { refetch(); showSuccess("Deployment paused — all workloads scaled to zero."); } });
+                }
+              }}
+              disabled={stopMut.isPending}
+            >
+              <Pause className="size-3.5" />
+              Pause
             </Button>
           )}
           <Button
@@ -154,6 +170,15 @@ export function DeploymentDetailPage() {
           </div>
         </div>
       )}
+      {dep.status === "stopped" && (
+        <div className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+          <Pause className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">Paused</p>
+            <p className="mt-0.5 text-gray-700">This deployment was paused by an admin. All workloads are scaled to zero. Use the Wake Up button to restore it.</p>
+          </div>
+        </div>
+      )}
       {isTransitional && (
         <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
           <span className="relative flex size-2.5">
@@ -164,9 +189,10 @@ export function DeploymentDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <InfoCard label="Status" value={dep.status} />
         <InfoCard label="Account" value={dep.account_name} />
+        <InfoCard label="Owner" value={dep.owner_email || "-"} />
         <InfoCard label="Build ID" value={dep.build_id} mono />
         <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />

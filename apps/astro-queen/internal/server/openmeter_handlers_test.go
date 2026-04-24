@@ -90,6 +90,9 @@ func (m *mockAdminClient) GetDeploymentEvents(context.Context, *adminv1.GetDeplo
 func (m *mockAdminClient) WakeUpDeployment(context.Context, *adminv1.WakeUpDeploymentRequest, ...grpc.CallOption) (*adminv1.WakeUpDeploymentResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) StopDeployment(context.Context, *adminv1.StopDeploymentRequest, ...grpc.CallOption) (*adminv1.StopDeploymentResponse, error) {
+	panic("not implemented")
+}
 func (m *mockAdminClient) RollbackDeployment(context.Context, *adminv1.RollbackDeploymentRequest, ...grpc.CallOption) (*adminv1.RollbackDeploymentResponse, error) {
 	panic("not implemented")
 }

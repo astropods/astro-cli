@@ -3,9 +3,9 @@ export const adminKeys = {
   deployments: () => [...adminKeys.all, "deployments"] as const,
   deployment: (id: string) => [...adminKeys.all, "deployment", id] as const,
   accounts: () => [...adminKeys.all, "accounts"] as const,
-  agents: () => [...adminKeys.all, "agents"] as const,
-  agentBuilds: (account: string, name: string) =>
-    [...adminKeys.all, "agentBuilds", account, name] as const,
+  blueprints: () => [...adminKeys.all, "blueprints"] as const,
+  blueprintBuilds: (account: string, name: string) =>
+    [...adminKeys.all, "blueprintBuilds", account, name] as const,
   clusterStatus: (ns: string) =>
     [...adminKeys.all, "clusterStatus", ns] as const,
   images: () => [...adminKeys.all, "images"] as const,

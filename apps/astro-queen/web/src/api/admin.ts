@@ -5,8 +5,8 @@ import type {
   ListDeploymentsResponse,
   GetDeploymentResponse,
   ListAccountsResponse,
-  ListAgentsResponse,
-  GetAgentBuildsResponse,
+  ListBlueprintsResponse,
+  GetBlueprintBuildsResponse,
   ClusterStatusResponse,
   GetPodLogsResponse,
   GetPodEnvResponse,
@@ -87,18 +87,18 @@ export function useRenameAccount() {
   });
 }
 
-export function useAgents() {
+export function useBlueprints() {
   return useQuery({
-    queryKey: adminKeys.agents(),
-    queryFn: () => api.get<ListAgentsResponse>("/api/admin/agents"),
+    queryKey: adminKeys.blueprints(),
+    queryFn: () => api.get<ListBlueprintsResponse>("/api/admin/agents"),
   });
 }
 
-export function useAgentBuilds(account: string, name: string) {
+export function useBlueprintBuilds(account: string, name: string) {
   return useQuery({
-    queryKey: adminKeys.agentBuilds(account, name),
+    queryKey: adminKeys.blueprintBuilds(account, name),
     queryFn: () =>
-      api.get<GetAgentBuildsResponse>(
+      api.get<GetBlueprintBuildsResponse>(
         `/api/admin/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/builds`
       ),
     enabled: !!account && !!name,
@@ -317,6 +317,17 @@ export function useWakeUpDeployment() {
   return useMutation({
     mutationFn: (id: string) =>
       api.post(`/api/admin/deployments/${encodeURIComponent(id)}/wakeup`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
+export function useStopDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/stop`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },

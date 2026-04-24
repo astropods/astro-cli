@@ -423,8 +423,9 @@ func runAPI(
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
 
-	// Wire WorkOS client ID for admin GetAuthConfig
+	// Wire WorkOS client for admin GetAuthConfig and owner email resolution
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
+	adminSrv.SetWorkOSClient(workosClient)
 
 	// Wire Fleet gRPC server as command dispatcher for admin
 	if fleetSrv != nil {

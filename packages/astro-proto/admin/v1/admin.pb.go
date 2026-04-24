@@ -48,6 +48,7 @@ type AdminDeployment struct {
 	StatusChangedAt string              `json:"status_changed_at,omitempty"`
 	CurrentRevision int32               `json:"current_revision,omitempty"`
 	DriftSummary    *DriftSummary       `json:"drift_summary,omitempty"`
+	OwnerEmail      string              `json:"owner_email,omitempty"`
 }
 
 type AdminDeploymentEvent struct {
@@ -665,7 +666,8 @@ type SetAdaptersResponse struct {
 }
 
 type StopDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	Namespace    string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type StopDeploymentResponse struct {

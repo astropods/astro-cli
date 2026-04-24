@@ -1,17 +1,17 @@
 import { useState } from "react";
-import { useAgents, useAgentBuilds } from "@/api/admin";
+import { useBlueprints, useBlueprintBuilds } from "@/api/admin";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ChevronRight } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 
-export function AgentsPage() {
-  const { data, isLoading, error } = useAgents();
+export function BlueprintsPage() {
+  const { data, isLoading, error } = useBlueprints();
   const [selected, setSelected] = useState<{ account: string; name: string } | null>(null);
 
   return (
     <div>
-      <h2 className="mb-4 text-xl font-semibold">Agents</h2>
+      <h2 className="mb-4 text-xl font-semibold">Blueprints</h2>
       {isLoading && <LoadingSkeleton />}
       {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
@@ -61,7 +61,7 @@ export function AgentsPage() {
 }
 
 function BuildsPanel({ account, name, onClose }: { account: string; name: string; onClose: () => void }) {
-  const { data, isLoading, error } = useAgentBuilds(account, name);
+  const { data, isLoading, error } = useBlueprintBuilds(account, name);
 
   return (
     <div className="w-80 shrink-0 rounded-lg glass p-3">

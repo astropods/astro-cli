@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { useDeployments, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport } from "@/api/admin";
+import { useDeployments, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,7 @@ import { formatDistanceToNow } from "date-fns";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AdminDeployment } from "@/types/admin";
 
-type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "scaled_down";
+type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "scaled_down" | "stopped";
 type DriftFilter = "all" | "ok" | "drifted" | "unchecked";
 
 const PAGE_SIZE = 25;
@@ -28,7 +28,8 @@ function filterDeployments(
         !d.name.toLowerCase().includes(q) &&
         !d.namespace.toLowerCase().includes(q) &&
         !d.account_name.toLowerCase().includes(q) &&
-        !d.deployment_id.toLowerCase().includes(q)
+        !d.deployment_id.toLowerCase().includes(q) &&
+        !(d.owner_email ?? "").toLowerCase().includes(q)
       ) return false;
     }
     if (status !== "all" && d.status !== status) return false;
@@ -97,7 +98,7 @@ export function DeploymentsPage() {
       {/* Filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Search name, namespace, account..."
+          placeholder="Search name, namespace, account, owner..."
           value={search}
           onChange={(e) => updateFilter(setSearch)(e.target.value)}
           className="h-7 w-64 text-xs"
@@ -114,6 +115,7 @@ export function DeploymentsPage() {
             <SelectItem value="failed">Failed</SelectItem>
             <SelectItem value="undeploying">Undeploying</SelectItem>
             <SelectItem value="scaled_down">Scaled Down</SelectItem>
+            <SelectItem value="stopped">Stopped</SelectItem>
           </SelectContent>
         </Select>
         <Select value={drift} onValueChange={updateFilter(setDrift)}>
@@ -160,6 +162,7 @@ export function DeploymentsPage() {
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Rev</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Account</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Build</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Drift</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
@@ -214,6 +217,7 @@ export function DeploymentsPage() {
                       {d.current_revision != null ? `rev ${d.current_revision}` : "-"}
                     </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{d.account_name}</td>
+                    <td className="px-2 py-0.5 text-muted-foreground">{d.owner_email || "-"}</td>
                     <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{d.build_id ? truncateUUID(d.build_id) : "-"}</td>
                     <td className="px-2 py-0.5">
                       <DriftBadge summary={d.drift_summary} />
@@ -226,7 +230,7 @@ export function DeploymentsPage() {
                 ))}
                 {pageDeployments.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-2 py-4 text-center text-muted-foreground">
+                    <td colSpan={11} className="px-2 py-4 text-center text-muted-foreground">
                       No deployments match the current filters.
                     </td>
                   </tr>
@@ -271,6 +275,8 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
   const repairMut = useRepairNormalizedSpec();
   const reapplyMut = useReapplyDeployment();
   const refreshDriftMut = useRefreshDriftReport();
+  const stopMut = useStopDeployment();
+  const wakeUpMut = useWakeUpDeployment();
 
   const [action, setAction] = useState<string>("");
   const [running, setRunning] = useState(false);
@@ -289,6 +295,10 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
           await reapplyMut.mutateAsync(d.deployment_id);
         } else if (action === "refresh-drift") {
           await refreshDriftMut.mutateAsync(d.deployment_id);
+        } else if (action === "stop") {
+          await stopMut.mutateAsync(d.deployment_id);
+        } else if (action === "wakeup") {
+          await wakeUpMut.mutateAsync(d.deployment_id);
         }
       } catch {
         // continue on error
@@ -319,6 +329,8 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
           <SelectItem value="repair">Repair Normalized Spec</SelectItem>
           <SelectItem value="reapply">Redeploy to K8s</SelectItem>
           <SelectItem value="refresh-drift">Refresh Drift Report</SelectItem>
+          <SelectItem value="stop">Pause (Stop)</SelectItem>
+          <SelectItem value="wakeup">Wake Up</SelectItem>
         </SelectContent>
       </Select>
 
@@ -363,6 +375,7 @@ function StatusBadge({ status }: { status: string }) {
     failed: "bg-red-100/60 backdrop-blur-sm text-red-700",
     undeploying: "bg-orange-100/60 backdrop-blur-sm text-orange-700",
     scaled_down: "bg-purple-100/60 backdrop-blur-sm text-purple-700",
+    stopped: "bg-gray-100/60 backdrop-blur-sm text-gray-700",
   };
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${colors[status?.toLowerCase()] ?? "rounded-full bg-pollen-light text-honey-dark"}`}>

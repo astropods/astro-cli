@@ -26,6 +26,7 @@ export function formatDateTime(dateString: string): string {
 }
 
 export function truncateUUID(uuid: string): string {
+  if (!uuid) return "-";
   if (uuid.length > 12 && uuid.includes("-")) {
     return uuid.slice(0, 8) + "\u2026";
   }

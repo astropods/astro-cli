@@ -23,6 +23,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/devices/{deviceId}/command", s.handleSendCommand)
 	mux.HandleFunc("GET /api/admin/deployments/{id}/events", s.handleGetDeploymentEvents)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/wakeup", s.handleWakeUpDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/stop", s.handleStopDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/rollback", s.handleRollbackDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/reapply", s.handleReapplyDeployment)
 	mux.HandleFunc("GET /api/admin/deployments/{id}/jobs", s.handleGetDeploymentJobs)
@@ -234,6 +235,18 @@ func (s *Server) handleGetDeploymentEvents(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleWakeUpDeployment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	resp, err := s.admin.WakeUpDeployment(r.Context(), &adminv1.WakeUpDeploymentRequest{
+		DeploymentId: id,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleStopDeployment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	resp, err := s.admin.StopDeployment(r.Context(), &adminv1.StopDeploymentRequest{
 		DeploymentId: id,
 	})
 	if err != nil {

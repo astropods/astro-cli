@@ -32,7 +32,7 @@ const sections = [
       { to: "/admin/quota-requests", label: "Quota Requests", icon: ArrowUpCircle },
       { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
       { to: "/admin/accounts", label: "Accounts", icon: Users },
-      { to: "/admin/agents", label: "Agents", icon: Bot },
+      { to: "/admin/blueprints", label: "Blueprints", icon: Bot },
 
       { to: "/admin/devices", label: "Devices", icon: Wifi },
       { to: "/admin/api-client", label: "API Client", icon: Send },

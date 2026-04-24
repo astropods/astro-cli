@@ -4,7 +4,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AccountsPage } from "@/pages/accounts";
 import { DeploymentsPage } from "@/pages/deployments";
 import { DeploymentDetailPage } from "@/pages/deployment-detail";
-import { AgentsPage } from "@/pages/agents";
+import { BlueprintsPage } from "@/pages/blueprints";
 
 import { ConnectedDevicesPage } from "@/pages/connected-devices";
 import { ApiClientPage } from "@/pages/api-client";
@@ -29,7 +29,7 @@ export const router = createBrowserRouter([
       { path: "admin/accounts", element: <AccountsPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
-      { path: "admin/agents", element: <AgentsPage /> },
+      { path: "admin/blueprints", element: <BlueprintsPage /> },
 
       { path: "admin/devices", element: <ConnectedDevicesPage /> },
       { path: "admin/api-client", element: <ApiClientPage /> },

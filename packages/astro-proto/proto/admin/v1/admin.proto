@@ -47,6 +47,7 @@ message AdminDeployment {
   string error_message = 9;
   string status_changed_at = 10;
   int32 current_revision = 11;
+  string owner_email = 12;
 }
 
 message AdminDeploymentEvent {
@@ -365,6 +366,7 @@ message GetPodLogsResponse {
 
 message StopDeploymentRequest {
   string namespace = 1;
+  string deployment_id = 2;
 }
 
 message StopDeploymentResponse {

@@ -18,6 +18,7 @@ export interface AdminDeployment {
   status_changed_at?: string;
   current_revision?: number;
   drift_summary?: DriftSummary;
+  owner_email?: string;
 }
 
 export interface DeploymentEvent {
@@ -339,7 +340,7 @@ export interface ListAccountsResponse {
   count: number;
 }
 
-export interface AdminAgent {
+export interface AdminBlueprint {
   account_name: string;
   name: string;
   build_count: number;
@@ -348,19 +349,19 @@ export interface AdminAgent {
   updated_at: string;
 }
 
-export interface ListAgentsResponse {
-  agents: AdminAgent[];
+export interface ListBlueprintsResponse {
+  agents: AdminBlueprint[];
   count: number;
 }
 
-export interface AgentBuild {
+export interface BlueprintBuild {
   build_id: string;
   published_at: string;
   updated_at: string;
 }
 
-export interface GetAgentBuildsResponse {
-  builds: AgentBuild[];
+export interface GetBlueprintBuildsResponse {
+  builds: BlueprintBuild[];
   count: number;
 }
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -53,7 +54,8 @@ type Server struct {
 	databaseURL    string
 	queue          *riverqueue.Queue
 
-	auditStore *auditlog.Store
+	auditStore   *auditlog.Store
+	workosClient *auth.WorkOSClient
 
 	// Ingress domain config — needed by RepairNormalizedSpec to regenerate ingress rows
 	ingressDomain          string
@@ -72,6 +74,11 @@ func (s *Server) SetHTTPHandler(h http.Handler) {
 // SetWorkOSClientID sets the WorkOS client ID for GetAuthConfig.
 func (s *Server) SetWorkOSClientID(id string) {
 	s.workosClientID = id
+}
+
+// SetWorkOSClient sets the WorkOS client for resolving user emails.
+func (s *Server) SetWorkOSClient(c *auth.WorkOSClient) {
+	s.workosClient = c
 }
 
 // New creates a new admin gRPC server.
@@ -166,11 +173,20 @@ func (s *Server) SetCommandDispatcher(d CommandDispatcher) {
 }
 
 // ListDeployments returns all non-undeployed deployments across all accounts.
-func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeploymentsRequest) (*adminv1.ListDeploymentsResponse, error) {
+func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymentsRequest) (*adminv1.ListDeploymentsResponse, error) {
 	dbDeps, err := s.deployStore.ListAllWithAccount()
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
+
+	// Collect unique owner user IDs for batch email resolution.
+	ownerUserIDs := map[string]struct{}{}
+	for _, d := range dbDeps {
+		if d.OwnerUserID != "" {
+			ownerUserIDs[d.OwnerUserID] = struct{}{}
+		}
+	}
+	emailsByUserID := s.resolveEmails(ctx, ownerUserIDs)
 
 	var results []*adminv1.AdminDeployment
 	for _, d := range dbDeps {
@@ -205,6 +221,7 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 			Components:      components,
 			DeploymentID:    d.ID,
 			StatusChangedAt: d.StatusChangedAt.Format(time.RFC3339),
+			OwnerEmail:      emailsByUserID[d.OwnerUserID],
 		}
 		if d.ErrorMessage != nil {
 			ad.ErrorMessage = *d.ErrorMessage
@@ -230,6 +247,23 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 	}, nil
 }
 
+// resolveEmails batch-resolves WorkOS user IDs to email addresses.
+// Returns a map of userID → email. Failures are silently skipped.
+func (s *Server) resolveEmails(ctx context.Context, userIDs map[string]struct{}) map[string]string {
+	emails := make(map[string]string, len(userIDs))
+	if s.workosClient == nil {
+		return emails
+	}
+	for uid := range userIDs {
+		user, err := s.workosClient.GetUser(ctx, uid)
+		if err != nil {
+			continue
+		}
+		emails[uid] = user.Email
+	}
+	return emails
+}
+
 // GetDeployment returns a single deployment with its spec, cluster status, events, and revisions.
 func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRequest) (*adminv1.GetDeploymentResponse, error) {
 	if req.DeploymentId == "" {
@@ -244,9 +278,21 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
 
-	// Look up account name
-	var accountName string
-	_ = s.db.QueryRow("SELECT name FROM accounts WHERE id = $1", dep.AccountID).Scan(&accountName)
+	// Look up account name and owner
+	var accountName, ownerUserID string
+	_ = s.db.QueryRow(`
+		SELECT a.name,
+		       COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '')
+		FROM accounts a WHERE a.id = $1`,
+		dep.AccountID,
+	).Scan(&accountName, &ownerUserID)
+
+	var ownerEmail string
+	if ownerUserID != "" && s.workosClient != nil {
+		if user, err := s.workosClient.GetUser(ctx, ownerUserID); err == nil {
+			ownerEmail = user.Email
+		}
+	}
 
 	ad := &adminv1.AdminDeployment{
 		Name:            dep.AgentName,
@@ -258,6 +304,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		Components:      []string{},
 		DeploymentID:    dep.ID,
 		StatusChangedAt: dep.StatusChangedAt.Format(time.RFC3339),
+		OwnerEmail:      ownerEmail,
 	}
 	if dep.ErrorMessage != nil {
 		ad.ErrorMessage = *dep.ErrorMessage
@@ -1457,16 +1504,26 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 
 // StopDeployment stops a deployment by scaling workloads to zero without deleting resources.
 func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeploymentRequest) (*adminv1.StopDeploymentResponse, error) {
-	if req.Namespace == "" {
-		return nil, fmt.Errorf("namespace is required")
-	}
-
-	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
-	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
-	}
-	if dep == nil {
-		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	var dep *deploymentstore.Deployment
+	var err error
+	if req.DeploymentId != "" {
+		dep, err = s.deployStore.GetDeploymentByID(req.DeploymentId)
+		if err != nil {
+			return nil, fmt.Errorf("get deployment: %w", err)
+		}
+		if dep == nil {
+			return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
+		}
+	} else if req.Namespace != "" {
+		dep, err = s.deployStore.GetDeploymentByNamespace(req.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("get deployment: %w", err)
+		}
+		if dep == nil {
+			return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+		}
+	} else {
+		return nil, fmt.Errorf("deployment_id or namespace is required")
 	}
 	if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown {
 		return nil, fmt.Errorf("deployment is not active or scaled_down (current: %s)", dep.Status)
