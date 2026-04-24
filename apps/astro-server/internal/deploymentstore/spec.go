@@ -34,10 +34,10 @@ func SourceAccountFromSpec(specJSON string) string {
 
 // BackfillResult summarizes the outcome of BackfillSourceAccountIDs.
 type BackfillResult struct {
-	FromSpec     int // rows resolved via deployment_spec_json.source.account
-	FromSelf     int // rows for which the target account was used as fallback
-	SpecMisses   int // rows with a source.account that did not match an accounts row
-	Scanned      int
+	FromSpec   int // rows resolved via deployment_spec_json.source.account
+	FromSelf   int // rows for which the target account was used as fallback
+	SpecMisses int // rows with a source.account that did not match an accounts row
+	Scanned    int
 }
 
 // BackfillSourceAccountIDs populates deployments.source_account_id for legacy
