@@ -490,17 +490,26 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 		})
 		deletedWebhooks := make(map[int64]bool)
 		for _, conn := range conns {
-			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
-				if gh := githubclient.New(token.AccessToken); gh != nil {
-					if delErr := gh.DeleteWebhook(c.Request.Context(), githubconnection.RepoBase(conn.RepoFullName), conn.WebhookID); delErr != nil {
-						log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
-					} else {
-						deletedWebhooks[conn.WebhookID] = true
-					}
-				}
-			}
+			repoBase := githubconnection.RepoBase(conn.RepoFullName)
+
 			if delErr := ghStore.Delete(c.Request.Context(), acct.ID, conn.AgentName); delErr != nil {
 				log.Error("github: delete connection on account disconnect", "error", delErr, "agent", conn.AgentName)
+			}
+
+			// Delete the webhook only after removing the connection row so that
+			// CountByRepoBase reflects the post-deletion state. If another account's
+			// connection still references the same base repo, count > 0 and we leave
+			// the webhook in place.
+			if tokenErr == nil && conn.WebhookID != 0 && !deletedWebhooks[conn.WebhookID] {
+				if count, countErr := ghStore.CountByRepoBase(c.Request.Context(), repoBase); countErr == nil && count == 0 {
+					if gh := githubclient.New(token.AccessToken); gh != nil {
+						if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
+							log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
+						} else {
+							deletedWebhooks[conn.WebhookID] = true
+						}
+					}
+				}
 			}
 		}
 
