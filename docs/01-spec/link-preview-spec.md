@@ -11,10 +11,10 @@
 This spec covers three distinct sharing behaviors depending on what gets shared and how:
 
 **Case 1 — Share button on agent card (explicit share intent).**
-The user clicks the three-dot menu on a deployed agent card and shares to LinkedIn, X, or Slack. The platform posts a pre-filled message with a description and blueprint link. What unfurls is the **agent badge** (the trading card). This works because the Share button mints a short-lived signed share URL (`/share/d/:token`) — not the raw deployment URL — which carries the agent badge as its OG image. The user clicking Share is the explicit authorization event.
+The user clicks the three-dot menu on a deployed agent card and shares to LinkedIn and X. The platform posts a pre-filled message with a description and blueprint link. What unfurls is the **agent badge** (the trading card). This works because the Share button mints a short-lived signed share URL (`/share/d/:token`) — not the raw deployment URL — which carries the agent badge as its OG image. The user clicking Share is the explicit authorization event.
 
 **Case 2 — Blueprint URL pasted anywhere.**
-A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into Slack, LinkedIn, or X unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG.
+A raw blueprint URL (e.g., `https://astropod.ai/sohumdalal/release-note-helper`) pasted into LinkedIn or X unfurls as the **blueprint card** — a clean, light, landscape card matching the blueprint listing UI. Blueprint pages already emit OG metadata; this spec upgrades the `og:image` from the account avatar to a blueprint-specific PNG.
 
 **Case 3 — Deployment URL pasted anywhere.**
 A raw deployment URL (e.g., `https://astropod.ai/sohumdalal/agents/abg-ieb-2i9`) returns a 404 or not-authorized page and emits no OG metadata. There is no unfurl. Deployments are org-scoped and are not discoverable via raw URL sharing.
@@ -28,7 +28,7 @@ Sharing an Astro link today produces a weak or absent unfurl depending on the pa
 - **Blueprint pages** (`BlueprintDetail.tsx`) already emit `og:title`, `og:description`, `og:image`, and `twitter:card` tags. However, the `og:image` is set to `${assetsBase}/avatars/${account}.jpg` — the account's profile photo. This is generic: every blueprint owned by the same account shows the same image, with no visual information about the blueprint itself.
 - **Agent detail pages** emit no OG metadata whatsoever. Pasted agent URLs appear as plain text on all platforms.
 
-The core technical gap is the same in both cases: there is no server-side mechanism to generate a PNG image that represents a specific entity. The `astro-trading-card` package produces SVG strings, and SVG cannot be served as an `og:image` — platforms like LinkedIn, X, and Slack require a raster image (PNG or JPEG) at that URL.
+The core technical gap is the same in both cases: there is no server-side mechanism to generate a PNG image that represents a specific entity. The `astro-trading-card` package produces SVG strings, and SVG cannot be served as an `og:image` — platforms like LinkedIn and X require a raster image (PNG or JPEG) at that URL.
 
 ---
 
@@ -38,7 +38,7 @@ Not all Astro pages can be unfurled today, and the distinction is not philosophi
 
 **How unfurling actually works:**
 
-When a user pastes a URL into Slack or LinkedIn, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG separately — also unauthenticated. Platforms then cache the result aggressively.
+When a user pastes a URL into LinkedIn or X, the platform dispatches an unauthenticated crawler bot to fetch that URL. The bot has no session, no cookie, and no concept of org membership. It reads the `og:image` URL from the HTML response and fetches the PNG separately — also unauthenticated. Platforms then cache the result aggressively.
 
 This means session-aware OG tag injection is not a reliable access control mechanism on its own. Even if the page SSR withholds `og:image` for unauthenticated requests, a user with legitimate access who unfurls the link causes the platform to cache the card. A user without access who pastes the same URL later may receive the cached version.
 
@@ -47,7 +47,7 @@ This means session-aware OG tag injection is not a reliable access control mecha
 - The badge shows only information the URL already implies: name, description, deploy count, owner handle. Nothing in the card is a data disclosure beyond what knowing the blueprint slug already reveals.
 - For private blueprints, access control is enforced on the page itself. The card is a cover image, not a data leak.
 
-**Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Pasting a raw deployment URL into Slack or LinkedIn produces no unfurl. This is a deliberate product decision, not a gap: until fine-grained access control (FGAC) exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Without that check, any unfurl would effectively make deployment existence discoverable to anyone with the URL.
+**Raw deployment URLs intentionally return 404 or not-authorized with no OG metadata.** Pasting a raw deployment URL into LinkedIn or X produces no unfurl. This is a deliberate product decision, not a gap: until fine-grained access control (FGAC) exists, there is no safe way to determine whether a given viewer is a member of the org that owns the deployment. Without that check, any unfurl would effectively make deployment existence discoverable to anyone with the URL.
 
 The signed Share flow (see In-App Share Flow section) is the correct path for deployment unfurling today: the user explicitly authorizes the share, the token is the credential, and the raw deployment URL stays dark. This holds until FGAC is in place.
 
@@ -58,7 +58,7 @@ The signed Share flow (see In-App Share Flow section) is the correct path for de
 ## Goals
 
 - **G1:** Blueprint page URLs unfurl with a blueprint-specific landscape card PNG (replacing the current account avatar).
-- **G2:** The Share button on the agent card mints a signed share URL that unfurls the agent badge (trading card) on LinkedIn, X, and Slack.
+- **G2:** The Share button on the agent card mints a signed share URL that unfurls the agent badge (trading card) on LinkedIn and X.
 - **G3:** The Share button pre-fills a message with the agent description and blueprint link alongside the agent badge unfurl.
 - **G4:** The agent trading card is downloadable as SVG or high-quality PNG from the same Share menu.
 - **G5:** Raw deployment URLs return no OG metadata — no unfurl.
@@ -374,7 +374,6 @@ Raw deployment URLs intentionally return 404 or not-authorized for unauthenticat
 |----------|---------|
 | LinkedIn | "Just deployed {displayName} on Astro using the {blueprint} blueprint. Check it out: {blueprintUrl}" |
 | X (Twitter) | "Just deployed {displayName} on Astro using {blueprint} {blueprintUrl}" |
-| Slack | Same message body via Slack deep link |
 
 The `{blueprintUrl}` is the canonical blueprint page URL (e.g., `https://astropod.ai/{account}/{blueprintName}`). The share intent URL passed to the platform is the **signed share URL**, not the blueprint URL — so what unfurls is the agent badge, not the blueprint card.
 
@@ -383,7 +382,6 @@ The `{blueprintUrl}` is the canonical blueprint page URL (e.g., `https://astropo
 ```
 LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url={encodedShareUrl}
 X:        https://x.com/intent/post?text={encodedMessage}&url={encodedShareUrl}
-Slack:    https://slack.com/intl/en-us/share?url={encodedShareUrl}
 ```
 
 All values MUST be URL-encoded. The blueprint URL, display name, and blueprint name are available from the deployment page's existing loader data.
@@ -442,8 +440,8 @@ The token payload encodes the deployment's account and agent name, signed with a
 1. Add three-dot Share menu to `DeployedAgentDetail.tsx`
 2. Download SVG: client-side via `downloadSvg()` (already available)
 3. Download PNG: fetch `/badge/agent/*` endpoint, trigger browser download
-4. Share to LinkedIn / X / Slack: call token mint endpoint, construct intent URL with signed share URL + pre-filled message
-5. Verify intent URLs on each platform with expected unfurl (agent badge) and message text (blueprint link)
+4. Share to LinkedIn / X: call token mint endpoint, construct intent URL with signed share URL + pre-filled message
+5. Verify intent URLs on both platforms with expected unfurl (agent badge) and message text (blueprint link)
 
 Phase 1 is the highest-value work and ships independently. Phase 2 infrastructure is a prerequisite for Phase 3 UX. Phases 2 and 3 ship together.
 
