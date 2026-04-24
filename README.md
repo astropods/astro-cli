@@ -123,10 +123,10 @@ ast-dev dev --local
 
 ## Deployments
 
-| Environment       | URL                  | Notes                                                  |
-| ----------------- | -------------------- | ------------------------------------------------------ |
-| Preview / Staging | https://astropod.ai  | Requires beta VPN                                      |
-| Production        | https://astropods.ai | Invite-only — contact a Postman team member for access |
+| Environment       | URL                   | Notes                                                  |
+| ----------------- | --------------------- | ------------------------------------------------------ |
+| Preview / Staging | https://astropod.ai   | Requires beta VPN                                      |
+| Production        | https://astropods.com | Invite-only — contact a Postman team member for access |
 
 **Preview** — Automatically deployed on every merge to `main`. No manual action required.
 

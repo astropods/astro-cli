@@ -54,7 +54,7 @@ jobs:
           echo "version=$(cat apps/astro-cli/VERSION)" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "binary_name=ast" >> "$GITHUB_OUTPUT"
-          echo "server_url=https://astropods.ai" >> "$GITHUB_OUTPUT"
+          echo "server_url=https://astropods.com" >> "$GITHUB_OUTPUT"
           echo "fleet_server_url=fleet.astropods.ai:9092" >> "$GITHUB_OUTPUT"
           echo "download_url=https://download.astropods.ai/latest" >> "$GITHUB_OUTPUT"
           echo "s3_bucket=prod-astro-downloads" >> "$GITHUB_OUTPUT"

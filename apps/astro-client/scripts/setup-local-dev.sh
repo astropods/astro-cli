@@ -3,7 +3,7 @@
 # Local Development Setup Script for astro-client
 #
 # This script configures your machine for local frontend development against
-# a remote backend (e.g., https://astropods.ai). It sets up:
+# a remote backend (e.g., https://astropods.com). It sets up:
 #   - Local subdomain (local.astropods.ai) for same-site cookie sharing
 #   - HTTPS certificates for secure cookie handling
 #
@@ -14,7 +14,7 @@ set -e
 
 # Configuration
 DOMAIN="local.astropods.ai"
-BACKEND_URL="https://astropods.ai"
+BACKEND_URL="https://astropods.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CERT_DIR="$PROJECT_DIR/.certs"

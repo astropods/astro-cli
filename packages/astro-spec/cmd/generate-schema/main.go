@@ -18,7 +18,7 @@ func main() {
 	}
 	schema := r.Reflect(&spec.AstroSpec{})
 	// FIXME: This should be set at build time via ldflags
-	schema.ID = "https://astropods.ai/schema/package.json"
+	schema.ID = "https://astropods.com/schema/package.json"
 	schema.Title = "Astro AI Spec"
 	schema.Description = "Schema for Astro AI agent specification"
 

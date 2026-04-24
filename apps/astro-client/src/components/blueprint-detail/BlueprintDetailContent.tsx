@@ -171,7 +171,7 @@ export function BlueprintDetailContent({
                   <StepNumber n={1} />
                   <div className="flex-1 pb-8">
                     <h3 className="text-sm font-semibold mb-3 pt-1">Install the Astro CLI</h3>
-                    <CodeBlock command="curl -fsSL https://astropods.ai/install | sh" />
+                    <CodeBlock command="curl -fsSL https://astropods.com/install | sh" />
                   </div>
                 </section>
                 <section className="flex gap-4">

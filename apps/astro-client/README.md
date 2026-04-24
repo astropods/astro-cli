@@ -17,7 +17,7 @@ The app will be available at `http://localhost:5173`.
 
 ### Remote Backend Development
 
-To develop the frontend against a deployed backend (e.g., `https://astropods.ai`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
+To develop the frontend against a deployed backend (e.g., `https://astropods.com`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
 
 **One-time setup (macOS):**
 
@@ -61,7 +61,7 @@ If the setup script doesn't work for your OS:
 
 4. **Configure environment:**
    ```bash
-   echo "VITE_API_URL=https://astropods.ai" > .env
+   echo "VITE_API_URL=https://astropods.com" > .env
    ```
 
 5. **Start the dev server:**
@@ -76,7 +76,7 @@ If the setup script doesn't work for your OS:
 When developing against a remote backend, authentication uses a same-site subdomain approach:
 
 1. Your local frontend runs at `https://local.astropods.ai:5173`
-2. The backend runs at `https://astropods.ai`
+2. The backend runs at `https://astropods.com`
 3. Both share the same registrable domain (`astropods.ai`)
 4. Session cookies set by the backend work on your local domain
 
