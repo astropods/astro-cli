@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
@@ -188,6 +189,34 @@ func TestSecretCreate_OverwriteFlag(t *testing.T) {
 	require.NoError(t, runSecretCreateWithValue(secretCreateCmd, []string{"EXISTING"}, "val", false, true))
 	require.True(t, postCalled, "POST should be called when --overwrite is set")
 	require.Contains(t, buf.String(), "Created secret")
+}
+
+func TestSecretCreate_Description(t *testing.T) {
+	var received map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&received) //nolint:errcheck,gosec
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+			"results": []map[string]any{{"name": "MY_KEY", "status": "created"}},
+		})
+	}
+
+	_, setup := secretTestServer(t, handler)
+	setup()
+
+	require.NoError(t, secretCreateCmd.Flags().Set("description", "my description"))
+	t.Cleanup(func() { secretCreateCmd.Flags().Set("description", "") }) //nolint:errcheck
+
+	buf := &bytes.Buffer{}
+	secretCreateCmd.SetOut(buf)
+	require.NoError(t, runSecretCreateWithValue(secretCreateCmd, []string{"MY_KEY"}, "s3cret", false, false))
+
+	vars := received["variables"].([]any)
+	entry := vars[0].(map[string]any)
+	assert.Equal(t, "my description", entry["description"])
 }
 
 func TestSecretNameValidation(t *testing.T) {
