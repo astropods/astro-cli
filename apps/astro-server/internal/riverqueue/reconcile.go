@@ -52,10 +52,17 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs])
 		return nil
 	}
 
-	w.reconcileActive(ctx)
-	w.reconcileOIDCIssuer(ctx)
-	w.detectStaleJobs(ctx)
-	w.maintainNamespaceOwnership(ctx)
+	// Each step gets its own timeout so one slow step can't starve the others.
+	run := func(fn func(context.Context)) {
+		stepCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		fn(stepCtx)
+	}
+
+	run(w.reconcileActive)
+	run(w.reconcileOIDCIssuer)
+	run(w.detectStaleJobs)
+	run(w.maintainNamespaceOwnership)
 
 	return nil
 }
