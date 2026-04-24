@@ -39,9 +39,10 @@ func secretsBaseURL() string {
 }
 
 var secretCmd = &cobra.Command{
-	Use:   "secrets",
-	Short: "Manage account secrets",
-	Long:  "Create, list, update, and delete secrets in the account vault. Values are write-only once set.",
+	Use:     "secrets",
+	Aliases: []string{"secret"},
+	Short:   "Manage account secrets",
+	Long:    "Create, list, update, and delete secrets in the account vault. Values are write-only once set.",
 }
 
 var secretListCmd = &cobra.Command{
