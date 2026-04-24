@@ -8,13 +8,18 @@
 
 ## Abstract
 
-When a user pastes an Astro agent URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Currently, Astro pages return no Open Graph metadata, so pasted links appear as plain text. This spec defines how to add dynamic link previews to agent and blueprint pages by generating server-side PNG images from the existing `astro-trading-card` package and injecting per-page Open Graph meta tags via React Router's `meta` export.
+When a user pastes an Astro URL into Slack, LinkedIn, X (Twitter), or any Open Graph-aware platform, the platform crawls that URL and renders an unfurl card — a rich preview with a title, description, and image. Currently, Astro pages return no Open Graph metadata, so pasted links appear as plain text. This spec defines how to add dynamic link previews to both **agent detail pages** and **blueprint pages** by generating server-side PNG images and injecting per-page Open Graph meta tags via React Router's `meta` export.
+
+The two page types use distinct image styles and rendering approaches, reflecting their different roles in the product:
+
+- **Agent pages** use the existing `astro-trading-card` package to produce a portrait trading card (dark, holographic-styled), rendered to PNG via Resvg.
+- **Blueprint pages** use a new Satori-rendered card that mirrors the blueprint listing UI — a clean, light landscape card with icon, name, description, deploy count, and owner.
 
 ---
 
 ## Problem Statement
 
-Sharing an Astro agent link today produces no visual preview on any social or messaging platform. This is a missed distribution opportunity: every shared link is a chance to showcase the agent's identity, integrations, and capabilities. The root causes are:
+Sharing an Astro link today produces no visual preview on any social or messaging platform. This is a missed distribution opportunity: every shared link is a chance to surface an agent's capabilities or a blueprint's purpose to a potential user. The root causes are:
 
 1. **No `og:image`** — Astro pages return no Open Graph meta tags of any kind.
 2. **SVG can't serve as OG image** — Platforms like LinkedIn, X, and Slack require a raster image (PNG or JPEG) at the `og:image` URL. SVGs are either ignored or blocked.
@@ -24,15 +29,15 @@ Sharing an Astro agent link today produces no visual preview on any social or me
 
 ## Goals
 
-- **G1:** When any agent detail page URL is pasted into Slack, LinkedIn, or X, an unfurl card renders with the agent's trading card as the preview image.
-- **G2:** The PNG image is generated server-side on demand with no browser involved.
-- **G3:** OG tags are populated with accurate, agent-specific data (not generic site-wide defaults).
-- **G4:** The PNG endpoint is cacheable at the HTTP layer to avoid repeated re-renders.
-- **G5:** The implementation does not require changes to the Go backend.
+- **G1:** Agent detail page URLs unfurl with a trading card PNG as the preview image.
+- **G2:** Blueprint page URLs unfurl with a UI-style landscape card PNG as the preview image.
+- **G3:** All PNG images are generated server-side on demand with no browser involved.
+- **G4:** OG tags are populated with accurate, page-specific data (not generic site-wide defaults).
+- **G5:** PNG endpoints are cacheable at the HTTP layer to avoid repeated re-renders.
+- **G6:** The implementation does not require changes to the Go backend.
 
 ## Non-Goals
 
-- Blueprint page unfurling (can be added in a follow-up using the same pattern).
 - Animated or video preview cards.
 - Uploading pre-generated PNGs to S3/CDN (can be layered on later as a caching optimization).
 - Per-user or per-session personalization of the card image.
@@ -44,37 +49,38 @@ Sharing an Astro agent link today produces no visual preview on any social or me
 
 ### Overview
 
+There are two independent badge routes, one per page type. Both are handled by the Bun server before the React Router handler runs and neither is proxied to the Go backend.
+
 ```
 [Social platform crawler]
-         │  GET /agents/:account/:name
+         │  GET /:account/:name          (agent page)
+         │  GET /blueprints/:account/:name   (blueprint page)
          ▼
-[Bun SSR server]  ──────────────────────────────────────────────────────────┐
-   React Router SSR                                                           │
-   meta() export returns:                                                     │
-     og:title    = agent display name                                         │
-     og:description = agent description                                       │
-     og:image    = https://<host>/badge/:account/:name.png  ◄────────────────┘
-     twitter:card = summary_large_image
+[Bun SSR server — React Router SSR]
+   meta() export returns og:image pointing at badge route
          │
-         │  (crawler fetches og:image URL)
-         ▼
-[Bun SSR server]  GET /badge/:account/:name.png
-   1. Fetch agent data from Go API  (GET /api/v1/agents/:account/:name)
-   2. Map agent data → CardData
-   3. generateCard(cardData)         ← astro-trading-card (SVG string)
-   4. Resvg(svg).render()           ← @resvg/resvg-js (PNG buffer)
-   5. Return image/png + Cache-Control: public, max-age=3600
+         ├─► GET /badge/agent/:account/:name.png
+         │       1. Fetch agent from API
+         │       2. agentToCardData()
+         │       3. generateCard()          ← astro-trading-card
+         │       4. Resvg().render()        ← @resvg/resvg-js
+         │       5. Return PNG
+         │
+         └─► GET /badge/blueprint/:account/:name.png
+                 1. Fetch blueprint from API
+                 2. blueprintToCardProps()
+                 3. satori(<BlueprintCard />)  ← satori (JSX → SVG)
+                 4. Resvg().render()           ← @resvg/resvg-js
+                 5. Return PNG
 ```
-
-The Bun server (`server.ts`) is the right place to handle `/badge/*` — it already sits in front of React Router and proxies selectively to the Go backend. Adding a badge route here requires no changes to Go and keeps image generation in the same runtime that owns the `astro-trading-card` package.
 
 ---
 
-### 1. Badge PNG Endpoint
+### 1. Agent Badge Endpoint
 
-**Route:** `GET /badge/:account/:name.png`
+**Route:** `GET /badge/agent/:account/:name.png`
 
-This route MUST be handled by the Bun server before the React Router handler runs. It is not proxied to the Go backend.
+Renders the agent's `astro-trading-card` as a PNG. Portrait format (350×560px).
 
 #### Request
 
@@ -100,28 +106,17 @@ Cache-Control: public, max-age=3600, stale-while-revalidate=86400
 #### Generation Flow
 
 ```typescript
-// server.ts (new handler, before React Router)
-
 import { generateCard } from "@postman/astro-trading-card";
 import { Resvg } from "@resvg/resvg-js";
 
-async function handleBadgeRequest(account: string, name: string): Promise<Response> {
-  // 1. Fetch agent data
+async function handleAgentBadge(account: string, name: string): Promise<Response> {
   const res = await fetch(`${API_URL}/api/v1/agents/${account}/${name}`);
   if (!res.ok) return new Response(null, { status: res.status === 404 ? 404 : 502 });
+
   const agent = await res.json();
+  const svg = generateCard(agentToCardData(agent));
+  const png = new Resvg(svg).render().asPng();
 
-  // 2. Map to CardData
-  const cardData = agentToCardData(agent);
-
-  // 3. Generate SVG
-  const svg = generateCard(cardData);
-
-  // 4. Render PNG
-  const resvg = new Resvg(svg, { background: "rgba(0,0,0,0)" });
-  const png = resvg.render().asPng();
-
-  // 5. Respond
   return new Response(png, {
     headers: {
       "Content-Type": "image/png",
@@ -131,94 +126,176 @@ async function handleBadgeRequest(account: string, name: string): Promise<Respon
 }
 ```
 
----
-
-### 2. Agent Data → CardData Mapping
-
-The `agentToCardData()` function MUST map the Go API agent response to `CardData` from `astro-trading-card`. The exact shape of the API response should be confirmed against `/api/v1/agents/:account/:name`, but the expected mapping is:
+#### Agent Data → CardData Mapping
 
 | CardData field | Source | Notes |
 |---------------|--------|-------|
 | `name` | `agent.name` | Slug, used for barcode |
 | `displayName` | `agent.display_name` | Falls back to `agent.name` |
 | `account` | `agent.account` | Org/account slug |
-| `description` | `agent.description` | Truncated to ~120 chars if needed |
+| `description` | `agent.description` | Truncated to ~120 chars |
 | `avatar` | `agent.avatar_url` | `{ url: agent.avatar_url }` if present |
-| `stats[0]` | `agent.deployment_count` | Label: `"Deployments"`, value: count as string |
-| `stats[1]` | `agent.created_at` | Label: `"Created"`, value: formatted date |
-| `integrations` | `agent.integrations[]` | Map name + icon to `CardIntegration` |
-| `qrUrl` | `https://<host>/agents/:account/:name` | Public URL for QR code |
-| `barcodeId` | `agent.name` | Used for Code 128B barcode |
+| `stats[0]` | `agent.deployment_count` | Label: `"Deployments"` |
+| `stats[1]` | `agent.created_at` | Label: `"Created"`, formatted date |
+| `integrations` | `agent.integrations[]` | Mapped to `CardIntegration[]` |
+| `qrUrl` | Canonical agent URL | For QR code in barcode footer |
+| `barcodeId` | `agent.name` | For Code 128B barcode |
 
-Colors are not specified — the card SHOULD use `deriveCardColors()` from the package if a dominant avatar color is available, otherwise fall back to `DEFAULT_COLORS`.
+Colors SHOULD use `deriveCardColors()` if a dominant avatar color is available, otherwise fall back to `DEFAULT_COLORS`.
+
+---
+
+### 2. Blueprint Badge Endpoint
+
+**Route:** `GET /badge/blueprint/:account/:name.png`
+
+Renders a landscape card that mirrors the blueprint listing UI. This format is natively landscape (~1200×630px) — the standard OG image aspect ratio — which avoids the letterboxing issue that the portrait trading card has on X/Twitter.
+
+#### Visual Design
+
+The blueprint card matches the blueprint listing UI card design:
+
+```
+┌─────────────────────────────────────────────────────────┐  ← light gray bg
+│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · │  ← dot grid pattern
+│  ┌──────┐  release-note-helper                          │
+│  │  @@  │  An agent that helps you craft release notes  │
+│  └──────┘  from Jira issues and GitHub PRs              │
+│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · │
+│  ─────────────────────────────────────────────────────  │  ← divider
+│  0 deploys                        ◉ sohumdalal          │
+└─────────────────────────────────────────────────────────┘
+```
+
+| Property | Value |
+|----------|-------|
+| Dimensions | 1200×630px |
+| Background | Light gray (`#f8f9fa`) with dot grid overlay |
+| Icon | Rounded square, 80×80px, agent avatar or initials fallback |
+| Title | Bold, ~28px, dark gray (`#111827`) |
+| Description | Regular, ~18px, medium gray (`#6b7280`), max 2 lines |
+| Divider | 1px line, light gray (`#e5e7eb`) |
+| Footer left | Deploy count, ~16px, medium gray |
+| Footer right | Owner avatar (24px circle) + handle, ~16px |
+| Corner radius | 12px |
+| Border | 1px, `#e5e7eb` |
+
+#### Rendering Approach: Satori
+
+Blueprint cards are rendered with **Satori** (`satori` npm package), which converts a JSX component tree to an SVG string using flexbox layout — the same technology behind `@vercel/og`. The SVG is then passed to Resvg for PNG conversion, the same final step as the agent badge.
+
+Satori is preferred here over a hand-written SVG template because:
+1. The blueprint card's layout maps naturally to flexbox (which Satori supports natively).
+2. A JSX component can be visually maintained alongside the equivalent UI component, keeping them in sync.
+3. Satori handles text wrapping, line clamping, and image embedding — all required for this card.
+
+```typescript
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
+import { readFileSync } from "fs";
+
+const font = readFileSync("path/to/Inter-Regular.ttf");
+const fontBold = readFileSync("path/to/Inter-Bold.ttf");
+
+async function handleBlueprintBadge(account: string, name: string): Promise<Response> {
+  const res = await fetch(`${API_URL}/api/v1/blueprints/${account}/${name}`);
+  if (!res.ok) return new Response(null, { status: res.status === 404 ? 404 : 502 });
+
+  const blueprint = await res.json();
+  const props = blueprintToCardProps(blueprint);
+
+  const svg = await satori(
+    <BlueprintCard {...props} />,
+    {
+      width: 1200,
+      height: 630,
+      fonts: [
+        { name: "Inter", data: font, weight: 400 },
+        { name: "Inter", data: fontBold, weight: 700 },
+      ],
+    }
+  );
+
+  const png = new Resvg(svg).render().asPng();
+
+  return new Response(png, {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+    },
+  });
+}
+```
+
+The `BlueprintCard` JSX component lives in `src/badge-blueprint.tsx` and is the source of truth for the card's visual design. It MUST NOT import any browser-only APIs, Tailwind classes, or CSS modules — Satori requires inline styles only.
+
+#### Blueprint Data → CardProps Mapping
+
+| CardProps field | Source | Notes |
+|----------------|--------|-------|
+| `name` | `blueprint.name` | Slug |
+| `displayName` | `blueprint.display_name` | Falls back to `blueprint.name` |
+| `description` | `blueprint.description` | Clamped to 2 lines in layout |
+| `avatarUrl` | `blueprint.avatar_url` | Falls back to initials avatar |
+| `deployCount` | `blueprint.deployment_count` | Displayed as `"{n} deploys"` |
+| `ownerHandle` | `blueprint.account` | Displayed in footer right |
+| `ownerAvatarUrl` | `blueprint.account_avatar_url` | Small circle in footer |
+
+#### Font Loading
+
+Satori requires font data to be loaded as `ArrayBuffer`. Fonts SHOULD be loaded once at server startup (not per-request) and stored in module scope. Inter (Regular 400, Bold 700) is the recommended typeface to match the UI.
 
 ---
 
 ### 3. Open Graph Meta Tags
 
-React Router v7 supports per-route `meta()` exports that run during SSR. The agent detail route MUST export a `meta` function that returns the following tags.
+React Router v7 supports per-route `meta()` exports that run during SSR. Both the agent detail route and the blueprint detail route MUST export a `meta` function.
 
-**Tags to add:**
+The `host` MUST be derived from `new URL(request.url).host` in the loader and returned as part of loader data — never hardcoded — to work correctly across local, staging, and production environments.
+
+#### Agent Detail Page
 
 | Property | Value |
 |----------|-------|
 | `og:type` | `website` |
 | `og:title` | `{agent.display_name} — Astro` |
-| `og:description` | `{agent.description}` (truncated to 200 chars) |
-| `og:image` | `https://{host}/badge/{account}/{name}.png` |
+| `og:description` | `{agent.description}` (max 200 chars) |
+| `og:image` | `https://{host}/badge/agent/{account}/{name}.png` |
 | `og:image:width` | `350` |
 | `og:image:height` | `560` |
-| `og:url` | Canonical page URL |
-| `twitter:card` | `summary_large_image` |
-| `twitter:title` | Same as `og:title` |
-| `twitter:description` | Same as `og:description` |
+| `og:url` | Canonical agent page URL |
+| `twitter:card` | `summary` (portrait card; see Design Decision #4) |
 | `twitter:image` | Same as `og:image` |
 
-The `host` MUST be derived from the incoming request's `Host` header (already available in React Router loaders), not hardcoded, to work across environments (local, staging, production).
+#### Blueprint Detail Page
 
-**Example meta export:**
-
-```typescript
-// DeployedAgentDetail.tsx (or its route module)
-export const meta: MetaFunction<typeof loader> = ({ data, location }) => {
-  if (!data?.agent) return [];
-  const { agent, host } = data;
-  const imageUrl = `https://${host}/badge/${agent.account}/${agent.name}.png`;
-  return [
-    { property: "og:type", content: "website" },
-    { property: "og:title", content: `${agent.display_name} — Astro` },
-    { property: "og:description", content: agent.description?.slice(0, 200) ?? "" },
-    { property: "og:image", content: imageUrl },
-    { property: "og:image:width", content: "350" },
-    { property: "og:image:height", content: "560" },
-    { property: "og:url", content: `https://${host}${location.pathname}` },
-    { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: `${agent.display_name} — Astro` },
-    { name: "twitter:description", content: agent.description?.slice(0, 200) ?? "" },
-    { name: "twitter:image", content: imageUrl },
-  ];
-};
-```
-
-The loader MUST include `host` in its returned data. It can be extracted from the React Router `request` object: `new URL(request.url).host`.
+| Property | Value |
+|----------|-------|
+| `og:type` | `website` |
+| `og:title` | `{blueprint.display_name} — Astro` |
+| `og:description` | `{blueprint.description}` (max 200 chars) |
+| `og:image` | `https://{host}/badge/blueprint/{account}/{name}.png` |
+| `og:image:width` | `1200` |
+| `og:image:height` | `630` |
+| `og:url` | Canonical blueprint page URL |
+| `twitter:card` | `summary_large_image` |
+| `twitter:image` | Same as `og:image` |
 
 ---
 
 ### 4. In-Memory Cache
 
-To avoid re-rendering the SVG → PNG on every crawl (multiple crawlers hit the same URL during unfurl), the Bun server SHOULD maintain a simple in-memory LRU cache keyed by `account/name`.
+Both badge endpoints SHOULD share a single LRU cache, keyed by the full route string.
 
 | Property | Value |
 |----------|-------|
-| Cache key | `${account}/${name}` |
-| Cached value | PNG `Buffer` |
+| Cache key | `agent:${account}/${name}` or `blueprint:${account}/${name}` |
+| Cached value | PNG `Uint8Array` |
 | Max entries | 500 |
 | TTL | 1 hour (3600s) |
 | Eviction | LRU |
 
-This cache is process-local and does not survive restarts. Persistent caching (S3, Redis) can be layered on as a follow-up. The HTTP `Cache-Control` header handles CDN-level caching independently.
-
-A lightweight LRU implementation (e.g., `lru-cache` npm package, ~2KB) is preferred over a hand-rolled map to avoid unbounded memory growth.
+A lightweight LRU implementation (e.g., `lru-cache` npm package) is preferred over a hand-rolled map to avoid unbounded memory growth. This cache is process-local; persistent caching (S3, Redis) can be layered on as a follow-up. The HTTP `Cache-Control` header handles CDN-level caching independently.
 
 ---
 
@@ -227,10 +304,11 @@ A lightweight LRU implementation (e.g., `lru-cache` npm package, ~2KB) is prefer
 | Package | Location | Change |
 |---------|----------|--------|
 | `@resvg/resvg-js` | `apps/astro-client` | Add as dependency |
+| `satori` | `apps/astro-client` | Add as dependency |
 | `lru-cache` | `apps/astro-client` | Add as dependency |
 | `@postman/astro-trading-card` | `apps/astro-client` | Already present (confirm version) |
 
-`@resvg/resvg-js` ships a prebuilt native binary for each platform. It works with Bun's Node-compatible native addon loader. No WASM fallback is needed since the Bun server runs in a controlled server environment (not an edge runtime).
+`@resvg/resvg-js` ships a prebuilt native binary for each platform and works with Bun's Node-compatible native addon loader. No WASM fallback is needed since the Bun server runs in a controlled server environment (not an edge runtime). The same applies to `satori`, which is pure JavaScript.
 
 ---
 
@@ -238,44 +316,60 @@ A lightweight LRU implementation (e.g., `lru-cache` npm package, ~2KB) is prefer
 
 | File | Change |
 |------|--------|
-| `apps/astro-client/server.ts` | Add `/badge/:account/:name.png` route before React Router handler; import Resvg and LRU cache |
-| `apps/astro-client/src/badge.ts` | **New file.** `agentToCardData()` mapping function and PNG generation helper |
-| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add `meta()` export with OG tags; add `host` to loader return value |
-| `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `lru-cache` |
+| `apps/astro-client/server.ts` | Add `/badge/agent/*` and `/badge/blueprint/*` routes before React Router handler |
+| `apps/astro-client/src/badge-agent.ts` | **New.** `agentToCardData()` and `generateAgentBadgePng()` |
+| `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX component (Satori-compatible, inline styles only) and `generateBlueprintBadgePng()` |
+| `apps/astro-client/src/badge-cache.ts` | **New.** Shared LRU cache instance |
+| `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add `meta()` export with agent OG tags; add `host` to loader |
+| `apps/astro-client/src/pages/blueprints/Blueprints.tsx` | Add `meta()` export with blueprint OG tags; add `host` to loader (confirm route file) |
+| `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `satori`, `lru-cache` |
 
 ---
 
 ## Implementation Order
 
-**Phase 1 — PNG endpoint (no visible user change):**
+**Phase 1 — Agent badge PNG endpoint:**
 1. Install `@resvg/resvg-js` and `lru-cache`
-2. Create `src/badge.ts` with `agentToCardData()` and `generateBadgePng()`
-3. Add `/badge/:account/:name.png` handler in `server.ts`
-4. Verify locally: `curl http://localhost:3000/badge/postman/research-assistant.png > card.png`
+2. Create `src/badge-agent.ts` and `src/badge-cache.ts`
+3. Add `/badge/agent/:account/:name.png` handler in `server.ts`
+4. Verify: `curl http://localhost:3000/badge/agent/postman/research-assistant.png > agent.png`
 
-**Phase 2 — OG meta tags (enables unfurling):**
-1. Add `host` to the agent detail loader
+**Phase 2 — Agent OG meta tags:**
+1. Add `host` to agent detail loader
 2. Add `meta()` export to `DeployedAgentDetail.tsx`
-3. Verify using [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) and [Twitter Card Validator](https://cards-dev.twitter.com/validator) against a staging URL
-4. Verify Slack unfurl by pasting URL into a test channel
+3. Verify with LinkedIn Post Inspector and Twitter Card Validator against staging
 
-These phases can ship independently. Phase 1 is purely additive and carries no user-visible risk. Phase 2 only affects crawlers until users start sharing links.
+**Phase 3 — Blueprint badge PNG endpoint:**
+1. Install `satori`; confirm Inter font files are accessible server-side
+2. Create `src/badge-blueprint.tsx` with `BlueprintCard` component
+3. Add `/badge/blueprint/:account/:name.png` handler in `server.ts`
+4. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > blueprint.png`
+
+**Phase 4 — Blueprint OG meta tags:**
+1. Add `host` to blueprint detail loader
+2. Add `meta()` export to the blueprint detail route
+3. Verify Slack unfurl by pasting a blueprint URL into a test channel
+
+Phases ship independently. Phases 1 and 3 are purely additive with no user-visible change. Phases 2 and 4 activate unfurling as soon as they deploy.
 
 ---
 
 ## Key Design Decisions
 
 **1. PNG generation in the Bun server, not the Go backend.**  
-The `astro-trading-card` package is TypeScript. Calling it from Go would require spawning a subprocess or duplicating the card layout logic in Go — both are poor options. The Bun server already runs TypeScript and is the natural owner of this work. The Go backend is not modified.
+The `astro-trading-card` package and Satori are both TypeScript libraries. Calling them from Go would require spawning a subprocess or duplicating layout logic — both are poor options. The Bun server already runs TypeScript and is the natural owner of this work. The Go backend is not modified.
 
-**2. On-demand generation, not pre-generation.**  
-Pre-generating PNGs at agent creation time would require the backend to know about the Bun server (or a separate image service), adding coupling. On-demand generation is simpler and the LRU + HTTP cache provides sufficient performance for crawlers (which are low-frequency compared to human traffic).
+**2. Different rendering stacks for agents vs. blueprints.**  
+Agent cards reuse the existing `astro-trading-card` package (which already produces polished SVG output) plus Resvg. Blueprint cards use Satori because the target visual is the existing UI card component — JSX with inline styles is the most maintainable way to reproduce and keep that in sync. A single approach for both would require either forcing the UI-style card into a hand-written SVG template (brittle) or rebuilding the trading card in Satori (unnecessary work).
 
-**3. Resvg over browser canvas.**  
-`@resvg/resvg-js` is the same library used by `flows-jellybean` in this monorepo — it is a proven, Rust-based SVG renderer that produces consistent, high-quality output. Browser canvas rasterization (via `downloadPng()` in `astro-trading-card`) requires a headless browser (Puppeteer/Playwright), which is a heavy server dependency and slow cold-start.
+**3. On-demand generation, not pre-generation.**  
+Pre-generating PNGs at creation time would require the backend to know about the Bun server (or a separate image service), adding coupling. On-demand generation is simpler, and the LRU + HTTP cache provides sufficient performance for crawlers, which are low-frequency compared to regular user traffic.
 
-**4. `summary_large_image` Twitter card type.**  
-The trading card is 350×560px — taller than wide. This is not ideal for the `summary_large_image` format (which renders best at ~2:1 wide). Teams should evaluate whether to: (a) accept the letterboxed rendering, (b) create a landscape card variant (e.g., 600×315px), or (c) use `summary` card type with a square crop. This decision is left for design review.
+**4. Twitter card type: `summary` for agents, `summary_large_image` for blueprints.**  
+The trading card is 350×560px (portrait). `summary_large_image` expects a ~2:1 landscape image and letterboxes portrait images poorly on X. Using `twitter:card = summary` renders it as a square thumbnail instead, which is a better fit. The blueprint card is 1200×630px (native OG landscape), so `summary_large_image` is correct there. If a landscape agent card variant is designed in the future, the agent card type can be upgraded to `summary_large_image`.
 
 **5. No OG tags in `root.tsx`.**  
-Global fallback OG tags (e.g., a generic Astro site image) are intentionally omitted from `root.tsx`. Adding them would cause non-agent pages to unfurl with incorrect metadata. Per-page `meta()` exports are the right scope.
+Global fallback OG tags are intentionally omitted from `root.tsx`. Adding them would cause non-agent and non-blueprint pages to unfurl with incorrect metadata. Per-page `meta()` exports are the correct scope.
+
+**6. Satori requires inline styles.**  
+Satori does not support Tailwind classes, CSS modules, or external stylesheets — only a flexbox-compatible subset of inline CSS. The `BlueprintCard` component MUST use inline style objects exclusively. It should not be confused with or share styles from the equivalent UI component, which uses Tailwind. They are maintained separately: one for browser rendering, one for server image generation.
