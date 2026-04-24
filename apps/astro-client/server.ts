@@ -51,14 +51,18 @@ Bun.serve({
       return new Response("ok", { status: 200 });
     }
 
-    // Proxy API, auth, and other backend routes to the Go server
+    // Proxy API, auth, and other backend routes to the Go server.
+    // Buffer the body before forwarding — passing the raw ReadableStream
+    // to a second fetch() is unreliable on Linux Bun and can silently
+    // drop the body, causing the upstream to receive an empty request.
     if (PROXY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
       const target = new URL(url.pathname + url.search, API_URL);
       const headers = new Headers(request.headers);
+      const body = request.body ? await request.arrayBuffer() : null;
       return fetch(target, {
         method: request.method,
         headers,
-        body: request.body,
+        body,
         redirect: "manual",
       });
     }
