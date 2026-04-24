@@ -75,7 +75,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   return (
     <>
       <PageContainer
-        outerClassName="bg-stone-100"
+        outerClassName="bg-stone-100 dark:bg-muted"
         style={
           isAgentsEmpty
             ? {
