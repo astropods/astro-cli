@@ -120,6 +120,7 @@ type NormalizedSpecConfig struct {
 	IngressDomain          string            // e.g. "agents.astropods.ai"
 	IngestionIngressDomain string            // e.g. "ingestion.astropods.ai"
 	VarRefs                map[string]string // variable name → original account variable ref (before resolution)
+	ManagedSecrets         map[string]string // platform-injected secrets (e.g. ANTHROPIC_API_KEY) that bypass user variables
 }
 
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
@@ -790,19 +791,27 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
 
 	// The stored spec has secret values stripped, so ResolveDeploymentSpecEnv
-	// won't include them in SecretData. Rebuild secret keys from the variable
-	// definitions, using live K8s values for hashing when available.
-	for key, v := range ds.Variables {
-		if v.Secret {
-			upperKey := strings.ToUpper(key)
-			if liveSecretData != nil {
-				if liveVal, ok := liveSecretData[upperKey]; ok {
-					resolved.SecretData[upperKey] = string(liveVal)
-				} else {
-					resolved.SecretData[upperKey] = ""
-				}
-			} else {
-				resolved.SecretData[upperKey] = ""
+	// won't include them in SecretData. When live K8s Secret data is available,
+	// use it as the source of truth — it contains exactly the keys the spec
+	// applier created (user secrets + managed credentials like ANTHROPIC_API_KEY,
+	// minus optional secrets with no value).
+	if liveSecretData != nil {
+		// Trust the live Secret as the complete key set.
+		for k, v := range liveSecretData {
+			resolved.SecretData[k] = string(v)
+		}
+	} else {
+		// No live data — fall back to variable definitions, but only include
+		// secrets that had a value (matching spec applier behavior).
+		for key, v := range ds.Variables {
+			if v.Secret && v.Value != "" {
+				resolved.SecretData[strings.ToUpper(key)] = ""
+			}
+		}
+		// Also inject managed secrets if provided via config.
+		if nsCfg != nil {
+			for k, v := range nsCfg.ManagedSecrets {
+				resolved.SecretData[k] = v
 			}
 		}
 	}
