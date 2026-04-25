@@ -569,24 +569,31 @@ func TestK8s_SlackSecretsStayInSecretRef(t *testing.T) {
 		}
 	}
 
-	secretName := deployment.GenerateSecretName("k8s-slack-e2e", "build001")
+	messagingSecretName := deployment.GenerateMessagingSecretName("k8s-slack-e2e", "build001")
 	hasSecretEnvFrom := false
 	for _, from := range messaging.EnvFrom {
-		if from.SecretRef != nil && from.SecretRef.Name == secretName {
+		if from.SecretRef != nil && from.SecretRef.Name == messagingSecretName {
 			hasSecretEnvFrom = true
 			break
 		}
 	}
 	if !hasSecretEnvFrom {
-		t.Fatalf("messaging sidecar should source credentials from Secret %q via envFrom", secretName)
+		t.Fatalf("messaging sidecar should source credentials from Secret %q via envFrom", messagingSecretName)
 	}
 
-	secret, err := client.Clientset().CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
+	agentSecretName := deployment.GenerateSecretName("k8s-slack-e2e", "build001")
+	for _, from := range messaging.EnvFrom {
+		if from.SecretRef != nil && from.SecretRef.Name == agentSecretName {
+			t.Errorf("messaging sidecar should not envFrom the agent's full credentials Secret %q", agentSecretName)
+		}
+	}
+
+	secret, err := client.Clientset().CoreV1().Secrets(ns).Get(ctx, messagingSecretName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("credentials secret %q not found: %v", secretName, err)
+		t.Fatalf("messaging credentials secret %q not found: %v", messagingSecretName, err)
 	}
 	if _, ok := secret.Data["SLACK_BOT_TOKEN"]; !ok {
-		t.Error("credentials secret missing SLACK_BOT_TOKEN")
+		t.Error("messaging credentials secret missing SLACK_BOT_TOKEN")
 	}
 
 	configMapName := deployment.GenerateConfigMapName("k8s-slack-e2e", "build001")
