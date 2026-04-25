@@ -525,13 +525,20 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		// Resolve interface environment — collect only entries whose keys are
-		// defined in interfaces.environment (resolved values are in the shared
-		// ConfigMap already, but we also inject them directly so the messaging
-		// container gets them even without the ConfigMap)
+		// defined in interfaces.environment. Non-secret values become inline
+		// env vars; secret values land in a messaging-only Secret below so we
+		// don't leak the agent's full credentials bundle into the sidecar.
+		// Skip empty/unresolved secret values so stripped specs (no real values
+		// rehydrated yet) don't produce an empty Secret resource.
 		resolvedIfaceEnv := make(map[string]string)
+		messagingSecretData := make(map[string]string)
 		for key := range ds.Interfaces.Environment {
 			if val, ok := resolved.ConfigMapData[key]; ok {
 				resolvedIfaceEnv[key] = val
+				continue
+			}
+			if val, ok := resolved.SecretData[key]; ok && val != "" && !spec.IsReference(val) {
+				messagingSecretData[key] = val
 			}
 		}
 
@@ -576,12 +583,27 @@ func (a *Applier) ApplyDeploymentSpec(
 		if a.deployTokenSecret != "" {
 			deployToken, _ = deploytoken.Sign(a.deploymentID, anyoneAdapters, a.deployTokenSecret)
 		}
-		_ = accountName // retained for downstream wiring; no longer signed into the token
+
+		// Apply the messaging-only Secret when the spec references any secret
+		// values from interfaces.environment. The messaging sidecar mounts only
+		// this narrower Secret — never the agent's full credentials bundle.
+		messagingSecretName := ""
+		if len(messagingSecretData) > 0 {
+			messagingSecretName = deployment.GenerateMessagingSecretName(agentName, buildID)
+			msgSecret := BuildNamedSecret(a.namespace, messagingSecretName, accountName, agentName, buildID, "messaging-variables", messagingSecretData)
+			status, err := a.applySecret(ctx, msgSecret)
+			result.Resources = append(result.Resources, status)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: msgSecret.Name, Kind: "Secret", Error: err.Error(),
+				})
+			}
+		}
 
 		msgSidecar = &MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: "messaging",
-			Image: msgImage, Port: grpcPort, SecretName: secretName,
+			Image: msgImage, Port: grpcPort, SecretName: messagingSecretName,
 			ConfigMapName: "",
 			SlackEnabled:  slackEnabled, WebEnabled: webEnabled,
 			WebPort:         webPort,

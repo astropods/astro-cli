@@ -85,6 +85,28 @@ func GenerateSecretName(agent, version string) string {
 	return SanitizeName(fullName)
 }
 
+// GenerateMessagingSecretName generates the name for the messaging-only Secret
+// that holds the subset of secret values referenced from interfaces.environment.
+// Format: {agent}-{version}-messaging-credentials
+//
+// Why this exists: the agent's main credentials Secret carries every secret in
+// the deployment (LLM keys, knowledge store passwords, etc). Mounting it on
+// the messaging sidecar via envFrom would leak all of those to the messaging
+// process. We build a separate, narrower Secret with only the keys the
+// messaging container actually needs (slack tokens, web auth secrets, etc).
+func GenerateMessagingSecretName(agent, version string) string {
+	versionSanitized := strings.ReplaceAll(version, ".", "-")
+	parts := []string{
+		SanitizeName(agent),
+		SanitizeName(versionSanitized),
+		"messaging",
+		"credentials",
+	}
+
+	fullName := strings.Join(parts, "-")
+	return SanitizeName(fullName)
+}
+
 // GenerateConfigMapName generates the name for configuration ConfigMap
 // Format: {agent}-{version}-config
 func GenerateConfigMapName(agent, version string) string {

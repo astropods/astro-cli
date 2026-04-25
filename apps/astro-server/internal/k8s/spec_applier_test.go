@@ -1289,7 +1289,7 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		}
 	})
 
-	t.Run("rehydrated spec creates secret with correct values", func(t *testing.T) {
+	t.Run("rehydrated spec creates two secrets and scopes envFrom correctly", func(t *testing.T) {
 		a := newTestApplier()
 		ds := slackSpec()
 		// Simulate rehydrated spec: secret variables have values restored
@@ -1306,23 +1306,37 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 			t.Fatalf("unexpected apply errors: %v", result.Errors)
 		}
 
-		// Verify the K8s Secret exists with the correct data
-		secretName := deployment.GenerateSecretName("my-agent", "build-123")
-		secret, err := a.clientset.CoreV1().Secrets("default").Get(
-			context.Background(), secretName, metav1.GetOptions{},
+		// The agent's main credentials Secret holds every secret variable.
+		agentSecretName := deployment.GenerateSecretName("my-agent", "build-123")
+		agentSecret, err := a.clientset.CoreV1().Secrets("default").Get(
+			context.Background(), agentSecretName, metav1.GetOptions{},
 		)
 		if err != nil {
-			t.Fatalf("get secret %q: %v", secretName, err)
+			t.Fatalf("get agent secret %q: %v", agentSecretName, err)
+		}
+		if got := string(agentSecret.Data["SLACK_BOT_TOKEN"]); got != "xoxb-real-token" {
+			t.Errorf("agent secret SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-real-token")
 		}
 
-		if got := string(secret.Data["SLACK_BOT_TOKEN"]); got != "xoxb-real-token" {
-			t.Errorf("secret SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-real-token")
+		// The messaging-only Secret holds the same values, but is a separate
+		// resource so the messaging sidecar mounts only this narrower bundle
+		// (avoids leaking unrelated agent credentials like ANTHROPIC_API_KEY).
+		msgSecretName := deployment.GenerateMessagingSecretName("my-agent", "build-123")
+		msgSecret, err := a.clientset.CoreV1().Secrets("default").Get(
+			context.Background(), msgSecretName, metav1.GetOptions{},
+		)
+		if err != nil {
+			t.Fatalf("get messaging secret %q: %v", msgSecretName, err)
 		}
-		if got := string(secret.Data["SLACK_APP_TOKEN"]); got != "xapp-real-token" {
-			t.Errorf("secret SLACK_APP_TOKEN: got %q, want %q", got, "xapp-real-token")
+		if got := string(msgSecret.Data["SLACK_BOT_TOKEN"]); got != "xoxb-real-token" {
+			t.Errorf("messaging secret SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-real-token")
+		}
+		if got := string(msgSecret.Data["SLACK_APP_TOKEN"]); got != "xapp-real-token" {
+			t.Errorf("messaging secret SLACK_APP_TOKEN: got %q, want %q", got, "xapp-real-token")
 		}
 
-		// Verify the agent deployment's messaging container has envFrom with the secret
+		// Verify the agent deployment's messaging container envFrom points at
+		// the messaging-only Secret, NOT the agent secret.
 		deplName := deployment.GenerateAgentResourceName("my-agent", "agent")
 		depl, err := a.clientset.AppsV1().Deployments("default").Get(
 			context.Background(), deplName, metav1.GetOptions{},
@@ -1342,16 +1356,23 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 			t.Fatal("messaging container not found in agent deployment")
 		}
 
-		// Check envFrom references the secret
-		foundSecretRef := false
+		var refNames []string
 		for _, ef := range msgContainer.EnvFrom {
-			if ef.SecretRef != nil && ef.SecretRef.Name == secretName {
-				foundSecretRef = true
+			if ef.SecretRef != nil {
+				refNames = append(refNames, ef.SecretRef.Name)
 			}
 		}
-		if !foundSecretRef {
-			t.Errorf("messaging container missing envFrom secretRef %q; envFrom: %+v",
-				secretName, msgContainer.EnvFrom)
+		foundMsgSecret := false
+		for _, n := range refNames {
+			if n == agentSecretName {
+				t.Errorf("messaging container should NOT mount agent secret %q; envFrom secrets: %v", agentSecretName, refNames)
+			}
+			if n == msgSecretName {
+				foundMsgSecret = true
+			}
+		}
+		if !foundMsgSecret {
+			t.Errorf("messaging container missing envFrom secretRef %q; envFrom secrets: %v", msgSecretName, refNames)
 		}
 
 		// Check SLACK_ENABLED env var is set on the messaging container
@@ -1365,7 +1386,8 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 			t.Error("messaging container missing SLACK_ENABLED=true env var")
 		}
 
-		// Also verify the main agent container has the secret mounted
+		// The main agent container still mounts the full agent secret —
+		// scoping only happens for the messaging sidecar.
 		var agentContainer *corev1.Container
 		for i := range depl.Spec.Template.Spec.Containers {
 			c := &depl.Spec.Template.Spec.Containers[i]
@@ -1379,12 +1401,12 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		}
 		foundAgentSecretRef := false
 		for _, ef := range agentContainer.EnvFrom {
-			if ef.SecretRef != nil && ef.SecretRef.Name == secretName {
+			if ef.SecretRef != nil && ef.SecretRef.Name == agentSecretName {
 				foundAgentSecretRef = true
 			}
 		}
 		if !foundAgentSecretRef {
-			t.Errorf("agent container missing envFrom secretRef %q", secretName)
+			t.Errorf("agent container missing envFrom secretRef %q", agentSecretName)
 		}
 	})
 }

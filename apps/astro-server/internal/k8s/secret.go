@@ -8,7 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// BuildSecret creates a Kubernetes Secret manifest from resolved secret variable values.
+// BuildSecret creates the agent's main credentials Secret (one per deployment,
+// containing every secret variable in the spec).
 func BuildSecret(
 	namespace string,
 	accountName string,
@@ -16,17 +17,38 @@ func BuildSecret(
 	buildID string,
 	secretValues map[string]string,
 ) *corev1.Secret {
-	secretName := deployment.GenerateSecretName(agentName, buildID)
-	labels := deployment.GenerateLabels(accountName, agentName, buildID, "variables")
+	return BuildNamedSecret(
+		namespace,
+		deployment.GenerateSecretName(agentName, buildID),
+		accountName, agentName, buildID,
+		"variables",
+		secretValues,
+	)
+}
 
-	// Encode values - convert keys to uppercase
+// BuildNamedSecret creates a Kubernetes Secret with an explicit name and
+// component label. Used by the messaging sidecar to get its own narrower
+// credentials bundle (only the keys it references in interfaces.environment),
+// independent of the agent's main credentials Secret.
+func BuildNamedSecret(
+	namespace string,
+	secretName string,
+	accountName string,
+	agentName string,
+	buildID string,
+	component string,
+	secretValues map[string]string,
+) *corev1.Secret {
+	labels := deployment.GenerateLabels(accountName, agentName, buildID, component)
+
+	// Encode values - convert keys to uppercase to match env-var conventions.
 	data := make(map[string][]byte)
 	for key, value := range secretValues {
 		upperKey := strings.ToUpper(key)
 		data[upperKey] = []byte(value)
 	}
 
-	secret := &corev1.Secret{
+	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
 			Kind:       "Secret",
@@ -39,6 +61,4 @@ func BuildSecret(
 		Type: corev1.SecretTypeOpaque,
 		Data: data,
 	}
-
-	return secret
 }
