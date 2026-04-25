@@ -555,10 +555,28 @@ func (a *Applier) ApplyDeploymentSpec(
 			msgImage = "astropods/messaging:latest"
 		}
 
+		// Pre-compute the adapters that have an `anyone` grant in this spec so
+		// the messaging container can short-circuit public traffic without an
+		// authorize round-trip. Sourcing this from the spec (not the DB)
+		// guarantees the token's claim agrees with the grants written by this
+		// same deploy — they're derived from the same input.
+		var anyoneAdapters []string
+		if ds.Interfaces != nil && ds.Interfaces.Auth != nil {
+			seen := map[string]bool{}
+			for _, g := range ds.Interfaces.Auth.Grants {
+				if g.Anyone && !seen[g.Adapter] {
+					seen[g.Adapter] = true
+					anyoneAdapters = append(anyoneAdapters, g.Adapter)
+				}
+			}
+			sort.Strings(anyoneAdapters)
+		}
+
 		var deployToken string
 		if a.deployTokenSecret != "" {
-			deployToken, _ = deploytoken.Sign(a.deploymentID, accountName, a.deployTokenSecret)
+			deployToken, _ = deploytoken.Sign(a.deploymentID, anyoneAdapters, a.deployTokenSecret)
 		}
+		_ = accountName // retained for downstream wiring; no longer signed into the token
 
 		msgSidecar = &MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,

@@ -968,7 +968,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 			// Deployment template generation
 			api.POST(protected, "/agents/:account/:name/deployment-template", "Interactive deployment template",
-				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore, ksStore),
+				handlers.PostDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore, ksStore, authzStore),
 				oapispec.Tags("Agents"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1074,7 +1074,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -1191,29 +1191,10 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
 			)
-			// Deployment authorization management
-			api.GET(protected, "/deployments/:id/authorization", "Get deployment authorization", handlers.GetDeploymentAuthorization(log, authzStore, deploymentStore, accountStore),
-				oapispec.Tags("Deployments"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-			)
-			api.PUT(protected, "/deployments/:id/authorization", "Set deployment access policy", handlers.SetDeploymentPolicy(log, authzStore, deploymentStore, accountStore),
-				oapispec.Tags("Deployments"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-			)
-			api.PUT(protected, "/deployments/:id/authorization/grants", "Upsert authorization grant", handlers.UpsertDeploymentGrant(log, authzStore, deploymentStore, accountStore),
-				oapispec.Tags("Deployments"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-			)
-			api.DELETE(protected, "/deployments/:id/authorization/grants/:account_id/:adapter", "Delete authorization grant", handlers.DeleteDeploymentGrant(log, authzStore, deploymentStore, accountStore),
-				oapispec.Tags("Deployments"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("account_id", "Account ID to revoke"),
-				oapispec.PathParam("adapter", "Adapter (web or slack)"),
-			)
+			// Authorization is configured exclusively through `interfaces.auth`
+			// in the deployment spec — no imperative endpoints here. The only
+			// authorization endpoint is the messaging-facing
+			// /deployments/authorize wired below behind RequireDeployToken.
 
 			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),

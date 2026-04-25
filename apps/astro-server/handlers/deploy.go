@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -419,6 +420,16 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	if submittedSpec.Interfaces != nil {
+		if authErrs := validateAuthorizationSpec(submittedSpec.Interfaces.Auth); len(authErrs) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":             "interfaces.auth invalid",
+				"validation_errors": toValidationErrors(authErrs),
+			})
+			return nil, false
+		}
+	}
+
 	return &deployContext{
 		acct:              targetAcct,
 		sourceAccountName: sourceAcct.Name,
@@ -470,7 +481,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -606,6 +617,22 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("Failed to save deployment record", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
+		}
+
+		// Apply interfaces.auth.grants declared in the spec to the
+		// authorization table. The grants table is the runtime source of truth
+		// for per-request authorization checks; this is its only writer (no
+		// imperative API exists).
+		//
+		// E11: when the auth block is omitted entirely, do nothing — preserve
+		// any existing grants. When present (even with grants:[]), atomically
+		// replace the deployment's grant set with the spec's list.
+		if authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil {
+			if err := applyDeploymentAuthorization(authzStore, dctx.deploymentID, submittedSpec.Interfaces.Auth); err != nil {
+				log.Error("Failed to apply deployment authorization", "error", err, "deployment_id", dctx.deploymentID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to apply authorization"})
+				return
+			}
 		}
 
 		// Reserve the blueprint name on first deploy — best-effort, never blocks the response.
@@ -2589,7 +2616,7 @@ func generateTemplate(
 
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
 // POST /api/v1/agents/:account/:name/deployment-template
-func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store) gin.HandlerFunc {
+func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store) gin.HandlerFunc {
 	cache := &templateCache{ttl: 5 * time.Minute}
 
 	return func(c *gin.Context) {
@@ -2727,7 +2754,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
-			mergeDeploymentPrefill(template, prefillExisting, storedVars, accountStore)
+			mergeDeploymentPrefill(log, template, prefillExisting, storedVars, accountStore, authzStore)
 
 			// For historical revisions, also override display name from the stored spec.
 			if req.Revision > 0 {
@@ -2773,6 +2800,14 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			return
 		}
 
+		// Fresh-deploy prefill: pre-populate sensible auth grants so a default
+		// deploy isn't dead-on-arrival. The user sees these in the editable
+		// template before submitting and may remove or extend them. See spec
+		// section "Defaults and prefill".
+		if user, ok := middleware.GetUser(c); ok {
+			seedFreshAuthGrants(template, user.ID, acct.ID)
+		}
+
 		cache.set(cacheKey, template)
 		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
 		if req.Finalize {
@@ -2782,9 +2817,40 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 	}
 }
 
+// seedFreshAuthGrants populates interfaces.auth.grants with sensible defaults
+// on a fresh deploy. The deployer always gets a user grant for web. The
+// owning account additionally gets an account grant for slack when slack is
+// in the adapter list, since a fresh slack-enabled deployment is otherwise
+// unreachable through that channel.
+//
+// Existing grants in the template (e.g. coming from the agent's astropods.yml)
+// are preserved — we only seed when the slot is empty.
+func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID, ownerAccountID string) {
+	if template.Interfaces == nil {
+		return
+	}
+	if template.Interfaces.Auth == nil {
+		template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+	}
+	if len(template.Interfaces.Auth.Grants) > 0 {
+		return
+	}
+
+	grants := []spec.DeploymentAuthorizationGrant{
+		{UserID: deployerUserID, Adapter: "web"},
+	}
+	for _, ad := range template.Interfaces.Adapters {
+		if ad == "slack" {
+			grants = append(grants, spec.DeploymentAuthorizationGrant{AccountID: ownerAccountID, Adapter: "slack"})
+			break
+		}
+	}
+	template.Interfaces.Auth.Grants = grants
+}
+
 // mergeDeploymentPrefill merges stored deployment values into a template.
 // Used by PostDeploymentTemplate when deployment_id is provided.
-func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, storedVars []deploymentstore.Variable, accountStore *account.AccountStore) {
+func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, storedVars []deploymentstore.Variable, accountStore *account.AccountStore, authzStore *authorizationstore.Store) {
 	template.Target.DeploymentID = existing.ID
 	template.Target.DisplayName = existing.DisplayName
 
@@ -2825,6 +2891,148 @@ func mergeDeploymentPrefill(template *spec.AstroDeploymentSpec, existing *deploy
 				}
 			}
 		}
+	}
+
+	// Pull live authorization (default_role + grants) from the DB, not the stored spec.
+	// The DB is the source of truth — admin endpoints can mutate it between deploys.
+	if authzStore != nil && template.Interfaces != nil {
+		if template.Interfaces.Auth == nil {
+			template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+		}
+		mergeAuthorizationFromStore(log, authzStore, existing.ID, template.Interfaces.Auth)
+	}
+}
+
+// applyDeploymentAuthorization atomically replaces the deployment's grants
+// with the spec's `interfaces.auth.grants` list. This is the only writer to
+// the grants table — there is no imperative add/remove API — so the spec is
+// the single source of truth.
+func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) error {
+	grants := make([]authorizationstore.Grant, 0, len(auth.Grants))
+	for _, g := range auth.Grants {
+		grants = append(grants, specGrantToStore(deploymentID, g))
+	}
+	if err := authzStore.ReplaceGrants(deploymentID, grants); err != nil {
+		return fmt.Errorf("replace grants: %w", err)
+	}
+	return nil
+}
+
+// specGrantToStore translates a spec-shape grant (account_id|user_id|anyone)
+// into the store's polymorphic (subject_type, subject_id) shape.
+//
+// Caller must have run validateAuthorizationSpec first to ensure exactly one
+// of the three subject fields is set.
+func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant) authorizationstore.Grant {
+	out := authorizationstore.Grant{DeploymentID: deploymentID, Adapter: g.Adapter}
+	switch {
+	case g.Anyone:
+		out.SubjectType = authorizationstore.SubjectTypeAnyone
+		out.SubjectID = ""
+	case g.UserID != "":
+		out.SubjectType = authorizationstore.SubjectTypeUser
+		out.SubjectID = g.UserID
+	default:
+		out.SubjectType = authorizationstore.SubjectTypeAccount
+		out.SubjectID = g.AccountID
+	}
+	return out
+}
+
+// storeGrantToSpec is the inverse of specGrantToStore. Used during template
+// prefill to surface live grants in the editable spec block.
+func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationGrant {
+	out := spec.DeploymentAuthorizationGrant{Adapter: g.Adapter}
+	switch g.SubjectType {
+	case authorizationstore.SubjectTypeAnyone:
+		out.Anyone = true
+	case authorizationstore.SubjectTypeUser:
+		out.UserID = g.SubjectID
+	case authorizationstore.SubjectTypeAccount:
+		out.AccountID = g.SubjectID
+	}
+	return out
+}
+
+// validateAuthorizationSpec checks that every grant in the spec has exactly
+// one subject (account/user/anyone), uses a known adapter, and obeys the
+// web-only constraint for user/anyone grants. Returns a list of human-readable
+// error strings, empty when the block is valid.
+func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
+	if auth == nil {
+		return nil
+	}
+	var errs []string
+	validAdapters := map[string]bool{authorizationstore.AdapterWeb: true, authorizationstore.AdapterSlack: true}
+
+	seen := make(map[string]struct{}, len(auth.Grants))
+	for i, g := range auth.Grants {
+		prefix := fmt.Sprintf("interfaces.auth.grants[%d]", i)
+
+		// Exactly one subject must be set.
+		subjectCount := 0
+		if g.AccountID != "" {
+			subjectCount++
+		}
+		if g.UserID != "" {
+			subjectCount++
+		}
+		if g.Anyone {
+			subjectCount++
+		}
+		switch subjectCount {
+		case 0:
+			errs = append(errs, prefix+": exactly one of account_id, user_id, anyone is required")
+		case 1:
+			// ok
+		default:
+			errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
+		}
+
+		if !validAdapters[g.Adapter] {
+			errs = append(errs, fmt.Sprintf("%s.adapter: must be one of web, slack (got %q)", prefix, g.Adapter))
+			continue
+		}
+
+		// user/anyone grants are web-only — slack identity is opaque so per-user
+		// authz isn't possible there, and "anyone on slack" is meaningless
+		// because the slack bot is per-account.
+		if (g.UserID != "" || g.Anyone) && g.Adapter != authorizationstore.AdapterWeb {
+			errs = append(errs, fmt.Sprintf("%s: user/anyone grants must use adapter=web", prefix))
+		}
+
+		// Detect duplicates within the same spec — the DB unique constraint
+		// would also catch this, but a 400 with a specific message is friendlier.
+		key := g.Adapter + "|"
+		switch {
+		case g.Anyone:
+			key += "anyone:"
+		case g.UserID != "":
+			key += "user:" + g.UserID
+		case g.AccountID != "":
+			key += "account:" + g.AccountID
+		}
+		if _, dup := seen[key]; dup {
+			errs = append(errs, prefix+": duplicate (subject, adapter) pair")
+		}
+		seen[key] = struct{}{}
+	}
+	return errs
+}
+
+// mergeAuthorizationFromStore overlays the deployment's stored grants onto the
+// template's interfaces.auth so the UI reflects the live access state. Used
+// by the deployment-template prefill path on redeploys.
+func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) {
+	grants, err := authzStore.ListGrants(deploymentID)
+	if err != nil {
+		log.Error("Failed to list authorization grants", "error", err, "deployment_id", deploymentID)
+		return
+	}
+
+	auth.Grants = nil
+	for _, g := range grants {
+		auth.Grants = append(auth.Grants, storeGrantToSpec(g))
 	}
 }
 

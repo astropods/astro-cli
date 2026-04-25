@@ -1,69 +1,134 @@
+// Package authorizationstore is the database layer for per-deployment
+// authorization (the messaging container's access policy).
+//
+// Data model: a single deployment_authorization_grants table keyed by
+// (deployment_id, subject_type, subject_id, adapter). A request is allowed
+// iff a matching grant row exists. There is no separate policy table and no
+// "default allow" fallback — absence of a grant means deny.
 package authorizationstore
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 const (
-	IdentityTypeUser  = "user"  // WorkOS user ID (web/OIDC) — resolved to account_id via account_members
-	IdentityTypeSlack = "slack" // Slack user ID — resolved to the deployment owner's account_id
+	// IdentityTypeUser is a WorkOS user ID (web/OIDC). Resolved to the user
+	// itself plus all accounts the user is a member of.
+	IdentityTypeUser = "user"
+	// IdentityTypeSlack is a slack user ID. Resolved to the deployment's
+	// owning account (looked up from the deployments row).
+	IdentityTypeSlack = "slack"
+
+	// SubjectTypeAccount: any member of the named account is allowed.
+	SubjectTypeAccount = "account"
+	// SubjectTypeUser: this specific WorkOS user is allowed. Web only.
+	SubjectTypeUser = "user"
+	// SubjectTypeAnyone: anyone hitting the adapter is allowed. Web only.
+	// subject_id is empty for these rows.
+	SubjectTypeAnyone = "anyone"
 
 	AdapterWeb   = "web"
 	AdapterSlack = "slack"
 )
 
+// Store is the data-access layer for authorization grants.
 type Store struct {
 	db *sql.DB
 }
 
+// NewStore wires a Store onto a *sql.DB. The caller owns the lifetime of db.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// Grant is a single row in deployment_authorization_grants.
+//
+// SubjectID's meaning depends on SubjectType:
+//   - SubjectTypeAccount → accounts.id (uuid as text)
+//   - SubjectTypeUser    → workos_user_id
+//   - SubjectTypeAnyone  → empty string
 type Grant struct {
 	DeploymentID string `json:"deployment_id"`
-	AccountID    string `json:"account_id"`
+	SubjectType  string `json:"subject_type"`
+	SubjectID    string `json:"subject_id"`
 	Adapter      string `json:"adapter"`
-	Role         string `json:"role"`
 }
 
-type Policy struct {
-	DeploymentID string `json:"deployment_id"`
-	DefaultRole  string `json:"default_role"`
+// Subject identifies one candidate the principal resolves to. Authorization
+// passes if any candidate matches a grant for the deployment + adapter.
+type Subject struct {
+	Type string // SubjectTypeAccount or SubjectTypeUser
+	ID   string
 }
 
-// IsAllowedByAccount checks if the given account has a non-"none" role for the deployment
-// on the specified adapter. Falls back to the deployment's default_role when no explicit grant exists.
-func (s *Store) IsAllowedByAccount(deploymentID, accountID, adapter string) (bool, error) {
-	var role string
+// HasAnyoneGrant returns true when an `anyone` grant exists for the
+// (deployment, adapter) pair. Callers use this as a fast-path short-circuit
+// so they can skip principal resolution entirely.
+func (s *Store) HasAnyoneGrant(deploymentID, adapter string) (bool, error) {
+	var found int
 	err := s.db.QueryRow(`
-		SELECT role FROM deployment_authorization_grants
-		WHERE deployment_id = $1 AND account_id = $2 AND adapter = $3
-	`, deploymentID, accountID, adapter).Scan(&role)
+		SELECT 1 FROM deployment_authorization_grants
+		WHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'
+		LIMIT 1
+	`, deploymentID, adapter).Scan(&found)
 	if err == nil {
-		return role != "none", nil
+		return true, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return false, fmt.Errorf("query grant: %w", err)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
 	}
-
-	var defaultRole string
-	err = s.db.QueryRow(`
-		SELECT default_role FROM deployment_access_policy
-		WHERE deployment_id = $1
-	`, deploymentID).Scan(&defaultRole)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, fmt.Errorf("query policy: %w", err)
-	}
-	return defaultRole != "none", nil
+	return false, fmt.Errorf("query anyone grant: %w", err)
 }
 
-// AccountIDsForUser returns all account IDs the WorkOS user is a member of.
+// MatchesGrant returns true when any of the supplied candidate subjects has
+// an account- or user-typed grant for the (deployment, adapter) pair. It does
+// *not* check the anyone short-circuit — callers are expected to invoke
+// HasAnyoneGrant first when relevant.
+//
+// The query runs as a single round-trip with two parallel ANY() clauses so
+// the SQL is fixed regardless of the candidate breakdown. Empty arrays bind
+// safely via pq.Array and simply match nothing.
+func (s *Store) MatchesGrant(deploymentID string, candidates []Subject, adapter string) (bool, error) {
+	if len(candidates) == 0 {
+		return false, nil
+	}
+	var accountIDs, userIDs []string
+	for _, c := range candidates {
+		switch c.Type {
+		case SubjectTypeAccount:
+			accountIDs = append(accountIDs, c.ID)
+		case SubjectTypeUser:
+			userIDs = append(userIDs, c.ID)
+		}
+	}
+
+	var found int
+	err := s.db.QueryRow(`
+		SELECT 1 FROM deployment_authorization_grants
+		WHERE deployment_id = $1
+		  AND adapter = $2
+		  AND (
+		    (subject_type = 'account' AND subject_id = ANY($3))
+		    OR
+		    (subject_type = 'user' AND subject_id = ANY($4))
+		  )
+		LIMIT 1
+	`, deploymentID, adapter, pq.Array(accountIDs), pq.Array(userIDs)).Scan(&found)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, fmt.Errorf("query grants: %w", err)
+}
+
+// AccountIDsForUser returns every account the WorkOS user is a member of.
+// Used during principal resolution for web requests.
 func (s *Store) AccountIDsForUser(userID string) ([]string, error) {
 	rows, err := s.db.Query(`
 		SELECT account_id FROM account_members WHERE user_id = $1
@@ -84,36 +149,55 @@ func (s *Store) AccountIDsForUser(userID string) ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (s *Store) GetPolicy(deploymentID string) (*Policy, error) {
-	var p Policy
+// DeploymentAccountID returns the owning account of a deployment. Used during
+// slack principal resolution: a slack call resolves to the account that owns
+// the bot (i.e. the deployment's account). Returns sql.ErrNoRows when the
+// deployment doesn't exist.
+func (s *Store) DeploymentAccountID(deploymentID string) (string, error) {
+	var accountID string
 	err := s.db.QueryRow(`
-		SELECT deployment_id, default_role FROM deployment_access_policy
-		WHERE deployment_id = $1
-	`, deploymentID).Scan(&p.DeploymentID, &p.DefaultRole)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+		SELECT account_id FROM deployments WHERE id = $1
+	`, deploymentID).Scan(&accountID)
 	if err != nil {
-		return nil, fmt.Errorf("query policy: %w", err)
+		return "", err
 	}
-	return &p, nil
+	return accountID, nil
 }
 
-func (s *Store) SetPolicy(deploymentID, defaultRole string) error {
-	_, err := s.db.Exec(`
-		INSERT INTO deployment_access_policy (deployment_id, default_role, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (deployment_id) DO UPDATE SET default_role = $2, updated_at = now()
-	`, deploymentID, defaultRole)
-	return err
+// AnyoneAdapters returns the list of adapters that have an `anyone` grant for
+// the deployment. Used at deploy-token issuance time so the messaging container
+// can short-circuit public traffic without calling the server.
+func (s *Store) AnyoneAdapters(deploymentID string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT adapter FROM deployment_authorization_grants
+		WHERE deployment_id = $1 AND subject_type = 'anyone'
+		ORDER BY adapter
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query anyone adapters: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var adapters []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		adapters = append(adapters, a)
+	}
+	return adapters, rows.Err()
 }
 
+// ListGrants returns every grant for a deployment, ordered for deterministic
+// output. Used by the deployment-template prefill endpoint to surface live
+// state in the UI.
 func (s *Store) ListGrants(deploymentID string) ([]*Grant, error) {
 	rows, err := s.db.Query(`
-		SELECT deployment_id, account_id, adapter, role
+		SELECT deployment_id, subject_type, subject_id, adapter
 		FROM deployment_authorization_grants
 		WHERE deployment_id = $1
-		ORDER BY account_id, adapter
+		ORDER BY subject_type, subject_id, adapter
 	`, deploymentID)
 	if err != nil {
 		return nil, fmt.Errorf("list grants: %w", err)
@@ -123,7 +207,7 @@ func (s *Store) ListGrants(deploymentID string) ([]*Grant, error) {
 	var grants []*Grant
 	for rows.Next() {
 		g := &Grant{}
-		if err := rows.Scan(&g.DeploymentID, &g.AccountID, &g.Adapter, &g.Role); err != nil {
+		if err := rows.Scan(&g.DeploymentID, &g.SubjectType, &g.SubjectID, &g.Adapter); err != nil {
 			return nil, err
 		}
 		grants = append(grants, g)
@@ -131,19 +215,30 @@ func (s *Store) ListGrants(deploymentID string) ([]*Grant, error) {
 	return grants, rows.Err()
 }
 
-func (s *Store) UpsertGrant(deploymentID, accountID, adapter, role string) error {
-	_, err := s.db.Exec(`
-		INSERT INTO deployment_authorization_grants (deployment_id, account_id, adapter, role, updated_at)
-		VALUES ($1, $2, $3, $4, now())
-		ON CONFLICT (deployment_id, account_id, adapter) DO UPDATE SET role = $4, updated_at = now()
-	`, deploymentID, accountID, adapter, role)
-	return err
-}
+// ReplaceGrants atomically swaps the deployment's grant set for the supplied
+// list. This is the only writer to the grants table — there is no imperative
+// add/remove API. The deploy flow calls this with the spec's complete grants
+// list so the spec is the single source of truth.
+func (s *Store) ReplaceGrants(deploymentID string, grants []Grant) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 
-func (s *Store) DeleteGrant(deploymentID, accountID, adapter string) error {
-	_, err := s.db.Exec(`
-		DELETE FROM deployment_authorization_grants
-		WHERE deployment_id = $1 AND account_id = $2 AND adapter = $3
-	`, deploymentID, accountID, adapter)
-	return err
+	if _, err := tx.Exec(`
+		DELETE FROM deployment_authorization_grants WHERE deployment_id = $1
+	`, deploymentID); err != nil {
+		return fmt.Errorf("delete existing grants: %w", err)
+	}
+	for _, g := range grants {
+		if _, err := tx.Exec(`
+			INSERT INTO deployment_authorization_grants
+				(deployment_id, subject_type, subject_id, adapter, updated_at)
+			VALUES ($1, $2, $3, $4, now())
+		`, deploymentID, g.SubjectType, g.SubjectID, g.Adapter); err != nil {
+			return fmt.Errorf("insert grant: %w", err)
+		}
+	}
+	return tx.Commit()
 }

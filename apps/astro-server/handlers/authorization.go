@@ -1,197 +1,152 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 
-	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-var validAuthRoles = map[string]bool{"viewer": true, "admin": true, "none": true}
-
-// CheckDeploymentAuthorization is called by messaging containers to check whether an identity
-// is allowed to access a deployment.
+// CheckDeploymentAuthorization is the messaging container's callback. It
+// answers "is this principal allowed to use this deployment over this adapter."
 //
-// The deployment ID comes from the signed deploy token (set by RequireDeployToken middleware).
-// Identity resolution:
-//   - identity_type=user: WorkOS user ID resolved to account(s) via account_members
-//   - identity_type=slack: resolved to the deployment owner's account (from the deploy token)
+// Auth: the deploy token (validated by RequireDeployToken middleware) supplies
+// the deployment_id. The body of the request supplies the identity to check.
+//
+// Inputs (query params):
+//   - identity_type: "user" | "slack" | empty (anonymous)
+//   - identity_id:   the WorkOS user ID, slack user ID, or empty
+//   - adapter:       "web" | "slack"
+//
+// Flow:
+//  1. Anyone short-circuit — handled inside store.IsAllowed.
+//  2. Principal resolution — user → {user_id, account_ids}; slack → look up
+//     the deployment's owning account from the deployments row.
+//  3. store.IsAllowed runs the grant lookup and returns the boolean.
+//
+// Returns 200 {allowed: bool} on every authoritative answer. Returns 4xx for
+// malformed inputs and 5xx for server-side failures.
 func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		deploymentID := middleware.DeploymentIDFromContext(c)
-		accountID := middleware.AccountIDFromContext(c)
+		if deploymentID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing deployment context"})
+			return
+		}
+
 		identityType := c.Query("identity_type")
 		identityID := c.Query("identity_id")
 		adapter := c.Query("adapter")
 
-		if identityType == "" || identityID == "" || adapter == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "identity_type, identity_id, and adapter are required"})
-			return
-		}
 		if adapter != authorizationstore.AdapterWeb && adapter != authorizationstore.AdapterSlack {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "adapter must be one of: web, slack"})
 			return
 		}
 
-		var allowed bool
-		var err error
-
-		switch identityType {
-		case authorizationstore.IdentityTypeUser:
-			accountIDs, err := authStore.AccountIDsForUser(identityID)
-			if err != nil {
-				log.Error("failed to resolve user accounts", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
-				return
-			}
-			for _, aid := range accountIDs {
-				if ok, err := authStore.IsAllowedByAccount(deploymentID, aid, adapter); err != nil {
-					log.Error("authorization check failed", "deployment_id", deploymentID, "error", err)
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
-					return
-				} else if ok {
-					allowed = true
-					break
-				}
-			}
-
-		case authorizationstore.IdentityTypeSlack:
-			// Slack users resolve to the deployment owner's account (Slack bot is per-account)
-			allowed, err = authStore.IsAllowedByAccount(deploymentID, accountID, adapter)
-			if err != nil {
-				log.Error("authorization check failed", "deployment_id", deploymentID, "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
-				return
-			}
-
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown identity_type"})
+		// An empty identity is only valid when an `anyone` grant exists for
+		// the adapter; the store's anyone short-circuit handles that.
+		// Otherwise reject malformed inputs (one of identity_type/identity_id
+		// supplied without the other).
+		if (identityType == "") != (identityID == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "identity_type and identity_id must be supplied together"})
 			return
+		}
+
+		// Step 1 (per spec): anyone short-circuit, before resolving the
+		// principal. An anyone grant lets us skip the account_members /
+		// deployments lookup entirely — and lets anonymous traffic pass
+		// without any identity at all.
+		if anyone, err := authStore.HasAnyoneGrant(deploymentID, adapter); err != nil {
+			log.Error("authorize: anyone-grant lookup failed",
+				"deployment_id", deploymentID, "adapter", adapter, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
+			return
+		} else if anyone {
+			c.JSON(http.StatusOK, gin.H{"allowed": true})
+			return
+		}
+
+		// Step 2: principal resolution.
+		candidates, err := resolveCandidates(authStore, deploymentID, identityType, identityID)
+		if err != nil {
+			log.Error("authorize: failed to resolve identity",
+				"deployment_id", deploymentID,
+				"identity_type", identityType,
+				"error", err,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
+			return
+		}
+
+		// Step 3: grant lookup against resolved candidates.
+		allowed, err := authStore.MatchesGrant(deploymentID, candidates, adapter)
+		if err != nil {
+			log.Error("authorize: grant lookup failed",
+				"deployment_id", deploymentID,
+				"adapter", adapter,
+				"error", err,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
+			return
+		}
+
+		// Test case J2: log denials with enough context to debug.
+		if !allowed {
+			log.Info("authorize: denied",
+				"deployment_id", deploymentID,
+				"identity_type", identityType,
+				"identity_id", identityID,
+				"adapter", adapter,
+			)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"allowed": allowed})
 	}
 }
 
-// GetDeploymentAuthorization returns the access policy and grants for a deployment.
-func GetDeploymentAuthorization(log *logger.Logger, authStore *authorizationstore.Store, deployStore *deploymentstore.Store, accountStore *account.AccountStore) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		dep, err := resolveDeployment(c, deployStore, accountStore)
+// resolveCandidates turns an (identity_type, identity_id) pair into the set of
+// subjects the grant lookup should match against.
+//
+//   - user  → the user_id itself plus every account the user is a member of.
+//   - slack → the deployment's owning account (slack identity is opaque, so
+//     per-user authorization isn't possible there).
+//   - ""    → empty set; only the anyone short-circuit can succeed.
+//   - other → empty set with an error to make the caller surface a 4xx.
+func resolveCandidates(authStore *authorizationstore.Store, deploymentID, identityType, identityID string) ([]authorizationstore.Subject, error) {
+	switch identityType {
+	case "":
+		return nil, nil
+
+	case authorizationstore.IdentityTypeUser:
+		accountIDs, err := authStore.AccountIDsForUser(identityID)
 		if err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
+			return nil, err
 		}
+		out := make([]authorizationstore.Subject, 0, 1+len(accountIDs))
+		out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeUser, ID: identityID})
+		for _, aid := range accountIDs {
+			out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeAccount, ID: aid})
+		}
+		return out, nil
 
-		policy, err := authStore.GetPolicy(dep.ID)
+	case authorizationstore.IdentityTypeSlack:
+		accountID, err := authStore.DeploymentAccountID(deploymentID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get policy"})
-			return
+			if errors.Is(err, sql.ErrNoRows) {
+				// Token is signed but deployment was deleted.
+				return nil, nil
+			}
+			return nil, err
 		}
+		return []authorizationstore.Subject{
+			{Type: authorizationstore.SubjectTypeAccount, ID: accountID},
+		}, nil
 
-		grants, err := authStore.ListGrants(dep.ID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list grants"})
-			return
-		}
-
-		defaultRole := "none"
-		if policy != nil {
-			defaultRole = policy.DefaultRole
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"default_role": defaultRole,
-			"grants":       grants,
-		})
-	}
-}
-
-// SetDeploymentPolicy sets the default_role for a deployment's access policy.
-func SetDeploymentPolicy(log *logger.Logger, authStore *authorizationstore.Store, deployStore *deploymentstore.Store, accountStore *account.AccountStore) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
-		}
-
-		var body struct {
-			DefaultRole string `json:"default_role" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if !validAuthRoles[body.DefaultRole] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "default_role must be one of: viewer, admin, none"})
-			return
-		}
-
-		if err := authStore.SetPolicy(dep.ID, body.DefaultRole); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set policy"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// UpsertDeploymentGrant adds or updates an account's authorization grant on a deployment.
-func UpsertDeploymentGrant(log *logger.Logger, authStore *authorizationstore.Store, deployStore *deploymentstore.Store, accountStore *account.AccountStore) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
-		}
-
-		var body struct {
-			AccountID string `json:"account_id" binding:"required"`
-			Adapter   string `json:"adapter" binding:"required"`
-			Role      string `json:"role" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if !validAuthRoles[body.Role] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role must be one of: viewer, admin, none"})
-			return
-		}
-		if body.Adapter != authorizationstore.AdapterWeb && body.Adapter != authorizationstore.AdapterSlack {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "adapter must be one of: web, slack"})
-			return
-		}
-
-		if err := authStore.UpsertGrant(dep.ID, body.AccountID, body.Adapter, body.Role); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert grant"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// DeleteDeploymentGrant removes an account's authorization grant from a deployment.
-func DeleteDeploymentGrant(log *logger.Logger, authStore *authorizationstore.Store, deployStore *deploymentstore.Store, accountStore *account.AccountStore) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
-		}
-
-		grantAccountID := c.Param("account_id")
-		adapter := c.Param("adapter")
-		if err := authStore.DeleteGrant(dep.ID, grantAccountID, adapter); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete grant"})
-			return
-		}
-
-		c.Status(http.StatusNoContent)
+	default:
+		return nil, errors.New("unknown identity_type")
 	}
 }

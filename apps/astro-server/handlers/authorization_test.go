@@ -1,0 +1,344 @@
+package handlers
+
+import (
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	spec "github.com/astropods/astro/packages/astro-spec"
+)
+
+// validateAuthorizationSpec — test cases C1..C10.
+
+// C4: a grant with no subject set must be rejected.
+func TestValidateAuth_NoSubject(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{Adapter: "web"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C1: account_id + user_id together → reject.
+func TestValidateAuth_AccountAndUser(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{AccountID: "acct-1", UserID: "alice", Adapter: "web"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C2: account_id + anyone together → reject.
+func TestValidateAuth_AccountAndAnyone(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{AccountID: "acct-1", Anyone: true, Adapter: "web"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C3: user_id + anyone → reject.
+func TestValidateAuth_UserAndAnyone(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{UserID: "alice", Anyone: true, Adapter: "web"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C5: user_id with adapter=slack → reject.
+func TestValidateAuth_UserOnSlack(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{UserID: "alice", Adapter: "slack"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C6: anyone with adapter=slack → reject.
+func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{Anyone: true, Adapter: "slack"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C7: unknown adapter → reject.
+func TestValidateAuth_UnknownAdapter(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{AccountID: "acct-1", Adapter: "discord"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// C8: duplicate (subject, adapter) → reject.
+func TestValidateAuth_Duplicate(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{AccountID: "acct-1", Adapter: "web"},
+			{AccountID: "acct-1", Adapter: "web"},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+}
+
+// All valid forms succeed.
+func TestValidateAuth_ValidMix(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{AccountID: "acct-1", Adapter: "web"},
+			{AccountID: "acct-1", Adapter: "slack"},
+			{UserID: "alice", Adapter: "web"},
+			{Anyone: true, Adapter: "web"},
+		},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// C11: nil block (auth omitted) → no errors.
+func TestValidateAuth_NilBlock(t *testing.T) {
+	errs := validateAuthorizationSpec(nil)
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// C12: empty grants → no validation errors (semantics handled by apply path).
+func TestValidateAuth_EmptyGrants(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{Grants: []spec.DeploymentAuthorizationGrant{}})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// E1: fresh deploy with slack disabled seeds only the deployer's user grant.
+func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
+	tmpl := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
+	}
+	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	if tmpl.Interfaces.Auth == nil {
+		t.Fatal("expected auth block populated")
+	}
+	if len(tmpl.Interfaces.Auth.Grants) != 1 {
+		t.Fatalf("expected 1 grant, got %d", len(tmpl.Interfaces.Auth.Grants))
+	}
+	g := tmpl.Interfaces.Auth.Grants[0]
+	if g.UserID != "alice" || g.Adapter != "web" {
+		t.Errorf("unexpected grant: %+v", g)
+	}
+}
+
+// E1: with slack enabled, an additional account grant is seeded for slack.
+func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
+	tmpl := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
+	}
+	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	if len(tmpl.Interfaces.Auth.Grants) != 2 {
+		t.Fatalf("expected 2 grants, got %d", len(tmpl.Interfaces.Auth.Grants))
+	}
+	want := map[string]bool{"web/user/alice": false, "slack/account/acct-Acme": false}
+	for _, g := range tmpl.Interfaces.Auth.Grants {
+		switch {
+		case g.UserID == "alice" && g.Adapter == "web":
+			want["web/user/alice"] = true
+		case g.AccountID == "acct-Acme" && g.Adapter == "slack":
+			want["slack/account/acct-Acme"] = true
+		}
+	}
+	for k, hit := range want {
+		if !hit {
+			t.Errorf("missing seeded grant: %s", k)
+		}
+	}
+}
+
+// E2: existing grants on the template (from astropods.yml) are not overwritten.
+func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
+	tmpl := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"web"},
+			Auth: &spec.DeploymentInterfacesAuth{
+				Grants: []spec.DeploymentAuthorizationGrant{
+					{Anyone: true, Adapter: "web"},
+				},
+			},
+		},
+	}
+	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	if len(tmpl.Interfaces.Auth.Grants) != 1 {
+		t.Fatalf("expected existing grants preserved, got %+v", tmpl.Interfaces.Auth.Grants)
+	}
+	if !tmpl.Interfaces.Auth.Grants[0].Anyone {
+		t.Errorf("expected anyone grant preserved, got %+v", tmpl.Interfaces.Auth.Grants[0])
+	}
+}
+
+// Robust to nil Interfaces — no panic.
+func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
+	tmpl := &spec.AstroDeploymentSpec{}
+	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	if tmpl.Interfaces != nil {
+		t.Errorf("did not expect Interfaces to be created")
+	}
+}
+
+// E5: applyDeploymentAuthorization performs an atomic delete-then-insert that
+// matches the spec's grants list, regardless of what was there before.
+func TestApplyDeploymentAuthorization(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	store := authorizationstore.NewStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
+		WithArgs("dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
+		WithArgs("dep-1", "user", "alice", "web").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
+		WithArgs("dep-1", "anyone", "", "web").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = applyDeploymentAuthorization(store, "dep-1", &spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{
+			{UserID: "alice", Adapter: "web"},
+			{Anyone: true, Adapter: "web"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// E6: empty grants list still runs the delete (clears all grants).
+func TestApplyDeploymentAuthorization_Empty(t *testing.T) {
+	db, mock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	defer db.Close()
+	store := authorizationstore.NewStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
+		WithArgs("dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	if err := applyDeploymentAuthorization(store, "dep-1", &spec.DeploymentInterfacesAuth{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// E4: prefill reads grants from the live table and translates back to spec form.
+func TestMergeAuthorizationFromStore(t *testing.T) {
+	db, mock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	defer db.Close()
+	store := authorizationstore.NewStore(db)
+	log := logger.New("error", "text")
+
+	mock.ExpectQuery("\n\t\tSELECT deployment_id, subject_type, subject_id, adapter\n\t\tFROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tORDER BY subject_type, subject_id, adapter\n\t").
+		WithArgs("dep-1").
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "subject_type", "subject_id", "adapter"}).
+			AddRow("dep-1", "account", "acct-1", "slack").
+			AddRow("dep-1", "anyone", "", "web").
+			AddRow("dep-1", "user", "alice", "web"))
+
+	auth := &spec.DeploymentInterfacesAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "stale", Adapter: "web"}},
+	}
+	mergeAuthorizationFromStore(log, store, "dep-1", auth)
+
+	if len(auth.Grants) != 3 {
+		t.Fatalf("expected 3 grants, got %d", len(auth.Grants))
+	}
+	// Stored order is (subject_type, subject_id, adapter): account/acct-1/slack, anyone//web, user/alice/web.
+	if auth.Grants[0].AccountID != "acct-1" || auth.Grants[0].Adapter != "slack" {
+		t.Errorf("grant[0]: %+v", auth.Grants[0])
+	}
+	if !auth.Grants[1].Anyone || auth.Grants[1].Adapter != "web" {
+		t.Errorf("grant[1]: %+v", auth.Grants[1])
+	}
+	if auth.Grants[2].UserID != "alice" || auth.Grants[2].Adapter != "web" {
+		t.Errorf("grant[2]: %+v", auth.Grants[2])
+	}
+}
+
+// specGrantToStore translates the three subject forms correctly.
+func TestSpecGrantToStore(t *testing.T) {
+	cases := []struct {
+		name string
+		in   spec.DeploymentAuthorizationGrant
+		want struct {
+			subjectType, subjectID string
+		}
+	}{
+		{
+			name: "account",
+			in:   spec.DeploymentAuthorizationGrant{AccountID: "acct-1", Adapter: "web"},
+			want: struct{ subjectType, subjectID string }{"account", "acct-1"},
+		},
+		{
+			name: "user",
+			in:   spec.DeploymentAuthorizationGrant{UserID: "alice", Adapter: "web"},
+			want: struct{ subjectType, subjectID string }{"user", "alice"},
+		},
+		{
+			name: "anyone",
+			in:   spec.DeploymentAuthorizationGrant{Anyone: true, Adapter: "web"},
+			want: struct{ subjectType, subjectID string }{"anyone", ""},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := specGrantToStore("dep-1", tc.in)
+			if got.SubjectType != tc.want.subjectType || got.SubjectID != tc.want.subjectID {
+				t.Errorf("got %+v, want subject_type=%s subject_id=%s", got, tc.want.subjectType, tc.want.subjectID)
+			}
+			if got.DeploymentID != "dep-1" {
+				t.Errorf("DeploymentID lost: %q", got.DeploymentID)
+			}
+			if got.Adapter != tc.in.Adapter {
+				t.Errorf("Adapter lost: %q", got.Adapter)
+			}
+		})
+	}
+}

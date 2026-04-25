@@ -20,6 +20,20 @@ type AstroDeploymentSpec struct {
 	Editable      []string                         `json:"editable,omitempty" yaml:"editable,omitempty"`
 }
 
+// DeploymentAuthorizationGrant is a single (subject, adapter) access grant.
+// Presence in the spec's Grants list means the subject is allowed via that adapter.
+//
+// Exactly one of AccountID, UserID, or Anyone must be set:
+//   - AccountID — any member of this account is allowed.
+//   - UserID    — this specific WorkOS user is allowed (web adapter only).
+//   - Anyone    — anyone hitting the adapter is allowed (web adapter only).
+type DeploymentAuthorizationGrant struct {
+	AccountID string `json:"account_id,omitempty" yaml:"account_id,omitempty"`
+	UserID    string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+	Anyone    bool   `json:"anyone,omitempty" yaml:"anyone,omitempty"`
+	Adapter   string `json:"adapter" yaml:"adapter"` // "web" | "slack"
+}
+
 // Endpoint represents a named network endpoint on a component.
 type Endpoint struct {
 	Port     int             `json:"port" yaml:"port"`
@@ -165,10 +179,16 @@ type DeploymentInterfaces struct {
 	Auth        *DeploymentInterfacesAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 }
 
-// DeploymentInterfacesAuth controls authentication per interface type.
+// DeploymentInterfacesAuth controls authentication (Web) and authorization (Grants)
+// for the messaging interfaces. A request is allowed iff a matching grant exists;
+// there is no default-allow fallback.
 type DeploymentInterfacesAuth struct {
 	// Web controls auth for the web adapter ingress. Nil means no auth.
 	Web *DeploymentWebAuth `json:"web,omitempty" yaml:"web,omitempty"`
+
+	// Grants enumerate who can talk to the deployment. Each grant targets exactly
+	// one of: account_id, user_id, or anyone — see DeploymentAuthorizationGrant.
+	Grants []DeploymentAuthorizationGrant `json:"grants,omitempty" yaml:"grants,omitempty"`
 }
 
 // DeploymentWebAuth configures authentication for the web adapter ingress.
@@ -329,7 +349,7 @@ type TemplateResponse struct {
 	Template   AstroDeploymentSpec `json:"template"`            // deployment/v1 — directly postable to /deploy
 	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
 	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
-	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth)
+	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth + grants)
 	Schedules  map[string]string   `json:"schedules"`           // ingestion name → cron expression
 	Bindings   *ResolvedBindings   `json:"bindings,omitempty"`  // resolved binding metadata for the UI
 	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors

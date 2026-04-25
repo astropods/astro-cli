@@ -557,29 +557,34 @@ CREATE TABLE public.knowledge_store_bindings (
 
 CREATE INDEX idx_knowledge_store_bindings_store ON public.knowledge_store_bindings(knowledge_store_id);
 
-CREATE TABLE public.deployment_access_policy (
-    deployment_id varchar     NOT NULL,
-    default_role  varchar     NOT NULL DEFAULT 'none',
-    updated_at    timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT deployment_access_policy_pkey PRIMARY KEY (deployment_id),
-    CONSTRAINT deployment_access_policy_deployment_fkey FOREIGN KEY (deployment_id)
-        REFERENCES public.deployments(id) ON DELETE CASCADE
-);
-
+-- A row in this table grants the (subject, adapter) pair access to the deployment.
+-- A request is allowed iff a matching grant exists. There is no separate policy
+-- table — absence of a grant means deny.
+--
+-- subject_type='account' → subject_id is an accounts.id (uuid as text).
+-- subject_type='user'    → subject_id is a workos_user_id.
+-- subject_type='anyone'  → subject_id is empty; the row matches any caller.
+--
+-- user/anyone grants are restricted to the web adapter (slack identity is opaque,
+-- so per-user authz isn't possible there and anyone-on-slack is meaningless).
+--
+-- subject_id has no FK because it's polymorphic. Cascade only on deployment_id.
 CREATE TABLE public.deployment_authorization_grants (
     id            uuid        NOT NULL DEFAULT gen_random_uuid(),
     deployment_id varchar     NOT NULL,
-    account_id    uuid        NOT NULL,
-    adapter       varchar     NOT NULL DEFAULT 'web',  -- 'web' or 'slack'
-    role          varchar     NOT NULL DEFAULT 'viewer',
+    subject_type  varchar     NOT NULL,
+    subject_id    varchar     NOT NULL,
+    adapter       varchar     NOT NULL,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT deployment_authorization_grants_pkey PRIMARY KEY (id),
-    CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, account_id, adapter),
+    CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, subject_type, subject_id, adapter),
+    CONSTRAINT deployment_authorization_grants_subject_check CHECK (subject_type IN ('account', 'user', 'anyone')),
+    CONSTRAINT deployment_authorization_grants_adapter_check CHECK (adapter IN ('web', 'slack')),
+    CONSTRAINT deployment_authorization_grants_web_only_check CHECK (subject_type = 'account' OR adapter = 'web'),
+    CONSTRAINT deployment_authorization_grants_anyone_empty_check CHECK (subject_type <> 'anyone' OR subject_id = ''),
     CONSTRAINT deployment_authorization_grants_deployment_fkey FOREIGN KEY (deployment_id)
-        REFERENCES public.deployments(id) ON DELETE CASCADE,
-    CONSTRAINT deployment_authorization_grants_account_fkey FOREIGN KEY (account_id)
-        REFERENCES public.accounts(id) ON DELETE CASCADE
+        REFERENCES public.deployments(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_deployment_authorization_grants_deployment ON public.deployment_authorization_grants(deployment_id);

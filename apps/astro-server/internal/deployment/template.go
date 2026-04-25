@@ -1163,6 +1163,7 @@ func defaultEditableFields() []string {
 		"observability.enabled",
 		"observability.resources",
 		"observability.environment",
+		"interfaces.auth",
 	}
 }
 

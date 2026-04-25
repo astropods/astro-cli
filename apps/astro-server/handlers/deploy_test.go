@@ -1758,7 +1758,7 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, and ksStore skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
 
 	return router, indexMock, accountMock, deployMock
 }
@@ -4208,7 +4208,7 @@ func setupPostTemplateRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmoc
 		c.Next()
 	})
 	router.POST("/agents/:account/:name/deployment-template",
-		PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil))
+		PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil, nil))
 
 	return router, indexMock, accountMock, deployMock
 }
