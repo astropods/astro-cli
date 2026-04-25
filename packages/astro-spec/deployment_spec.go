@@ -20,18 +20,18 @@ type AstroDeploymentSpec struct {
 	Editable      []string                         `json:"editable,omitempty" yaml:"editable,omitempty"`
 }
 
-// DeploymentAuthorizationGrant is a single (subject, adapter) access grant.
-// Presence in the spec's Grants list means the subject is allowed via that adapter.
+// DeploymentAuthorizationGrant is a single subject access grant. The adapter
+// is implied by where the grant lives (interfaces.auth.web.grants vs
+// interfaces.auth.slack.grants), not carried on the grant itself.
 //
 // Exactly one of AccountID, UserID, or Anyone must be set:
 //   - AccountID — any member of this account is allowed.
-//   - UserID    — this specific WorkOS user is allowed (web adapter only).
-//   - Anyone    — anyone hitting the adapter is allowed (web adapter only).
+//   - UserID    — this specific WorkOS user is allowed (web only).
+//   - Anyone    — anyone hitting the adapter is allowed (web only).
 type DeploymentAuthorizationGrant struct {
 	AccountID string `json:"account_id,omitempty" yaml:"account_id,omitempty"`
 	UserID    string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
 	Anyone    bool   `json:"anyone,omitempty" yaml:"anyone,omitempty"`
-	Adapter   string `json:"adapter" yaml:"adapter"` // "web" | "slack"
 }
 
 // Endpoint represents a named network endpoint on a component.
@@ -179,23 +179,34 @@ type DeploymentInterfaces struct {
 	Auth        *DeploymentInterfacesAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 }
 
-// DeploymentInterfacesAuth controls authentication (Web) and authorization (Grants)
-// for the messaging interfaces. A request is allowed iff a matching grant exists;
-// there is no default-allow fallback.
+// DeploymentInterfacesAuth controls authentication and authorization for the
+// messaging interfaces. Grants live under the adapter they apply to.
+// A request is allowed iff a matching grant exists; there is no default-allow.
 type DeploymentInterfacesAuth struct {
-	// Web controls auth for the web adapter ingress. Nil means no auth.
+	// Web controls auth + access for the web adapter. Nil means no web config.
 	Web *DeploymentWebAuth `json:"web,omitempty" yaml:"web,omitempty"`
 
-	// Grants enumerate who can talk to the deployment. Each grant targets exactly
-	// one of: account_id, user_id, or anyone — see DeploymentAuthorizationGrant.
-	Grants []DeploymentAuthorizationGrant `json:"grants,omitempty" yaml:"grants,omitempty"`
+	// Slack controls access for the slack adapter. Nil means no slack grants.
+	Slack *DeploymentSlackAuth `json:"slack,omitempty" yaml:"slack,omitempty"`
 }
 
-// DeploymentWebAuth configures authentication for the web adapter ingress.
+// DeploymentWebAuth configures the web adapter: ingress authentication
+// (Type = "oidc") and access grants.
 type DeploymentWebAuth struct {
 	// Type of authentication: "oidc" uses server-level OIDC config;
 	// "oidc-custom" is reserved for future per-deployment credentials.
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+
+	// Grants enumerate who can talk to the deployment via web. May include
+	// account, user, and anyone subjects.
+	Grants []DeploymentAuthorizationGrant `json:"grants,omitempty" yaml:"grants,omitempty"`
+}
+
+// DeploymentSlackAuth configures the slack adapter's access grants. Slack
+// identity is opaque so only account-scoped grants are meaningful here;
+// user_id and anyone are rejected at deploy.
+type DeploymentSlackAuth struct {
+	Grants []DeploymentAuthorizationGrant `json:"grants,omitempty" yaml:"grants,omitempty"`
 }
 
 // DeploymentObservability controls the observability collector sidecar.

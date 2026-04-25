@@ -497,16 +497,15 @@ func (a *Applier) ApplyDeploymentSpec(
 	// per-request authorization callback. The anyone_adapters claim is
 	// derived from the spec's grants so the token agrees with what was
 	// persisted in this same deploy.
+	// `anyone` is web-only by spec validation, so we only inspect web grants.
 	var anyoneAdapters []string
-	if ds.Interfaces != nil && ds.Interfaces.Auth != nil {
-		seen := map[string]bool{}
-		for _, g := range ds.Interfaces.Auth.Grants {
-			if g.Anyone && !seen[g.Adapter] {
-				seen[g.Adapter] = true
-				anyoneAdapters = append(anyoneAdapters, g.Adapter)
+	if ds.Interfaces != nil && ds.Interfaces.Auth != nil && ds.Interfaces.Auth.Web != nil {
+		for _, g := range ds.Interfaces.Auth.Web.Grants {
+			if g.Anyone {
+				anyoneAdapters = []string{"web"}
+				break
 			}
 		}
-		sort.Strings(anyoneAdapters)
 	}
 	var deployToken string
 	if a.deployTokenSecret != "" {

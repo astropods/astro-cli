@@ -10,21 +10,23 @@ This complements the existing OIDC authn layer: OIDC answers "is this a real use
 
 **Spec is the single source of truth.** Policy lives in `interfaces.auth.grants` in the deployment spec and changes only through the deploy flow. There is no imperative admin API that mutates grants out-of-band; every policy change is a redeploy with its own audit trail. On deploy, astro-server atomically replaces all rows in `deployment_authorization_grants` for the deployment with the spec's grants list.
 
-**Three subject types, one uniform table.** A grant has a `subject_type` of `account`, `user`, or `anyone`, plus an `adapter` (`web` or `slack`):
+**Three subject types, grants nested per adapter.** Grants live under the adapter they apply to (`web.grants` or `slack.grants`); the adapter is implied by where the grant sits, not carried as a field on each grant. Each grant picks one of `account_id`, `user_id`, or `anyone: true`:
 
 ```yaml
 interfaces:
   auth:
-    grants:
-      - account_id: <uuid>             # any member of this account
-        adapter: web
-      - user_id: <workos_user_id>      # one specific user (web only)
-        adapter: web
-      - anyone: true                   # public (web only)
-        adapter: web
+    web:
+      type: oidc                       # ALB-level authn (existing)
+      grants:
+        - account_id: <uuid>           # any member of this account
+        - user_id: <workos_user_id>    # one specific user (web only)
+        - anyone: true                 # public (web only)
+    slack:
+      grants:
+        - account_id: <uuid>           # slack is account-only
 ```
 
-`user` and `anyone` grants are web-only — slack identity is opaque, so we only authorize the bot's owning account. Schema-level CHECK constraints enforce this.
+`user_id` and `anyone` are web-only — slack identity is opaque, so the platform only authorizes the bot's owning account. Validation rejects them under `slack.grants` at deploy time, and schema-level CHECK constraints enforce the same invariant in the storage layer.
 
 **Two-layer enforcement.** The messaging container short-circuits the easy case; the server is the authority for everything else:
 

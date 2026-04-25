@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2818,14 +2819,14 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 	}
 }
 
-// seedFreshAuthGrants populates interfaces.auth.grants with sensible defaults
-// on a fresh deploy. The deployer always gets a user grant for web. The
-// owning account additionally gets an account grant for slack when slack is
+// seedFreshAuthGrants populates interfaces.auth grants with sensible defaults
+// on a fresh deploy. The deployer always gets a user grant under web. The
+// owning account additionally gets an account grant under slack when slack is
 // in the adapter list, since a fresh slack-enabled deployment is otherwise
 // unreachable through that channel.
 //
 // Existing grants in the template (e.g. coming from the agent's astropods.yml)
-// are preserved — we only seed when the slot is empty.
+// are preserved — we only seed when both blocks are empty.
 func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID, ownerAccountID string) {
 	if template.Interfaces == nil {
 		return
@@ -2833,20 +2834,21 @@ func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID, own
 	if template.Interfaces.Auth == nil {
 		template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
 	}
-	if len(template.Interfaces.Auth.Grants) > 0 {
+	auth := template.Interfaces.Auth
+	if (auth.Web != nil && len(auth.Web.Grants) > 0) || (auth.Slack != nil && len(auth.Slack.Grants) > 0) {
 		return
 	}
 
-	grants := []spec.DeploymentAuthorizationGrant{
-		{UserID: deployerUserID, Adapter: "web"},
+	if auth.Web == nil {
+		auth.Web = &spec.DeploymentWebAuth{}
 	}
-	for _, ad := range template.Interfaces.Adapters {
-		if ad == "slack" {
-			grants = append(grants, spec.DeploymentAuthorizationGrant{AccountID: ownerAccountID, Adapter: "slack"})
-			break
+	auth.Web.Grants = []spec.DeploymentAuthorizationGrant{{UserID: deployerUserID}}
+
+	if slices.Contains(template.Interfaces.Adapters, "slack") {
+		auth.Slack = &spec.DeploymentSlackAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{{AccountID: ownerAccountID}},
 		}
 	}
-	template.Interfaces.Auth.Grants = grants
 }
 
 // mergeDeploymentPrefill merges stored deployment values into a template.
@@ -2905,13 +2907,21 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 }
 
 // applyDeploymentAuthorization atomically replaces the deployment's grants
-// with the spec's `interfaces.auth.grants` list. This is the only writer to
-// the grants table — there is no imperative add/remove API — so the spec is
-// the single source of truth.
+// with the union of `interfaces.auth.web.grants` and
+// `interfaces.auth.slack.grants`. This is the only writer to the grants
+// table — there is no imperative add/remove API — so the spec is the single
+// source of truth.
 func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) error {
-	grants := make([]authorizationstore.Grant, 0, len(auth.Grants))
-	for _, g := range auth.Grants {
-		grants = append(grants, specGrantToStore(deploymentID, g))
+	var grants []authorizationstore.Grant
+	if auth.Web != nil {
+		for _, g := range auth.Web.Grants {
+			grants = append(grants, specGrantToStore(deploymentID, g, authorizationstore.AdapterWeb))
+		}
+	}
+	if auth.Slack != nil {
+		for _, g := range auth.Slack.Grants {
+			grants = append(grants, specGrantToStore(deploymentID, g, authorizationstore.AdapterSlack))
+		}
 	}
 	if err := authzStore.ReplaceGrants(deploymentID, grants); err != nil {
 		return fmt.Errorf("replace grants: %w", err)
@@ -2920,12 +2930,13 @@ func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deployme
 }
 
 // specGrantToStore translates a spec-shape grant (account_id|user_id|anyone)
-// into the store's polymorphic (subject_type, subject_id) shape.
+// into the store's polymorphic (subject_type, subject_id) shape. Adapter is
+// supplied by the caller since it's implied by the parent block in the spec.
 //
 // Caller must have run validateAuthorizationSpec first to ensure exactly one
 // of the three subject fields is set.
-func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant) authorizationstore.Grant {
-	out := authorizationstore.Grant{DeploymentID: deploymentID, Adapter: g.Adapter}
+func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant, adapter string) authorizationstore.Grant {
+	out := authorizationstore.Grant{DeploymentID: deploymentID, Adapter: adapter}
 	switch {
 	case g.Anyone:
 		out.SubjectType = authorizationstore.SubjectTypeAnyone
@@ -2940,10 +2951,11 @@ func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant) 
 	return out
 }
 
-// storeGrantToSpec is the inverse of specGrantToStore. Used during template
-// prefill to surface live grants in the editable spec block.
+// storeGrantToSpec is the inverse of specGrantToStore. Returns a spec grant
+// (without an adapter field — that's encoded by where the grant ends up in
+// the auth block).
 func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationGrant {
-	out := spec.DeploymentAuthorizationGrant{Adapter: g.Adapter}
+	out := spec.DeploymentAuthorizationGrant{}
 	switch g.SubjectType {
 	case authorizationstore.SubjectTypeAnyone:
 		out.Anyone = true
@@ -2955,75 +2967,77 @@ func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationG
 	return out
 }
 
-// validateAuthorizationSpec checks that every grant in the spec has exactly
-// one subject (account/user/anyone), uses a known adapter, and obeys the
-// web-only constraint for user/anyone grants. Returns a list of human-readable
-// error strings, empty when the block is valid.
+// validateAuthorizationSpec checks that every grant has exactly one subject
+// (account/user/anyone) and that slack grants are account-scoped only.
+// Returns a list of human-readable error strings, empty when the block is
+// valid.
 func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 	if auth == nil {
 		return nil
 	}
 	var errs []string
-	validAdapters := map[string]bool{authorizationstore.AdapterWeb: true, authorizationstore.AdapterSlack: true}
+	seen := map[string]struct{}{}
 
-	seen := make(map[string]struct{}, len(auth.Grants))
-	for i, g := range auth.Grants {
-		prefix := fmt.Sprintf("interfaces.auth.grants[%d]", i)
+	check := func(adapter string, grants []spec.DeploymentAuthorizationGrant) {
+		for i, g := range grants {
+			prefix := fmt.Sprintf("interfaces.auth.%s.grants[%d]", adapter, i)
 
-		// Exactly one subject must be set.
-		subjectCount := 0
-		if g.AccountID != "" {
-			subjectCount++
-		}
-		if g.UserID != "" {
-			subjectCount++
-		}
-		if g.Anyone {
-			subjectCount++
-		}
-		switch subjectCount {
-		case 0:
-			errs = append(errs, prefix+": exactly one of account_id, user_id, anyone is required")
-		case 1:
-			// ok
-		default:
-			errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
-		}
+			subjectCount := 0
+			if g.AccountID != "" {
+				subjectCount++
+			}
+			if g.UserID != "" {
+				subjectCount++
+			}
+			if g.Anyone {
+				subjectCount++
+			}
+			switch subjectCount {
+			case 0:
+				errs = append(errs, prefix+": exactly one of account_id, user_id, anyone is required")
+			case 1:
+				// ok
+			default:
+				errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
+			}
 
-		if !validAdapters[g.Adapter] {
-			errs = append(errs, fmt.Sprintf("%s.adapter: must be one of web, slack (got %q)", prefix, g.Adapter))
-			continue
-		}
+			// user/anyone grants are web-only — slack identity is opaque so
+			// per-user authz isn't possible there, and "anyone on slack" is
+			// meaningless because the slack bot is per-account.
+			if adapter == authorizationstore.AdapterSlack && (g.UserID != "" || g.Anyone) {
+				errs = append(errs, prefix+": slack grants must use account_id (user_id and anyone are web-only)")
+			}
 
-		// user/anyone grants are web-only — slack identity is opaque so per-user
-		// authz isn't possible there, and "anyone on slack" is meaningless
-		// because the slack bot is per-account.
-		if (g.UserID != "" || g.Anyone) && g.Adapter != authorizationstore.AdapterWeb {
-			errs = append(errs, fmt.Sprintf("%s: user/anyone grants must use adapter=web", prefix))
+			// Detect duplicates within the same spec.
+			key := adapter + "|"
+			switch {
+			case g.Anyone:
+				key += "anyone:"
+			case g.UserID != "":
+				key += "user:" + g.UserID
+			case g.AccountID != "":
+				key += "account:" + g.AccountID
+			}
+			if _, dup := seen[key]; dup {
+				errs = append(errs, prefix+": duplicate grant")
+			}
+			seen[key] = struct{}{}
 		}
+	}
 
-		// Detect duplicates within the same spec — the DB unique constraint
-		// would also catch this, but a 400 with a specific message is friendlier.
-		key := g.Adapter + "|"
-		switch {
-		case g.Anyone:
-			key += "anyone:"
-		case g.UserID != "":
-			key += "user:" + g.UserID
-		case g.AccountID != "":
-			key += "account:" + g.AccountID
-		}
-		if _, dup := seen[key]; dup {
-			errs = append(errs, prefix+": duplicate (subject, adapter) pair")
-		}
-		seen[key] = struct{}{}
+	if auth.Web != nil {
+		check(authorizationstore.AdapterWeb, auth.Web.Grants)
+	}
+	if auth.Slack != nil {
+		check(authorizationstore.AdapterSlack, auth.Slack.Grants)
 	}
 	return errs
 }
 
 // mergeAuthorizationFromStore overlays the deployment's stored grants onto the
 // template's interfaces.auth so the UI reflects the live access state. Used
-// by the deployment-template prefill path on redeploys.
+// by the deployment-template prefill path on redeploys. Grants are dispatched
+// into auth.web.grants or auth.slack.grants based on each row's adapter.
 func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) {
 	grants, err := authzStore.ListGrants(deploymentID)
 	if err != nil {
@@ -3031,9 +3045,26 @@ func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationst
 		return
 	}
 
-	auth.Grants = nil
+	if auth.Web != nil {
+		auth.Web.Grants = nil
+	}
+	if auth.Slack != nil {
+		auth.Slack.Grants = nil
+	}
 	for _, g := range grants {
-		auth.Grants = append(auth.Grants, storeGrantToSpec(g))
+		sg := storeGrantToSpec(g)
+		switch g.Adapter {
+		case authorizationstore.AdapterWeb:
+			if auth.Web == nil {
+				auth.Web = &spec.DeploymentWebAuth{}
+			}
+			auth.Web.Grants = append(auth.Web.Grants, sg)
+		case authorizationstore.AdapterSlack:
+			if auth.Slack == nil {
+				auth.Slack = &spec.DeploymentSlackAuth{}
+			}
+			auth.Slack.Grants = append(auth.Slack.Grants, sg)
+		}
 	}
 }
 

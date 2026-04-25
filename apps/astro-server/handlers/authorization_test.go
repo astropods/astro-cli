@@ -14,8 +14,8 @@ import (
 // C4: a grant with no subject set must be rejected.
 func TestValidateAuth_NoSubject(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{{}},
 		},
 	})
 	if len(errs) == 0 {
@@ -26,8 +26,10 @@ func TestValidateAuth_NoSubject(t *testing.T) {
 // C1: account_id + user_id together → reject.
 func TestValidateAuth_AccountAndUser(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{AccountID: "acct-1", UserID: "alice", Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{AccountID: "acct-1", UserID: "alice"},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -38,8 +40,10 @@ func TestValidateAuth_AccountAndUser(t *testing.T) {
 // C2: account_id + anyone together → reject.
 func TestValidateAuth_AccountAndAnyone(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{AccountID: "acct-1", Anyone: true, Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{AccountID: "acct-1", Anyone: true},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -50,8 +54,10 @@ func TestValidateAuth_AccountAndAnyone(t *testing.T) {
 // C3: user_id + anyone → reject.
 func TestValidateAuth_UserAndAnyone(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{UserID: "alice", Anyone: true, Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{UserID: "alice", Anyone: true},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -59,11 +65,13 @@ func TestValidateAuth_UserAndAnyone(t *testing.T) {
 	}
 }
 
-// C5: user_id with adapter=slack → reject.
+// C5: user_id under slack.grants → reject.
 func TestValidateAuth_UserOnSlack(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{UserID: "alice", Adapter: "slack"},
+		Slack: &spec.DeploymentSlackAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{UserID: "alice"},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -71,11 +79,13 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 	}
 }
 
-// C6: anyone with adapter=slack → reject.
+// C6: anyone under slack.grants → reject.
 func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{Anyone: true, Adapter: "slack"},
+		Slack: &spec.DeploymentSlackAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{Anyone: true},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -83,24 +93,14 @@ func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 	}
 }
 
-// C7: unknown adapter → reject.
-func TestValidateAuth_UnknownAdapter(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{AccountID: "acct-1", Adapter: "discord"},
-		},
-	})
-	if len(errs) == 0 {
-		t.Fatal("expected validation error")
-	}
-}
-
-// C8: duplicate (subject, adapter) → reject.
+// C8: duplicate grant within an adapter → reject.
 func TestValidateAuth_Duplicate(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{AccountID: "acct-1", Adapter: "web"},
-			{AccountID: "acct-1", Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{AccountID: "acct-1"},
+				{AccountID: "acct-1"},
+			},
 		},
 	})
 	if len(errs) == 0 {
@@ -111,11 +111,17 @@ func TestValidateAuth_Duplicate(t *testing.T) {
 // All valid forms succeed.
 func TestValidateAuth_ValidMix(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{AccountID: "acct-1", Adapter: "web"},
-			{AccountID: "acct-1", Adapter: "slack"},
-			{UserID: "alice", Adapter: "web"},
-			{Anyone: true, Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{AccountID: "acct-1"},
+				{UserID: "alice"},
+				{Anyone: true},
+			},
+		},
+		Slack: &spec.DeploymentSlackAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{AccountID: "acct-1"},
+			},
 		},
 	})
 	if len(errs) != 0 {
@@ -133,7 +139,9 @@ func TestValidateAuth_NilBlock(t *testing.T) {
 
 // C12: empty grants → no validation errors (semantics handled by apply path).
 func TestValidateAuth_EmptyGrants(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{Grants: []spec.DeploymentAuthorizationGrant{}})
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Web: &spec.DeploymentWebAuth{Grants: []spec.DeploymentAuthorizationGrant{}},
+	})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -145,40 +153,37 @@ func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
 		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
 	}
 	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
-	if tmpl.Interfaces.Auth == nil {
-		t.Fatal("expected auth block populated")
+	if tmpl.Interfaces.Auth == nil || tmpl.Interfaces.Auth.Web == nil {
+		t.Fatal("expected auth.web block populated")
 	}
-	if len(tmpl.Interfaces.Auth.Grants) != 1 {
-		t.Fatalf("expected 1 grant, got %d", len(tmpl.Interfaces.Auth.Grants))
+	if len(tmpl.Interfaces.Auth.Web.Grants) != 1 {
+		t.Fatalf("expected 1 web grant, got %d", len(tmpl.Interfaces.Auth.Web.Grants))
 	}
-	g := tmpl.Interfaces.Auth.Grants[0]
-	if g.UserID != "alice" || g.Adapter != "web" {
+	if g := tmpl.Interfaces.Auth.Web.Grants[0]; g.UserID != "alice" {
 		t.Errorf("unexpected grant: %+v", g)
+	}
+	if tmpl.Interfaces.Auth.Slack != nil {
+		t.Errorf("expected no slack block, got %+v", tmpl.Interfaces.Auth.Slack)
 	}
 }
 
-// E1: with slack enabled, an additional account grant is seeded for slack.
+// E1: with slack enabled, an additional account grant is seeded under slack.
 func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
 	tmpl := &spec.AstroDeploymentSpec{
 		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
 	}
 	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
-	if len(tmpl.Interfaces.Auth.Grants) != 2 {
-		t.Fatalf("expected 2 grants, got %d", len(tmpl.Interfaces.Auth.Grants))
+	if tmpl.Interfaces.Auth.Web == nil || len(tmpl.Interfaces.Auth.Web.Grants) != 1 {
+		t.Fatalf("expected one web grant, got %+v", tmpl.Interfaces.Auth.Web)
 	}
-	want := map[string]bool{"web/user/alice": false, "slack/account/acct-Acme": false}
-	for _, g := range tmpl.Interfaces.Auth.Grants {
-		switch {
-		case g.UserID == "alice" && g.Adapter == "web":
-			want["web/user/alice"] = true
-		case g.AccountID == "acct-Acme" && g.Adapter == "slack":
-			want["slack/account/acct-Acme"] = true
-		}
+	if g := tmpl.Interfaces.Auth.Web.Grants[0]; g.UserID != "alice" {
+		t.Errorf("unexpected web grant: %+v", g)
 	}
-	for k, hit := range want {
-		if !hit {
-			t.Errorf("missing seeded grant: %s", k)
-		}
+	if tmpl.Interfaces.Auth.Slack == nil || len(tmpl.Interfaces.Auth.Slack.Grants) != 1 {
+		t.Fatalf("expected one slack grant, got %+v", tmpl.Interfaces.Auth.Slack)
+	}
+	if g := tmpl.Interfaces.Auth.Slack.Grants[0]; g.AccountID != "acct-Acme" {
+		t.Errorf("unexpected slack grant: %+v", g)
 	}
 }
 
@@ -188,18 +193,15 @@ func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"web"},
 			Auth: &spec.DeploymentInterfacesAuth{
-				Grants: []spec.DeploymentAuthorizationGrant{
-					{Anyone: true, Adapter: "web"},
+				Web: &spec.DeploymentWebAuth{
+					Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
 				},
 			},
 		},
 	}
 	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
-	if len(tmpl.Interfaces.Auth.Grants) != 1 {
-		t.Fatalf("expected existing grants preserved, got %+v", tmpl.Interfaces.Auth.Grants)
-	}
-	if !tmpl.Interfaces.Auth.Grants[0].Anyone {
-		t.Errorf("expected anyone grant preserved, got %+v", tmpl.Interfaces.Auth.Grants[0])
+	if len(tmpl.Interfaces.Auth.Web.Grants) != 1 || !tmpl.Interfaces.Auth.Web.Grants[0].Anyone {
+		t.Errorf("expected existing anyone grant preserved, got %+v", tmpl.Interfaces.Auth.Web.Grants)
 	}
 }
 
@@ -235,9 +237,11 @@ func TestApplyDeploymentAuthorization(t *testing.T) {
 	mock.ExpectCommit()
 
 	err = applyDeploymentAuthorization(store, "dep-1", &spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{
-			{UserID: "alice", Adapter: "web"},
-			{Anyone: true, Adapter: "web"},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{UserID: "alice"},
+				{Anyone: true},
+			},
 		},
 	})
 	if err != nil {
@@ -283,60 +287,68 @@ func TestMergeAuthorizationFromStore(t *testing.T) {
 			AddRow("dep-1", "user", "alice", "web"))
 
 	auth := &spec.DeploymentInterfacesAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "stale", Adapter: "web"}},
+		Web: &spec.DeploymentWebAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "stale"}},
+		},
 	}
 	mergeAuthorizationFromStore(log, store, "dep-1", auth)
 
-	if len(auth.Grants) != 3 {
-		t.Fatalf("expected 3 grants, got %d", len(auth.Grants))
+	// Stored order is (subject_type, subject_id, adapter):
+	// account/acct-1/slack → goes under Slack;
+	// anyone//web and user/alice/web → go under Web.
+	if auth.Slack == nil || len(auth.Slack.Grants) != 1 || auth.Slack.Grants[0].AccountID != "acct-1" {
+		t.Fatalf("expected one slack account grant, got %+v", auth.Slack)
 	}
-	// Stored order is (subject_type, subject_id, adapter): account/acct-1/slack, anyone//web, user/alice/web.
-	if auth.Grants[0].AccountID != "acct-1" || auth.Grants[0].Adapter != "slack" {
-		t.Errorf("grant[0]: %+v", auth.Grants[0])
+	if auth.Web == nil || len(auth.Web.Grants) != 2 {
+		t.Fatalf("expected two web grants, got %+v", auth.Web)
 	}
-	if !auth.Grants[1].Anyone || auth.Grants[1].Adapter != "web" {
-		t.Errorf("grant[1]: %+v", auth.Grants[1])
+	if !auth.Web.Grants[0].Anyone {
+		t.Errorf("web grant[0]: %+v", auth.Web.Grants[0])
 	}
-	if auth.Grants[2].UserID != "alice" || auth.Grants[2].Adapter != "web" {
-		t.Errorf("grant[2]: %+v", auth.Grants[2])
+	if auth.Web.Grants[1].UserID != "alice" {
+		t.Errorf("web grant[1]: %+v", auth.Web.Grants[1])
 	}
 }
 
 // specGrantToStore translates the three subject forms correctly.
 func TestSpecGrantToStore(t *testing.T) {
 	cases := []struct {
-		name string
-		in   spec.DeploymentAuthorizationGrant
-		want struct {
+		name    string
+		in      spec.DeploymentAuthorizationGrant
+		adapter string
+		want    struct {
 			subjectType, subjectID string
 		}
 	}{
 		{
-			name: "account",
-			in:   spec.DeploymentAuthorizationGrant{AccountID: "acct-1", Adapter: "web"},
-			want: struct{ subjectType, subjectID string }{"account", "acct-1"},
+			name:    "account",
+			in:      spec.DeploymentAuthorizationGrant{AccountID: "acct-1"},
+			adapter: "web",
+			want:    struct{ subjectType, subjectID string }{"account", "acct-1"},
 		},
 		{
-			name: "user",
-			in:   spec.DeploymentAuthorizationGrant{UserID: "alice", Adapter: "web"},
-			want: struct{ subjectType, subjectID string }{"user", "alice"},
+			name:    "user",
+			in:      spec.DeploymentAuthorizationGrant{UserID: "alice"},
+			adapter: "web",
+			want:    struct{ subjectType, subjectID string }{"user", "alice"},
 		},
 		{
-			name: "anyone",
-			in:   spec.DeploymentAuthorizationGrant{Anyone: true, Adapter: "web"},
-			want: struct{ subjectType, subjectID string }{"anyone", ""},
+			name:    "anyone",
+			in:      spec.DeploymentAuthorizationGrant{Anyone: true},
+			adapter: "web",
+			want:    struct{ subjectType, subjectID string }{"anyone", ""},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := specGrantToStore("dep-1", tc.in)
+			got := specGrantToStore("dep-1", tc.in, tc.adapter)
 			if got.SubjectType != tc.want.subjectType || got.SubjectID != tc.want.subjectID {
 				t.Errorf("got %+v, want subject_type=%s subject_id=%s", got, tc.want.subjectType, tc.want.subjectID)
 			}
 			if got.DeploymentID != "dep-1" {
 				t.Errorf("DeploymentID lost: %q", got.DeploymentID)
 			}
-			if got.Adapter != tc.in.Adapter {
+			if got.Adapter != tc.adapter {
 				t.Errorf("Adapter lost: %q", got.Adapter)
 			}
 		})

@@ -101,19 +101,17 @@ YAML shape:
 interfaces:
   auth:
     web:
-      type: oidc          # existing — controls ALB-level authn
-    grants:
-      - account_id: <uuid>      # any member of this account, web adapter
-        adapter: web
-      - user_id: <workos_user_id>  # this specific user only, web adapter
-        adapter: web
-      - account_id: <uuid>      # slack: account-only (no user_id allowed)
-        adapter: slack
-      - anyone: true            # web only — opens the adapter to anyone
-        adapter: web
+      type: oidc                         # controls ALB-level authn
+      grants:
+        - account_id: <uuid>             # any member of this account
+        - user_id: <workos_user_id>      # this specific user only
+        - anyone: true                   # opens web to anyone (web-only)
+    slack:
+      grants:
+        - account_id: <uuid>             # slack is account-only
 ```
 
-A grant must specify exactly one of `account_id`, `user_id`, or `anyone: true`. `user_id` and `anyone` grants must use `adapter: web` — slack rejects them at deploy.
+The adapter is implied by where the grant lives — there is no `adapter:` field on a grant. A grant must specify exactly one of `account_id`, `user_id`, or `anyone: true`. `user_id` and `anyone` are rejected under `slack.grants` (slack is account-only).
 
 **Public deployment composition.** A truly anonymous deployment requires both an `anyone` grant *and* `web.type` left unset (so ALB OIDC isn't gating the ingress). With `web.type=oidc` plus an `anyone` grant, any authenticated WorkOS user gets in but anonymous traffic still doesn't — ALB rejects it before authz runs. The two layers compose; we don't try to hide one behind the other.
 
@@ -132,8 +130,8 @@ The fallback is *not* the same as "default allow." Outsiders are still denied; o
 The deploy template returned for a brand-new deployment ships with sensible grants pre-populated, so a default deploy isn't dead-on-arrival. The user sees these in the UI/CLI before submitting and can edit them.
 
 Prefill rules on a fresh deploy:
-- One `user` grant for the deployer's WorkOS user ID, `adapter: web`
-- One `account` grant for the deployment's owner account, `adapter: slack` (only if slack is in `interfaces.adapters`)
+- One `user` grant for the deployer's WorkOS user ID under `auth.web.grants`
+- One `account` grant for the deployment's owner account under `auth.slack.grants` (only if slack is in `interfaces.adapters`)
 
 Prefill is a starting point, not enforcement. Removing the prefilled grants before deploying is allowed; the resulting deployment will deny everyone (which is a valid configuration if the deployer plans to add specific grants and never use the agent themselves).
 
@@ -177,37 +175,37 @@ There is no separate access-policy table — a request is allowed iff a row exis
 
 **1. Personal account deploy, default**
 - Jane deploys her agent on her personal account.
-- Prefill: `user_id=Jane, adapter=web`. (Slack isn't enabled.)
+- Prefill: `web.grants: [{user_id: Jane}]`. (Slack isn't enabled.)
 - Jane talks via web. No one else can.
 
 **2. Personal account, share with one outside user**
 - Jane wants Bob (different personal account) to use her agent.
-- She adds `user_id=Bob, adapter=web` to grants.
+- She adds `{user_id: Bob}` to `web.grants`.
 - Bob talks via web. Other users still denied.
 
 **3. Org-backed account, all members**
 - Acme deploys an internal agent open to the whole company.
-- Owner sets `account_id=Acme, adapter=web` (and `adapter=slack` if applicable).
+- Owner sets `{account_id: Acme}` under `web.grants` (and under `slack.grants` if applicable).
 - Every Acme member can talk via the granted adapters.
 
 **4. Org-backed account, restricted to specific members**
 - Acme deploys an HR agent that only Alice and Bob (Acme members) should use.
-- Owner does *not* add an account grant. Adds `user_id=Alice, adapter=web` and `user_id=Bob, adapter=web`.
+- Owner does *not* add an account grant. Adds `{user_id: Alice}` and `{user_id: Bob}` to `web.grants`.
 - Other Acme members are denied.
 
 **5. Org-backed account with slack, restricted on web**
 - Acme deploys with slack enabled (any Acme member should use the bot) but web restricted.
-- Grants: `account_id=Acme, adapter=slack`, `user_id=Alice, adapter=web`, `user_id=Bob, adapter=web`.
+- `slack.grants: [{account_id: Acme}]`; `web.grants: [{user_id: Alice}, {user_id: Bob}]`.
 - Slack: any Acme member. Web: Alice and Bob only.
 
 **6. Public web agent (any authenticated user)**
 - Acme deploys a help-desk agent open to any authenticated WorkOS user.
-- `interfaces.auth.web.type=oidc` (ALB OIDC stays on), grants include `anyone: true, adapter: web`.
+- `web.type=oidc` (ALB OIDC stays on); `web.grants` includes `{anyone: true}`.
 - Anyone who passes WorkOS login can talk via web. Slack is unaffected (separate grants).
 
 **7. Truly public agent (anonymous web)**
 - Acme deploys a public marketing demo with no login.
-- `interfaces.auth.web.type` unset (ALB OIDC off), grants include `anyone: true, adapter: web`.
+- `web.type` unset (ALB OIDC off); `web.grants` includes `{anyone: true}`.
 - Anonymous traffic is allowed; the messaging container's authorize call short-circuits on the `anyone` grant without needing an identity.
 
 ## Test cases
@@ -263,10 +261,10 @@ The implementation must pass every case in this list. Cases are grouped by surfa
 | C2  | Grant with both `account_id` and `anyone`                           | reject       |
 | C3  | Grant with both `user_id` and `anyone`                              | reject       |
 | C4  | Grant with no subject set                                           | reject       |
-| C5  | `user_id` grant with `adapter: slack`                               | reject (web-only) |
-| C6  | `anyone` grant with `adapter: slack`                                | reject (web-only) |
-| C7  | Unknown adapter value                                               | reject       |
-| C8  | Two identical `(subject, adapter)` entries in one spec              | reject (dup) |
+| C5  | `user_id` grant under `slack.grants`                                | reject (slack is account-only) |
+| C6  | `anyone` grant under `slack.grants`                                 | reject (slack is account-only) |
+| C7  | (removed — adapter is no longer a grant field)                      | n/a          |
+| C8  | Two identical subject entries under the same adapter                | reject (dup) |
 | C9  | Malformed `account_id` (not a UUID)                                 | reject       |
 | C10 | `anyone: false`                                                     | reject — omit the line instead |
 | C11 | `interfaces.auth` block omitted entirely                            | existing grants preserved (no-op) |
@@ -292,7 +290,7 @@ The implementation must pass every case in this list. Cases are grouped by surfa
 | E3  | Deploy fails validation mid-write                                                         | atomic — neither deployment nor grants persist                                          |
 | E4  | Redeploy via template with `deployment_id`                                                | prefill returns the live grants, not fresh-deploy defaults                              |
 | E5  | Existing grants `[A, B]`; spec sends `[A, C]`                                             | result is `[A, C]`; B removed                                                           |
-| E6  | Existing grants `[A, B]`; spec sends `auth: { grants: [] }`                               | result is `[]`                                                                          |
+| E6  | Existing grants `[A, B]`; spec sends `auth: { web: { grants: [] } }` (and no slack block) | result is `[]`                                                                          |
 | E7  | Existing grants `[A, B]`; spec omits the auth block                                       | result is `[A, B]` unchanged                                                            |
 
 ### F. Configuration surface
