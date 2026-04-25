@@ -23,6 +23,11 @@ var (
 	// Dev builds use localhost; prod/preview override this via ldflags at build time.
 	DefaultServerURL = "http://localhost:8080"
 
+	// DefaultRegistryURL overrides the registry URL derived from the server URL.
+	// When empty (default), the registry URL is derived via RegistryURLFromServerURL.
+	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.DefaultRegistryURL=https://registry.astropods.ai"
+	DefaultRegistryURL = ""
+
 	// FleetServerURL is the connect/fleet server address (host:port).
 	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropods.ai:9092"
 	FleetServerURL = "localhost:9092"

@@ -113,8 +113,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get registry URL: --registry flag > derived from server URL
+	// Get registry URL: --registry flag > build-time default > derived from server URL
 	effectiveRegistryURL := registryURL
+	if effectiveRegistryURL == "" {
+		effectiveRegistryURL = auth.DefaultRegistryURL
+	}
 	if effectiveRegistryURL == "" {
 		effectiveRegistryURL = auth.RegistryURLFromServerURL(effectiveServerURL)
 	}

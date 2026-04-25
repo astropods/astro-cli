@@ -505,6 +505,7 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 
 func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error {
 	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
