@@ -1096,16 +1096,16 @@ func stripScheme(url string) string {
 }
 
 // wireInterfaceEnvironment populates interfaces.environment with ${variables.KEY}
-// references for every non-secret variable that targets an interface adapter.
-// Secrets are excluded because they flow through the k8s Secret, not the ConfigMap.
+// references for every variable (secret or not) that targets an interface
+// adapter. The resolver routes each entry to ConfigMapData or SecretData based
+// on whether its value references a secret variable; the messaging-side
+// applier then mounts secrets via a scoped messaging-only Secret. So secrets
+// MUST appear here — otherwise they'd never reach the messaging container.
 func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
 	if ds.Interfaces == nil || len(ds.Variables) == 0 {
 		return
 	}
 	for key, v := range ds.Variables {
-		if v.Secret {
-			continue
-		}
 		for _, t := range v.Targets {
 			if strings.HasPrefix(t, "interface.") {
 				if ds.Interfaces.Environment == nil {

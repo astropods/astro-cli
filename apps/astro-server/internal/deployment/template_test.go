@@ -917,8 +917,20 @@ func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
 		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_CONFIG}", envRef)
 	}
 
-	if _, ok := ds.Interfaces.Environment["SLACK_BOT_TOKEN"]; ok {
-		t.Error("secret variables should not appear in interfaces.environment")
+	// Secret variables targeting an interface adapter must ALSO appear in
+	// interfaces.environment. The resolver routes them to SecretData, and the
+	// applier mounts those entries via a messaging-only Secret on the sidecar.
+	// Without this listing, the messaging container would have no way to read
+	// the slack tokens at runtime (it never mounts the agent's main secret).
+	if ref, ok := ds.Interfaces.Environment["SLACK_BOT_TOKEN"]; !ok {
+		t.Error("interfaces.environment should contain SLACK_BOT_TOKEN ref")
+	} else if ref != "${variables.SLACK_BOT_TOKEN}" {
+		t.Errorf("SLACK_BOT_TOKEN ref = %q, want ${variables.SLACK_BOT_TOKEN}", ref)
+	}
+	if ref, ok := ds.Interfaces.Environment["SLACK_APP_TOKEN"]; !ok {
+		t.Error("interfaces.environment should contain SLACK_APP_TOKEN ref")
+	} else if ref != "${variables.SLACK_APP_TOKEN}" {
+		t.Errorf("SLACK_APP_TOKEN ref = %q, want ${variables.SLACK_APP_TOKEN}", ref)
 	}
 }
 
