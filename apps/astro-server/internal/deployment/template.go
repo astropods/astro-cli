@@ -16,19 +16,52 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// providerEnvKey returns the env-var key for a provider entry.
-// When isDuplicate is false, it returns basePrefix+"_"+suffix (e.g. "QDRANT_HOST").
-// When isDuplicate is true, it returns basePrefix+"_"+NAME+"_"+suffix for all entries,
-// and additionally basePrefix+"_"+suffix for the first entry (alphabetically).
-func providerEnvKeys(basePrefix, name, suffix string, isDuplicate, isFirst bool) []string {
+// ProviderEnvKeys returns the env-var keys for a provider entry, following
+// RFC-1 §8.1 and §8.2. It accepts:
+//   - basePrefix:   the provider's env prefix (e.g. "POSTGRES")
+//   - entryName:    the user's name for this entry (e.g. "users")
+//   - providerName: the canonical provider name (e.g. "postgres")
+//   - suffix:       the field suffix (e.g. "HOST", "USER")
+//   - isDuplicate:  true when multiple entries share the same provider
+//   - isPrimary:    true when this entry is the "primary" — the entry whose
+//     name matches the provider, or the first alphabetically when no name
+//     matches.
+//
+// Rules:
+//   - Single entry (!isDuplicate)                       → bare only.
+//   - Multiple entries, entryName == providerName       → bare only (qualified is redundant).
+//   - Multiple entries, !isPrimary                      → qualified only.
+//   - Multiple entries, isPrimary, entryName != provider → qualified + bare.
+func ProviderEnvKeys(basePrefix, entryName, providerName, suffix string, isDuplicate, isPrimary bool) []string {
 	if !isDuplicate {
 		return []string{basePrefix + "_" + suffix}
 	}
-	keys := []string{basePrefix + "_" + spec.SanitizeEnvName(name) + "_" + suffix}
-	if isFirst {
+	if entryName == providerName {
+		// Skip the redundant qualified form; the bare key is sufficient.
+		return []string{basePrefix + "_" + suffix}
+	}
+	keys := []string{basePrefix + "_" + spec.SanitizeEnvName(entryName) + "_" + suffix}
+	if isPrimary {
 		keys = append(keys, basePrefix+"_"+suffix)
 	}
 	return keys
+}
+
+// PickPrimaryName returns the entry name that should receive the bare key
+// among a group of entries sharing one provider. The entry whose name matches
+// the provider name wins; otherwise the alphabetically-first entry is primary.
+// names is mutated (sorted) — caller must pass a copy if it cares.
+func PickPrimaryName(names []string, providerName string) string {
+	for _, n := range names {
+		if n == providerName {
+			return n
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return names[0]
 }
 
 // TemplateInput holds the parameters needed to generate a deployment template.
@@ -94,8 +127,28 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 		sort.Strings(modelNames)
 
-		// Track which provider prefix we've seen first
-		modelProviderFirst := make(map[string]bool)
+		// For each provider prefix, identify the primary entry — the one
+		// whose name matches the provider, or the alphabetically-first when
+		// none matches. The primary gets the bare key; others get qualified.
+		modelPrimaryByPrefix := make(map[string]string)
+		modelGroupNames := make(map[string][]string)
+		for _, name := range modelNames {
+			model := astroSpec.Models[name]
+			if !model.IsProviderMode() || !model.DeploysContainer(astroSpec.Providers) {
+				continue
+			}
+			prov := spec.GetModelProvider(model.Provider)
+			if prov.EnvPrefix == "" {
+				continue
+			}
+			modelGroupNames[prov.EnvPrefix] = append(modelGroupNames[prov.EnvPrefix], name)
+		}
+		for prefix, names := range modelGroupNames {
+			// providerName is the same for every entry in this group; recover
+			// it from the first.
+			provName := astroSpec.Models[names[0]].Provider
+			modelPrimaryByPrefix[prefix] = PickPrimaryName(append([]string(nil), names...), provName)
+		}
 
 		for _, name := range modelNames {
 			model := astroSpec.Models[name]
@@ -118,24 +171,23 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				prov := spec.GetModelProvider(model.Provider)
 				if prov.EnvPrefix != "" {
 					isDup := modelProviderCount[prov.EnvPrefix] > 1
-					isFirst := !modelProviderFirst[prov.EnvPrefix]
-					modelProviderFirst[prov.EnvPrefix] = true
+					isPrimary := modelPrimaryByPrefix[prov.EnvPrefix] == name
 
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "HOST", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "HOST", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${models.%s.host}", name)
 					}
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "PORT", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
 					}
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "URL", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
 					}
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "BASE_URL", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp) + "/api"
 					}
 					if models := model.ResolvedModels(); len(models) > 0 {
 						joined := strings.Join(models, ",")
-						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
+						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "MODEL", isDup, isPrimary) {
 							agentEnv[key] = joined
 						}
 					}
@@ -169,8 +221,26 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 		sort.Strings(knowledgeNames)
 
-		// Track which provider prefix we've seen first
-		knowledgeProviderFirst := make(map[string]bool)
+		// For each provider prefix, identify the primary entry (RFC §8.2):
+		// the entry whose name matches the provider, or the alphabetically-
+		// first when none matches. Primary gets the bare key.
+		knowledgePrimaryByPrefix := make(map[string]string)
+		knowledgeGroupNames := make(map[string][]string)
+		for _, name := range knowledgeNames {
+			knowledge := astroSpec.Knowledge[name]
+			if !knowledge.IsProviderMode() || !knowledge.DeploysContainer(astroSpec.Providers) {
+				continue
+			}
+			prov := spec.GetProvider(knowledge.Provider)
+			if prov.EnvPrefix == "" {
+				continue
+			}
+			knowledgeGroupNames[prov.EnvPrefix] = append(knowledgeGroupNames[prov.EnvPrefix], name)
+		}
+		for prefix, names := range knowledgeGroupNames {
+			provName := astroSpec.Knowledge[names[0]].Provider
+			knowledgePrimaryByPrefix[prefix] = PickPrimaryName(append([]string(nil), names...), provName)
+		}
 
 		for _, name := range knowledgeNames {
 			knowledge := astroSpec.Knowledge[name]
@@ -191,17 +261,26 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				prov := spec.GetProvider(knowledge.Provider)
 				if prov.EnvPrefix != "" {
 					isDup := knowledgeProviderCount[prov.EnvPrefix] > 1
-					isFirst := !knowledgeProviderFirst[prov.EnvPrefix]
-					knowledgeProviderFirst[prov.EnvPrefix] = true
+					isPrimary := knowledgePrimaryByPrefix[prov.EnvPrefix] == name
 
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "HOST", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, "HOST", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.host}", name)
 					}
-					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
+					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, "PORT", isDup, isPrimary) {
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 					}
+					// For postgres, inject auto-derived database name into the agent.
+					// Per-store via ProviderEnvKeys: matches HOST/PORT keying
+					// so agents addressing a non-default postgres store get
+					// POSTGRES_USERS_DB rather than a colliding bare DB.
+					if knowledge.Provider == "postgres" {
+						dbName := spec.SanitizeDBName(input.AgentName)
+						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, "DB", isDup, isPrimary) {
+							agentEnv[key] = dbName
+						}
+					}
 					if prov.URLScheme != "" {
-						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
+						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, "URL", isDup, isPrimary) {
 							agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.url}", name, primaryEp)
 						}
 					}
@@ -216,7 +295,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						if cred.Attr == "database" {
 							suffix = "DB"
 						}
-						for _, key := range providerEnvKeys(prov.EnvPrefix, name, suffix, isDup, isFirst) {
+						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, suffix, isDup, isPrimary) {
 							agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
 						}
 					}

@@ -1838,20 +1838,170 @@ knowledge:
 	analyticsDNS := serviceDNS("my-agent-knowledge-analytics", ns)
 	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
 
-	// Bare prefix → first alphabetically ("analytics"); name-qualified for all
+	// Bare prefix → first alphabetically ("analytics"); name-qualified for all.
+	// POSTGRES_DB is per-knowledge-store as well — agents reference the
+	// per-name form (POSTGRES_USERS_DB) when they connect to a non-default
+	// postgres store; without the per-name DB key the connection fails.
 	// Postgres has no URLScheme → no _URL vars
 	assertConfigMapValues(t, r, map[string]string{
 		"POSTGRES_HOST":           analyticsDNS,
 		"POSTGRES_PORT":           "5432",
+		"POSTGRES_DB":             "my_agent",
 		"POSTGRES_ANALYTICS_HOST": analyticsDNS,
 		"POSTGRES_ANALYTICS_PORT": "5432",
+		"POSTGRES_ANALYTICS_DB":   "my_agent",
 		"POSTGRES_USERS_HOST":     usersDNS,
 		"POSTGRES_USERS_PORT":     "5432",
+		"POSTGRES_USERS_DB":       "my_agent",
 	})
 
 	// Postgres has no URLScheme → no URL vars at all
 	assertConfigMapAbsent(t, r, []string{
 		"POSTGRES_URL", "POSTGRES_ANALYTICS_URL", "POSTGRES_USERS_URL",
+	})
+}
+
+// When two postgres knowledge stores exist, their auto-generated cred
+// secrets share the literal keys POSTGRES_USER / POSTGRES_PASSWORD.
+// envFrom-mounting both onto the agent collapses them silently — only one
+// store's credentials survive at runtime.
+//
+// Fix: the agent must NOT envFrom the cred secrets. Instead each (store,
+// suffix) pair is wired onto the agent via secretKeyRef under an RFC §8.2
+// name (POSTGRES_USER for the matching entry; POSTGRES_USERS_USER for
+// others). This test asserts both halves: no envFrom, and per-store named
+// secretKeyRef env vars on the agent container.
+func TestE2E_ProviderEnv_TwoPostgresKnowledge_AgentHasPerStoreCreds(t *testing.T) {
+	r := runE2E(t, `
+spec: package/v1
+name: my-agent
+agent:
+  image: my-agent:latest
+knowledge:
+  postgres:
+    provider: postgres
+    persistent: true
+  users:
+    provider: postgres
+    persistent: true
+`, e2eOpts{})
+
+	requireNoErrors(t, r)
+
+	// Fetch the agent Deployment and locate the "app" container.
+	depl, err := r.Clientset.AppsV1().Deployments(r.Namespace).Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get agent Deployment: %v", err)
+	}
+	var app *corev1.Container
+	for i := range depl.Spec.Template.Spec.Containers {
+		c := &depl.Spec.Template.Spec.Containers[i]
+		if c.Name == "app" {
+			app = c
+			break
+		}
+	}
+	if app == nil {
+		t.Fatal("agent app container not found")
+	}
+
+	// envFrom MUST NOT include any *-knowledge-*-creds secret — that's the
+	// silent-collision path we're moving away from.
+	for _, ef := range app.EnvFrom {
+		if ef.SecretRef == nil {
+			continue
+		}
+		name := ef.SecretRef.Name
+		if strings.Contains(name, "knowledge-") && strings.HasSuffix(name, "-creds") {
+			t.Errorf("agent must not envFrom knowledge cred secret %q (use secretKeyRef per env var instead)", name)
+		}
+	}
+
+	// Each store's credentials must be on the agent with RFC §8.2-correct
+	// names, bound via secretKeyRef to the literal keys in the right secret.
+	wantRefs := map[string]struct {
+		secret string
+		key    string
+	}{
+		"POSTGRES_USER":           {"my-agent-knowledge-postgres-creds", "POSTGRES_USER"},
+		"POSTGRES_PASSWORD":       {"my-agent-knowledge-postgres-creds", "POSTGRES_PASSWORD"},
+		"POSTGRES_USERS_USER":     {"my-agent-knowledge-users-creds", "POSTGRES_USER"},
+		"POSTGRES_USERS_PASSWORD": {"my-agent-knowledge-users-creds", "POSTGRES_PASSWORD"},
+	}
+	got := map[string]corev1.EnvVar{}
+	for _, e := range app.Env {
+		got[e.Name] = e
+	}
+	for name, want := range wantRefs {
+		ev, ok := got[name]
+		if !ok {
+			t.Errorf("agent missing env var %q", name)
+			continue
+		}
+		if ev.ValueFrom == nil || ev.ValueFrom.SecretKeyRef == nil {
+			t.Errorf("env %q: expected SecretKeyRef, got %+v", name, ev)
+			continue
+		}
+		ref := ev.ValueFrom.SecretKeyRef
+		if ref.Name != want.secret || ref.Key != want.key {
+			t.Errorf("env %q: ref = (%s,%s), want (%s,%s)", name, ref.Name, ref.Key, want.secret, want.key)
+		}
+	}
+
+	// The redundant qualified form MUST NOT be emitted for the matching entry.
+	for _, bad := range []string{"POSTGRES_POSTGRES_USER", "POSTGRES_POSTGRES_PASSWORD"} {
+		if _, present := got[bad]; present {
+			t.Errorf("redundant env var %q must not be emitted (entry name matches provider)", bad)
+		}
+	}
+}
+
+// When one entry's name matches the provider name ("postgres"), it gets the
+// bare key only — the redundant qualified form (POSTGRES_POSTGRES_HOST) MUST
+// NOT be emitted. The other entry gets only its qualified form. This is
+// exactly RFC §8.2's "name == provider → omit qualified form" rule.
+func TestE2E_ProviderEnv_TwoPostgresKnowledge_NameMatchesProvider(t *testing.T) {
+	r := runE2E(t, `
+spec: package/v1
+name: my-agent
+agent:
+  image: my-agent:latest
+knowledge:
+  postgres:
+    provider: postgres
+    persistent: true
+  users:
+    provider: postgres
+    persistent: true
+`, e2eOpts{})
+
+	requireNoErrors(t, r)
+
+	ns := r.Namespace
+	postgresDNS := serviceDNS("my-agent-knowledge-postgres", ns)
+	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
+
+	// `postgres` entry matches provider → bare keys only.
+	// `users` entry → qualified keys only.
+	assertConfigMapValues(t, r, map[string]string{
+		"POSTGRES_HOST":       postgresDNS,
+		"POSTGRES_PORT":       "5432",
+		"POSTGRES_DB":         "my_agent",
+		"POSTGRES_USERS_HOST": usersDNS,
+		"POSTGRES_USERS_PORT": "5432",
+		"POSTGRES_USERS_DB":   "my_agent",
+	})
+
+	// Redundant qualified form for the matching entry MUST NOT exist.
+	assertConfigMapAbsent(t, r, []string{
+		"POSTGRES_POSTGRES_HOST",
+		"POSTGRES_POSTGRES_PORT",
+		"POSTGRES_POSTGRES_DB",
+		"POSTGRES_URL",
+		"POSTGRES_USERS_URL",
+		"POSTGRES_POSTGRES_URL",
 	})
 }
 

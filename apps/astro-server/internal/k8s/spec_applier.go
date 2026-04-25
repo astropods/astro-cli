@@ -773,15 +773,24 @@ func (a *Applier) ApplyDeploymentSpec(
 				Value: deployToken,
 			})
 		}
+
+		// Wire knowledge-store credentials (USER/PASSWORD) onto the agent
+		// using per-key secretKeyRef instead of envFrom. envFrom mounts every
+		// key in a Secret as an env var — when two same-provider stores share
+		// literal keys (POSTGRES_USER in both postgres-creds and users-creds)
+		// the agent's environment collides silently. With explicit per-key
+		// refs we can name them per store (POSTGRES_USER + POSTGRES_USERS_USER)
+		// per RFC §8.2 and avoid the collision entirely.
+		agentExtraEnv = append(agentExtraEnv, knowledgeCredEnvVars(ds, agentName, knowledgeCredSecrets)...)
+
 		cfg := DeploymentConfig{
 			Name: agentResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
-			EnvHash:          envHash,
-			ExtraSecretNames: knowledgeCredSecrets, // knowledge store credentials (POSTGRES_USER, etc.)
-			ExtraEnv:         agentExtraEnv,        // includes ASTRO_IDENTITY_TOKEN for server callbacks
-			Healthcheck:      ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			EnvHash:     envHash,
+			ExtraEnv:    agentExtraEnv,
+			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
@@ -1208,6 +1217,111 @@ func buildMessagingOIDCSecret(namespace string, cfg *OIDCAuthConfig) *corev1.Sec
 // auto-generated credentials for a self-hosted knowledge store.
 func knowledgeCredSecretName(agentName, knowledgeName string) string {
 	return deployment.GenerateResourceName(agentName, "knowledge", knowledgeName) + "-creds"
+}
+
+// knowledgeCredKey is one literal-key entry on a knowledge cred Secret that
+// the agent should pick up under a (potentially renamed) env var name.
+type knowledgeCredKey struct {
+	suffix    string // e.g. "USER", "PASSWORD" — also the literal key in the Secret
+	secretKey string // the literal key in the K8s Secret (same as suffix prefixed by EnvPrefix today)
+}
+
+// providerCredKeys returns the cred suffixes that a provider's auto-generated
+// Secret contains, paired with the literal key names used inside the Secret.
+// It mirrors generateKnowledgeCredentials' contract.
+func providerCredKeys(provider string) []knowledgeCredKey {
+	switch provider {
+	case "postgres":
+		return []knowledgeCredKey{
+			{suffix: "USER", secretKey: "POSTGRES_USER"},         //nolint:gosec // env var key, not a credential
+			{suffix: "PASSWORD", secretKey: "POSTGRES_PASSWORD"}, //nolint:gosec // env var key, not a credential
+		}
+	case "redis":
+		return []knowledgeCredKey{
+			{suffix: "PASSWORD", secretKey: "REDIS_PASSWORD"}, //nolint:gosec // env var key, not a credential
+		}
+	}
+	return nil
+}
+
+// knowledgeCredEnvVars builds the agent container's env-var list for
+// knowledge-store credentials, using secretKeyRef so each (store, key) pair
+// maps to a unique, RFC §8.2-named env var (POSTGRES_USER vs
+// POSTGRES_USERS_USER) regardless of how many stores share a provider. The
+// knowledge container itself still mounts its cred Secret directly under
+// the literal keys it expects (POSTGRES_USER) — those keys are properties of
+// the upstream image, not the agent.
+//
+// existingSecrets is the list of cred Secret names the applier successfully
+// created/found; we skip stores whose Secret didn't materialise rather than
+// referencing a missing secret which would block pod startup.
+func knowledgeCredEnvVars(ds *spec.AstroDeploymentSpec, agentName string, existingSecrets []string) []corev1.EnvVar {
+	if len(ds.Knowledge) == 0 {
+		return nil
+	}
+	have := make(map[string]bool, len(existingSecrets))
+	for _, s := range existingSecrets {
+		have[s] = true
+	}
+
+	// Group entries by provider EnvPrefix and pick a primary per group.
+	type entry struct {
+		name     string
+		provider string
+		prefix   string
+	}
+	groups := map[string][]entry{}
+	names := make([]string, 0, len(ds.Knowledge))
+	for n := range ds.Knowledge {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		k := ds.Knowledge[n]
+		if k.Provider == "" {
+			continue
+		}
+		prov := spec.GetProvider(k.Provider)
+		if prov.EnvPrefix == "" {
+			continue
+		}
+		groups[prov.EnvPrefix] = append(groups[prov.EnvPrefix], entry{name: n, provider: k.Provider, prefix: prov.EnvPrefix})
+	}
+
+	var out []corev1.EnvVar
+	for prefix, group := range groups {
+		// Pick primary per RFC §8.2: name == provider, else first alphabetically.
+		groupNames := make([]string, 0, len(group))
+		for _, e := range group {
+			groupNames = append(groupNames, e.name)
+		}
+		primary := deployment.PickPrimaryName(append([]string(nil), groupNames...), group[0].provider)
+
+		isDup := len(group) > 1
+		for _, e := range group {
+			secretName := knowledgeCredSecretName(agentName, e.name)
+			if !have[secretName] {
+				continue
+			}
+			isPrimary := e.name == primary
+			for _, ck := range providerCredKeys(e.provider) {
+				for _, envName := range deployment.ProviderEnvKeys(prefix, e.name, e.provider, ck.suffix, isDup, isPrimary) {
+					out = append(out, corev1.EnvVar{
+						Name: envName,
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								Key:                  ck.secretKey,
+							},
+						},
+					})
+				}
+			}
+		}
+	}
+	// Stable order for deterministic test assertions and diff cleanliness.
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // generateKnowledgeCredentials returns auto-generated credentials for a provider.
