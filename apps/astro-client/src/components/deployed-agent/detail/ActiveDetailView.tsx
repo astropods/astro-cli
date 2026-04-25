@@ -13,7 +13,6 @@ import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
 import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { isDeploymentLineageMatch } from "@/lib/blueprint-lineage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { SidePanel } from "./SidePanel";
@@ -85,7 +84,16 @@ export function ActiveDetailView({
   const [isGloballyRestarting, setIsGloballyRestarting] = useState(false)
   const [isPodLevelRestarting, setIsPodLevelRestarting] = useState(false)
   const isRestarting = isGloballyRestarting || isPodLevelRestarting
-  const { data: accountAgents } = useAccountBlueprints(account);
+  /*
+   * For cross-account deploys (e.g. you deployed an org's blueprint into
+   * your personal account) the upgrade signal must come from the source
+   * account's blueprint, not the URL/owning account. The owning account
+   * may have a same-named but lineage-unrelated blueprint that would
+   * otherwise produce a false "Update available" pointing at a build the
+   * deployed pod was never built from.
+   */
+  const sourceAccount = deployment.source_account ?? account;
+  const { data: accountAgents } = useAccountBlueprints(sourceAccount);
   const { timezone } = useLogTimezone();
   const pauseMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
@@ -113,10 +121,7 @@ export function ActiveDetailView({
       : latest,
   );
   const latestBuildId = latestVersion?.build_id;
-  const hasNewBuildAvailable =
-    isDeploymentLineageMatch(renderedDeployment, blueprintAgent) &&
-    !!latestBuildId &&
-    latestBuildId !== renderedDeployment.build_id;
+  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
 
   useEffect(() => {
     if (!pausing) return;

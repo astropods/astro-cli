@@ -458,6 +458,86 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 	}
 }
 
+type staticK8sCache struct {
+	key  string
+	data []byte
+}
+
+func (c staticK8sCache) Get(_ context.Context, key string) ([]byte, bool) {
+	if key != c.key {
+		return nil, false
+	}
+	return c.data, true
+}
+
+func (staticK8sCache) Set(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return nil
+}
+
+func (staticK8sCache) Invalidate(_ context.Context, _ string) error {
+	return nil
+}
+
+func TestEnrichDeployment_CacheHitPreservesSourceAccount(t *testing.T) {
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	log := logger.New("error", "json")
+
+	now := time.Now()
+	sourceID := "src-acct"
+	dbDep := &deploymentstore.Deployment{
+		ID:                 "dep-1",
+		AccountID:          "target-acct",
+		SourceAccountID:    &sourceID,
+		AgentName:          "agent-from-db",
+		BuildID:            "build-from-db",
+		Namespace:          "astro-cache-0",
+		DisplayName:        "Agent From DB",
+		DeploymentSpecJSON: `{"spec":"deployment/v1","source":{"account":"publisher","name":"agent-from-db","build":"build-from-db"}}`,
+		Status:             deploymentstore.StatusActive,
+		DeployedAt:         now,
+	}
+	cached, err := json.Marshal([]AgentDeployment{{
+		Name:      "stale-name-from-cache",
+		BuildID:   "build-from-db",
+		Namespace: dbDep.Namespace,
+		Status:    "Running",
+	}})
+	if err != nil {
+		t.Fatalf("marshal cache payload: %v", err)
+	}
+
+	accountMock.ExpectQuery(`SELECT`).
+		WithArgs(sourceID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow(sourceID, "publisher", "organization", nil, nil, now, now, "", nil))
+
+	deps := enrichDeployment(
+		context.Background(),
+		log,
+		accountStore,
+		nil,
+		nil,
+		dbDep,
+		nil,
+		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
+		"list:",
+		time.Minute,
+	)
+
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+	dep := deps[0]
+	if dep.Name != dbDep.AgentName {
+		t.Errorf("cached deployment name = %q, want DB name %q", dep.Name, dbDep.AgentName)
+	}
+	if dep.SourceAccount != "publisher" {
+		t.Errorf("cached deployment source_account = %q, want publisher", dep.SourceAccount)
+	}
+}
+
 func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
 	namespace := "astro-abc123def-0"
 	agentName := "my-agent"
@@ -1390,56 +1470,69 @@ func setupValidateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.S
 	return router, indexMock, accountMock
 }
 
-func TestDeploy_PrivateSourceAgent_NonMember_Rejected(t *testing.T) {
-	router, indexMock, accountMock := setupValidateRouter("user-cross")
+func TestCanDeploySourceAgent_Boundary(t *testing.T) {
+	personal := &account.Account{ID: "acct-personal", Name: "matt", Type: "personal"}
+	org := &account.Account{ID: "acct-org", Name: "astropods", Type: "organization"}
 
-	now := time.Now()
-	body := minimalDeploySpec("source-org", "secret-agent", "build-1")
-
-	// Source account lookup
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("source-org").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
-			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil))
-
-	// Target == source (no target.account in spec), so no second account lookup
-
-	// IsMember(target=source, user) → member of target
-	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("src-acct", "user-cross").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	// agentIndex.Get → private agent
-	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
-		WithArgs("src-acct", "secret-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
-			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("src-acct", "secret-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "testaccount", `{"name":"secret-agent"}`, "", "", "[]", now, now))
-
-	// IsMember(source, user) → NOT a member
-	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("src-acct", "user-cross").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("private source agent should be hidden from non-members, got %d: %s", rec.Code, rec.Body.String())
+	tests := []struct {
+		name       string
+		sourceAcct *account.Account
+		targetAcct *account.Account
+		visibility string
+		want       bool
+	}{
+		{
+			name:       "org deploys own private blueprint",
+			sourceAcct: org,
+			targetAcct: org,
+			visibility: "private",
+			want:       true,
+		},
+		{
+			name:       "organization deploys public personal blueprint",
+			sourceAcct: personal,
+			targetAcct: org,
+			visibility: "public",
+			want:       true,
+		},
+		{
+			name:       "organization cannot deploy private personal blueprint",
+			sourceAcct: personal,
+			targetAcct: org,
+			visibility: "private",
+			want:       false,
+		},
+		{
+			name:       "personal account deploys own private blueprint",
+			sourceAcct: personal,
+			targetAcct: personal,
+			visibility: "private",
+			want:       true,
+		},
+		{
+			name:       "personal account deploys public organization blueprint",
+			sourceAcct: org,
+			targetAcct: personal,
+			visibility: "public",
+			want:       true,
+		},
+		{
+			name:       "personal account cannot deploy private organization blueprint",
+			sourceAcct: org,
+			targetAcct: personal,
+			visibility: "private",
+			want:       false,
+		},
 	}
 
-	var resp map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["error"] != "source agent not found" {
-		t.Errorf("expected 'source agent not found', got %v", resp["error"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agent := &agentindex.Agent{Visibility: tt.visibility}
+
+			if got := canDeploySourceAgent(tt.sourceAcct, tt.targetAcct, agent); got != tt.want {
+				t.Fatalf("canDeploySourceAgent() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1486,11 +1579,6 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
 			AddRow("build-1", "testaccount", `{"name":"secret-agent"}`, "", "", "[]", now, now))
 
-	// IsMember(source, user) → NOT a member of source
-	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("src-acct", "user-target").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
 	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1498,6 +1586,63 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("cross-account deploy of private agent should be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeploy_PublicSourceAgent_CrossAccount_Allowed(t *testing.T) {
+	router, indexMock, accountMock := setupValidateRouter("user-target")
+
+	now := time.Now()
+	body := crossAccountDeployableSpec()
+	storedSpec := `{"name":"public-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-source-org/public-agent:build-1"}}`
+
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("source-org").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil))
+
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("target-org").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("tgt-acct", "target-org", "personal", nil, nil, now, now, "", nil))
+
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("tgt-acct", "user-target").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("src-acct", "public-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("src-acct", "public-agent", "r.io", "public", nil, false, nil, now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("src-acct", "public-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "source-org", storedSpec, "", "", "[]", now, now))
+
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("src-acct", "public-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "source-org", storedSpec, "", "", "[]", now, now))
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cross-account deploy of public agent should be allowed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["valid"] != true {
+		t.Fatalf("expected valid response, got %#v", resp)
 	}
 }
 
@@ -1700,6 +1845,28 @@ func deployableSpec(deploymentID string) string {
 		},
 		"observability": {"enabled": true, "provider": "langfuse"}
 	}`, targetExtra)
+}
+
+func crossAccountDeployableSpec() string {
+	return `{
+		"spec": "deployment/v1",
+		"source": {"account": "source-org", "name": "public-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
+		"target": {"account": "target-org", "runtime": "kubernetes"},
+		"agent": {
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-source-org/public-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "public-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%", "max_surge": "25%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "langfuse"}
+	}`
 }
 
 func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {

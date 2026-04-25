@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
@@ -6,7 +7,8 @@ import { useAgentFilters } from "./useAgentFilters";
 import { useObservabilitySummaries, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
-import { isDeploymentLineageMatch } from "@/lib/blueprint-lineage";
+import { blueprintKeys } from "@/api/queries/keys";
+import { api, type BlueprintsListResponse } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 
 function AgentCardSkeleton() {
@@ -71,7 +73,6 @@ function AgentCard({
 
 interface DeployedAgentsSectionProps {
   deployments: AgentDeployment[];
-  blueprintAgents: { name: string; versions?: { build_id: string; published_at: string }[] }[];
   account: string;
   isLoading: boolean;
   skeletonDeploymentId?: string | null;
@@ -80,7 +81,6 @@ interface DeployedAgentsSectionProps {
 
 export function DeployedAgentsSection({
   deployments,
-  blueprintAgents,
   account,
   isLoading,
   skeletonDeploymentId,
@@ -99,21 +99,52 @@ export function DeployedAgentsSection({
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
 
+  /*
+   * Cross-account deploys (deployment.source_account != viewer account)
+   * need their upgrade signal computed against the source account's
+   * blueprint, not the viewer's. We fan out blueprint queries for every
+   * unique source account in the visible deployments — usually 1 (the
+   * viewer's), occasionally 2-3 when an org's blueprint was deployed
+   * into the personal account. useQueries keeps each query independently
+   * cached and shared with detail-view fetches.
+   */
+  const sourceAccounts = useMemo(() => {
+    const seen = new Set<string>();
+    for (const d of deployments) seen.add(d.source_account || account);
+    return Array.from(seen);
+  }, [deployments, account]);
+
+  const blueprintQueries = useQueries({
+    queries: sourceAccounts.map((acct) => ({
+      queryKey: blueprintKeys.byAccount(acct),
+      queryFn: () => api.listAccountBlueprints(acct),
+      enabled: !!acct,
+    })),
+  });
+
+  const blueprintsByAccountAndName = useMemo(() => {
+    const map = new Map<string, BlueprintsListResponse["agents"][number]>();
+    blueprintQueries.forEach((result, i) => {
+      const acct = sourceAccounts[i];
+      if (!acct || !result.data?.agents) return;
+      for (const agent of result.data.agents) map.set(`${acct}\u0000${agent.name}`, agent);
+    });
+    return map;
+  }, [blueprintQueries, sourceAccounts]);
+
   const deploymentsWithNewBuild = useMemo(() => {
-    const byName = new Map(deployments.map((d) => [d.name, d]));
     return new Set(
-      blueprintAgents.flatMap((agent) => {
-        if (!agent.versions?.length) return [];
+      deployments.flatMap((deployment) => {
+        const lineageAccount = deployment.source_account || account;
+        const agent = blueprintsByAccountAndName.get(`${lineageAccount}\u0000${deployment.name}`);
+        if (!agent?.versions?.length) return [];
         const latest = agent.versions.reduce((a, b) =>
           new Date(b.published_at) > new Date(a.published_at) ? b : a,
         );
-        const deployment = byName.get(agent.name);
-        if (!deployment) return [];
-        if (!isDeploymentLineageMatch(deployment, agent)) return [];
         return latest.build_id && deployment.build_id !== latest.build_id ? [deployment.id] : [];
       }),
     );
-  }, [blueprintAgents, deployments]);
+  }, [blueprintsByAccountAndName, deployments, account]);
 
   if (isLoading) {
     return (

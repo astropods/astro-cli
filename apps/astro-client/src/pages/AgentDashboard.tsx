@@ -7,7 +7,6 @@ import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSect
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useDeployments } from "@/api/queries/deployments";
-import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { deploymentPath } from "@/lib/routes";
@@ -58,12 +57,8 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
 
 
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
-  const { data: accountBlueprints } = useAccountBlueprints(userAccount, {
-    enabled: isAuthenticated,
-  });
 
   const deployments = data?.deployments ?? [];
-  const blueprintAgents = accountBlueprints?.agents ?? [];
 
 
   const clearRevealState = () => {
@@ -97,7 +92,6 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
           deployments={deployments}
           account={userAccount}
           isLoading={isLoading}
-          blueprintAgents={blueprintAgents}
           skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
           skeletonCount={skeletonCount}
         />

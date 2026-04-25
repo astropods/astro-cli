@@ -214,19 +214,19 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Auth: user must have visibility on the source agent.
-	// Public agents are deployable by anyone; private agents require source account membership.
+	// Auth: user must have deployment visibility on the source agent.
+	// Same-account deploys may use private blueprints. Cross-account deploys
+	// require a public blueprint, even if the caller belongs to both accounts:
+	// membership in the publisher account should not let a private org
+	// blueprint be deployed into a personal account (or vice versa).
 	sourceAgent, err := agentIndex.Get(sourceAcct.ID, submittedSpec.Source.Name)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "source agent not found"})
 		return nil, false
 	}
-	if sourceAgent.Visibility == "private" {
-		isSourceMember, err := accountStore.IsMember(sourceAcct.ID, user.ID)
-		if err != nil || !isSourceMember {
-			c.JSON(http.StatusNotFound, gin.H{"error": "source agent not found"})
-			return nil, false
-		}
+	if !canDeploySourceAgent(sourceAcct, targetAcct, sourceAgent) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "source agent not found"})
+		return nil, false
 	}
 
 	// Sanitize and validate the optional display name
@@ -421,6 +421,13 @@ func prepareDeployment(
 		resolveResult:     resolveResult,
 		varRefs:           varRefs,
 	}, true
+}
+
+func canDeploySourceAgent(sourceAcct, targetAcct *account.Account, sourceAgent *agentindex.Agent) bool {
+	if sourceAcct.ID == targetAcct.ID {
+		return true
+	}
+	return sourceAgent.Visibility == "public"
 }
 
 // DeployAgent returns a handler for deploying agents to Kubernetes.
@@ -772,12 +779,24 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	ID                 string                `json:"id"`
-	Name               string                `json:"name"`
-	DisplayName        string                `json:"display_name,omitempty"`
-	AvatarURL          string                `json:"avatar_url,omitempty"`
-	AvatarColors       json.RawMessage       `json:"avatar_colors,omitempty"`
-	BuildID            string                `json:"build_id"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	DisplayName  string          `json:"display_name,omitempty"`
+	AvatarURL    string          `json:"avatar_url,omitempty"`
+	AvatarColors json.RawMessage `json:"avatar_colors,omitempty"`
+	BuildID      string          `json:"build_id"`
+	/*
+	 * SourceAccount is the publishing account name the deployment was
+	 * built from. Resolved from deployments.source_account_id (post-
+	 * migration always populated, falls back to deployment_spec_json's
+	 * source.account for legacy rows). Empty when neither source is
+	 * available; in that case clients should treat the URL/owning
+	 * account as the lineage source. Clients consume this to look up
+	 * blueprint upgrade signals against the right account, since the
+	 * owning account may have a same-named blueprint with no shared
+	 * lineage (cross-account deploys).
+	 */
+	SourceAccount      string                `json:"source_account,omitempty"`
 	Namespace          string                `json:"namespace"`
 	Status             string                `json:"status"`
 	Replicas           int32                 `json:"replicas"`
@@ -902,7 +921,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		g, gctx := errgroup.WithContext(c.Request.Context())
 		for i, dbDep := range dbDeps {
 			g.Go(func() error {
-				enriched[i] = enrichDeployment(gctx, log, k8sClient, deployStore, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
+				enriched[i] = enrichDeployment(gctx, log, accountStore, k8sClient, deployStore, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
 				return nil
 			})
 		}
@@ -987,7 +1006,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		deps := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
+		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
 		result := deps[0]
 		// During a rolling build update the namespace contains workloads for both the old and
 		// new build ID. Pick the entry matching the DB's current build so the client always
@@ -1039,7 +1058,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
-func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
+func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStore, dep *deploymentstore.Deployment) AgentDeployment {
 	status := "error"
 	switch dep.Status {
 	case deploymentstore.StatusActive:
@@ -1053,16 +1072,17 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 	}
 
 	ad := AgentDeployment{
-		ID:          dep.ID,
-		Name:        dep.AgentName,
-		DisplayName: dep.DisplayName,
-		BuildID:     dep.BuildID,
-		Namespace:   dep.Namespace,
-		Status:      status,
-		Replicas:    0,
-		Ready:       0,
-		CreatedAt:   dep.DeployedAt.Format(time.RFC3339),
-		Components:  []string{},
+		ID:            dep.ID,
+		Name:          dep.AgentName,
+		DisplayName:   dep.DisplayName,
+		BuildID:       dep.BuildID,
+		SourceAccount: resolveSourceAccountName(log, accountStore, dep),
+		Namespace:     dep.Namespace,
+		Status:        status,
+		Replicas:      0,
+		Ready:         0,
+		CreatedAt:     dep.DeployedAt.Format(time.RFC3339),
+		Components:    []string{},
 	}
 	if dep.AvatarColors != nil {
 		ad.AvatarColors = *dep.AvatarColors
@@ -1082,12 +1102,21 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 // k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
 type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
 
-func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
+func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
+	/*
+	 * Source account name resolved once per dbDep so the K8s and DB-only
+	 * paths return identical SourceAccount values. Looked up via
+	 * resolveSourceAccountName which prefers source_account_id and falls
+	 * back to deployment_spec_json.source.account on legacy rows.
+	 */
+	sourceAccount := resolveSourceAccountName(log, accountStore, dbDep)
+
 	applyDBFields := func(deps []AgentDeployment, createdAt time.Time) {
 		for i := range deps {
 			deps[i].ID = dbDep.ID
 			deps[i].Name = dbDep.AgentName
 			deps[i].DisplayName = dbDep.DisplayName
+			deps[i].SourceAccount = sourceAccount
 			deps[i].CreatedAt = createdAt.Format(time.RFC3339)
 			if dbDep.AvatarColors != nil {
 				deps[i].AvatarColors = *dbDep.AvatarColors
@@ -1121,7 +1150,7 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.Clu
 	}
 
 	dbOnly := func() []AgentDeployment {
-		entry := agentDeploymentFromDB(dbDep)
+		entry := agentDeploymentFromDB(log, accountStore, dbDep)
 		entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
 		return []AgentDeployment{entry}
 	}

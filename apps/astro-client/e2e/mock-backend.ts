@@ -11,11 +11,44 @@ const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const AGENT_CROSS_ACCOUNT = "cross-agent";
 const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
+const AGENT_XACCT_UPGRADE = "xacct-upgrade-bot";
+const AGENT_XACCT_COLLISION = "xacct-collision-bot";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
+/*
+ * Cross-account upgrade fixture (legit upgrade exists in source account).
+ *
+ * The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
+ * pinned to its older build. The publisher account has a newer build in
+ * its blueprint version list; the personal account does NOT have a
+ * blueprint with this name at all. Pre-fix the client looked up the
+ * blueprint under the URL/owning account (`testuser`), found nothing,
+ * and silenced the upgrade badge. Post-fix it follows source_account and
+ * surfaces the upgrade.
+ */
+const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
+const XACCT_UPGRADE_DEPLOYED_BUILD = "build-xacct-1";
+const XACCT_UPGRADE_LATEST_BUILD = "build-xacct-2";
+/*
+ * Cross-account name-collision fixture (no real upgrade; personal account
+ * has a same-named but lineage-unrelated blueprint with a newer build).
+ *
+ * The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
+ * pinned to the publisher's latest build (no upgrade in the source
+ * lineage). The personal account ALSO publishes a blueprint with the same
+ * name whose latest build is newer. Pre-fix the client matched by name
+ * against the personal account's list and advertised that newer build as
+ * an upgrade — but the server cannot honor it because the deployment's
+ * build_id is not in that lineage (this is the redeploy-404 trigger
+ * the user reproduced in production). Post-fix the lookup goes to the
+ * source account's blueprint and the badge stays silent.
+ */
+const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
+const XACCT_COLLISION_PUBLISHER_BUILD = "build-org-7";
+const XACCT_COLLISION_PERSONAL_NEWER = "build-personal-7";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
 const ORG_ACCOUNT = "test-org";
 const ORG_ACCOUNT_ID = "org-acct-1";
@@ -28,6 +61,13 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_SLACK_OVERLAP]: "build-123",
   [AGENT_CROSS_ACCOUNT]: "build-cross-1",
   [AGENT_INGESTION_SCHEDULE]: "build-125",
+  /*
+   * Personal-account "latest" for the collision agent name. Intentionally
+   * newer than the deployment's pinned build so the pre-fix
+   * (name-only lookup against the viewer's account) would surface a
+   * misleading upgrade. The post-fix consults the source account instead.
+   */
+  [AGENT_XACCT_COLLISION]: XACCT_COLLISION_PERSONAL_NEWER,
 };
 
 // Mutable org role — changed via /test/set-role
@@ -53,9 +93,6 @@ const makeAuthResponse = () => ({
     { id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID, role: currentOrgRole },
   ],
 });
-
-// Keep a reference for backwards compat — existing tests use the const
-const authResponse = makeAuthResponse();
 
 const makeOrgMembers = () => [
   {
@@ -239,6 +276,28 @@ const templatesByAgent = {
       ...baseVariables,
     },
     editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
+  },
+  /*
+   * Personal-account template for the collision agent name. Not directly
+   * exercised by the badge tests, but kept so configure-page navigation
+   * to the personal-side blueprint resolves rather than 404s.
+   */
+  [AGENT_XACCT_COLLISION]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: ACCOUNT,
+      name: AGENT_XACCT_COLLISION,
+      build: XACCT_COLLISION_PERSONAL_NEWER,
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes" },
+    agent: {
+      image: `registry.example.com/testuser/${AGENT_XACCT_COLLISION}:${XACCT_COLLISION_PERSONAL_NEWER}`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { adapters: ["web"] },
+    variables: { ...baseVariables },
+    editable: ["variables.*.value", "interfaces.adapters"],
   },
 } satisfies Record<string, unknown>;
 
@@ -456,6 +515,44 @@ const makeInitialDeployments = () => [
     workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
+  {
+    id: DEPLOYMENT_XACCT_UPGRADE_ID,
+    name: AGENT_XACCT_UPGRADE,
+    display_name: "Cross-Account Upgrade Bot",
+    build_id: XACCT_UPGRADE_DEPLOYED_BUILD,
+    /*
+     * source_account points at the publisher (otheraccount). The
+     * personal account does NOT have a blueprint by this name, so the
+     * upgrade signal is observable only when the client honors
+     * source_account.
+     */
+    source_account: CROSS_ACCOUNT_PUBLISHER,
+    namespace: "astro-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    jobs: [],
+  },
+  {
+    id: DEPLOYMENT_XACCT_COLLISION_ID,
+    name: AGENT_XACCT_COLLISION,
+    display_name: "Cross-Account Collision Bot",
+    build_id: XACCT_COLLISION_PUBLISHER_BUILD,
+    source_account: CROSS_ACCOUNT_PUBLISHER,
+    namespace: "astro-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    jobs: [],
+  },
 ];
 
 let deployments = makeInitialDeployments();
@@ -478,28 +575,82 @@ let accountVariables: Array<{
   updated_at: string;
 }> = [];
 
-const agentFor = (agentName: string) => ({
+/*
+ * Per-agent blueprint version lists, oldest -> newest, for the personal
+ * account. Default is just `[latestBuildByAgent[name]]`. The collision
+ * fixture has a personal-account blueprint that is intentionally newer
+ * than the deployment's source-account pinned build; if the lookup ever
+ * falls back to the personal account, this is what would (incorrectly)
+ * appear as the upgrade target.
+ */
+const versionsByAgent: Record<string, string[]> = {
+  [AGENT_SLACK_FULL]: ["build-123", "build-124"],
+  [AGENT_XACCT_COLLISION]: ["build-personal-1", XACCT_COLLISION_PERSONAL_NEWER],
+};
+
+const buildAgent = (
+  account: string,
+  agentName: string,
+  versionIds: string[],
+) => ({
   name: agentName,
-  account: ACCOUNT,
+  account,
   registry: "registry.example.com",
-  versions: [
-    {
-      build_id: latestBuildByAgent[agentName] ?? "build-123",
-      spec: { model: "gpt-4o" },
-      published_at: nowIso,
-    },
-  ],
+  /*
+   * Stagger published_at so the client's "latest" reduce
+   * (max by published_at) picks the last entry. Caller passes
+   * versions oldest -> newest.
+   */
+  versions: versionIds.map((build_id, i) => ({
+    build_id,
+    spec: { model: "gpt-4o" },
+    published_at: new Date(Date.parse(nowIso) + i * 1000).toISOString(),
+  })),
 });
+
+const personalAgentFor = (agentName: string) => {
+  const explicit = versionsByAgent[agentName];
+  const versionIds = explicit ?? [latestBuildByAgent[agentName] ?? "build-123"];
+  return buildAgent(ACCOUNT, agentName, versionIds);
+};
 
 const accountAgents = {
   agents: [
-    agentFor(AGENT_APP_TOKEN_ONLY),
-    agentFor(AGENT_SLACK_FULL),
-    agentFor(AGENT_SLACK_OVERLAP),
-    agentFor(AGENT_CROSS_ACCOUNT),
-    agentFor(AGENT_INGESTION_SCHEDULE),
+    personalAgentFor(AGENT_APP_TOKEN_ONLY),
+    personalAgentFor(AGENT_SLACK_FULL),
+    personalAgentFor(AGENT_SLACK_OVERLAP),
+    personalAgentFor(AGENT_CROSS_ACCOUNT),
+    personalAgentFor(AGENT_INGESTION_SCHEDULE),
+    /*
+     * Personal-account collision blueprint: same agent_name as the
+     * cross-account deployment, totally unrelated lineage, intentionally
+     * newer than the deployment's pinned build. Used by the e2e to prove
+     * the upgrade signal does NOT come from this blueprint when a
+     * cross-account deployment carries source_account.
+     */
+    personalAgentFor(AGENT_XACCT_COLLISION),
   ],
-  count: 5,
+  count: 6,
+};
+
+/*
+ * Publisher-account (CROSS_ACCOUNT_PUBLISHER) blueprint listing. The
+ * upgrade-bot has a real newer build in the publisher's lineage; the
+ * collision-bot has only the deployment's pinned build (no upgrade in
+ * source). The new client code routes blueprint lookups for cross-
+ * account deployments here via deployment.source_account.
+ */
+const publisherAgents = {
+  agents: [
+    buildAgent(CROSS_ACCOUNT_PUBLISHER, AGENT_XACCT_UPGRADE, [
+      XACCT_UPGRADE_DEPLOYED_BUILD,
+      XACCT_UPGRADE_LATEST_BUILD,
+    ]),
+    buildAgent(CROSS_ACCOUNT_PUBLISHER, AGENT_XACCT_COLLISION, [
+      XACCT_COLLISION_PUBLISHER_BUILD,
+    ]),
+  ],
+  count: 2,
 };
 
 const corsHeaders = (origin?: string | null) => ({
@@ -557,7 +708,9 @@ Bun.serve({
 
     const templateMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment-template$/);
     if (templateMatch) {
-      const [, accountName, agentName] = templateMatch;
+      const accountName = templateMatch[1];
+      const agentName = templateMatch[2];
+      if (!accountName || !agentName) return json({ error: "not_found" }, 404);
 
       // POST: interactive template endpoint — wraps response in TemplateResponse envelope
       if (request.method === "POST") {
@@ -653,7 +806,8 @@ Bun.serve({
         }
 
         // Build TemplateResponse envelope
-        const { editable, variables, spec: _spec, ...templateRest } = flat;
+        const { editable, variables, ...templateRest } = flat;
+        delete templateRest.spec;
         const templateVars: Record<string, unknown> = {};
         if (variables) {
           for (const [k, v] of Object.entries(variables as Record<string, Record<string, unknown>>)) {
@@ -718,7 +872,10 @@ Bun.serve({
       /^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment-template\/([^/]+)$/,
     );
     if (prefilledTemplateMatch) {
-      const [, accountName, agentName, deploymentId] = prefilledTemplateMatch;
+      const accountName = prefilledTemplateMatch[1];
+      const agentName = prefilledTemplateMatch[2];
+      const deploymentId = prefilledTemplateMatch[3];
+      if (!accountName || !agentName || !deploymentId) return json({ error: "not_found" }, 404);
       if (accountName !== ACCOUNT) return json({ error: "not_found" }, 404);
 
       const storedPayload = storedPayloads[deploymentId] as Record<string, unknown> | undefined;
@@ -805,9 +962,11 @@ Bun.serve({
 
     const agentMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)$/);
     if (agentMatch) {
-      const [, accountName, agentName] = agentMatch;
+      const accountName = agentMatch[1];
+      const agentName = agentMatch[2];
+      if (!accountName || !agentName) return json({ error: "not_found" }, 404);
       if (accountName === ACCOUNT && (agentName in templatesByAgent || createdBlueprints.has(agentName))) {
-        return json(agentFor(agentName));
+        return json(personalAgentFor(agentName));
       }
       return json({ error: "not_found" }, 404);
     }
@@ -826,6 +985,9 @@ Bun.serve({
       }
       if (accountName === ACCOUNT) {
         return json(accountAgents);
+      }
+      if (accountName === CROSS_ACCOUNT_PUBLISHER) {
+        return json(publisherAgents);
       }
       return json({ agents: [], count: 0 });
     }

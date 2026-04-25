@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 const ACCOUNT = "testuser";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
+const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
+const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const BUILD_UPGRADE_LABEL = "build-123 \u2192 build-124";
 const MOCK_BACKEND = "http://localhost:48787";
 
@@ -21,6 +23,79 @@ test("my agents card shows new build badge for out-of-date deployment", async ({
   const staleCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });
   await expect(staleCard.getByText("Update available", { exact: true })).toBeVisible();
+});
+
+/*
+ * Cross-account upgrade signal: a deployment whose source_account differs
+ * from the viewer's account must surface the upgrade badge using the
+ * source account's blueprint listing. The personal account does NOT
+ * publish a blueprint with this name, so a name-only lookup against the
+ * viewer's account would have left the badge silent (the pre-fix
+ * behavior reproduced in production with the issueator agent).
+ */
+test("cross-account deployment shows update badge from source account blueprint", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+
+  const upgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_UPGRADE_ID}"]`);
+  await expect(upgradeCard).toBeVisible({ timeout: 20_000 });
+  await expect(upgradeCard.getByText("Update available", { exact: true })).toBeVisible();
+});
+
+/*
+ * Cross-account name-collision suppression: a deployment whose
+ * source_account is up-to-date in its publisher's blueprint must NOT
+ * show the upgrade badge, even though the viewer's personal account
+ * publishes a same-named but lineage-unrelated blueprint with a newer
+ * build. Pre-fix the dashboard reducer matched by name only against the
+ * viewer's account and produced a misleading badge whose Redeploy 404'd
+ * on the server because the deployment's build_id was not in that
+ * lineage.
+ *
+ * The slack-full card is asserted in parallel as a regression guard so a
+ * universal "no badges anywhere" failure can't masquerade as a pass.
+ */
+test("cross-account collision deployment does not show update badge from personal-account collision", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+
+  const collisionCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_COLLISION_ID}"]`);
+  const validUpgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  await expect(collisionCard).toBeVisible({ timeout: 20_000 });
+  await expect(validUpgradeCard.getByText("Update available", { exact: true })).toBeVisible();
+
+  await expect(collisionCard.getByText("Update available", { exact: true })).toHaveCount(0);
+});
+
+/*
+ * Same collision scenario on the detail page: the Redeploy banner is the
+ * primary path into the false-positive upgrade and must not render when
+ * the source account's blueprint shows no upgrade — even when the
+ * viewer's personal account has a newer same-named build.
+ */
+test("cross-account collision deployment does not show redeploy banner on detail page", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_COLLISION_ID}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.getByRole("heading", { name: "Cross-Account Collision Bot" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Redeploy →/ })).toHaveCount(0);
+});
+
+/*
+ * Cross-account upgrade signal on the detail page: the Redeploy banner
+ * must render for a legitimate cross-account upgrade so users can act on
+ * it from the deployment detail view, not just the dashboard.
+ */
+test("cross-account deployment shows redeploy banner on detail page", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_UPGRADE_ID}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.getByRole("heading", { name: "Cross-Account Upgrade Bot" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Redeploy →/ })).toBeVisible();
 });
 
 // Guards against false-positive badge rendering: when deployed build matches the
