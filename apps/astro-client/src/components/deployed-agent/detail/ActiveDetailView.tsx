@@ -13,6 +13,7 @@ import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
 import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
+import { isDeploymentLineageMatch } from "@/lib/blueprint-lineage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { SidePanel } from "./SidePanel";
@@ -112,7 +113,10 @@ export function ActiveDetailView({
       : latest,
   );
   const latestBuildId = latestVersion?.build_id;
-  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
+  const hasNewBuildAvailable =
+    isDeploymentLineageMatch(renderedDeployment, blueprintAgent) &&
+    !!latestBuildId &&
+    latestBuildId !== renderedDeployment.build_id;
 
   useEffect(() => {
     if (!pausing) return;

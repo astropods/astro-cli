@@ -6,6 +6,7 @@ import { useAgentFilters } from "./useAgentFilters";
 import { useObservabilitySummaries, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
+import { isDeploymentLineageMatch } from "@/lib/blueprint-lineage";
 import type { AgentDeployment } from "@/lib/api";
 
 function AgentCardSkeleton() {
@@ -107,9 +108,9 @@ export function DeployedAgentsSection({
           new Date(b.published_at) > new Date(a.published_at) ? b : a,
         );
         const deployment = byName.get(agent.name);
-        return deployment && latest.build_id && deployment.build_id !== latest.build_id
-          ? [deployment.id]
-          : [];
+        if (!deployment) return [];
+        if (!isDeploymentLineageMatch(deployment, agent)) return [];
+        return latest.build_id && deployment.build_id !== latest.build_id ? [deployment.id] : [];
       }),
     );
   }, [blueprintAgents, deployments]);
