@@ -460,7 +460,7 @@ func TestDrift_ResolvedKeysStoredAtDeploy(t *testing.T) {
 
 	// setupDriftEnv now calls ResolveDeploymentSpecEnv, so the resolved keys
 	// include both user env (AGENT_PORT) and platform vars (ASTRO_AGENT_NAME, etc).
-	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "AGENT_URL"} {
+	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "ASTRO_AGENT_URL"} {
 		found := false
 		for _, k := range rk.ConfigMapKeys {
 			if k == want {
@@ -864,7 +864,7 @@ func TestDrift_BackfillResolvedKeys(t *testing.T) {
 	}
 
 	// Should have platform vars
-	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "AGENT_URL"} {
+	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "ASTRO_AGENT_URL"} {
 		found := false
 		for _, k := range rk.ConfigMapKeys {
 			if k == want {

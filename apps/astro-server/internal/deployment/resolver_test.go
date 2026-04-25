@@ -486,7 +486,7 @@ func TestValidateAndResolve_InterfacesReferenceValidation(t *testing.T) {
 			"http": {Port: 8080, Expose: &spec.EndpointExpose{Enabled: true}},
 		},
 		Environment: map[string]string{
-			"AGENT_URL": "${models.missing.http.url}",
+			"MY_AGENT_URL": "${models.missing.http.url}",
 		},
 	}
 	result, err := ValidateAndResolve(ds)

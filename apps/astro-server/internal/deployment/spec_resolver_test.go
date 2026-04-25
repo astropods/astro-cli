@@ -247,9 +247,9 @@ func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
 		t.Errorf("ASTRO_AGENT_BUILD: expected abc123, got %s", result.ConfigMapData["ASTRO_AGENT_BUILD"])
 	}
 
-	// Should have AGENT_URL
-	if !strings.HasPrefix(result.ConfigMapData["AGENT_URL"], "http://") {
-		t.Error("AGENT_URL: expected http:// prefix")
+	// Should have ASTRO_AGENT_URL
+	if !strings.HasPrefix(result.ConfigMapData["ASTRO_AGENT_URL"], "http://") {
+		t.Error("ASTRO_AGENT_URL: expected http:// prefix")
 	}
 
 	// Should have OTEL endpoint
@@ -787,7 +787,7 @@ func TestResolveDeploymentSpecEnv_SupportSignalAgent(t *testing.T) {
 	}
 
 	// Platform vars should also be in ConfigMapData
-	for _, key := range []string{"ASTRO_AGENT_NAME", "ASTRO_AGENT_BUILD", "AGENT_URL", "AGENT_HOST", "OTEL_EXPORTER_OTLP_ENDPOINT", "GRPC_SERVER_ADDR"} {
+	for _, key := range []string{"ASTRO_AGENT_NAME", "ASTRO_AGENT_BUILD", "ASTRO_AGENT_URL", "ASTRO_AGENT_HOST", "OTEL_EXPORTER_OTLP_ENDPOINT", "GRPC_SERVER_ADDR"} {
 		if _, inCM := result.ConfigMapData[key]; !inCM {
 			t.Errorf("platform var %s: expected in ConfigMapData", key)
 		}

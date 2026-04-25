@@ -10,9 +10,9 @@ import (
 // exactly, and the astro.dev/agent label set.
 func TestBuildConfigMap(t *testing.T) {
 	data := map[string]string{
-		"QDRANT_HOST": "agent-knowledge-vectors.default.svc.cluster.local",
-		"QDRANT_PORT": "6333",
-		"AGENT_URL":   "http://agent.default.svc.cluster.local:8080",
+		"QDRANT_HOST":     "agent-knowledge-vectors.default.svc.cluster.local",
+		"QDRANT_PORT":     "6333",
+		"ASTRO_AGENT_URL": "http://agent.default.svc.cluster.local:8080",
 	}
 
 	cm := BuildConfigMap("prod-ns", "my-account", "my-agent", "1.0", data)

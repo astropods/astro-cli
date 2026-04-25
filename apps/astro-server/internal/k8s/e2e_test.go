@@ -1143,7 +1143,7 @@ integrations:
 }
 
 func TestE2E_ProviderEnv_PlatformMetadata(t *testing.T) {
-	// Every deployment gets ASTRO_AGENT_NAME, ASTRO_AGENT_BUILD, AGENT_URL, OTEL endpoint
+	// Every deployment gets ASTRO_AGENT_NAME, ASTRO_AGENT_BUILD, ASTRO_AGENT_URL, OTEL endpoint
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1158,8 +1158,8 @@ agent:
 	assertConfigMapValues(t, r, map[string]string{
 		"ASTRO_AGENT_NAME":            "my-agent",
 		"ASTRO_AGENT_BUILD":           "build-001",
-		"AGENT_URL":                   "http://" + agentHost + ":8080",
-		"AGENT_HOST":                  agentHost,
+		"ASTRO_AGENT_URL":             "http://" + agentHost + ":8080",
+		"ASTRO_AGENT_HOST":            agentHost,
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + collectorHost + ":4318",
 	})
 }

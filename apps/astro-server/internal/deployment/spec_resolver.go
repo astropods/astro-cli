@@ -78,8 +78,8 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	if agentPort == 0 {
 		agentPort = 8080
 	}
-	result.ConfigMapData["AGENT_URL"] = fmt.Sprintf("http://%s:%d", agentHost, agentPort)
-	result.ConfigMapData["AGENT_HOST"] = agentHost
+	result.ConfigMapData["ASTRO_AGENT_URL"] = fmt.Sprintf("http://%s:%d", agentHost, agentPort)
+	result.ConfigMapData["ASTRO_AGENT_HOST"] = agentHost
 
 	// Add OTel collector endpoint
 	collectorServiceName := GenerateAgentResourceName(ds.Source.Name, "collector")
