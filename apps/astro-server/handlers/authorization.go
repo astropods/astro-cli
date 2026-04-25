@@ -94,6 +94,22 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 			return
 		}
 
+		// Step 4: transitional fallback for deployments that pre-date this
+		// authorization rollout. If the deployment has never written a grant,
+		// allow members of its owning account on any adapter — preserving the
+		// pre-auth behavior. The fallback turns off the moment any grant is
+		// added, so it never widens access for explicitly-configured deployments.
+		if !allowed {
+			ownerAllowed, err := tryOwnerFallback(authStore, deploymentID, candidates)
+			if err != nil {
+				log.Error("authorize: fallback lookup failed",
+					"deployment_id", deploymentID, "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
+				return
+			}
+			allowed = ownerAllowed
+		}
+
 		// Test case J2: log denials with enough context to debug.
 		if !allowed {
 			log.Info("authorize: denied",
@@ -106,6 +122,37 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 
 		c.JSON(http.StatusOK, gin.H{"allowed": allowed})
 	}
+}
+
+// tryOwnerFallback implements the transitional "no grants → owner-account
+// access" rule. Returns true only when:
+//   - the deployment has zero grant rows (HasAnyGrants is false), AND
+//   - one of the resolved candidate accounts is the deployment's owner.
+//
+// Slack candidates always include the owning account (they're resolved from
+// the deployments row), so this naturally covers slack pre-existing deploys
+// without any extra branching.
+func tryOwnerFallback(authStore *authorizationstore.Store, deploymentID string, candidates []authorizationstore.Subject) (bool, error) {
+	hasAny, err := authStore.HasAnyGrants(deploymentID)
+	if err != nil {
+		return false, err
+	}
+	if hasAny {
+		return false, nil
+	}
+	ownerAccountID, err := authStore.DeploymentAccountID(deploymentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, c := range candidates {
+		if c.Type == authorizationstore.SubjectTypeAccount && c.ID == ownerAccountID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // resolveCandidates turns an (identity_type, identity_id) pair into the set of

@@ -65,6 +65,30 @@ type Subject struct {
 	ID   string
 }
 
+// HasAnyGrants reports whether the deployment has at least one row in the
+// grants table.
+//
+// Used by the transitional "no grants → owner-account access" fallback: a
+// deployment that has never been touched by the new spec (pre-existing at the
+// time this rollout shipped) gets implicit access for members of its owning
+// account on every adapter, until the owner adds any grant explicitly. Once
+// any row exists, the fallback turns off and only the explicit grants apply.
+func (s *Store) HasAnyGrants(deploymentID string) (bool, error) {
+	var found int
+	err := s.db.QueryRow(`
+		SELECT 1 FROM deployment_authorization_grants
+		WHERE deployment_id = $1
+		LIMIT 1
+	`, deploymentID).Scan(&found)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, fmt.Errorf("query has-any-grants: %w", err)
+}
+
 // HasAnyoneGrant returns true when an `anyone` grant exists for the
 // (deployment, adapter) pair. Callers use this as a fast-path short-circuit
 // so they can skip principal resolution entirely.

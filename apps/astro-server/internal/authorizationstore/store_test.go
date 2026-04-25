@@ -241,6 +241,42 @@ func TestIsAllowed_DBError_Anyone(t *testing.T) {
 	}
 }
 
+// HasAnyGrants returns true when at least one row exists.
+func TestHasAnyGrants_True(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	got, err := store.HasAnyGrants("dep-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Fatal("expected true")
+	}
+}
+
+// HasAnyGrants returns false when the deployment has no grants.
+func TestHasAnyGrants_False(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1").
+		WillReturnError(sql.ErrNoRows)
+
+	got, err := store.HasAnyGrants("dep-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got {
+		t.Fatal("expected false")
+	}
+}
+
 func TestAccountIDsForUser(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()

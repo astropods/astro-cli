@@ -80,7 +80,8 @@ Flow:
 3. **Grant lookup** — single SQL query against `deployment_authorization_grants` filtered by `deployment_id` + `adapter`, matching:
    - `subject_type='user' AND subject_id ∈ candidates`, **or**
    - `subject_type='account' AND subject_id ∈ candidates`
-   Allow if any row hits, deny otherwise.
+   Allow if any row hits.
+4. **No-grants fallback** — if the lookup misses *and* the deployment has zero rows in `deployment_authorization_grants`, allow when the principal's resolved accounts include the deployment's owning account. Used to keep pre-rollout deployments and explicitly-cleared deployments working. Otherwise deny.
 
 The deploy template's prefill (below) ensures the deployer ends up in the grants list, so a fresh deployment isn't dead-on-arrival in the common path.
 
@@ -115,6 +116,16 @@ interfaces:
 A grant must specify exactly one of `account_id`, `user_id`, or `anyone: true`. `user_id` and `anyone` grants must use `adapter: web` — slack rejects them at deploy.
 
 **Public deployment composition.** A truly anonymous deployment requires both an `anyone` grant *and* `web.type` left unset (so ALB OIDC isn't gating the ingress). With `web.type=oidc` plus an `anyone` grant, any authenticated WorkOS user gets in but anonymous traffic still doesn't — ALB rejects it before authz runs. The two layers compose; we don't try to hide one behind the other.
+
+## Transitional fallback (deployments without grants)
+
+A deployment that has zero rows in `deployment_authorization_grants` falls back to **owner-account access**: any member of the owning account is allowed on every adapter, anyone else is denied. The fallback turns off the moment any grant is added.
+
+This exists for two reasons:
+- **Migration**: deployments that pre-date this rollout have no grants. Without the fallback, they'd lock everyone out of their own agent overnight.
+- **Empty redeploys**: an owner who explicitly clears all grants (`grants: []`) gets the same behavior — back to "my account only" — rather than instant lockout.
+
+The fallback is *not* the same as "default allow." Outsiders are still denied; only members of the owner account get access. Once the owner adds any explicit grant (account/user/anyone), the fallback is gone and the explicit grants are authoritative.
 
 ## Defaults and prefill
 
@@ -229,6 +240,10 @@ The implementation must pass every case in this list. Cases are grouped by surfa
 | A20 | Authorize call with empty `identity_type`/`identity_id`; no `anyone` grant                                            | denied                                                                                                  |
 | A21 | Deployment row's `account_id` updated; existing token used                                                            | token still validates; slack resolution uses the new account_id                                         |
 | A22 | Deploy emits an `anyone` grant for adapter X                                                                          | issued token's `anyone_adapters` includes X exactly; no divergence allowed                              |
+| A23 | Deployment has zero grants; web request from a member of the owning account                                           | allowed via fallback                                                                                    |
+| A24 | Deployment has zero grants; web request from a user *not* in the owning account                                       | denied — fallback only covers owner-account members                                                     |
+| A25 | Deployment has zero grants; slack request                                                                             | allowed via fallback (slack candidate is the owner account)                                             |
+| A26 | Deployment has at least one explicit grant; principal is in owner account but not in any matching grant               | denied — fallback is off the moment any grant exists                                                    |
 
 ### B. Principal resolution
 
