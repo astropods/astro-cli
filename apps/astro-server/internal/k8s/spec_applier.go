@@ -490,6 +490,29 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
+	// Sign the deploy token once for the deployment and inject it into both
+	// the agent and the messaging sidecar as ASTRO_IDENTITY_TOKEN. Agent code
+	// uses it to authenticate calls back to astro-server (e.g. the authorize
+	// endpoint, future agent-side server APIs); messaging uses it for the
+	// per-request authorization callback. The anyone_adapters claim is
+	// derived from the spec's grants so the token agrees with what was
+	// persisted in this same deploy.
+	var anyoneAdapters []string
+	if ds.Interfaces != nil && ds.Interfaces.Auth != nil {
+		seen := map[string]bool{}
+		for _, g := range ds.Interfaces.Auth.Grants {
+			if g.Anyone && !seen[g.Adapter] {
+				seen[g.Adapter] = true
+				anyoneAdapters = append(anyoneAdapters, g.Adapter)
+			}
+		}
+		sort.Strings(anyoneAdapters)
+	}
+	var deployToken string
+	if a.deployTokenSecret != "" {
+		deployToken, _ = deploytoken.Sign(a.deploymentID, anyoneAdapters, a.deployTokenSecret)
+	}
+
 	// Build optional sidecar configs for messaging and collector.
 	// These are colocated in the agent pod instead of separate deployments.
 	var msgSidecar *MessagingDeploymentConfig
@@ -560,28 +583,6 @@ func (a *Applier) ApplyDeploymentSpec(
 		msgImage := ds.Interfaces.Image
 		if msgImage == "" {
 			msgImage = "astropods/messaging:latest"
-		}
-
-		// Pre-compute the adapters that have an `anyone` grant in this spec so
-		// the messaging container can short-circuit public traffic without an
-		// authorize round-trip. Sourcing this from the spec (not the DB)
-		// guarantees the token's claim agrees with the grants written by this
-		// same deploy — they're derived from the same input.
-		var anyoneAdapters []string
-		if ds.Interfaces != nil && ds.Interfaces.Auth != nil {
-			seen := map[string]bool{}
-			for _, g := range ds.Interfaces.Auth.Grants {
-				if g.Anyone && !seen[g.Adapter] {
-					seen[g.Adapter] = true
-					anyoneAdapters = append(anyoneAdapters, g.Adapter)
-				}
-			}
-			sort.Strings(anyoneAdapters)
-		}
-
-		var deployToken string
-		if a.deployTokenSecret != "" {
-			deployToken, _ = deploytoken.Sign(a.deploymentID, anyoneAdapters, a.deployTokenSecret)
 		}
 
 		// Apply the messaging-only Secret when the spec references any secret
@@ -765,13 +766,22 @@ func (a *Applier) ApplyDeploymentSpec(
 			Error: fmt.Sprintf("failed to resolve image: %v", err),
 		})
 	} else {
+		var agentExtraEnv []corev1.EnvVar
+		if deployToken != "" {
+			agentExtraEnv = append(agentExtraEnv, corev1.EnvVar{
+				Name:  "ASTRO_IDENTITY_TOKEN",
+				Value: deployToken,
+			})
+		}
 		cfg := DeploymentConfig{
 			Name: agentResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
-			EnvHash:     envHash,
-			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			EnvHash:          envHash,
+			ExtraSecretNames: knowledgeCredSecrets, // knowledge store credentials (POSTGRES_USER, etc.)
+			ExtraEnv:         agentExtraEnv,        // includes ASTRO_IDENTITY_TOKEN for server callbacks
+			Healthcheck:      ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
 			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),

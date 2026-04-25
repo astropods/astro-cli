@@ -1636,3 +1636,119 @@ func TestApplyDeploymentSpec_OIDCAuth_DisabledWhenServerNotConfigured(t *testing
 		t.Error("expected no auth-type annotation when server OIDC not configured")
 	}
 }
+
+// Verify both the agent container and the messaging sidecar receive
+// ASTRO_IDENTITY_TOKEN. The token is signed once per deploy and injected on
+// both so each can authenticate calls back to astro-server.
+func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testing.T) {
+	a := newTestApplier()
+	a.deploymentID = "dep-123"
+	a.deployTokenSecret = "test-secret"
+
+	ds := minimalDeploymentSpec()
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters: []string{"web"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {Port: 8080, Protocol: "http"},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+
+	// Locate both containers in the pod.
+	var agentContainer, msgContainer *corev1.Container
+	for i := range depl.Spec.Template.Spec.Containers {
+		c := &depl.Spec.Template.Spec.Containers[i]
+		if c.Name != "messaging" && !strings.HasPrefix(c.Name, "collector") {
+			agentContainer = c
+			break
+		}
+	}
+	for i := range depl.Spec.Template.Spec.InitContainers {
+		if depl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			msgContainer = &depl.Spec.Template.Spec.InitContainers[i]
+			break
+		}
+	}
+	if agentContainer == nil {
+		t.Fatal("agent container not found")
+	}
+	if msgContainer == nil {
+		t.Fatal("messaging container not found")
+	}
+
+	getEnv := func(c *corev1.Container, name string) (string, bool) {
+		for _, e := range c.Env {
+			if e.Name == name {
+				return e.Value, true
+			}
+		}
+		return "", false
+	}
+
+	agentTok, agentOK := getEnv(agentContainer, "ASTRO_IDENTITY_TOKEN")
+	if !agentOK {
+		t.Fatal("agent container is missing ASTRO_IDENTITY_TOKEN")
+	}
+	msgTok, msgOK := getEnv(msgContainer, "ASTRO_IDENTITY_TOKEN")
+	if !msgOK {
+		t.Fatal("messaging container is missing ASTRO_IDENTITY_TOKEN")
+	}
+	if agentTok == "" || msgTok == "" {
+		t.Errorf("ASTRO_IDENTITY_TOKEN must be non-empty (agent=%q messaging=%q)", agentTok, msgTok)
+	}
+	if agentTok != msgTok {
+		t.Errorf("agent and messaging should share the same identity token; got distinct values")
+	}
+}
+
+// When deployTokenSecret is empty (local dev with no secret configured), no
+// token is signed, so neither container receives ASTRO_IDENTITY_TOKEN.
+func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
+	a := newTestApplier()
+	a.deploymentID = "dep-123"
+	// a.deployTokenSecret left empty
+
+	ds := minimalDeploymentSpec()
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters: []string{"web"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {Port: 8080, Protocol: "http"},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	depl, _ := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	for _, c := range depl.Spec.Template.Spec.Containers {
+		for _, e := range c.Env {
+			if e.Name == "ASTRO_IDENTITY_TOKEN" {
+				t.Errorf("agent container %q should not have ASTRO_IDENTITY_TOKEN when secret unset", c.Name)
+			}
+		}
+	}
+	for _, c := range depl.Spec.Template.Spec.InitContainers {
+		for _, e := range c.Env {
+			if e.Name == "ASTRO_IDENTITY_TOKEN" {
+				t.Errorf("init container %q should not have ASTRO_IDENTITY_TOKEN when secret unset", c.Name)
+			}
+		}
+	}
+}
