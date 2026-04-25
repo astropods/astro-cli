@@ -62,7 +62,7 @@ type ApplierConfig struct {
 	BoundKnowledge   map[string]deployment.BoundKnowledgeInfo
 	BoundCredentials map[string]string // "name.key" → credential value
 	// DeployTokenSecret is the HMAC secret used to sign per-deployment tokens
-	// injected into messaging containers as ASTRO_DEPLOY_TOKEN.
+	// injected into messaging containers as ASTRO_IDENTITY_TOKEN.
 	DeployTokenSecret string
 }
 
