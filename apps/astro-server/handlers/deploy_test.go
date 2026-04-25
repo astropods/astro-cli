@@ -2437,6 +2437,144 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 	}
 }
 
+// Regression: a client submitting a web-only deploy with stale slack-targeted
+// variables/env refs should have them stripped before persistence. Mirrors the
+// real-world scenario where a redeploy of a previously slack-enabled agent
+// drops slack from the adapter list but a stale UI/CLI cache forwards the old
+// SLACK_CONFIG ref. The deploy handler must run ApplyAdapterShaping on the
+// submitted spec; if it doesn't, the variable INSERT for SLACK_CONFIG below
+// will fire and break the strict mock expectations.
+func TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	// Use a custom prep that advertises a messaging-capable agent so the
+	// regenerated template has matching interfaces.image for EnforceEditable.
+	expectDeployPrepMessaging(accountMock, indexMock)
+
+	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment — no existing
+						WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}))
+
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Agent workload + service. Messaging sidecar (colocated) with two
+	// services (grpc + http). Collector workload + service. The exact INSERT
+	// shape is incidental to this test — what matters is the variable
+	// inserts list, which must be empty.
+	deployMock.MatchExpectationsInOrder(false)
+	for i := 0; i < 2; i++ {
+		deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
+	}
+	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	for i := 0; i < 5; i++ {
+		deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
+	}
+	// No slack-targeted variables should be inserted — shaping must strip
+	// SLACK_CONFIG before persistence. Without the fix, an extra INSERT
+	// fires and ExpectationsWereMet errors out.
+	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := deployableSpecWithStaleSlackRefs()
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled deploy expectations (stale slack vars likely leaked): %v", err)
+	}
+}
+
+// expectDeployPrepMessaging is like expectDeployPrep but advertises the source
+// agent as messaging-capable so the server-regenerated template has an
+// `interfaces` block matching the submitted spec.
+func expectDeployPrepMessaging(accountMock, indexMock sqlmock.Sqlmock) {
+	now := time.Now()
+	specJSON := `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1","interfaces":{"messaging":true}}}`
+
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil))
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+}
+
+// deployableSpecWithStaleSlackRefs simulates the bug scenario:
+//   - adapters: ["web"]
+//   - interfaces.environment.SLACK_CONFIG present (stale ref)
+//   - SLACK_CONFIG variable still in spec
+//
+// Without ApplyAdapterShaping running on the submitted spec, the stale
+// variable + env ref ride through to persistence and end up as env vars
+// in the messaging container.
+func deployableSpecWithStaleSlackRefs() string {
+	return `{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
+		"target": {"runtime": "kubernetes"},
+		"agent": {
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%", "max_surge": "25%"}
+		},
+		"interfaces": {
+			"adapters": ["web"],
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest",
+			"resources": {"cpu": "100m", "memory": "128Mi", "cpu_limit": "500m", "memory_limit": "512Mi"},
+			"endpoints": {
+				"grpc": {"port": 9090, "protocol": "grpc"},
+				"http": {"port": 8080, "protocol": "http", "expose": {"enabled": true}}
+			},
+			"environment": {"SLACK_CONFIG": "${variables.SLACK_CONFIG}"}
+		},
+		"variables": {
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "langfuse"}
+	}`
+}
+
 // deployableSpecWithLegacySlackVars returns a deploy payload that includes the
 // three legacy individual Slack variables alongside SLACK_CONFIG, mimicking what
 // an older client or cached form would submit after a spec upgrade.

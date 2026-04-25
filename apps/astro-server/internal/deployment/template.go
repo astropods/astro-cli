@@ -444,9 +444,12 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	}
 
 	// Apply all adapter-dependent mutations that touch server-owned fields.
-	// Shared with the deploy handler so the two endpoints can't diverge.
-	if req.Interfaces != nil {
-		ApplyAdapterShaping(shaped, req.Interfaces.Adapters)
+	// Always runs against the shaped template's current adapter list — even
+	// when the request didn't supply an interfaces block — so prefill paths
+	// (e.g. POST {deployment_id} with no overrides) still get clean output
+	// without dead variables/env refs from non-selected adapters.
+	if shaped.Interfaces != nil {
+		ApplyAdapterShaping(shaped, shaped.Interfaces.Adapters)
 	}
 
 	// --- Binding shaping ---

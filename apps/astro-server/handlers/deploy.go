@@ -317,6 +317,7 @@ func prepareDeployment(
 		template.Target.DeploymentID = submittedSpec.Target.DeploymentID
 		if submittedSpec.Interfaces != nil {
 			deployment.ApplyAdapterShaping(template, submittedSpec.Interfaces.Adapters)
+			deployment.ApplyAdapterShaping(submittedSpec, submittedSpec.Interfaces.Adapters)
 		}
 		deployment.ApplyBindingShaping(template, submittedSpec)
 		if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {

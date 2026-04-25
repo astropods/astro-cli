@@ -2756,6 +2756,40 @@ func TestApplyAdapterShaping_CleansEnvironmentRefs(t *testing.T) {
 	}
 }
 
+// Regression: when the template request has no `interfaces` block (the
+// prefill path: POST {deployment_id} with no overrides), ShapeTemplate must
+// still drop variables/env refs for non-selected adapters. Before the fix,
+// shaping was gated on `req.Interfaces != nil`, so a redeploy whose stored
+// adapters were ["web"] would still surface SLACK_CONFIG in the response
+// template's interfaces.environment. The user observed this leaking into
+// the messaging container env via the deploy roundtrip.
+func TestShapeTemplate_NoRequestInterfaces_StripsNonSelectedAdapterRefs(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
+
+	// Canonical template has all adapter variables and env refs.
+	canonical := mustGenerate(t, input)
+	if _, ok := canonical.Variables["SLACK_CONFIG"]; !ok {
+		t.Fatal("precondition: canonical template should include SLACK_CONFIG")
+	}
+	if _, ok := canonical.Interfaces.Environment["SLACK_CONFIG"]; !ok {
+		t.Fatal("precondition: canonical template should reference SLACK_CONFIG in interfaces.environment")
+	}
+
+	// Mimic the prefill path: stored deployment was web-only, base template
+	// reflects that. Request body carries no interfaces overrides — the
+	// caller is just asking for the current state.
+	canonical.Interfaces.Adapters = []string{"web"}
+	resp := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{}, nil)
+
+	if _, ok := resp.Template.Variables["SLACK_CONFIG"]; ok {
+		t.Error("SLACK_CONFIG variable should be stripped when slack is not in shaped adapter list")
+	}
+	if ref, ok := resp.Template.Interfaces.Environment["SLACK_CONFIG"]; ok {
+		t.Errorf("SLACK_CONFIG environment ref should be removed, still present: %q", ref)
+	}
+}
+
 // Verify ApplyAdapterShaping keeps variables for selected adapters and
 // variables that target non-interface components.
 func TestApplyAdapterShaping_KeepsSelectedAndNonInterface(t *testing.T) {
