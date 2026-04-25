@@ -61,6 +61,9 @@ type ApplierConfig struct {
 	// Bound knowledge store resolution info (populated by deployer for specs with bindings)
 	BoundKnowledge   map[string]deployment.BoundKnowledgeInfo
 	BoundCredentials map[string]string // "name.key" → credential value
+	// DeployTokenSecret is the HMAC secret used to sign per-deployment tokens
+	// injected into messaging containers as ASTRO_DEPLOY_TOKEN.
+	DeployTokenSecret string
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -94,6 +97,7 @@ type Applier struct {
 	messagingOIDCAuth      *OIDCAuthConfig
 	boundKnowledge         map[string]deployment.BoundKnowledgeInfo
 	boundCredentials       map[string]string
+	deployTokenSecret      string
 }
 
 // NewApplier creates a new applier
@@ -126,6 +130,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
 		boundKnowledge:         cfg.BoundKnowledge,
 		boundCredentials:       cfg.BoundCredentials,
+		deployTokenSecret:      cfg.DeployTokenSecret,
 	}
 }
 

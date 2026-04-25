@@ -100,8 +100,9 @@ type LogConfig struct {
 
 // SecurityConfig holds security-related configuration
 type SecurityConfig struct {
-	AllowedOrigins []string
-	TrustedProxies []string
+	AllowedOrigins    []string
+	TrustedProxies    []string
+	DeployTokenSecret string // DEPLOY_TOKEN_SECRET — HMAC secret for signing per-deployment tokens injected into messaging containers
 }
 
 // AvatarConfig holds avatar/profile-picture configuration.
@@ -220,8 +221,9 @@ func Load() (*Config, error) {
 			Format: getEnv("LOG_FORMAT", "text"),
 		},
 		Security: SecurityConfig{
-			AllowedOrigins: getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
-			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
+			AllowedOrigins:    getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
+			TrustedProxies:    getEnvSlice("TRUSTED_PROXIES", []string{}),
+			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", "astro-dev-secret"),
 		},
 		Deployment: DeploymentConfig{
 			RegistryURL:                   getEnv("REGISTRY_URL", ""),

@@ -556,3 +556,30 @@ CREATE TABLE public.knowledge_store_bindings (
 );
 
 CREATE INDEX idx_knowledge_store_bindings_store ON public.knowledge_store_bindings(knowledge_store_id);
+
+CREATE TABLE public.deployment_access_policy (
+    deployment_id varchar     NOT NULL,
+    default_role  varchar     NOT NULL DEFAULT 'none',
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_access_policy_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT deployment_access_policy_deployment_fkey FOREIGN KEY (deployment_id)
+        REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE public.deployment_authorization_grants (
+    id            uuid        NOT NULL DEFAULT gen_random_uuid(),
+    deployment_id varchar     NOT NULL,
+    account_id    uuid        NOT NULL,
+    adapter       varchar     NOT NULL DEFAULT 'web',  -- 'web' or 'slack'
+    role          varchar     NOT NULL DEFAULT 'viewer',
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_authorization_grants_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, account_id, adapter),
+    CONSTRAINT deployment_authorization_grants_deployment_fkey FOREIGN KEY (deployment_id)
+        REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_authorization_grants_account_fkey FOREIGN KEY (account_id)
+        REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_authorization_grants_deployment ON public.deployment_authorization_grants(deployment_id);

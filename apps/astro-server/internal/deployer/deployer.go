@@ -123,6 +123,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		MessagingOIDCAuth:      oidcAuth,
 		BoundKnowledge:         boundKnowledge,
 		BoundCredentials:       boundCredentials,
+		DeployTokenSecret:      d.Cfg.Security.DeployTokenSecret,
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,

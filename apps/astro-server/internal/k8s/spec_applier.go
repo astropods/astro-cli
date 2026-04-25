@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -554,6 +555,11 @@ func (a *Applier) ApplyDeploymentSpec(
 			msgImage = "astropods/messaging:latest"
 		}
 
+		var deployToken string
+		if a.deployTokenSecret != "" {
+			deployToken, _ = deploytoken.Sign(a.deploymentID, accountName, a.deployTokenSecret)
+		}
+
 		msgSidecar = &MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: "messaging",
@@ -564,6 +570,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			ImagePullPolicy: a.imagePullPolicy,
 			Resources:       msgResources,
 			Environment:     resolvedIfaceEnv,
+			DeployToken:     deployToken,
 		}
 
 		// Service — selects the agent pod (messaging is a sidecar container)

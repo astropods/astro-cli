@@ -30,6 +30,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -541,6 +542,8 @@ func runWorker(
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
 func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client) {
+	authzStore := authorizationstore.NewStore(db)
+
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -590,6 +593,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
+		// Deploy-token-authenticated routes — called by messaging containers
+		deployTokenRoutes := v1.Group("")
+		deployTokenRoutes.Use(middleware.RequireDeployToken(cfg.Security.DeployTokenSecret))
+		{
+			deployTokenRoutes.GET("/deployments/authorize", handlers.CheckDeploymentAuthorization(log, authzStore))
+		}
+
 		// Health check endpoint (public)
 		api.GET(v1, "/health", "Health check", handlers.HealthCheck(log),
 			oapispec.Tags("Health"),
@@ -1181,6 +1191,30 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
 			)
+			// Deployment authorization management
+			api.GET(protected, "/deployments/:id/authorization", "Get deployment authorization", handlers.GetDeploymentAuthorization(log, authzStore, deploymentStore, accountStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+			)
+			api.PUT(protected, "/deployments/:id/authorization", "Set deployment access policy", handlers.SetDeploymentPolicy(log, authzStore, deploymentStore, accountStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+			)
+			api.PUT(protected, "/deployments/:id/authorization/grants", "Upsert authorization grant", handlers.UpsertDeploymentGrant(log, authzStore, deploymentStore, accountStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+			)
+			api.DELETE(protected, "/deployments/:id/authorization/grants/:account_id/:adapter", "Delete authorization grant", handlers.DeleteDeploymentGrant(log, authzStore, deploymentStore, accountStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("account_id", "Account ID to revoke"),
+				oapispec.PathParam("adapter", "Adapter (web or slack)"),
+			)
+
 			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
