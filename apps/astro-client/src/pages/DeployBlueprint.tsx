@@ -56,6 +56,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
 
   const form = useDeployForm(account ?? "", agentSlug ?? "", {
     initialTemplateResponse: loaderData?.templateResponse ?? undefined,
+    allowedTargetAccounts: agent?.visibility === "private" && account ? [account] : undefined,
   });
 
   const { data: usageData } = useAccountUsage(form.targetAccount);

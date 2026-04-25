@@ -136,6 +136,7 @@ export function DeployedAgentsSection({
         const lineageAccount = deployment.source_account || account;
         const agent = blueprintsByAccountAndName.get(`${lineageAccount}\u0000${deployment.name}`);
         if (!agent?.versions?.length) return [];
+        if (lineageAccount !== account && agent.visibility === "private") return [];
         const latest = agent.versions.reduce((a, b) =>
           new Date(b.published_at) > new Date(a.published_at) ? b : a,
         );

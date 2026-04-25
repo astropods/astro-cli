@@ -90,7 +90,7 @@ export function ActiveDetailView({
   // may have a same-named but lineage-unrelated blueprint that would
   // otherwise produce a false "Update available" pointing at a build the
   // deployed pod was never built from.
-  const sourceAccount = deployment.source_account ?? account;
+  const sourceAccount = deployment.source_account || account;
   const { data: accountAgents } = useAccountBlueprints(sourceAccount);
   const { timezone } = useLogTimezone();
   const pauseMutation = useStopDeployment(account);
@@ -119,7 +119,8 @@ export function ActiveDetailView({
       : latest,
   );
   const latestBuildId = latestVersion?.build_id;
-  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
+  const canShowUpgradeSignal = sourceAccount === account || blueprintAgent?.visibility !== "private";
+  const hasNewBuildAvailable = canShowUpgradeSignal && !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
 
   useEffect(() => {
     if (!pausing) return;

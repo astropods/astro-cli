@@ -5,6 +5,7 @@ const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
+const DEPLOYMENT_XACCT_PRIVATE_ID = "dep-xacct-private-1";
 const BUILD_UPGRADE_LABEL = "build-123 \u2192 build-124";
 const MOCK_BACKEND = "http://localhost:48787";
 
@@ -88,6 +89,32 @@ test("cross-account deployment shows redeploy banner on detail page", async ({ p
 
   await expect(page.getByRole("heading", { name: "Cross-Account Upgrade Bot" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /Redeploy →/ })).toBeVisible();
+});
+
+// Private cross-account blueprints can be visible to users who also belong
+// to the source account, but the deploy endpoint no longer permits private
+// blueprints to cross account boundaries. The upgrade UI must stay silent
+// so it does not advertise a redeploy action the server will reject.
+test("cross-account private deployment does not show update badge from private source blueprint", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+
+  const privateCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_PRIVATE_ID}"]`);
+  const validUpgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  await expect(privateCard).toBeVisible({ timeout: 20_000 });
+  await expect(validUpgradeCard.getByText("Update available", { exact: true })).toBeVisible();
+
+  await expect(privateCard.getByText("Update available", { exact: true })).toHaveCount(0);
+});
+
+test("cross-account private deployment does not show redeploy banner on detail page", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_PRIVATE_ID}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.getByRole("heading", { name: "Cross-Account Private Bot" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Redeploy →/ })).toHaveCount(0);
 });
 
 // Guards against false-positive badge rendering: when deployed build matches the

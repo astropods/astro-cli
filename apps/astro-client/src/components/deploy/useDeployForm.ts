@@ -40,6 +40,8 @@ export interface UseDeployFormOptions {
   initialTemplateResponse?: TemplateResponse;
   /** Pre-fill form state (e.g. from an existing deployment's spec). */
   initialValues?: DeployFormInitialValues;
+  /** Restrict which accounts can be selected as deployment targets. */
+  allowedTargetAccounts?: string[];
   /** Existing deployment ID for prefill (redeploy/configure). */
   deploymentId?: string;
   /** Pin to a specific build ID (e.g. for new-build upgrades). */
@@ -198,12 +200,27 @@ export interface FormErrors {
 export function useDeployForm(account: string, name: string, opts?: UseDeployFormOptions) {
   const { accounts, personalAccount } = useAuth();
   const iv = opts?.initialValues;
+  const allowedTargetAccounts = opts?.allowedTargetAccounts;
+  const selectableAccounts = useMemo(() => {
+    if (!allowedTargetAccounts?.length) return accounts;
+    const allowed = new Set(allowedTargetAccounts);
+    return accounts.filter((acct) => allowed.has(acct.name));
+  }, [accounts, allowedTargetAccounts]);
 
   // Derive targetAccount reactively: explicit initialValue > user selection > personalAccount.
   // Do NOT initialize from personalAccount directly in useState — if the hook
   // mounts before auth resolves, personalAccount is null and the value freezes as "".
   const [_targetAccount, setTargetAccount] = useState(iv?.targetAccount ?? "");
-  const targetAccount = _targetAccount || personalAccount?.name || "";
+  const rawTargetAccount = _targetAccount || personalAccount?.name || "";
+  const targetAccount = (() => {
+    if (!allowedTargetAccounts?.length) return rawTargetAccount;
+    if (rawTargetAccount && allowedTargetAccounts.includes(rawTargetAccount)) return rawTargetAccount;
+    return selectableAccounts[0]?.name ?? "";
+  })();
+  const setAllowedTargetAccount = useCallback((next: string) => {
+    if (allowedTargetAccounts?.length && !allowedTargetAccounts.includes(next)) return;
+    setTargetAccount(next);
+  }, [allowedTargetAccounts]);
   const { data: accountVarsData, isSuccess: accountVarsLoaded } = useAccountVariables(targetAccount);
   const accountVarNames = useMemo(
     () => new Set(accountVarsData?.variables.map(v => v.name) ?? []),
@@ -598,9 +615,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     serverValidation: templateResponse?.validation ?? null,
     initialValues: initialValuesRef.current,
 
-    accounts,
+    accounts: selectableAccounts,
     targetAccount,
-    setTargetAccount,
+    setTargetAccount: setAllowedTargetAccount,
 
     deployName,
     setDeployName,

@@ -13,6 +13,7 @@ const AGENT_CROSS_ACCOUNT = "cross-agent";
 const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
 const AGENT_XACCT_UPGRADE = "xacct-upgrade-bot";
 const AGENT_XACCT_COLLISION = "xacct-collision-bot";
+const AGENT_XACCT_PRIVATE = "xacct-private-bot";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
@@ -45,6 +46,9 @@ const XACCT_UPGRADE_LATEST_BUILD = "build-xacct-2";
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const XACCT_COLLISION_PUBLISHER_BUILD = "build-org-7";
 const XACCT_COLLISION_PERSONAL_NEWER = "build-personal-7";
+const DEPLOYMENT_XACCT_PRIVATE_ID = "dep-xacct-private-1";
+const XACCT_PRIVATE_DEPLOYED_BUILD = "build-private-1";
+const XACCT_PRIVATE_LATEST_BUILD = "build-private-2";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
 const ORG_ACCOUNT = "test-org";
 const ORG_ACCOUNT_ID = "org-acct-1";
@@ -543,6 +547,22 @@ const makeInitialDeployments = () => [
     workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
+  {
+    id: DEPLOYMENT_XACCT_PRIVATE_ID,
+    name: AGENT_XACCT_PRIVATE,
+    display_name: "Cross-Account Private Bot",
+    build_id: XACCT_PRIVATE_DEPLOYED_BUILD,
+    source_account: CROSS_ACCOUNT_PUBLISHER,
+    namespace: "astro-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    jobs: [],
+  },
 ];
 
 let deployments = makeInitialDeployments();
@@ -580,10 +600,12 @@ const buildAgent = (
   account: string,
   agentName: string,
   versionIds: string[],
+  visibility = "public",
 ) => ({
   name: agentName,
   account,
   registry: "registry.example.com",
+  visibility,
   // Stagger published_at so the client's "latest" reduce
   // (max by published_at) picks the last entry. Caller passes
   // versions oldest -> newest.
@@ -631,8 +653,12 @@ const publisherAgents = {
     buildAgent(CROSS_ACCOUNT_PUBLISHER, AGENT_XACCT_COLLISION, [
       XACCT_COLLISION_PUBLISHER_BUILD,
     ]),
+    buildAgent(CROSS_ACCOUNT_PUBLISHER, AGENT_XACCT_PRIVATE, [
+      XACCT_PRIVATE_DEPLOYED_BUILD,
+      XACCT_PRIVATE_LATEST_BUILD,
+    ], "private"),
   ],
-  count: 2,
+  count: 3,
 };
 
 const corsHeaders = (origin?: string | null) => ({

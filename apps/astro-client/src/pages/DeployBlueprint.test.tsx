@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
-import { renderRoute } from '@/test/test-utils';
+import { mockAuthContext, renderRoute } from '@/test/test-utils';
 import DeployBlueprint from './DeployBlueprint';
+import type { Blueprint, DeploymentSpec } from '@/lib/api';
+import type { AuthContextType } from '@/lib/auth-context';
 
 afterEach(cleanup);
 
@@ -13,7 +15,11 @@ const ROUTE_PATH = '/:account/:agentSlug/install';
 const ACCOUNT = 'testuser';
 const AGENT = 'code-reviewer';
 
-function renderInstall({ account = ACCOUNT, agent = AGENT } = {}) {
+function renderInstall({ account = ACCOUNT, agent = AGENT, auth = undefined }: {
+  account?: string;
+  agent?: string;
+  auth?: AuthContextType | null;
+} = {}) {
   return renderRoute(
     [
       {
@@ -22,7 +28,7 @@ function renderInstall({ account = ACCOUNT, agent = AGENT } = {}) {
         Component: DeployBlueprint,
       },
     ],
-    { initialEntries: [`/${account}/${agent}/install`] },
+    { initialEntries: [`/${account}/${agent}/install`], auth },
   );
 }
 
@@ -82,6 +88,79 @@ describe('DeployBlueprint page', () => {
       const links = screen.getAllByRole('link');
       const hrefs = links.map((l) => l.getAttribute('href'));
       expect(hrefs).toContain(`/${ACCOUNT}/${AGENT}`);
+    });
+
+    it('does not offer personal deploy scope for private org blueprints', async () => {
+      const privateOrgBlueprint: Blueprint = {
+        name: 'private-agent',
+        account: 'source-org',
+        registry: 'registry.example.com',
+        visibility: 'private',
+        versions: [
+          {
+            build_id: 'private-build-1',
+            spec: {},
+            published_at: '2026-04-25T12:00:00Z',
+          },
+        ],
+      };
+      const capturedRequests: unknown[] = [];
+      server.use(
+        http.get('/api/v1/agents/:account/:name', ({ params }) => {
+          if (params.account === 'source-org' && params.name === 'private-agent') {
+            return HttpResponse.json(privateOrgBlueprint);
+          }
+          return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+        }),
+        http.post('/api/v1/agents/:account/:name/deployment-template', async ({ params, request }) => {
+          if (params.account !== 'source-org' || params.name !== 'private-agent') {
+            return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+          }
+          const body = (await request.json().catch(() => ({}))) as {
+            interfaces?: { adapters?: string[] };
+            variables?: Record<string, { value?: string; ref?: string }>;
+            schedules?: Record<string, string>;
+          };
+          return HttpResponse.json(wrapTemplateResponse(mockTemplate, body));
+        }),
+        http.post('/api/v1/deploy', async ({ request }) => {
+          capturedRequests.push(await request.json());
+          return HttpResponse.json({
+            status: 'deployed',
+            name: 'private-agent',
+            build_id: 'private-build-1',
+            k8s_namespace: 'source-org-private-agent',
+            deployed_at: new Date().toISOString(),
+            resources: [],
+          });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstall({
+        account: 'source-org',
+        agent: 'private-agent',
+        auth: {
+          ...mockAuthContext,
+          accounts: [
+            { id: 'acct-personal', name: ACCOUNT, type: 'personal' },
+            { id: 'acct-org', name: 'source-org', type: 'organization' },
+          ],
+        },
+      });
+      await waitForForm();
+
+      expect(screen.queryByText('Deploy to')).not.toBeInTheDocument();
+
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
+
+      await waitFor(() => {
+        expect(capturedRequests).toHaveLength(1);
+      });
+
+      const payload = capturedRequests[0] as DeploymentSpec;
+      expect(payload.target.account).toBe('source-org');
     });
   });
 
