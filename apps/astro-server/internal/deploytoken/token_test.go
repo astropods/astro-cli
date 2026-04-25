@@ -7,9 +7,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// G1 - sign/verify round-trips claims.
+// G1 - sign/verify round-trips claims; iss carries the server URL.
 func TestSignVerifyRoundtrip(t *testing.T) {
-	tok, err := Sign("dep-1", []string{"web"}, "secret")
+	tok, err := Sign("dep-1", "https://astropods.com", []string{"web"}, "secret")
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -23,11 +23,17 @@ func TestSignVerifyRoundtrip(t *testing.T) {
 	if len(anyAdapters) != 1 || anyAdapters[0] != "web" {
 		t.Errorf("anyone_adapters: got %v, want [web]", anyAdapters)
 	}
+	// Confirm iss made it into the token by parsing the claims directly.
+	parsed, _, _ := jwt.NewParser().ParseUnverified(tok, &Claims{})
+	gotIss := parsed.Claims.(*Claims).Issuer
+	if gotIss != "https://astropods.com" {
+		t.Errorf("iss: got %q, want https://astropods.com", gotIss)
+	}
 }
 
 // G7 - empty anyone_adapters is preserved as nil/empty.
 func TestSignVerify_EmptyAnyoneAdapters(t *testing.T) {
-	tok, err := Sign("dep-1", nil, "secret")
+	tok, err := Sign("dep-1", "https://astropods.com", nil, "secret")
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -42,17 +48,19 @@ func TestSignVerify_EmptyAnyoneAdapters(t *testing.T) {
 
 // G2 - wrong secret rejects.
 func TestVerify_WrongSecret(t *testing.T) {
-	tok, _ := Sign("dep-1", nil, "secret-A")
+	tok, _ := Sign("dep-1", "https://x", nil, "secret-A")
 	if _, _, err := Verify(tok, "secret-B"); err == nil {
 		t.Fatal("expected error for wrong secret")
 	}
 }
 
-// G3 - wrong issuer rejects.
-func TestVerify_WrongIssuer(t *testing.T) {
+// G3 - any iss value passes verification now (signature alone is the
+// trust anchor). The messaging side reads iss for URL discovery, not
+// authenticity.
+func TestVerify_AnyIssuerAccepted(t *testing.T) {
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:  "evil-server",
+			Issuer:  "https://anyserver.example.com",
 			Subject: "dep-1",
 		},
 	}
@@ -60,15 +68,15 @@ func TestVerify_WrongIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manual sign: %v", err)
 	}
-	if _, _, err := Verify(tok, "secret"); err == nil {
-		t.Fatal("expected error for wrong issuer")
+	if _, _, err := Verify(tok, "secret"); err != nil {
+		t.Fatalf("expected verify success regardless of iss value, got %v", err)
 	}
 }
 
 // G4 - missing sub claim rejects.
 func TestVerify_MissingSub(t *testing.T) {
 	claims := Claims{
-		RegisteredClaims: jwt.RegisteredClaims{Issuer: issuer},
+		RegisteredClaims: jwt.RegisteredClaims{Issuer: "https://astropods.com"},
 	}
 	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("secret"))
 	if err != nil {
@@ -90,7 +98,7 @@ func TestVerify_ExtraClaimsIgnored(t *testing.T) {
 	c := legacy{
 		AccountID: "legacy-account",
 		Claims: Claims{
-			RegisteredClaims: jwt.RegisteredClaims{Issuer: issuer, Subject: "dep-1"},
+			RegisteredClaims: jwt.RegisteredClaims{Issuer: "https://astropods.com", Subject: "dep-1"},
 		},
 	}
 	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte("secret"))
@@ -108,7 +116,7 @@ func TestVerify_ExtraClaimsIgnored(t *testing.T) {
 
 // G8 - tampering with the payload after signing invalidates the token.
 func TestVerify_TamperedClaims(t *testing.T) {
-	tok, _ := Sign("dep-1", nil, "secret")
+	tok, _ := Sign("dep-1", "https://astropods.com", nil, "secret")
 	parts := strings.Split(tok, ".")
 	if len(parts) != 3 {
 		t.Fatalf("expected 3 JWT parts, got %d", len(parts))

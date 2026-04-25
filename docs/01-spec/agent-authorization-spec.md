@@ -142,7 +142,7 @@ For redeploys, prefill comes from the live grants table, not from these rules â€
 A signed deploy token proves "I am this deployment" and carries the small set of state that's worth caching client-side because changing it requires a redeploy anyway. Anything else (owning account, account-scoped grants, user grants) is looked up server-side by `deployment_id`.
 
 - HMAC-SHA256 JWT signed with `DEPLOY_TOKEN_SECRET` (server-level config; defaults to `astro-dev-secret` in dev so local works without setup).
-- Issued at K8s spec-apply time; injected as the `ASTRO_IDENTITY_TOKEN` env var on the messaging sidecar.
+- Issued at K8s spec-apply time; injected as the `ASTRO_AUTHZ_TOKEN` env var on the messaging sidecar, alongside `ASTRO_AUTHZ_URL` pointing at astro-server's base URL for the authorize callback.
 - Claims:
   - `sub` = `deployment_id`
   - `iss` = `astro-server`

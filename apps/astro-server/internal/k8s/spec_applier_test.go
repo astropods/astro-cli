@@ -1638,7 +1638,7 @@ func TestApplyDeploymentSpec_OIDCAuth_DisabledWhenServerNotConfigured(t *testing
 }
 
 // Verify both the agent container and the messaging sidecar receive
-// ASTRO_IDENTITY_TOKEN. The token is signed once per deploy and injected on
+// ASTRO_AUTHZ_TOKEN. The token is signed once per deploy and injected on
 // both so each can authenticate calls back to astro-server.
 func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testing.T) {
 	a := newTestApplier()
@@ -1697,16 +1697,16 @@ func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testi
 		return "", false
 	}
 
-	agentTok, agentOK := getEnv(agentContainer, "ASTRO_IDENTITY_TOKEN")
+	agentTok, agentOK := getEnv(agentContainer, "ASTRO_AUTHZ_TOKEN")
 	if !agentOK {
-		t.Fatal("agent container is missing ASTRO_IDENTITY_TOKEN")
+		t.Fatal("agent container is missing ASTRO_AUTHZ_TOKEN")
 	}
-	msgTok, msgOK := getEnv(msgContainer, "ASTRO_IDENTITY_TOKEN")
+	msgTok, msgOK := getEnv(msgContainer, "ASTRO_AUTHZ_TOKEN")
 	if !msgOK {
-		t.Fatal("messaging container is missing ASTRO_IDENTITY_TOKEN")
+		t.Fatal("messaging container is missing ASTRO_AUTHZ_TOKEN")
 	}
 	if agentTok == "" || msgTok == "" {
-		t.Errorf("ASTRO_IDENTITY_TOKEN must be non-empty (agent=%q messaging=%q)", agentTok, msgTok)
+		t.Errorf("ASTRO_AUTHZ_TOKEN must be non-empty (agent=%q messaging=%q)", agentTok, msgTok)
 	}
 	if agentTok != msgTok {
 		t.Errorf("agent and messaging should share the same identity token; got distinct values")
@@ -1714,7 +1714,7 @@ func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testi
 }
 
 // When deployTokenSecret is empty (local dev with no secret configured), no
-// token is signed, so neither container receives ASTRO_IDENTITY_TOKEN.
+// token is signed, so neither container receives ASTRO_AUTHZ_TOKEN.
 func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 	a := newTestApplier()
 	a.deploymentID = "dep-123"
@@ -1739,15 +1739,15 @@ func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 	)
 	for _, c := range depl.Spec.Template.Spec.Containers {
 		for _, e := range c.Env {
-			if e.Name == "ASTRO_IDENTITY_TOKEN" {
-				t.Errorf("agent container %q should not have ASTRO_IDENTITY_TOKEN when secret unset", c.Name)
+			if e.Name == "ASTRO_AUTHZ_TOKEN" {
+				t.Errorf("agent container %q should not have ASTRO_AUTHZ_TOKEN when secret unset", c.Name)
 			}
 		}
 	}
 	for _, c := range depl.Spec.Template.Spec.InitContainers {
 		for _, e := range c.Env {
-			if e.Name == "ASTRO_IDENTITY_TOKEN" {
-				t.Errorf("init container %q should not have ASTRO_IDENTITY_TOKEN when secret unset", c.Name)
+			if e.Name == "ASTRO_AUTHZ_TOKEN" {
+				t.Errorf("init container %q should not have ASTRO_AUTHZ_TOKEN when secret unset", c.Name)
 			}
 		}
 	}

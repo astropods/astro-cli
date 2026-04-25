@@ -63,7 +63,7 @@ type MessagingDeploymentConfig struct {
 	ImagePullPolicy corev1.PullPolicy            // Defaults to PullAlways if empty
 	Resources       *corev1.ResourceRequirements // From interfaces.resources; nil means hardcoded defaults
 	Environment     map[string]string            // Resolved env from interfaces.environment
-	DeployToken     string                       // Signed token injected as ASTRO_IDENTITY_TOKEN; used to authenticate calls to astro-server authorization endpoint
+	DeployToken     string                       // Signed token injected as ASTRO_AUTHZ_TOKEN. The token's iss claim carries astro-server's base URL, so no separate URL env var is needed.
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest.
@@ -219,9 +219,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		})
 	}
 
-	// Inject deploy token for authorization callbacks to astro-server
+	// Inject the signed deploy token. Its iss claim carries astro-server's
+	// base URL — the messaging container reads it to know where to call
+	// back, so no separate URL env var is needed.
 	if cfg.DeployToken != "" {
-		container.Env = append(container.Env, corev1.EnvVar{Name: "ASTRO_IDENTITY_TOKEN", Value: cfg.DeployToken})
+		container.Env = append(container.Env, corev1.EnvVar{Name: "ASTRO_AUTHZ_TOKEN", Value: cfg.DeployToken})
 	}
 
 	// Add resolved environment from interfaces.environment (credential refs, etc.)

@@ -124,6 +124,11 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		BoundKnowledge:         boundKnowledge,
 		BoundCredentials:       boundCredentials,
 		DeployTokenSecret:      d.Cfg.Security.DeployTokenSecret,
+		// The deploy token's iss claim carries this URL; the messaging
+		// container reads it to know where to call back for authorize. We
+		// reuse the public-facing frontend URL — the API surface is co-
+		// located there, no separate authz endpoint.
+		AuthzCallbackURL: d.Cfg.Auth.FrontendURL,
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,

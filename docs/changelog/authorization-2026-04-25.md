@@ -37,7 +37,7 @@ interfaces:
 
 **Prefill, not enforcement.** Fresh deployments get a starter `user` grant for the deployer (web) and an `account` grant for the owner account (slack, if enabled). Users see and can edit these before submitting. Redeploys prefill from live grants so the UI reflects current state.
 
-**Token rename and identity injection.** The deploy token env var is now `ASTRO_IDENTITY_TOKEN` (was `ASTRO_DEPLOY_TOKEN`) and is injected into the agent container too — not just the messaging sidecar — so agent code can identify itself to platform APIs. Per-store credential keys avoid `envFrom` collisions when multiple secret stores share names. `AGENT_URL`/`AGENT_HOST` renamed to `ASTRO_AGENT_URL`/`ASTRO_AGENT_HOST` for namespacing consistency.
+**Token rename and identity injection.** The deploy token env var is now `ASTRO_AUTHZ_TOKEN` (was `ASTRO_DEPLOY_TOKEN`) and is injected into the agent container too — not just the messaging sidecar — so agent code can identify itself to platform APIs. Per-store credential keys avoid `envFrom` collisions when multiple secret stores share names. `AGENT_URL`/`AGENT_HOST` renamed to `ASTRO_AGENT_URL`/`ASTRO_AGENT_HOST` for namespacing consistency.
 
 **Schema.** New `deployment_authorization_grants` table:
 
@@ -55,4 +55,4 @@ CHECK: anyone grants require subject_id=''
 
 No action required for existing deployments. Deployments without grants continue to work via the owner-account fallback. Owners who want explicit per-user, per-account, or public access add `interfaces.auth.grants` to their spec and redeploy.
 
-Operators must set `DEPLOY_TOKEN_SECRET` in production (defaults to `astro-dev-secret` for local dev). Agents and messaging sidecars consuming the deploy token must read `ASTRO_IDENTITY_TOKEN` (renamed from `ASTRO_DEPLOY_TOKEN`); existing deployments pick up the new env var automatically on redeploy.
+Operators must set `DEPLOY_TOKEN_SECRET` in production (defaults to `astro-dev-secret` for local dev). Agents and messaging sidecars consuming the deploy token must read `ASTRO_AUTHZ_TOKEN` (renamed from `ASTRO_DEPLOY_TOKEN`); existing deployments pick up the new env var automatically on redeploy.

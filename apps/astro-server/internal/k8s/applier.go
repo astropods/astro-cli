@@ -62,8 +62,13 @@ type ApplierConfig struct {
 	BoundKnowledge   map[string]deployment.BoundKnowledgeInfo
 	BoundCredentials map[string]string // "name.key" → credential value
 	// DeployTokenSecret is the HMAC secret used to sign per-deployment tokens
-	// injected into messaging containers as ASTRO_IDENTITY_TOKEN.
+	// injected into messaging containers as ASTRO_AUTHZ_TOKEN.
 	DeployTokenSecret string
+	// AuthzCallbackURL is the base URL the messaging container uses to call
+	// astro-server's /deployments/authorize endpoint. Injected as
+	// ASTRO_AUTHZ_URL alongside ASTRO_AUTHZ_TOKEN. When empty (local dev),
+	// the messaging container falls back to AllowAll.
+	AuthzCallbackURL string
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -98,6 +103,7 @@ type Applier struct {
 	boundKnowledge         map[string]deployment.BoundKnowledgeInfo
 	boundCredentials       map[string]string
 	deployTokenSecret      string
+	authzCallbackURL       string
 }
 
 // NewApplier creates a new applier
@@ -131,6 +137,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		boundKnowledge:         cfg.BoundKnowledge,
 		boundCredentials:       cfg.BoundCredentials,
 		deployTokenSecret:      cfg.DeployTokenSecret,
+		authzCallbackURL:       cfg.AuthzCallbackURL,
 	}
 }
 

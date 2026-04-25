@@ -491,7 +491,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Sign the deploy token once for the deployment and inject it into both
-	// the agent and the messaging sidecar as ASTRO_IDENTITY_TOKEN. Agent code
+	// the agent and the messaging sidecar as ASTRO_AUTHZ_TOKEN. Agent code
 	// uses it to authenticate calls back to astro-server (e.g. the authorize
 	// endpoint, future agent-side server APIs); messaging uses it for the
 	// per-request authorization callback. The anyone_adapters claim is
@@ -509,7 +509,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 	var deployToken string
 	if a.deployTokenSecret != "" {
-		deployToken, _ = deploytoken.Sign(a.deploymentID, anyoneAdapters, a.deployTokenSecret)
+		deployToken, _ = deploytoken.Sign(a.deploymentID, a.authzCallbackURL, anyoneAdapters, a.deployTokenSecret)
 	}
 
 	// Build optional sidecar configs for messaging and collector.
@@ -768,7 +768,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		var agentExtraEnv []corev1.EnvVar
 		if deployToken != "" {
 			agentExtraEnv = append(agentExtraEnv, corev1.EnvVar{
-				Name:  "ASTRO_IDENTITY_TOKEN",
+				Name:  "ASTRO_AUTHZ_TOKEN",
 				Value: deployToken,
 			})
 		}
