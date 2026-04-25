@@ -785,17 +785,14 @@ type AgentDeployment struct {
 	AvatarURL    string          `json:"avatar_url,omitempty"`
 	AvatarColors json.RawMessage `json:"avatar_colors,omitempty"`
 	BuildID      string          `json:"build_id"`
-	/*
-	 * SourceAccount is the publishing account name the deployment was
-	 * built from. Resolved from deployments.source_account_id (post-
-	 * migration always populated, falls back to deployment_spec_json's
-	 * source.account for legacy rows). Empty when neither source is
-	 * available; in that case clients should treat the URL/owning
-	 * account as the lineage source. Clients consume this to look up
-	 * blueprint upgrade signals against the right account, since the
-	 * owning account may have a same-named blueprint with no shared
-	 * lineage (cross-account deploys).
-	 */
+	// SourceAccount is the publishing account name the deployment was built from.
+	// Resolved from deployments.source_account_id (post-migration always
+	// populated, falls back to deployment_spec_json's source.account for legacy
+	// rows). Empty when neither source is available; in that case clients should
+	// treat the URL/owning account as the lineage source. Clients consume this to
+	// look up blueprint upgrade signals against the right account, since the
+	// owning account may have a same-named blueprint with no shared lineage
+	// (cross-account deploys).
 	SourceAccount      string                `json:"source_account,omitempty"`
 	Namespace          string                `json:"namespace"`
 	Status             string                `json:"status"`
@@ -1103,12 +1100,10 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
 
 func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
-	/*
-	 * Source account name resolved once per dbDep so the K8s and DB-only
-	 * paths return identical SourceAccount values. Looked up via
-	 * resolveSourceAccountName which prefers source_account_id and falls
-	 * back to deployment_spec_json.source.account on legacy rows.
-	 */
+	// Source account name resolved once per dbDep so the K8s and DB-only paths
+	// return identical SourceAccount values. Looked up via
+	// resolveSourceAccountName which prefers source_account_id and falls back to
+	// deployment_spec_json.source.account on legacy rows.
 	sourceAccount := resolveSourceAccountName(log, accountStore, dbDep)
 
 	applyDBFields := func(deps []AgentDeployment, createdAt time.Time) {

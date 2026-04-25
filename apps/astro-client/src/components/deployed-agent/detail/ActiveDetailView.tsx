@@ -84,14 +84,12 @@ export function ActiveDetailView({
   const [isGloballyRestarting, setIsGloballyRestarting] = useState(false)
   const [isPodLevelRestarting, setIsPodLevelRestarting] = useState(false)
   const isRestarting = isGloballyRestarting || isPodLevelRestarting
-  /*
-   * For cross-account deploys (e.g. you deployed an org's blueprint into
-   * your personal account) the upgrade signal must come from the source
-   * account's blueprint, not the URL/owning account. The owning account
-   * may have a same-named but lineage-unrelated blueprint that would
-   * otherwise produce a false "Update available" pointing at a build the
-   * deployed pod was never built from.
-   */
+  // For cross-account deploys (e.g. you deployed an org's blueprint into
+  // your personal account) the upgrade signal must come from the source
+  // account's blueprint, not the URL/owning account. The owning account
+  // may have a same-named but lineage-unrelated blueprint that would
+  // otherwise produce a false "Update available" pointing at a build the
+  // deployed pod was never built from.
   const sourceAccount = deployment.source_account ?? account;
   const { data: accountAgents } = useAccountBlueprints(sourceAccount);
   const { timezone } = useLogTimezone();

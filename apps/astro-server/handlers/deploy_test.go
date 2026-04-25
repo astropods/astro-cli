@@ -3003,7 +3003,8 @@ func TestStreamDeploymentLogs_TimezoneParam(t *testing.T) {
 }
 
 func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
-	router, deployMock, accountMock := setupLogsTest(t, nil /* no Loki, no k8s */)
+	// No Loki, no K8s.
+	router, deployMock, accountMock := setupLogsTest(t, nil)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
@@ -3096,7 +3097,8 @@ func TestStreamDeploymentLogs_Unauthorized(t *testing.T) {
 }
 
 func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
-	router, deployMock, accountMock := setupStreamLogsTest(t, nil /* no Loki, no k8s */)
+	// No Loki, no K8s.
+	router, deployMock, accountMock := setupStreamLogsTest(t, nil)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()

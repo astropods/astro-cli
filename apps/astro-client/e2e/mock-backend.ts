@@ -18,34 +18,30 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
-/*
- * Cross-account upgrade fixture (legit upgrade exists in source account).
- *
- * The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
- * pinned to its older build. The publisher account has a newer build in
- * its blueprint version list; the personal account does NOT have a
- * blueprint with this name at all. Pre-fix the client looked up the
- * blueprint under the URL/owning account (`testuser`), found nothing,
- * and silenced the upgrade badge. Post-fix it follows source_account and
- * surfaces the upgrade.
- */
+// Cross-account upgrade fixture (legit upgrade exists in source account).
+//
+// The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
+// pinned to its older build. The publisher account has a newer build in
+// its blueprint version list; the personal account does NOT have a
+// blueprint with this name at all. Pre-fix the client looked up the
+// blueprint under the URL/owning account (`testuser`), found nothing,
+// and silenced the upgrade badge. Post-fix it follows source_account and
+// surfaces the upgrade.
 const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
 const XACCT_UPGRADE_DEPLOYED_BUILD = "build-xacct-1";
 const XACCT_UPGRADE_LATEST_BUILD = "build-xacct-2";
-/*
- * Cross-account name-collision fixture (no real upgrade; personal account
- * has a same-named but lineage-unrelated blueprint with a newer build).
- *
- * The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
- * pinned to the publisher's latest build (no upgrade in the source
- * lineage). The personal account ALSO publishes a blueprint with the same
- * name whose latest build is newer. Pre-fix the client matched by name
- * against the personal account's list and advertised that newer build as
- * an upgrade — but the server cannot honor it because the deployment's
- * build_id is not in that lineage (this is the redeploy-404 trigger
- * the user reproduced in production). Post-fix the lookup goes to the
- * source account's blueprint and the badge stays silent.
- */
+// Cross-account name-collision fixture (no real upgrade; personal account
+// has a same-named but lineage-unrelated blueprint with a newer build).
+//
+// The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
+// pinned to the publisher's latest build (no upgrade in the source
+// lineage). The personal account ALSO publishes a blueprint with the same
+// name whose latest build is newer. Pre-fix the client matched by name
+// against the personal account's list and advertised that newer build as
+// an upgrade — but the server cannot honor it because the deployment's
+// build_id is not in that lineage (this is the redeploy-404 trigger
+// the user reproduced in production). Post-fix the lookup goes to the
+// source account's blueprint and the badge stays silent.
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const XACCT_COLLISION_PUBLISHER_BUILD = "build-org-7";
 const XACCT_COLLISION_PERSONAL_NEWER = "build-personal-7";
@@ -61,12 +57,10 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_SLACK_OVERLAP]: "build-123",
   [AGENT_CROSS_ACCOUNT]: "build-cross-1",
   [AGENT_INGESTION_SCHEDULE]: "build-125",
-  /*
-   * Personal-account "latest" for the collision agent name. Intentionally
-   * newer than the deployment's pinned build so the pre-fix
-   * (name-only lookup against the viewer's account) would surface a
-   * misleading upgrade. The post-fix consults the source account instead.
-   */
+  // Personal-account "latest" for the collision agent name. Intentionally
+  // newer than the deployment's pinned build so the pre-fix
+  // (name-only lookup against the viewer's account) would surface a
+  // misleading upgrade. The post-fix consults the source account instead.
   [AGENT_XACCT_COLLISION]: XACCT_COLLISION_PERSONAL_NEWER,
 };
 
@@ -277,11 +271,9 @@ const templatesByAgent = {
     },
     editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
   },
-  /*
-   * Personal-account template for the collision agent name. Not directly
-   * exercised by the badge tests, but kept so configure-page navigation
-   * to the personal-side blueprint resolves rather than 404s.
-   */
+  // Personal-account template for the collision agent name. Not directly
+  // exercised by the badge tests, but kept so configure-page navigation
+  // to the personal-side blueprint resolves rather than 404s.
   [AGENT_XACCT_COLLISION]: {
     spec: "deployment-template/v1",
     source: {
@@ -520,12 +512,10 @@ const makeInitialDeployments = () => [
     name: AGENT_XACCT_UPGRADE,
     display_name: "Cross-Account Upgrade Bot",
     build_id: XACCT_UPGRADE_DEPLOYED_BUILD,
-    /*
-     * source_account points at the publisher (otheraccount). The
-     * personal account does NOT have a blueprint by this name, so the
-     * upgrade signal is observable only when the client honors
-     * source_account.
-     */
+    // source_account points at the publisher (otheraccount). The
+    // personal account does NOT have a blueprint by this name, so the
+    // upgrade signal is observable only when the client honors
+    // source_account.
     source_account: CROSS_ACCOUNT_PUBLISHER,
     namespace: "astro-namespace",
     status: "healthy",
@@ -575,14 +565,12 @@ let accountVariables: Array<{
   updated_at: string;
 }> = [];
 
-/*
- * Per-agent blueprint version lists, oldest -> newest, for the personal
- * account. Default is just `[latestBuildByAgent[name]]`. The collision
- * fixture has a personal-account blueprint that is intentionally newer
- * than the deployment's source-account pinned build; if the lookup ever
- * falls back to the personal account, this is what would (incorrectly)
- * appear as the upgrade target.
- */
+// Per-agent blueprint version lists, oldest -> newest, for the personal
+// account. Default is just `[latestBuildByAgent[name]]`. The collision
+// fixture has a personal-account blueprint that is intentionally newer
+// than the deployment's source-account pinned build; if the lookup ever
+// falls back to the personal account, this is what would (incorrectly)
+// appear as the upgrade target.
 const versionsByAgent: Record<string, string[]> = {
   [AGENT_SLACK_FULL]: ["build-123", "build-124"],
   [AGENT_XACCT_COLLISION]: ["build-personal-1", XACCT_COLLISION_PERSONAL_NEWER],
@@ -596,11 +584,9 @@ const buildAgent = (
   name: agentName,
   account,
   registry: "registry.example.com",
-  /*
-   * Stagger published_at so the client's "latest" reduce
-   * (max by published_at) picks the last entry. Caller passes
-   * versions oldest -> newest.
-   */
+  // Stagger published_at so the client's "latest" reduce
+  // (max by published_at) picks the last entry. Caller passes
+  // versions oldest -> newest.
   versions: versionIds.map((build_id, i) => ({
     build_id,
     spec: { model: "gpt-4o" },
@@ -621,25 +607,21 @@ const accountAgents = {
     personalAgentFor(AGENT_SLACK_OVERLAP),
     personalAgentFor(AGENT_CROSS_ACCOUNT),
     personalAgentFor(AGENT_INGESTION_SCHEDULE),
-    /*
-     * Personal-account collision blueprint: same agent_name as the
-     * cross-account deployment, totally unrelated lineage, intentionally
-     * newer than the deployment's pinned build. Used by the e2e to prove
-     * the upgrade signal does NOT come from this blueprint when a
-     * cross-account deployment carries source_account.
-     */
+    // Personal-account collision blueprint: same agent_name as the
+    // cross-account deployment, totally unrelated lineage, intentionally
+    // newer than the deployment's pinned build. Used by the e2e to prove
+    // the upgrade signal does NOT come from this blueprint when a
+    // cross-account deployment carries source_account.
     personalAgentFor(AGENT_XACCT_COLLISION),
   ],
   count: 6,
 };
 
-/*
- * Publisher-account (CROSS_ACCOUNT_PUBLISHER) blueprint listing. The
- * upgrade-bot has a real newer build in the publisher's lineage; the
- * collision-bot has only the deployment's pinned build (no upgrade in
- * source). The new client code routes blueprint lookups for cross-
- * account deployments here via deployment.source_account.
- */
+// Publisher-account (CROSS_ACCOUNT_PUBLISHER) blueprint listing. The
+// upgrade-bot has a real newer build in the publisher's lineage; the
+// collision-bot has only the deployment's pinned build (no upgrade in
+// source). The new client code routes blueprint lookups for cross-
+// account deployments here via deployment.source_account.
 const publisherAgents = {
   agents: [
     buildAgent(CROSS_ACCOUNT_PUBLISHER, AGENT_XACCT_UPGRADE, [

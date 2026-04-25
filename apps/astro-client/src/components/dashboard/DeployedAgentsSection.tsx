@@ -99,15 +99,13 @@ export function DeployedAgentsSection({
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
 
-  /*
-   * Cross-account deploys (deployment.source_account != viewer account)
-   * need their upgrade signal computed against the source account's
-   * blueprint, not the viewer's. We fan out blueprint queries for every
-   * unique source account in the visible deployments — usually 1 (the
-   * viewer's), occasionally 2-3 when an org's blueprint was deployed
-   * into the personal account. useQueries keeps each query independently
-   * cached and shared with detail-view fetches.
-   */
+  // Cross-account deploys (deployment.source_account != viewer account)
+  // need their upgrade signal computed against the source account's
+  // blueprint, not the viewer's. We fan out blueprint queries for every
+  // unique source account in the visible deployments, usually 1 (the
+  // viewer's), occasionally 2-3 when an org's blueprint was deployed
+  // into the personal account. useQueries keeps each query independently
+  // cached and shared with detail-view fetches.
   const sourceAccounts = useMemo(() => {
     const seen = new Set<string>();
     for (const d of deployments) seen.add(d.source_account || account);

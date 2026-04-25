@@ -1259,13 +1259,11 @@ export interface AgentDeployment {
   avatar_url?: string;
   avatar_colors?: AvatarColors;
   build_id: string;
-  /*
-   * Publishing-account name resolved from deployments.source_account_id.
-   * Empty/undefined when the deployment is same-account (or pre-migration
-   * legacy with no spec.source.account); callers should fall back to the
-   * URL/owning account in that case. Use this to look up blueprint
-   * upgrade signals against the correct lineage on cross-account deploys.
-   */
+  // Publishing-account name resolved from deployments.source_account_id.
+  // Empty/undefined when the deployment is same-account (or pre-migration
+  // legacy with no spec.source.account); callers should fall back to the
+  // URL/owning account in that case. Use this to look up blueprint
+  // upgrade signals against the correct lineage on cross-account deploys.
   source_account?: string;
   namespace: string;
   status: string;

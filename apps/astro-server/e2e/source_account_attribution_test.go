@@ -28,25 +28,23 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-/*
- * These tests assert that a deployment's owning publisher account ("source
- * account") is plumbed end-to-end from the deployments table through the
- * ListDeployments / GetDeployment handlers and out to the JSON the client
- * consumes. They guard the cross-account lineage attribution fix: before
- * source_account was on the DTO, two same-named blueprints in different
- * accounts were indistinguishable to the client, which would mis-attribute
- * upgrade signals to the viewer's same-named (but lineage-unrelated)
- * blueprint and surface false "Update available" badges on cross-account
- * deployments.
- *
- * The tests run against a real Postgres (DATABASE_URL) and invoke the real
- * gin handlers via httptest, so any drift in the SQL, the
- * resolveSourceAccountName fallback chain, or the JSON tag will fail here
- * even though sqlmock unit tests would still pass. K8s is stubbed with a
- * 404-for-everything httptest server so enrichDeployment falls into its
- * dbOnly path; that path is what populates SourceAccount, which is what
- * we're asserting.
- */
+// These tests assert that a deployment's owning publisher account ("source
+// account") is plumbed end-to-end from the deployments table through the
+// ListDeployments / GetDeployment handlers and out to the JSON the client
+// consumes. They guard the cross-account lineage attribution fix: before
+// source_account was on the DTO, two same-named blueprints in different
+// accounts were indistinguishable to the client, which would mis-attribute
+// upgrade signals to the viewer's same-named (but lineage-unrelated)
+// blueprint and surface false "Update available" badges on cross-account
+// deployments.
+//
+// The tests run against a real Postgres (DATABASE_URL) and invoke the real
+// gin handlers via httptest, so any drift in the SQL, the
+// resolveSourceAccountName fallback chain, or the JSON tag will fail here
+// even though sqlmock unit tests would still pass. K8s is stubbed with a
+// 404-for-everything httptest server so enrichDeployment falls into its
+// dbOnly path; that path is what populates SourceAccount, which is what
+// we're asserting.
 
 // fakeClusterClient implements k8s.ClusterClient with a clientset pointed
 // at a local httptest server. The server returns 404 for every K8s API
@@ -120,12 +118,10 @@ func setupSourceAccountFixture(t *testing.T) *sourceAccountFixture {
 	}
 	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM accounts WHERE id = $1", publisherAcct.ID) })
 
-	/*
-	 * Same agent name registered under both accounts with different build
-	 * IDs is the central collision scenario the bug hid. The handler must
-	 * surface source_account on the JSON so the client can disambiguate
-	 * which lineage a given deployment came from.
-	 */
+	// Same agent name registered under both accounts with different build IDs is
+	// the central collision scenario the bug hid. The handler must surface
+	// source_account on the JSON so the client can disambiguate which lineage a
+	// given deployment came from.
 	agentName := "name-collision-bot-" + strings.ToLower(deployid.New()[:6])
 	pubBuild := "build-pub-" + strings.ToLower(deployid.New()[:6])
 	tgtBuild := "build-tgt-" + strings.ToLower(deployid.New()[:6])
