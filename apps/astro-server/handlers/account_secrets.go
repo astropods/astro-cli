@@ -132,24 +132,12 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 				Description: entry.Description,
 			}
 
-			if entry.Secret {
-				if enc != nil {
-					encValue, nonce, err := enc.Encrypt([]byte(entry.Value))
-					if err != nil {
-						log.Error("Failed to encrypt variable", "error", err, "account_id", acct.ID, "name", entry.Name)
-						result.Status = "error"
-						result.Error = "failed to encrypt"
-						results = append(results, result)
-						continue
-					}
-					v.Value = base64.StdEncoding.EncodeToString(encValue)
-					v.Nonce = nonce
-				} else {
-					// KMS not configured — store plaintext
-					v.Value = entry.Value
-				}
-			} else {
-				v.Value = entry.Value
+			if err := applyValue(v, entry.Value, enc); err != nil {
+				log.Error("Failed to encrypt variable", "error", err, "account_id", acct.ID, "name", entry.Name)
+				result.Status = "error"
+				result.Error = "failed to encrypt"
+				results = append(results, result)
+				continue
 			}
 
 			if err := store.Save(v); err != nil {
@@ -252,17 +240,14 @@ func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 		}
 
 		if req.Value != nil {
-			if isSecret {
-				encValue, nonce, err := encryptVariableValue(c, log, store, acct.ID, cfg, []byte(*req.Value))
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt variable"})
-					return
-				}
-				existing.Value = base64.StdEncoding.EncodeToString(encValue)
-				existing.Nonce = nonce
-			} else {
-				existing.Value = *req.Value
-				existing.Nonce = nil
+			enc, err := getAccountEncryptor(c, log, store, acct.ID, cfg)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set up encryption"})
+				return
+			}
+			if err := applyValue(existing, *req.Value, enc); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encrypt variable"})
+				return
 			}
 		} else if req.Secret != nil && existing.Secret != isSecret {
 			// Secret flag changed without a new value — re-encrypt or decrypt existing
@@ -359,17 +344,22 @@ func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.
 	return enc, nil
 }
 
-// encryptVariableValue encrypts a plaintext value using the account's shared data key.
-// If the account doesn't have a data key yet, one is generated via KMS.
-func encryptVariableValue(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, cfg *config.Config, plaintext []byte) (ciphertext, nonce []byte, err error) {
-	enc, err := getAccountEncryptor(c, log, store, accountID, cfg)
-	if err != nil {
-		return nil, nil, err
+// applyValue sets v.Value and v.Nonce from plaintext.
+// With KMS (enc != nil): encrypts and base64-encodes, sets nonce.
+// Without KMS (enc == nil): stores plaintext, clears nonce.
+func applyValue(v *accountvars.AccountVariable, plaintext string, enc *envelope.Encryptor) error {
+	if v.Secret && enc != nil {
+		ciphertext, nonce, err := enc.Encrypt([]byte(plaintext))
+		if err != nil {
+			return err
+		}
+		v.Value = base64.StdEncoding.EncodeToString(ciphertext)
+		v.Nonce = nonce
+	} else {
+		v.Value = plaintext
+		v.Nonce = nil
 	}
-	if enc == nil {
-		return plaintext, nil, nil
-	}
-	return enc.Encrypt(plaintext)
+	return nil
 }
 
 // resolveVarReferences resolves variables with a ref field by looking up
