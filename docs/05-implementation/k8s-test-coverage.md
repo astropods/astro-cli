@@ -164,14 +164,6 @@ Test file: `secret_test.go`
 | empty values | Opaque type, 0 entries |
 | mixed case keys | ALREADY_UPPER, LOWER_CASE, MIXED all present |
 
-### EncodeSecretData (`secret.go`)
-
-Test file: `deployment_test.go`
-
-| Test | What it verifies |
-|------|-----------------|
-| 3 cases | Base64 encoding correctness, empty string |
-
 ## Spec-Level Coverage
 
 ### Credential Key Generation (`packages/astro-spec/envresolver_test.go`)

@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -948,25 +947,4 @@ func TestBuildProbeHandlerEdgeCases(t *testing.T) {
 			t.Errorf("expected path /health, got %s", handler.HTTPGet.Path)
 		}
 	})
-}
-
-// TestEncodeSecretData verifies that EncodeSecretData base64-encodes values correctly.
-func TestEncodeSecretData(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"sk-ant-test", "c2stYW50LXRlc3Q="},
-		{"", ""},
-		{"hello world", "aGVsbG8gd29ybGQ="},
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("encode %q", tt.input), func(t *testing.T) {
-			got := EncodeSecretData(tt.input)
-			if got != tt.want {
-				t.Errorf("EncodeSecretData(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
 }

@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"encoding/base64"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -42,9 +41,4 @@ func BuildSecret(
 	}
 
 	return secret
-}
-
-// EncodeSecretData encodes a string to base64 for use in Kubernetes secrets
-func EncodeSecretData(value string) string {
-	return base64.StdEncoding.EncodeToString([]byte(value))
 }
