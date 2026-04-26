@@ -228,6 +228,66 @@ func TestCreateAccountVariable_DBError(t *testing.T) {
 	}
 }
 
+func setupUpdateVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := accountvars.NewStore(db)
+	log := logger.New("error", "json")
+	cfg := &config.Config{} // no KMS
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testacct"})
+		c.Next()
+	})
+	router.PUT("/variables/:varName", UpdateAccountVariable(log, store, cfg))
+	return router, mock
+}
+
+func putVariable(router *gin.Engine, name, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPut, "/variables/"+name, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestSecretStorageNoKMS verifies that both create and update store secret values as
+// plaintext when KMS is not configured — no base64 wrapping should occur.
+func TestSecretStorageNoKMS(t *testing.T) {
+	t.Run("create stores plaintext", func(t *testing.T) {
+		router, mock := setupVarRouter()
+
+		mock.ExpectExec("INSERT INTO account_variables").
+			WithArgs("acct-1", "MY_SECRET", "s3cr3t", true, []byte(nil), "").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		rec := postVariables(router, `{"variables":[{"name":"MY_SECRET","value":"s3cr3t","secret":true}]}`)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("update stores plaintext", func(t *testing.T) {
+		router, mock := setupUpdateVarRouter()
+		now := time.Now()
+
+		rows := sqlmock.NewRows([]string{"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at"}).
+			AddRow("acct-1", "MY_SECRET", "old_value", true, nil, "", now, now)
+		mock.ExpectQuery("SELECT.*account_variables").
+			WithArgs("acct-1", "MY_SECRET").
+			WillReturnRows(rows)
+
+		// Expects plaintext value — currently FAILS because update base64-encodes without KMS.
+		mock.ExpectExec("INSERT INTO account_variables").
+			WithArgs("acct-1", "MY_SECRET", "s3cr3t", true, []byte(nil), "").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		rec := putVariable(router, "MY_SECRET", `{"value":"s3cr3t"}`)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 func setupGetVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 	db, mock, _ := sqlmock.New()
