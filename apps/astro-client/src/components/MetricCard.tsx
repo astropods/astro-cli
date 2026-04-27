@@ -47,7 +47,7 @@ export function MetricCard({ label, value, valueSuffix, description, trend = nul
   const chartData = sparkline?.map((v) => ({ v }));
 
   return (
-    <div className={cn("rounded-[10px] border border-border bg-white p-[12px_14px]", className)}>
+    <div className={cn("rounded-[10px] border border-border bg-white dark:bg-surface p-[12px_14px]", className)}>
       <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend || sparkline || description ? "mb-2" : "mb-4")}>
         {label}
       </span>
@@ -67,11 +67,11 @@ export function MetricCard({ label, value, valueSuffix, description, trend = nul
             <AreaChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--color-teal-600)" stopOpacity={0.15} />
-                  <stop offset="100%" stopColor="var(--color-teal-600)" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <Area type="monotone" dataKey="v" stroke="var(--color-teal-600)" strokeWidth={1.5} fill="url(#sparkGrad)" dot={false} isAnimationActive={true} animationDuration={1000} animationEasing="ease-out" />
+              <Area type="monotone" dataKey="v" stroke="var(--primary)" strokeWidth={1.5} fill="url(#sparkGrad)" dot={false} isAnimationActive={true} animationDuration={1000} animationEasing="ease-out" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
