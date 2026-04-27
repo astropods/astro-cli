@@ -1196,7 +1196,7 @@ func ollamaPullModel(name string) error {
 
 // ensureOllamaModels pulls all required Ollama models on the host if not already present.
 // Before pulling, it checks if the model's estimated size fits the system's available RAM.
-func ensureOllamaModels(s *spec.AstroSpec, verbose bool) error {
+func ensureOllamaModels(s *spec.AstroSpec, _ bool) error {
 	systemRAM := getSystemRAMBytes()
 	localModels := ollamaLocalModels()
 

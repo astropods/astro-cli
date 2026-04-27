@@ -1,8 +1,8 @@
 # CLI Command Tree
 
-**Version:** 1.0
-**Date:** 2026-04-20
-**Status:** Proposal
+**Version:** 1.1
+**Date:** 2026-04-25
+**Status:** Partially implemented — `account`, `blueprint`, `secrets` are live; `agent` and `project` are planned
 
 ## Abstract
 
@@ -49,13 +49,19 @@ Manages agent blueprints — the registered, versioned definitions of an agent o
 | Command | Description |
 |---|---|
 | `blueprint list` | List blueprints in the active account |
-| `blueprint create` | Register a new blueprint on the server |
+| `blueprint create <name>` | Register a new blueprint on the server (hidden; `push` auto-creates) |
 | `blueprint get <name>` | Get blueprint metadata and config |
-| `blueprint push` | Build image locally and push to registry |
+| `blueprint build <name>` | Build agent container image locally |
+| `blueprint push <name>` | Build (optional) and push image to registry; auto-creates blueprint |
+| `blueprint validate` | Validate `astropods.yml` against the spec schema |
+| `blueprint set <name>` | Update blueprint settings (e.g. `--visibility public\|private`) |
 | `blueprint archive <name>` | Archive a blueprint (soft delete) |
-| `blueprint visibility <name> <public\|private>` | Set blueprint visibility |
 
-`blueprint push` is the primary publish operation: it builds the container image, pushes it to the Astro registry, and registers the spec with the server. It subsumes the previous `ast push` command.
+Top-level aliases for the most common operations are registered at the root: `ast build <name>`, `ast push <name>`, and `ast validate` delegate to the corresponding `blueprint` subcommands.
+
+`blueprint push` is the primary publish operation: it validates the spec, optionally builds the container image, pushes it to the Astro registry, and registers the spec with the server. The agent name is a required positional argument; if it differs from the spec's `name` field, the CLI warns before proceeding. Pass `--build` to build the image before pushing.
+
+`blueprint validate` runs full schema and semantic validation without authenticating or touching the registry. The cobra handlers for `push` and `build` both run validation before auth/build machinery — a bad spec exits immediately with a clear error.
 
 ---
 
@@ -133,24 +139,28 @@ Local project operations. No network calls except `project dev` (which manages l
 
 | Flag | Description |
 |---|---|
-| `--file, -f <path>` | Path to `astropods.yml` (default: `./astropods.yml`) |
 | `--verbose, -v` | Verbose output |
 | `--quiet, -q` | Minimal output |
+
+`-f/--file <path>` is **not** a global flag. It is scoped to the individual commands that accept a spec file: `blueprint build`, `blueprint push`, `blueprint validate`, and their top-level aliases. Commands that don't operate on a local spec do not advertise it.
 
 ---
 
 ## 5. Migration from Current Commands
 
-| Old command | New command |
-|---|---|
-| `ast create` | `ast project init` |
-| `ast push` | `ast blueprint push` |
-| `ast configure` | `ast project configure` |
-| `ast dev` | `ast project dev` |
-| `ast validate` | `ast project validate` |
-| `ast add` | `ast project add` |
-| `ast explain` | `ast project explain` |
-| `ast knowledge *` | unchanged for now |
+| Old command | New command | Status |
+|---|---|---|
+| `ast push` | `ast blueprint push <name>` (alias: `ast push <name>`) | **Implemented** — top-level alias preserved |
+| `ast build` | `ast blueprint build <name>` (alias: `ast build <name>`) | **Implemented** — top-level alias preserved |
+| `ast validate` | `ast blueprint validate` (alias: `ast validate`) | **Implemented** |
+| `ast create` | `ast project init` | Planned |
+| `ast configure` | `ast project configure` | Planned |
+| `ast dev` | `ast project dev` | Planned |
+| `ast add` | `ast project add` | Planned |
+| `ast explain` | `ast project explain` | Planned |
+| `ast knowledge *` | unchanged for now | — |
+
+Flags removed from `ast push`: `--skip-build`, `--skip-push`, `--skip-register`, `--no-auth`, `--server`, `--registry`, `--platform`. The platform is fixed to `linux/amd64` for production pushes.
 
 ---
 

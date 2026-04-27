@@ -22,7 +22,7 @@ func TestResolveSpecPathFromCwd(t *testing.T) {
 				dir := t.TempDir()
 				_ = touch(filepath.Join(dir, "my-spec.yml"))
 				chdirInto(t, dir)
-				cmd := runCobra(t, []string{"-f", "my-spec.yml", "child"})
+				cmd := runCobra(t, []string{"child", "-f", "my-spec.yml"})
 				return cmd, dir
 			},
 			want: "my-spec.yml",
@@ -43,7 +43,7 @@ func TestResolveSpecPathFromCwd(t *testing.T) {
 			setup: func(t *testing.T) (*cobra.Command, string) {
 				absPath := filepath.Join(t.TempDir(), "abs-spec.yml")
 				_ = touch(absPath)
-				cmd := runCobra(t, []string{"-f", absPath, "child"})
+				cmd := runCobra(t, []string{"child", "-f", absPath})
 				return cmd, absPath
 			},
 			want: "",
@@ -114,8 +114,8 @@ func chdirInto(t *testing.T, dir string) {
 func runCobra(t *testing.T, args []string) *cobra.Command {
 	t.Helper()
 	root := &cobra.Command{Use: "test"}
-	root.PersistentFlags().StringP("file", "f", "astropods.yml", "")
 	child := &cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error { return nil }}
+	child.Flags().StringP("file", "f", "", "")
 	root.AddCommand(child)
 	root.SetArgs(args)
 	if err := root.Execute(); err != nil {

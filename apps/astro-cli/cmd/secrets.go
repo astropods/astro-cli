@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -93,29 +92,20 @@ Existing variables are skipped unless --overwrite is set.`,
 	RunE: runSecretImport,
 }
 
-var (
-	secretPlain           bool
-	secretValues          bool
-	secretCreateValue     string
-	secretCreateOverwrite bool
-	secretUpdateValue     string
-	secretImportPlainKeys string
-	secretImportOverwrite bool
-)
-
 func init() {
-	secretCreateCmd.Flags().BoolVar(&secretPlain, "plain", false, "Store as plaintext instead of an encrypted secret")
-	secretCreateCmd.Flags().StringVar(&secretCreateValue, "value", "", "Value to set (skips interactive prompt)")
-	secretCreateCmd.Flags().BoolVar(&secretCreateOverwrite, "overwrite", false, "Overwrite if the variable already exists")
+	secretCreateCmd.Flags().Bool("plain", false, "Store as plaintext instead of an encrypted secret")
+	secretCreateCmd.Flags().String("value", "", "Value to set (skips interactive prompt)")
+	secretCreateCmd.Flags().Bool("overwrite", false, "Overwrite if the variable already exists")
 	secretCreateCmd.Flags().StringP("description", "d", "", "Optional description for the secret")
-	secretUpdateCmd.Flags().StringVar(&secretUpdateValue, "value", "", "New value (skips interactive prompt)")
+	secretUpdateCmd.Flags().String("value", "", "New value (skips interactive prompt)")
+	secretUpdateCmd.Flags().Bool("plain", false, "Store as plaintext instead of an encrypted secret")
 	secretUpdateCmd.Flags().StringP("description", "d", "", "Update the description")
-	secretListCmd.Flags().BoolVar(&secretValues, "values", false, "Show variable values")
+	secretListCmd.Flags().Bool("values", false, "Show variable values")
 	secretListCmd.Flags().Bool("json", false, "Output as JSON")
 	secretGetCmd.Flags().Bool("json", false, "Output as JSON")
 	secretImportCmd.Flags().Bool("plain", false, "Store all imported variables as plain text")
-	secretImportCmd.Flags().StringVar(&secretImportPlainKeys, "plain-keys", "", "Comma-separated keys to store as plain text")
-	secretImportCmd.Flags().BoolVar(&secretImportOverwrite, "overwrite", false, "Overwrite existing variables")
+	secretImportCmd.Flags().String("plain-keys", "", "Comma-separated keys to store as plain text")
+	secretImportCmd.Flags().Bool("overwrite", false, "Overwrite existing variables")
 	secretCmd.AddCommand(secretListCmd)
 	secretCmd.AddCommand(secretGetCmd)
 	secretCmd.AddCommand(secretCreateCmd)
@@ -136,11 +126,10 @@ type secretVariableMetadata struct {
 }
 
 func runSecretList(cmd *cobra.Command, args []string) error {
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	var result struct {
 		Variables []secretVariableMetadata `json:"variables"`
@@ -166,13 +155,11 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result.Variables) //nolint:errcheck,gosec
+		return writeJSON(w, result.Variables)
 	}
 
-	const dateFmt = "2006-01-02T15:04:05"
-	const dateWidth = len(dateFmt)
+	showValues, _ := cmd.Flags().GetBool("values")
+
 	nameWidth := len("Name")
 	for _, v := range result.Variables {
 		if len(v.Name) > nameWidth {
@@ -181,25 +168,25 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	}
 
 	typeHeader := "Type"
-	if secretValues {
+	if showValues {
 		typeHeader = "Value"
 	}
-	dim.Fprintf(w, "%-*s  %-*s  %s\n", dateWidth, "Updated", nameWidth, "Name", typeHeader) //nolint:errcheck,gosec
+	dim.Fprintf(w, "%-*s  %-*s  %s\n", tableTimeWidth, "Updated", nameWidth, "Name", typeHeader) //nolint:errcheck,gosec
 
 	for _, v := range result.Variables {
-		date := v.UpdatedAt.Format(dateFmt)
+		date := v.UpdatedAt.Format(tableTimeFmt)
 		if v.UpdatedAt.IsZero() {
-			date = strings.Repeat("—", dateWidth)
+			date = strings.Repeat("—", tableTimeWidth)
 		}
 
 		var typeOrValue string
 		if v.Secret {
-			if secretValues {
+			if showValues {
 				typeOrValue = "******"
 			} else {
 				typeOrValue = "secret"
 			}
-		} else if secretValues && v.Value != nil {
+		} else if showValues && v.Value != nil {
 			typeOrValue = *v.Value
 		} else {
 			typeOrValue = "variable"
@@ -215,13 +202,15 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 
 func runSecretCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	plain, _ := cmd.Flags().GetBool("plain")
+	overwrite, _ := cmd.Flags().GetBool("overwrite")
 
-	if secretCreateValue != "" {
-		return runSecretCreateWithValue(cmd, args, secretCreateValue, secretPlain, secretCreateOverwrite)
+	if v, _ := cmd.Flags().GetString("value"); v != "" {
+		return runSecretCreateWithValue(cmd, args, v, plain, overwrite)
 	}
 
 	echoMode := huh.EchoModePassword
-	if secretPlain {
+	if plain {
 		echoMode = huh.EchoModeNormal
 	}
 
@@ -249,7 +238,7 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 	}
 	_ = cmd.Flags().Set("description", strings.TrimSpace(description))
 
-	return runSecretCreateWithValue(cmd, args, value, secretPlain, secretCreateOverwrite)
+	return runSecretCreateWithValue(cmd, args, value, plain, overwrite)
 }
 
 func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, plain, overwrite bool) error {
@@ -258,11 +247,10 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 		return err
 	}
 
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	if !overwrite {
 		if status, _, err := fetchVariableMeta(cmd.Context(), at, name, verbose); err == nil {
@@ -317,24 +305,27 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 
 func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	ctx := cmd.Context()
 
-	at, err := getCurrentAccountToken(ctx)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+
+	plain, _ := cmd.Flags().GetBool("plain")
 
 	// Fetch the variable's type to pick the right echo mode and success message.
 	// Fall back to treating it as a secret if the fetch fails (safe default).
 	isSecret := true
-	if _, meta, err := fetchVariableMeta(ctx, at, name, verbose); err == nil {
+	if _, meta, err := fetchVariableMeta(cmd.Context(), at, name, verbose); err == nil {
 		isSecret = meta.Secret
+	}
+	if plain {
+		isSecret = false
 	}
 
 	var value string
-	if secretUpdateValue != "" {
-		value = secretUpdateValue
+	if v, _ := cmd.Flags().GetString("value"); v != "" {
+		value = v
 	} else {
 		echoMode := huh.EchoModePassword
 		if !isSecret {
@@ -369,7 +360,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 		_ = cmd.Flags().Set("description", strings.TrimSpace(description))
 	}
 
-	return runSecretUpdateWithValue(cmd, args, value, isSecret, verbose)
+	return runSecretUpdateWithValue(cmd, args, value, isSecret, plain, verbose)
 }
 
 // fetchVariableMeta returns the status code and metadata for a single variable via GET /:varName.
@@ -389,7 +380,7 @@ func fetchVariableMeta(ctx context.Context, at AccountToken, name string, verbos
 	return status, &meta, nil
 }
 
-func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, isSecret, verbose bool) error { //nolint:unparam
+func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, isSecret, plain, verbose bool) error { //nolint:unparam
 	name := args[0]
 
 	at, err := getCurrentAccountToken(cmd.Context())
@@ -398,6 +389,9 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 	}
 
 	payload := map[string]any{"value": value}
+	if plain {
+		payload["secret"] = false
+	}
 	if desc, _ := cmd.Flags().GetString("description"); desc != "" {
 		payload["description"] = desc
 	}
@@ -430,15 +424,13 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 
 func runSecretGet(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	ctx := cmd.Context()
 
-	at, err := getCurrentAccountToken(ctx)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
-	_, meta, err := fetchVariableMeta(ctx, at, name, verbose)
+	_, meta, err := fetchVariableMeta(cmd.Context(), at, name, verbose)
 	if err != nil {
 		return err
 	}
@@ -446,23 +438,20 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(meta) //nolint:errcheck,gosec
+		return writeJSON(w, meta)
 	}
 
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
-	const dateFmt = "2006-01-02T15:04:05"
 	printField := func(label, val string) {
 		dim.Fprintf(w, "%-12s", label+":") //nolint:errcheck,gosec
 		cyan.Fprintln(w, " "+val)          //nolint:errcheck,gosec
 	}
 
 	printField("Name", meta.Name)
-	printField("Created", meta.CreatedAt.Format(dateFmt))
-	printField("Updated", meta.UpdatedAt.Format(dateFmt))
+	printField("Created", meta.CreatedAt.Format(tableTimeFmt))
+	printField("Updated", meta.UpdatedAt.Format(tableTimeFmt))
 
 	if meta.Secret {
 		printField("Value", "******")
@@ -480,11 +469,10 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 func runSecretDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	status, err := apiCall(
 		cmd.Context(),
@@ -509,12 +497,10 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 }
 
 func runSecretImport(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	at, err := getCurrentAccountToken(ctx)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	f, err := os.Open(args[0]) //nolint:gosec
 	if err != nil {
@@ -544,15 +530,17 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 	// --plain marks all keys plain; --plain-keys marks specific ones.
 	allPlain, _ := cmd.Flags().GetBool("plain")
 	plainSet := map[string]bool{}
-	if secretImportPlainKeys != "" {
-		for _, k := range strings.Split(secretImportPlainKeys, ",") {
+	if plainKeys, _ := cmd.Flags().GetString("plain-keys"); plainKeys != "" {
+		for k := range strings.SplitSeq(plainKeys, ",") {
 			plainSet[strings.TrimSpace(k)] = true
 		}
 	}
 
+	overwrite, _ := cmd.Flags().GetBool("overwrite")
+
 	// Unless --overwrite, fetch existing names and skip them.
-	if !secretImportOverwrite {
-		existing, err := fetchExistingVarNames(ctx, at, verbose)
+	if !overwrite {
+		existing, err := fetchExistingVarNames(cmd.Context(), at, verbose)
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing variables: %w", err)
 		}
@@ -587,7 +575,7 @@ func runSecretImport(cmd *cobra.Command, args []string) error {
 		} `json:"results"`
 	}
 	if _, err := apiCall(
-		ctx,
+		cmd.Context(),
 		http.MethodPost,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		map[string]any{"variables": vars},
