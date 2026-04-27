@@ -51,7 +51,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
           type="button"
           aria-label="Switch account"
           className={cn(
-            "flex h-8 w-full cursor-pointer items-center justify-between px-2.5 text-sm leading-none text-foreground transition-colors hover:bg-stone-200 dark:hover:bg-teal-800 sm:w-48",
+            "flex h-8 w-full cursor-pointer items-center justify-between px-2.5 text-sm leading-none text-foreground transition-colors hover:bg-stone-100 dark:hover:bg-teal-800 sm:w-48",
             inputBase,
             inputFocusVisible,
           )}
