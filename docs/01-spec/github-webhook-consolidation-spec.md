@@ -62,7 +62,7 @@ func (s *Store) DeleteIfNoConnections(ctx context.Context, repoBase string) (web
 
 ### 5.1 `GitHubLink`
 
-Replace `GetByRepoBaseForAccount(accountID, repoBase)` with `webhookStore.Get(repoBase)` — global, no account scope. If a webhook exists, the connection is saved and no GitHub API call is made. If not, the webhook is created and inserted into `github_webhooks`. On INSERT conflict (Race A), read the existing row and delete the orphaned webhook just created from GitHub.
+The connection record is saved first (existing behavior), then `webhookStore.Get(repoBase)` replaces `GetByRepoBaseForAccount(accountID, repoBase)` — global, no account scope. If a webhook exists, no GitHub API call is made. If not, the webhook is created and inserted into `github_webhooks`. On INSERT conflict, read the existing row and delete the orphaned webhook just created from GitHub.
 
 ### 5.2 `GitHubWebhook` (inbound push handler)
 
@@ -104,9 +104,10 @@ Connections with `webhook_id = 0` (manual-build-only agents) have no webhook to 
 
 | File | Change |
 |------|--------|
-| `sql/astro-server/schema.sql` | Add `github_webhooks` table; drop `webhook_id`, `webhook_secret` from `github_connections` (Atlas applies declaratively) |
+| `sql/astro-server/schema.sql` | Add `github_webhooks` table; drop `webhook_id`, `webhook_secret` from `github_connections` |
 | `apps/astro-server/internal/githubwebhook/store.go` | **New** — `Get`, `Insert`, `DeleteIfNoConnections` |
-| `apps/astro-server/internal/githubconnection/store.go` | Remove `WebhookID`, `WebhookSecret` from `Connection`; remove `GetByRepoBaseForAccount`, `CountByRepoBaseForAccount`; add global `ListByRepoAndBranch` |
+| `apps/astro-server/internal/githubconnection/store.go` | Remove `WebhookID`, `WebhookSecret` from `Connection`; remove `GetByRepoBase`, `GetByRepoBaseForAccount`, `CountByRepoBaseForAccount`; add global `ListByRepoAndBranch` |
+| `apps/astro-server/internal/riverqueue/` | **New** backfill job to populate `github_webhooks` before column drop |
 | `apps/astro-server/handlers/github.go` | Update `GitHubLink`, `GitHubWebhook`, `GitHubDisconnect`, `GitHubAccountDisconnect` |
 | `apps/astro-server/handlers/agents.go` | Update `ArchiveAgent` goroutine |
 | `apps/astro-server/main.go` | Wire `githubwebhook.Store` into handlers |
