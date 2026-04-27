@@ -120,21 +120,23 @@ export function DeployedAgentsSection({
     })),
   });
 
-  const blueprintsByAccountAndName = useMemo(() => {
-    const map = new Map<string, BlueprintsListResponse["agents"][number]>();
+  const blueprintsByAccount = useMemo(() => {
+    const byAccount = new Map<string, Map<string, BlueprintsListResponse["agents"][number]>>();
     blueprintQueries.forEach((result, i) => {
       const acct = sourceAccounts[i];
       if (!acct || !result.data?.agents) return;
-      for (const agent of result.data.agents) map.set(`${acct}\u0000${agent.name}`, agent);
+      const byName = new Map<string, BlueprintsListResponse["agents"][number]>();
+      for (const agent of result.data.agents) byName.set(agent.name, agent);
+      byAccount.set(acct, byName);
     });
-    return map;
+    return byAccount;
   }, [blueprintQueries, sourceAccounts]);
 
   const deploymentsWithNewBuild = useMemo(() => {
     return new Set(
       deployments.flatMap((deployment) => {
         const lineageAccount = deployment.source_account || account;
-        const agent = blueprintsByAccountAndName.get(`${lineageAccount}\u0000${deployment.name}`);
+        const agent = blueprintsByAccount.get(lineageAccount)?.get(deployment.name);
         if (!agent?.versions?.length) return [];
         if (lineageAccount !== account && agent.visibility === "private") return [];
         const latest = agent.versions.reduce((a, b) =>
@@ -143,7 +145,7 @@ export function DeployedAgentsSection({
         return latest.build_id && deployment.build_id !== latest.build_id ? [deployment.id] : [];
       }),
     );
-  }, [blueprintsByAccountAndName, deployments, account]);
+  }, [blueprintsByAccount, deployments, account]);
 
   if (isLoading) {
     return (
