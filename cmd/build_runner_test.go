@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseDockerfileBaseImages(t *testing.T) {
@@ -160,24 +164,28 @@ func TestPlatformImageTag(t *testing.T) {
 	}
 }
 
-func TestParsePlatforms(t *testing.T) {
+func TestResolveBuildPlatform(t *testing.T) {
+	native := fmt.Sprintf("linux/%s", runtime.GOARCH)
 	tests := []struct {
-		input string
-		want  []string
+		name         string
+		serverURL    string
+		wantPlatform string
+		wantSkipPush bool
 	}{
-		{"linux/amd64", []string{"linux/amd64"}},
-		{"linux/amd64,linux/arm64", []string{"linux/amd64", "linux/arm64"}},
+		{"localhost http", "http://localhost:8080", native, true},
+		{"localhost https", "https://localhost", native, true},
+		{"127.0.0.1", "http://127.0.0.1:3000", native, true},
+		{"::1 ipv6", "http://[::1]:8080", native, true},
+		{"remote staging", "https://api.staging.astro.dev", "linux/amd64", false},
+		{"remote prod", "https://api.astro.dev", "linux/amd64", false},
+		{"empty url", "", "linux/amd64", false},
+		{"invalid url", "://bad", "linux/amd64", false},
 	}
-
 	for _, tt := range tests {
-		got := parsePlatforms(tt.input)
-		if len(got) != len(tt.want) {
-			t.Fatalf("parsePlatforms(%q) = %v, want %v", tt.input, got, tt.want)
-		}
-		for i := range got {
-			if got[i] != tt.want[i] {
-				t.Errorf("parsePlatforms(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
-			}
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			platform, skipPush := resolveBuildPlatform(tt.serverURL)
+			assert.Equal(t, tt.wantPlatform, platform)
+			assert.Equal(t, tt.wantSkipPush, skipPush)
+		})
 	}
 }

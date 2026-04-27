@@ -49,7 +49,6 @@ func TestSecretList(t *testing.T) {
 
 	t.Run("shows header and type column by default", func(t *testing.T) {
 		setup()
-		secretValues = false
 		buf := &bytes.Buffer{}
 		secretListCmd.SetOut(buf)
 		require.NoError(t, runSecretList(secretListCmd, nil))
@@ -66,8 +65,8 @@ func TestSecretList(t *testing.T) {
 
 	t.Run("shows VALUE header and values with --show-values", func(t *testing.T) {
 		setup()
-		secretValues = true
-		t.Cleanup(func() { secretValues = false })
+		require.NoError(t, secretListCmd.Flags().Set("values", "true"))
+		t.Cleanup(func() { secretListCmd.Flags().Set("values", "false") }) //nolint:errcheck
 		buf := &bytes.Buffer{}
 		secretListCmd.SetOut(buf)
 		require.NoError(t, runSecretList(secretListCmd, nil))
@@ -257,7 +256,7 @@ func TestSecretUpdate(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretUpdateCmd.SetOut(buf)
-	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_KEY"}, "newval", true, false))
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_KEY"}, "newval", true, false, false))
 	require.Equal(t, "newval", received["value"])
 	require.Contains(t, buf.String(), "Updated secret")
 }
@@ -273,7 +272,25 @@ func TestSecretUpdate_Plain(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretUpdateCmd.SetOut(buf)
-	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_VAR"}, "newval", false, false))
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_VAR"}, "newval", false, false, false))
+	require.Contains(t, buf.String(), "Updated variable")
+}
+
+func TestSecretUpdate_PlainFlag(t *testing.T) {
+	var received map[string]any
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPut, r.Method)
+		json.NewDecoder(r.Body).Decode(&received)                                //nolint:errcheck,gosec
+		json.NewEncoder(w).Encode(map[string]any{"message": "variable updated"}) //nolint:errcheck,gosec
+	}
+
+	_, setup := secretTestServer(t, handler)
+	setup()
+
+	buf := &bytes.Buffer{}
+	secretUpdateCmd.SetOut(buf)
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_KEY"}, "newval", false, true, false))
+	require.Equal(t, false, received["secret"])
 	require.Contains(t, buf.String(), "Updated variable")
 }
 
@@ -286,7 +303,7 @@ func TestSecretUpdate_NotFound(t *testing.T) {
 	_, setup := secretTestServer(t, handler)
 	setup()
 
-	err := runSecretUpdateWithValue(secretUpdateCmd, []string{"MISSING"}, "v", true, false)
+	err := runSecretUpdateWithValue(secretUpdateCmd, []string{"MISSING"}, "v", true, false, false)
 	require.ErrorContains(t, err, "not found")
 }
 
@@ -383,8 +400,8 @@ func TestSecretImport_PlainKeys(t *testing.T) {
 	f := t.TempDir() + "/test.env"
 	require.NoError(t, os.WriteFile(f, []byte(envContent), 0600))
 
-	secretImportPlainKeys = "DB_URL"
-	t.Cleanup(func() { secretImportPlainKeys = "" })
+	require.NoError(t, secretImportCmd.Flags().Set("plain-keys", "DB_URL"))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("plain-keys", "") }) //nolint:errcheck
 
 	buf := &bytes.Buffer{}
 	secretImportCmd.SetOut(buf)
@@ -471,9 +488,6 @@ func TestSecretImport_SkipsExisting(t *testing.T) {
 	f := t.TempDir() + "/test.env"
 	require.NoError(t, os.WriteFile(f, []byte(envContent), 0600))
 
-	secretImportOverwrite = false
-	t.Cleanup(func() { secretImportOverwrite = false })
-
 	buf := &bytes.Buffer{}
 	secretImportCmd.SetOut(buf)
 	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
@@ -501,8 +515,8 @@ func TestSecretImport_OverwriteFlag(t *testing.T) {
 	f := t.TempDir() + "/test.env"
 	require.NoError(t, os.WriteFile(f, []byte("KEY=val\n"), 0600))
 
-	secretImportOverwrite = true
-	t.Cleanup(func() { secretImportOverwrite = false })
+	require.NoError(t, secretImportCmd.Flags().Set("overwrite", "true"))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("overwrite", "false") }) //nolint:errcheck
 
 	secretImportCmd.SetOut(&bytes.Buffer{})
 	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))

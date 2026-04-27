@@ -34,6 +34,12 @@ Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individ
 - All output must go through `w := cmd.OutOrStdout()`. Never use `fmt.Printf`, `fmt.Println`, or write to `os.Stdout` directly in command handlers.
 - Pass `w` to color writers (`color.New(...).Fprint(w, ...)`) and tabwriter (`tabwriter.NewWriter(w, ...)`).
 
+### User-facing messages
+
+All user-visible error strings and multi-line status messages belong in `cmd/messages.go`. Do not inline them in command handlers.
+- Error-returning functions are named `errXxx`; string-returning functions are named `msgXxx`.
+- Tests must assert against the message function directly (exact-string comparison) rather than substring/keyword checks. This keeps copy changes and test expectations in sync automatically.
+
 ### Flags
 
 - Register per-command flags with `cmd.Flags().Bool(...)` / `cmd.Flags().GetBool(...)`. Never use shared package-level variables for flags that appear on multiple sibling commands (e.g. `--json`). Package-level flag vars leak state across tests.

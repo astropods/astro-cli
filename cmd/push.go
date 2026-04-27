@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
@@ -28,401 +26,233 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-// getOptimizedTransport returns an HTTP transport optimized for large file uploads
-// This explicitly disables HTTP/2 to ensure compatibility with all registries
-func getOptimizedTransport() *http.Transport {
-	return &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		IdleConnTimeout:     90,
-		DisableCompression:  false,
-		// Explicitly disable HTTP/2 by setting TLSNextProto to empty map
-		// This prevents "http2: client conn could not be established" errors
-		// with registries that have incomplete or misconfigured HTTP/2 support
-		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+// pushServerURLOverride is set in tests to redirect API calls to a test server.
+var pushServerURLOverride string
+
+func pushBaseURL() string {
+	if pushServerURLOverride != "" {
+		return strings.TrimSuffix(pushServerURLOverride, "/")
 	}
+	return strings.TrimSuffix(auth.DefaultServerURL, "/")
 }
 
-var pushCmd = &cobra.Command{
-	Use:   "push",
-	Short: "Push agent images and spec to astro platform",
-	Long: `Push container images to astro-registry and spec to astro-server.
-
-This will:
-1. Generate a build ID
-2. Tag and push the agent container image to astro-registry
-3. Tag and push custom-built component images (models, knowledge, tools)
-4. Register the agent spec with astro-server
-
-Images are pushed through the astro-registry service which proxies to ECR.
-The spec is registered with astro-server which validates and stores it.
-
-Requires authentication (run the login command first).`,
-	RunE: runPush,
+// pushConfig holds all parameters for a push operation.
+type pushConfig struct {
+	specPath             string
+	agentName            string // overrides spec name; empty = use spec
+	skipBuild            bool
+	skipPush             bool
+	platform             string
+	visibility           Visibility // VisibilityPublic, VisibilityPrivate, or VisibilityUnset (preserve existing)
+	allowAccountOverride bool
+	verbose              bool
 }
 
-var (
-	pushTag      string // random build ID generated at push time
-	skipBuild    bool
-	skipPush     bool
-	serverURL    string
-	registryURL  string
-	skipRegister bool
-	noAuth       bool
-	pushPlatform string
-	pushPublic   bool
-	pushPrivate  bool
-)
+// runPush assumes the spec in cfg.specPath is valid; callers must validate before invoking.
+func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
+	workingDir := filepath.Dir(cfg.specPath)
 
-func init() {
-	rootCmd.AddCommand(pushCmd)
-	pushCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before pushing")
-	pushCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
-	pushCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides profile/default)")
-	pushCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (default: registry.<server-host>)")
-	pushCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
-	pushCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
-	pushCmd.Flags().StringVar(&pushPlatform, "platform", "linux/amd64", "Target platform(s) for push (comma-separated)")
-	pushCmd.Flags().BoolVar(&pushPublic, "public", false, "Make the blueprint publicly visible to everyone")
-	pushCmd.Flags().BoolVar(&pushPrivate, "private", false, "Keep the blueprint private (default)")
-	pushCmd.MarkFlagsMutuallyExclusive("public", "private")
-}
+	effectiveServerURL := pushBaseURL()
+	effectiveRegistryURL := auth.RegistryURLFromServerURL(effectiveServerURL)
 
-func runPush(cmd *cobra.Command, args []string) error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-	specPath, err := resolveSpecPath(cmd, workingDir)
-	if err != nil {
-		return err
-	}
-	verbose, _ := cmd.Flags().GetBool("verbose")
-
-	// Get server URL: --server flag > build-time default
-	effectiveServerURL := serverURL
-	if effectiveServerURL == "" {
-		effectiveServerURL = auth.DefaultServerURL
-	}
-
-	// Dev binary: skip push, default to native platform
-	if isDevBuild {
-		skipPush = true
-		if !cmd.Flags().Changed("platform") {
-			pushPlatform = nativePlatform()
-		}
-	}
-
-	// Get registry URL: --registry flag > build-time default > derived from server URL
-	effectiveRegistryURL := registryURL
-	if effectiveRegistryURL == "" {
-		effectiveRegistryURL = auth.DefaultRegistryURL
-	}
-	if effectiveRegistryURL == "" {
-		effectiveRegistryURL = auth.RegistryURLFromServerURL(effectiveServerURL)
-	}
-
-	if verbose {
+	if cfg.verbose {
 		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, effectiveServerURL, colorReset)
 		fmt.Printf("%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, effectiveRegistryURL, colorReset)
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: run '%s login' or use --registry", binaryName)
+		return fmt.Errorf("registry URL required: run '%s login'", binaryName)
 	}
 
-	if effectiveServerURL == "" && !skipRegister {
-		return fmt.Errorf("server URL required for registration: run '%s login', use --server, or use --skip-register", binaryName)
+	if effectiveServerURL == "" {
+		return fmt.Errorf("server URL required: run '%s login'", binaryName)
 	}
 
-	// Validate spec strictly before doing any work. Invalid specs must not build or push.
-	fmt.Printf("%s→%s Validating %s\n", colorCyan, colorReset, filepath.Base(specPath))
-	astroSpec, err := validateSpecFile(specPath)
+	astroSpec, err := spec.ParseSpec(cfg.specPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse spec: %w", err)
 	}
-	warnDeprecatedMetaFields(specPath, workingDir)
+	warnDeprecatedMetaFields(cfg.specPath, workingDir)
 
-	// Generate random build ID (8-char hex)
-	pushTag = generateBuildID()
+	tag := generateBuildID()
 
-	// Build registry host from URL
 	registryHost, err := getRegistryHost(effectiveRegistryURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	// Parse @account/name from spec — strip the prefix for all downstream use
-	accountOverride, agentName := utils.ParseAgentName(astroSpec.Name)
-
-	// Validate credentials upfront so stale tokens fail before build/push
-	var orgToken string // non-empty when pushing to an organization
-	if !noAuth {
-		tokenManager := auth.NewTokenManager(binaryName)
-		if !tokenManager.IsAuthenticated() {
-			return fmt.Errorf("not authenticated. Run '%s login' to authenticate", binaryName)
+	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
+	if cfg.agentName != "" {
+		if cfg.agentName != agentName {
+			fmt.Printf("%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, cfg.agentName)
 		}
-		if _, err := tokenManager.GetValidAccessToken(cmd.Context()); err != nil {
-			return fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, binaryName)
+		agentName = cfg.agentName
+	}
+
+	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
+		if !cfg.allowAccountOverride {
+			return errAccountMismatch(specAccount, at.Account)
 		}
+		fmt.Printf("%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account)
 	}
 
-	// Print header
-	if accountOverride != "" {
-		fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, colorCyan, accountOverride, colorReset, pushTag)
-	} else {
-		fmt.Printf("%s→%s Pushing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, pushTag)
-	}
+	fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, colorCyan, at.Account, colorReset, tag)
 
-	// Step 1: Get namespace from profile
-	printStep("Reading account from profile...")
-	namespace, workosOrgID, nsErr := getUserNamespace(verbose, accountOverride)
-	if nsErr != nil {
-		printStepFail()
-		return fmt.Errorf("failed to get user namespace: %w", nsErr)
-	}
-	printStepDone(fmt.Sprintf("namespace: %s", namespace))
-
-	// If pushing to an org, obtain an org-scoped token
-	if workosOrgID != "" && !noAuth {
-		printStep("Obtaining organization token...")
-		tokenManager := auth.NewTokenManager(binaryName)
-		var tokenErr error
-		orgToken, tokenErr = tokenManager.GetOrgScopedAccessToken(cmd.Context(), workosOrgID)
-		if tokenErr != nil {
-			printStepFail()
-			return fmt.Errorf("failed to get org-scoped token: %w", tokenErr)
-		}
-		printStepDone("")
-	}
-
-	// Build images first if requested
 	imagesPushed := 0
-	platforms := parsePlatforms(pushPlatform)
-	multiPlatform := len(platforms) > 1
 
-	if !skipBuild {
-		// Use the same tag for build so built images match what we push
-		buildTag = pushTag
-		buildPlatform = pushPlatform
+	if !cfg.skipBuild {
 		printStep("Building images")
 		fmt.Println()
-		if err := runBuild(cmd, args); err != nil {
+		if err := runBuild(ctx, cfg.specPath, agentName, tag, []string{cfg.platform}, false, cfg.verbose, false); err != nil {
 			return fmt.Errorf("build failed: %w", err)
 		}
 	}
 
-	// Push images
-	if !skipPush {
-		// 1. Push agent container image
-		if multiPlatform {
-			baseName := agentName
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
+	if !cfg.skipPush {
+		localImageName := platformImageTag(agentName, tag, cfg.platform)
+		remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, agentName, tag)
 
-			printPushStart("agent", baseName)
-			size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
-			if err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push agent image: %w", err)
-			}
-			printPushComplete(true, size)
-			imagesPushed++
-		} else {
-			// Single platform: push the platform-specific image we built (not the convenience tag)
-			localImageName := platformImageTag(agentName, pushTag, platforms[0])
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, agentName, pushTag)
-
-			printPushStart("agent", agentName)
-			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
-			if err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push agent image: %w", err)
-			}
-			printPushComplete(true, size)
-			imagesPushed++
+		printPushStart("agent", agentName)
+		size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
+		if err != nil {
+			printPushComplete(false, 0)
+			return fmt.Errorf("failed to push agent image: %w", err)
 		}
+		printPushComplete(true, size)
+		imagesPushed++
 
-		// 2. Push custom-built model images
 		for modelName, model := range astroSpec.Models {
 			if model.Container != nil && model.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
 
 				printPushStart("model", modelName)
-				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push model %s: %w", modelName, err)
-					}
-					printPushComplete(true, size)
-				} else {
-					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push model %s: %w", modelName, err)
-					}
-					printPushComplete(true, size)
+				localImageName := platformImageTag(baseName, tag, cfg.platform)
+				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
+				if err != nil {
+					printPushComplete(false, 0)
+					return fmt.Errorf("failed to push model %s: %w", modelName, err)
 				}
+				printPushComplete(true, size)
+
 				imagesPushed++
 			}
 		}
 
-		// 3. Push custom-built knowledge store images
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
 			container := knowledge.ResolvedContainer()
 			if container.Build != nil {
 				baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
 
 				printPushStart("knowledge", knowledgeName)
-				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
-					}
-					printPushComplete(true, size)
-				} else {
-					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
-					}
-					printPushComplete(true, size)
+				localImageName := platformImageTag(baseName, tag, cfg.platform)
+				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
+				if err != nil {
+					printPushComplete(false, 0)
+					return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
 				}
+				printPushComplete(true, size)
 				imagesPushed++
 			}
 		}
 
-		// 4. Push custom-built tool images
 		for toolName, tool := range astroSpec.Integrations {
 			if tool.Container != nil && tool.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
 
 				printPushStart("integration", toolName)
-				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push integration %s: %w", toolName, err)
-					}
-					printPushComplete(true, size)
-				} else {
-					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push integration %s: %w", toolName, err)
-					}
-					printPushComplete(true, size)
+				localImageName := platformImageTag(baseName, tag, cfg.platform)
+				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
+				if err != nil {
+					printPushComplete(false, 0)
+					return fmt.Errorf("failed to push integration %s: %w", toolName, err)
 				}
+				printPushComplete(true, size)
 				imagesPushed++
 			}
 		}
 
-		// 5. Push custom-built ingestion images
 		for ingestionName, ingestion := range astroSpec.Ingestion {
 			if ingestion.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
 
 				printPushStart("ingestion", ingestionName)
-				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
-					}
-					printPushComplete(true, size)
-				} else {
-					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
-					if err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
-					}
-					printPushComplete(true, size)
+				localImageName := platformImageTag(baseName, tag, cfg.platform)
+				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
+				if err != nil {
+					printPushComplete(false, 0)
+					return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
 				}
+				printPushComplete(true, size)
 				imagesPushed++
 			}
 		}
-
 	} else {
-		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
+		fmt.Printf("%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
-		// Retag locally-built platform images to registry paths so the local server can resolve them.
-		// Only applicable when the build ran; if it was skipped there are no local images to retag.
-		if isDevBuild && !skipBuild {
+		if cfg.skipPush && !cfg.skipBuild {
 			retag := func(local, remote string) error {
-				cmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
-				if out, err := cmd.CombinedOutput(); err != nil {
+				retagCmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
+				if out, err := retagCmd.CombinedOutput(); err != nil {
 					return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
 				}
 				fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
 				return nil
 			}
 
-			platform := platforms[0]
-
-			// Agent image
 			if err := retag(
-				platformImageTag(agentName, pushTag, platform),
-				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, agentName, pushTag),
+				platformImageTag(agentName, tag, cfg.platform),
+				fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, agentName, tag),
 			); err != nil {
 				return err
 			}
 
-			// Custom-built model images
 			for modelName, model := range astroSpec.Models {
 				if model.Container != nil && model.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
 					if err := retag(
-						platformImageTag(baseName, pushTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
+						platformImageTag(baseName, tag, cfg.platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
 					); err != nil {
 						return err
 					}
 				}
 			}
 
-			// Custom-built knowledge images
 			for knowledgeName, knowledge := range astroSpec.Knowledge {
 				container := knowledge.ResolvedContainer()
 				if container.Build != nil {
 					baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
 					if err := retag(
-						platformImageTag(baseName, pushTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
+						platformImageTag(baseName, tag, cfg.platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
 					); err != nil {
 						return err
 					}
 				}
 			}
 
-			// Custom-built tool images
 			for toolName, tool := range astroSpec.Integrations {
 				if tool.Container != nil && tool.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 					if err := retag(
-						platformImageTag(baseName, pushTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
+						platformImageTag(baseName, tag, cfg.platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
 					); err != nil {
 						return err
 					}
 				}
 			}
 
-			// Custom-built ingestion images
 			for ingestionName, ingestion := range astroSpec.Ingestion {
 				if ingestion.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
 					if err := retag(
-						platformImageTag(baseName, pushTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
+						platformImageTag(baseName, tag, cfg.platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
 					); err != nil {
 						return err
 					}
@@ -433,57 +263,41 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Determine visibility from flags (--public / --private); default is private
-	visibility := "private"
-	if pushPublic {
-		visibility = "public"
+	visibility := VisibilityPrivate
+	if cfg.visibility != VisibilityUnset {
+		visibility = cfg.visibility
 	}
 
-	// Register agent spec with server
-	if !skipRegister && effectiveServerURL != "" {
-		// Read AGENT.md if it exists (agent card file)
-		readmeContent := ""
-		readmePath := filepath.Join(workingDir, "AGENT.md")
-		if readmeData, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
-			readmeContent = string(readmeData)
-		}
-
-		// Fetch the blueprint's current state from the server
-		serverAgent := getAgentFromServer(effectiveServerURL, namespace, agentName, noAuth, orgToken)
-
-		// If the blueprint is already public and the user hasn't explicitly requested private,
-		// preserve the existing public visibility — no change, no prompt.
-		if serverAgent.Exists && serverAgent.Visibility == "public" && !pushPrivate {
-			visibility = "public"
-		}
-
-		// Confirm when: making a blueprint public that isn't already public,
-		// or explicitly downgrading a public blueprint to private.
-		needsConfirm := (visibility == "public" && (!serverAgent.Exists || serverAgent.Visibility != "public")) ||
-			(pushPrivate && serverAgent.Exists && serverAgent.Visibility == "public")
-		if needsConfirm {
-			if !confirmVisibilityChange(serverAgent.Visibility, visibility) {
-				return fmt.Errorf("push cancelled")
-			}
-		}
-
-		printStep("Registering agent with server...")
-
-		// Build the full registry path for the transformed spec
-		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, agentName, pushTag, registryPath, specPath, pushTag, readmeContent, visibility, verbose, noAuth, orgToken); err != nil {
-			printStepFail()
-			return fmt.Errorf("registration failed: %w", err)
-		} else {
-			printStepDone("")
-		}
-	} else if skipRegister {
-		printStep("Registering agent with server")
-		fmt.Printf(" %s(skipped)%s\n", colorDim, colorReset)
+	readmeContent := ""
+	readmePath := filepath.Join(workingDir, "AGENT.md")
+	if readmeData, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
+		readmeContent = string(readmeData)
 	}
 
-	// Final summary
-	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(effectiveServerURL, "/"), namespace, agentName)
+	serverAgent := getAgentFromServer(effectiveServerURL, at.Account, agentName, false, at.Token)
+
+	if serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic) && cfg.visibility != VisibilityPrivate {
+		visibility = VisibilityPublic
+	}
+
+	needsConfirm := (visibility == VisibilityPublic && (!serverAgent.Exists || serverAgent.Visibility != string(VisibilityPublic))) ||
+		(cfg.visibility == VisibilityPrivate && serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic))
+	if needsConfirm {
+		if !confirmVisibilityChange(serverAgent.Visibility, string(visibility)) {
+			return fmt.Errorf("push cancelled")
+		}
+	}
+
+	printStep("Registering agent with server...")
+	registryPath := fmt.Sprintf("%s/%s", registryHost, at.Account)
+	if err := registerAgent(effectiveServerURL, agentName, tag, registryPath, cfg.specPath, tag, readmeContent, string(visibility), cfg.verbose, false, at.Token); err != nil {
+		printStepFail()
+		return fmt.Errorf("registration failed: %w", err)
+	} else {
+		printStepDone("")
+	}
+
+	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(effectiveServerURL, "/"), at.Account, agentName)
 
 	bold := lipgloss.NewStyle().Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
@@ -491,9 +305,9 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	var lines []string
 	lines = append(lines, bold.Render("✓ Pushed successfully!"))
-	lines = append(lines, dim.Render("Blueprint is "+visibility))
+	lines = append(lines, dim.Render("Blueprint is "+string(visibility)))
 	lines = append(lines, "")
-	lines = append(lines, "  "+bold.Render(agentName)+"  "+dim.Render("tag "+pushTag))
+	lines = append(lines, "  "+bold.Render(agentName)+"  "+dim.Render("tag "+tag))
 	lines = append(lines, "  "+dim.Render("View online → ")+link.Render(agentURL))
 
 	box := lipgloss.NewStyle().
@@ -539,8 +353,8 @@ func printPushComplete(success bool, _ int64) {
 }
 
 // getUserNamespace reads the user's namespace (account name) from the stored profile.
-// If accountOverride is non-empty, it looks up that account and returns its WorkOS org ID
-// (needed for org-scoped token refresh). Otherwise it returns the personal account.
+// If accountOverride is non-empty, it looks up that account and returns its WorkOS org ID.
+// Pass "" to use the current logged-in account (the default for push).
 func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOrgID string, err error) {
 	storage := auth.NewStorage(binaryName)
 	profile, err := storage.GetCurrentProfile()
@@ -549,7 +363,6 @@ func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOr
 	}
 
 	if accountOverride != "" {
-		// Look up the requested account
 		for _, acct := range profile.Accounts {
 			if strings.EqualFold(acct.Name, accountOverride) {
 				if acct.Type == "organization" && acct.WorkOSOrganizationID == "" {
@@ -561,7 +374,6 @@ func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOr
 				return strings.ToLower(acct.Name), acct.WorkOSOrganizationID, nil
 			}
 		}
-		// Not found — list available accounts
 		var names []string
 		for _, acct := range profile.Accounts {
 			names = append(names, acct.Name)
@@ -569,12 +381,10 @@ func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOr
 		return "", "", fmt.Errorf("account %q not found. Available accounts: %s. Run '%s login' to refresh", accountOverride, strings.Join(names, ", "), binaryName)
 	}
 
-	// Default: personal account
 	name := profile.User.AccountName
 	if name == "" && len(profile.Accounts) > 0 {
 		name = profile.Accounts[0].Name
 	}
-
 	if name == "" {
 		return "", "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", binaryName)
 	}
@@ -875,10 +685,10 @@ func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool,
 // current may be empty when the agent does not yet exist on the server.
 func confirmVisibilityChange(current, desired string) bool {
 	var title, description string
-	if desired == "public" {
+	if desired == string(VisibilityPublic) {
 		title = "Make blueprint public?"
 		description = "This will make the blueprint available to everyone."
-		if current == "private" {
+		if current == string(VisibilityPrivate) {
 			description = "This will change the blueprint from private to public, making it available to everyone."
 		}
 	} else {
@@ -908,44 +718,12 @@ func confirmVisibilityChange(current, desired string) bool {
 	return confirmed
 }
 
-// promptVisibility asks the user whether the agent should be public or private.
-func promptVisibility() string { //nolint:unused
-	var visibility string
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Agent visibility").
-				Description("Public agents are visible to everyone. Private agents are only visible to account members.").
-				Options(
-					huh.NewOption("Public", "public"),
-					huh.NewOption("Private", "private"),
-				).
-				Value(&visibility),
-		),
-	)
-
-	huhTheme := huh.ThemeCharm()
-	primary := theme.Primary
-	huhTheme.Focused.Title = huhTheme.Focused.Title.Foreground(primary)
-	huhTheme.Focused.SelectedOption = huhTheme.Focused.SelectedOption.Foreground(primary)
-	huhTheme.Focused.SelectedPrefix = huhTheme.Focused.SelectedPrefix.Foreground(primary)
-	form.WithTheme(huhTheme)
-
-	if err := form.Run(); err != nil {
-		// Default to private if prompt fails (e.g. non-interactive terminal)
-		return "private"
-	}
-
-	return visibility
-}
-
 // transformSpecForRegistry replaces build sections with actual image references
 func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {
-	// Strip @org/ prefix from the spec name so it matches the registered agent name
-	if name, ok := specObj["name"].(string); ok {
-		_, stripped := utils.ParseAgentName(name)
-		specObj["name"] = stripped
+	// Use the resolved agentName (override or stripped spec name) so the stored
+	// spec is consistent with the registration URL and registry image references.
+	if _, ok := specObj["name"].(string); ok {
+		specObj["name"] = agentName
 	}
 
 	// Replace agent.build with agent.image

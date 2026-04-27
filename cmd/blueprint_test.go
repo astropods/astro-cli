@@ -390,7 +390,7 @@ func TestBlueprintArchive(t *testing.T) {
 	}
 }
 
-func TestBlueprintUpdate(t *testing.T) {
+func TestBlueprintSet(t *testing.T) {
 	cases := []struct {
 		name       string
 		agentName  string
@@ -447,13 +447,13 @@ func TestBlueprintUpdate(t *testing.T) {
 				assert.True(t, strings.HasSuffix(r.URL.Path, "/visibility"))
 				jsonHandler(tc.statusCode, tc.body)(w, r)
 			}))
-			blueprintUpdateCmd.SetContext(context.Background())
+			blueprintSetCmd.SetContext(context.Background())
 			if tc.visibility != "" {
-				require.NoError(t, blueprintUpdateCmd.Flags().Set("visibility", tc.visibility))
-				t.Cleanup(func() { blueprintUpdateCmd.Flags().Set("visibility", "") }) //nolint:errcheck
+				require.NoError(t, blueprintSetCmd.Flags().Set("visibility", tc.visibility))
+				t.Cleanup(func() { blueprintSetCmd.Flags().Set("visibility", "") }) //nolint:errcheck
 			}
 
-			err := runBlueprintUpdate(blueprintUpdateCmd, []string{tc.agentName})
+			err := runBlueprintSet(blueprintSetCmd, []string{tc.agentName})
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -545,4 +545,57 @@ func TestBlueprintTemplate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseVisibility(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		set     bool // whether to call Flags().Set (false = flag not provided)
+		want    Visibility
+		wantErr bool
+	}{
+		{"not provided", "", false, VisibilityUnset, false},
+		{"public", "public", true, VisibilityPublic, false},
+		{"private", "private", true, VisibilityPrivate, false},
+		{"empty string", "", true, "", true},
+		{"readonly", "readonly", true, "", true},
+		{"Public", "Public", true, "", true},
+		{"PRIVATE", "PRIVATE", true, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := blueprintPushCmd.Flags().Lookup("visibility")
+			f.Changed = false
+			if tc.set {
+				require.NoError(t, blueprintPushCmd.Flags().Set("visibility", tc.input))
+			}
+			t.Cleanup(func() {
+				blueprintPushCmd.Flags().Set("visibility", "") //nolint:errcheck
+				blueprintPushCmd.Flags().Lookup("visibility").Changed = false
+			})
+
+			got, err := ParseVisibility(blueprintPushCmd)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "--visibility must be")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestBlueprintPush_InvalidVisibility(t *testing.T) {
+	setupBlueprintTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("server should not be called when visibility is invalid")
+	}))
+	require.NoError(t, blueprintPushCmd.Flags().Set("visibility", "bogus"))
+	t.Cleanup(func() { blueprintPushCmd.Flags().Set("visibility", "") }) //nolint:errcheck
+	blueprintPushCmd.SetContext(context.Background())
+
+	err := runBlueprintPush(blueprintPushCmd, []string{"my-agent"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--visibility must be")
 }

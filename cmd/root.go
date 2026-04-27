@@ -130,16 +130,19 @@ func buildTelemetryClient() *telemetry.Client {
 func init() {
 	rootCmd.Version = fullVersion()
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
-	rootCmd.PersistentFlags().StringP("file", "f", "astropods.yml", "/path/to/astropods.yml")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
 }
 
-// specFilePath returns the value of the --file persistent flag.
-// It returns an error rather than silently producing an empty path if the flag
-// is ever missing (e.g. due to a refactor or typo in the flag name).
+// specFilePath returns the value of the -f/--file flag on cmd, but only when
+// the user explicitly set it. Returns "" when the flag is absent or defaulted,
+// letting the caller fall through to alias-based discovery.
 func specFilePath(cmd *cobra.Command) (string, error) {
-	return cmd.Root().PersistentFlags().GetString("file")
+	f := cmd.Flags().Lookup("file")
+	if f == nil || !f.Changed {
+		return "", nil
+	}
+	return f.Value.String(), nil
 }
 
 // SpecFileAliases are filenames checked in order when the user does not pass --file.
@@ -153,7 +156,7 @@ func resolveSpecPath(cmd *cobra.Command, workingDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if cmd.Root().PersistentFlags().Changed("file") {
+	if specFile != "" {
 		if filepath.IsAbs(specFile) {
 			return specFile, nil
 		}

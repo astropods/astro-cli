@@ -17,69 +17,44 @@ import (
 	"github.com/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"net/url"
+
 	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/client"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/patternmatcher/ignorefile"
-	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-var (
-	buildTag      string
-	buildNoCache  bool
-	buildPlatform string
-)
+// runBuild assumes the spec at specPath is valid; callers must validate before invoking.
+func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []string, noCache, verbose, quiet bool) error {
+	workingDir := filepath.Dir(specPath)
 
-func runBuild(cmd *cobra.Command, args []string) error {
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	quiet, _ := cmd.Flags().GetBool("quiet")
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	specPath, err := resolveSpecPath(cmd, workingDir)
-	if err != nil {
-		return err
-	}
-
-	if !quiet {
-		fmt.Printf("%s→%s Parsing spec: %s\n", colorCyan, colorReset, filepath.Base(specPath))
-	}
-
-	// Parse Astro spec
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	// Strip @org/ prefix for Docker image tags
-	_, agentName := utils.ParseAgentName(astroSpec.Name)
-
 	if !quiet {
-		fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
+		fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, agentName, colorReset)
 	}
 
-	// Load .env file for secrets
-	envVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	}
+	// TODO: eliminate this or allow env file to be a parameter
+	envVars := make(map[string]string)
+	//envVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile)
+	//if err != nil {
+	//	return fmt.Errorf("failed to read .env file: %w", err)
+	//}
+	//if envVars == nil {
+	//	envVars = make(map[string]string)
+	//}
 
-	// Create Docker client
-	ctx := context.Background()
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
@@ -87,7 +62,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	defer cli.Close() //nolint:errcheck
 
 	imagesBuilt := 0
-	platforms := parsePlatforms(buildPlatform)
 
 	// Build agent container
 	if astroSpec.Agent.Build == nil && astroSpec.Agent.Image == "" {
@@ -103,21 +77,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, plat := range platforms {
-			platTag := platformImageTag(baseName, buildTag, plat)
+			platTag := platformImageTag(baseName, tag, plat)
 			if !quiet {
 				fmt.Printf("%s→%s Building %s[agent %s]%s %s%s%s", colorCyan, colorReset, colorDim, plat, colorReset, colorBold, platTag, colorReset)
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Agent.Build.Args, astroSpec.Agent.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Agent.Build.Args, astroSpec.Agent.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
 				return fmt.Errorf("failed to build agent image for %s: %w", plat, err)
 			}
 
-			if !quiet {
-				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
-			}
 			imagesBuilt++
 		}
 	} else if astroSpec.Agent.Image != "" && !quiet {
@@ -135,21 +106,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 
 			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, buildTag, plat)
+				platTag := platformImageTag(baseName, tag, plat)
 				if !quiet {
 					fmt.Printf("%s→%s Building %s[model: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, model.Container.Build.Args, model.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, model.Container.Build.Args, model.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
 					return fmt.Errorf("failed to build model %s for %s: %w", name, plat, err)
 				}
 
-				if !quiet {
-					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
-				}
 				imagesBuilt++
 			}
 		} else {
@@ -172,21 +140,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 
 			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, buildTag, plat)
+				platTag := platformImageTag(baseName, tag, plat)
 				if !quiet {
 					fmt.Printf("%s→%s Building %s[knowledge: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, container.Build.Args, container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, container.Build.Args, container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
 					return fmt.Errorf("failed to build knowledge store %s for %s: %w", name, plat, err)
 				}
 
-				if !quiet {
-					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
-				}
 				imagesBuilt++
 			}
 		} else if container.Image != "" && !quiet {
@@ -205,21 +170,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 
 			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, buildTag, plat)
+				platTag := platformImageTag(baseName, tag, plat)
 				if !quiet {
 					fmt.Printf("%s→%s Building %s[tool: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
 					return fmt.Errorf("failed to build integration %s for %s: %w", name, plat, err)
 				}
 
-				if !quiet {
-					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
-				}
 				imagesBuilt++
 			}
 		} else if tool.Container != nil && tool.Container.Image != "" && !quiet {
@@ -238,21 +200,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 
 			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, buildTag, plat)
+				platTag := platformImageTag(baseName, tag, plat)
 				if !quiet {
 					fmt.Printf("%s→%s Building %s[ingestion: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, ingestion.Container.Build.Args, ingestion.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, ingestion.Container.Build.Args, ingestion.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
 					return fmt.Errorf("failed to build ingestion %s for %s: %w", name, plat, err)
 				}
 
-				if !quiet {
-					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
-				}
 				imagesBuilt++
 			}
 		} else if ingestion.Container.Image != "" && !quiet {
@@ -548,11 +507,6 @@ func streamBuildOutput(reader io.Reader, _, quiet bool) error {
 	return nil
 }
 
-// parsePlatforms splits a comma-separated platform string into a slice.
-func parsePlatforms(s string) []string {
-	return strings.Split(s, ",")
-}
-
 // platformImageTag returns a platform-specific image tag.
 // e.g. ("myagent", "latest", "linux/amd64") -> "myagent-linux-amd64:latest"
 func platformImageTag(baseName, tag, platform string) string {
@@ -563,4 +517,21 @@ func platformImageTag(baseName, tag, platform string) string {
 // nativePlatform returns the platform string for the host machine.
 func nativePlatform() string {
 	return fmt.Sprintf("linux/%s", runtime.GOARCH)
+}
+
+// resolveBuildPlatform returns the build platform and whether to skip the
+// registry push based on the target server URL. A local server (localhost /
+// 127.0.0.1 / ::1) builds for the native platform and retags images locally
+// instead of pushing to a remote registry. A remote server builds for
+// linux/amd64 and pushes normally.
+func resolveBuildPlatform(serverURL string) (platform string, skipPush bool) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return "linux/amd64", false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return nativePlatform(), true
+	}
+	return "linux/amd64", false
 }

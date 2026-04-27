@@ -10,39 +10,17 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
-
-var validateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate astropods.yml against the spec schema",
-	Long: `Validate the astropods.yml spec file strictly against the JSON schema.
-Reports all schema violations and semantic errors.
-
-Example:
-  ast validate
-  ast validate -f custom-spec.yml`,
-	RunE: runValidate,
-}
-
-func init() {
-	rootCmd.AddCommand(validateCmd)
-}
 
 type validationError struct {
 	message string
 	line    int
 }
 
-func runValidate(cmd *cobra.Command, args []string) error {
-	specPath, err := resolveSpecPathFromCwd(cmd)
-	if err != nil {
-		return err
-	}
-
+func runValidate(specPath string) error {
 	fmt.Println()
 	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
 

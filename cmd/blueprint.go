@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,19 +31,39 @@ func validateBlueprintName(name string) error {
 	return nil
 }
 
-// validateVisibility returns an error if v is not "public" or "private".
-func validateVisibility(v string) error {
-	if v != "public" && v != "private" {
-		return fmt.Errorf("--visibility must be 'public' or 'private', got %q", v)
+// Visibility is the access-control level of an agent blueprint.
+type Visibility string
+
+const (
+	VisibilityUnset   Visibility = "" // preserve existing; only meaningful in push context
+	VisibilityPublic  Visibility = "public"
+	VisibilityPrivate Visibility = "private"
+)
+
+// ParseVisibility reads the --visibility flag from cmd and converts it to a Visibility.
+// Empty string maps to VisibilityUnset (preserve existing); non-empty must be "public" or "private".
+func ParseVisibility(cmd *cobra.Command) (Visibility, error) {
+	s, _ := cmd.Flags().GetString("visibility")
+	switch s {
+	case "":
+		if cmd.Flags().Changed("visibility") {
+			return "", fmt.Errorf("--visibility must be 'public' or 'private', got %q", s)
+		}
+		return VisibilityUnset, nil
+	case "public":
+		return VisibilityPublic, nil
+	case "private":
+		return VisibilityPrivate, nil
+	default:
+		return "", fmt.Errorf("--visibility must be 'public' or 'private', got %q", s)
 	}
-	return nil
 }
 
 var blueprintCmd = &cobra.Command{
 	Use:     "blueprint",
 	Aliases: []string{"bp"},
 	Short:   "Manage agent blueprints",
-	Long:    "Manage agent blueprints — registered, versioned agent definitions on the platform.",
+	Long:    "Manage agent blueprints as registered, versioned agent definitions on the platform.",
 }
 
 var blueprintListCmd = &cobra.Command{
@@ -54,10 +73,11 @@ var blueprintListCmd = &cobra.Command{
 }
 
 var blueprintCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Register a new blueprint on the server",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBlueprintCreate,
+	Use:    "create <name>",
+	Short:  "Register a new blueprint on the server",
+	Args:   cobra.ExactArgs(1),
+	RunE:   runBlueprintCreate,
+	Hidden: true,
 }
 
 var blueprintGetCmd = &cobra.Command{
@@ -68,24 +88,53 @@ var blueprintGetCmd = &cobra.Command{
 }
 
 var blueprintPushCmd = &cobra.Command{
-	Use:   "push",
+	Use:   "push <name>",
 	Short: "Push blueprint image to registry",
-	Long:  pushCmd.Long + "\n\nIf the blueprint does not yet exist it will be created automatically.",
+	Long:  "Push blueprint image to registry. If the blueprint does not yet exist it will be created automatically.",
+	Args:  cobra.ExactArgs(1),
 	RunE:  runBlueprintPush,
 }
 
 var blueprintArchiveCmd = &cobra.Command{
 	Use:   "archive <name>",
-	Short: "Archive a blueprint (soft delete)",
+	Short: "Archive a blueprint",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runBlueprintArchive,
 }
 
-var blueprintUpdateCmd = &cobra.Command{
-	Use:   "update <name>",
+var blueprintBuildCmd = &cobra.Command{
+	Use:   "build <name>",
+	Short: "Build blueprint image",
+	Long:  "Build the agent blueprint image. Use 'blueprint push' to push it to the registry.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runBlueprintBuild,
+}
+
+var blueprintSetCmd = &cobra.Command{
+	Use:   "set <name>",
 	Short: "Update blueprint settings",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlueprintUpdate,
+	RunE:  runBlueprintSet,
+}
+
+var blueprintValidateCmd = &cobra.Command{
+	Use:   "validate",
+	Short: "Validate astropods.yml against the spec schema",
+	Long: `Validate astropods.yml against the spec schema.
+Reports all schema violations and semantic errors.
+
+Example:
+  ast bp validate
+  ast bp validate -f /path/to/astropods.yml`,
+	RunE: runBlueprintValidate,
+}
+
+// registerPushFlags adds push flags to any command that invokes runPush.
+func registerPushFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
+	cmd.Flags().Bool("build", false, "Build image before pushing")
+	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
+	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 }
 
 func init() {
@@ -93,39 +142,105 @@ func init() {
 	blueprintCmd.AddCommand(blueprintListCmd)
 	blueprintCmd.AddCommand(blueprintCreateCmd)
 	blueprintCmd.AddCommand(blueprintGetCmd)
+	blueprintCmd.AddCommand(blueprintBuildCmd)
 	blueprintCmd.AddCommand(blueprintPushCmd)
 	blueprintCmd.AddCommand(blueprintArchiveCmd)
-	blueprintCmd.AddCommand(blueprintUpdateCmd)
+	blueprintCmd.AddCommand(blueprintSetCmd)
+	blueprintCmd.AddCommand(blueprintValidateCmd)
+	blueprintValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
+
+	topLevelValidateCmd := &cobra.Command{
+		Use:   blueprintValidateCmd.Use,
+		Short: blueprintValidateCmd.Short,
+		Long:  blueprintValidateCmd.Long,
+		RunE:  runBlueprintValidate,
+	}
+	topLevelValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
+	rootCmd.AddCommand(topLevelValidateCmd)
 
 	blueprintListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("card", false, "Show agent description")
 	blueprintGetCmd.Flags().Bool("template", false, "Show deployment variables and secrets")
 
-	// Create flags
-	blueprintCreateCmd.Flags().StringP("visibility", "V", "private", "Set visibility: public or private")
+	blueprintCreateCmd.Flags().StringP("visibility", "V", string(VisibilityPrivate), "Set visibility: public or private")
+	blueprintSetCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
+	registerPushFlags(blueprintPushCmd)
+	blueprintBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 
-	// Update flags
-	blueprintUpdateCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
+	// Top-level aliases
+	topLevelBuildCmd := &cobra.Command{
+		Use:   "build <name>",
+		Short: blueprintBuildCmd.Short,
+		Long:  blueprintBuildCmd.Long,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runBlueprintBuild,
+	}
+	topLevelBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
+	rootCmd.AddCommand(topLevelBuildCmd)
 
-	// Push flags
-	blueprintPushCmd.Flags().Bool("build", false, "Build image before pushing")
-	blueprintPushCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
+	topLevelPushCmd := &cobra.Command{
+		Use:   "push <name>",
+		Short: blueprintPushCmd.Short,
+		Long:  blueprintPushCmd.Long,
+		Args:  cobra.ExactArgs(1),
+		RunE:  runBlueprintPush,
+	}
+	rootCmd.AddCommand(topLevelPushCmd)
+	registerPushFlags(topLevelPushCmd)
+}
+
+func runBlueprintValidate(cmd *cobra.Command, args []string) error {
+	specPath, err := resolveSpecPathFromCwd(cmd)
+	if err != nil {
+		return err
+	}
+	return runValidate(specPath)
+}
+
+func runBlueprintBuild(cmd *cobra.Command, args []string) error {
+	specPath, err := resolveSpecPathFromCwd(cmd)
+	if err != nil {
+		return err
+	}
+	if _, err := validateSpecFile(specPath); err != nil {
+		return err
+	}
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	platform, _ := resolveBuildPlatform(auth.DefaultServerURL)
+	return runBuild(cmd.Context(), specPath, args[0], generateBuildID(), []string{platform}, false, verbose, false)
 }
 
 func runBlueprintPush(cmd *cobra.Command, args []string) error {
+	vis, err := ParseVisibility(cmd)
+	if err != nil {
+		return err
+	}
+	specPath, err := resolveSpecPathFromCwd(cmd)
+	if err != nil {
+		return err
+	}
+	// Validate spec before auth so bad specs produce a useful error immediately.
+	if _, err := validateSpecFile(specPath); err != nil {
+		return err
+	}
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
 	build, _ := cmd.Flags().GetBool("build")
-	visibility, _ := cmd.Flags().GetString("visibility")
-	skipBuild = !build
-	skipPush = false
-	skipRegister = false
-	pushPlatform = "linux/amd64"
-	noAuth = false
-	serverURL = ""
-	registryURL = ""
-	pushPublic = visibility == "public"
-	pushPrivate = visibility == "private"
-	return runPush(cmd, args)
+	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
+	platform, skipPush := resolveBuildPlatform(pushBaseURL())
+	return runPush(cmd.Context(), at, pushConfig{
+		specPath:             specPath,
+		agentName:            args[0],
+		skipBuild:            !build,
+		skipPush:             skipPush,
+		platform:             platform,
+		visibility:           vis,
+		allowAccountOverride: allowAccountOverride,
+		verbose:              verbose,
+	})
 }
 
 // blueprintLatestVersion returns the version with the most recent PublishedAt, or nil if there are none.
@@ -211,11 +326,10 @@ type deploymentTemplateResponse struct {
 // --- handlers ---
 
 func runBlueprintList(cmd *cobra.Command, _ []string) error {
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	u := apiPath(blueprintBaseURL(), at.Account, "agents")
 	var result listBlueprintsResponse
@@ -226,9 +340,7 @@ func runBlueprintList(cmd *cobra.Command, _ []string) error {
 	w := cmd.OutOrStdout()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return writeJSON(w, result)
 	}
 
 	if result.Count == 0 {
@@ -236,31 +348,23 @@ func runBlueprintList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	const dateFmt = "2006-01-02T15:04:05"
-	const dateWidth = len(dateFmt)
-	const buildWidth = 8
-
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
-	dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  %s\n", dateWidth, "Published", buildWidth, "Build", "Visibility", "Deploys", "Name") //nolint:errcheck,gosec
+	dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  %s\n", tableTimeWidth, "Published", tableBuildWidth, "Build", "Visibility", "Deploys", "Name") //nolint:errcheck,gosec
 	for _, bp := range result.Agents {
 		latest := blueprintLatestVersion(bp.Versions)
 		published, buildID := "pending", ""
 		if latest != nil {
-			if len(latest.PublishedAt) > dateWidth {
-				published = latest.PublishedAt[:dateWidth]
-			} else {
-				published = latest.PublishedAt
-			}
+			published = truncate(latest.PublishedAt, tableTimeWidth)
 			buildID = latest.BuildID
 		}
 		deploys := ""
 		if bp.Metrics != nil {
 			deploys = fmt.Sprintf("%d", bp.Metrics.DeployCount)
 		}
-		dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  ", dateWidth, published, buildWidth, buildID, bp.Visibility, deploys) //nolint:errcheck,gosec
-		cyan.Fprintf(w, "%s\n", bp.Name)                                                                               //nolint:errcheck,gosec
+		dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  ", tableTimeWidth, published, tableBuildWidth, buildID, bp.Visibility, deploys) //nolint:errcheck,gosec
+		cyan.Fprintf(w, "%s\n", bp.Name)                                                                                         //nolint:errcheck,gosec
 	}
 	return nil
 }
@@ -292,16 +396,16 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	if err := validateBlueprintName(name); err != nil {
 		return err
 	}
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
-	visibility, _ := cmd.Flags().GetString("visibility")
-	if err := validateVisibility(visibility); err != nil {
+	vis, err := ParseVisibility(cmd)
+	if err != nil {
 		return err
 	}
+	visibility := string(vis)
 
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "%s→%s Creating blueprint %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
@@ -328,11 +432,10 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 
 func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name)
 	var bp blueprintItem
@@ -347,9 +450,7 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(bp) //nolint:errcheck,gosec
+		return writeJSON(w, bp)
 	}
 
 	bold := lipgloss.NewStyle().Bold(true)
@@ -401,13 +502,6 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 
 const varDescMaxLen = 60
 
-func truncateDesc(s string) string {
-	if len(s) <= varDescMaxLen {
-		return s
-	}
-	return s[:varDescMaxLen-1] + "…"
-}
-
 func printDeploymentTemplate(w io.Writer, tmpl deploymentTemplateResponse, dim lipgloss.Style) {
 	fmt.Fprintln(w)                                                            //nolint:errcheck,gosec
 	fmt.Fprintln(w, dim.Render("Variables and secrets needed for deployment")) //nolint:errcheck,gosec
@@ -455,17 +549,16 @@ func writeVarRows(tw *tabwriter.Writer, keys []string, vars map[string]templateV
 				desc += " — " + v.Description
 			}
 		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s\n", k, truncateDesc(desc), suffix) //nolint:errcheck,gosec
+		fmt.Fprintf(tw, "  %s\t%s\t%s\n", k, truncate(desc, varDescMaxLen), suffix) //nolint:errcheck,gosec
 	}
 }
 
 func runBlueprintArchive(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	at, err := getCurrentAccountToken(cmd.Context())
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "%s→%s Archiving blueprint %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
@@ -483,22 +576,22 @@ func runBlueprintArchive(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runBlueprintUpdate(cmd *cobra.Command, args []string) error {
+func runBlueprintSet(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	visibility, _ := cmd.Flags().GetString("visibility")
-	if visibility == "" {
-		return fmt.Errorf("nothing to update — specify --visibility public or --visibility private")
-	}
-	if err := validateVisibility(visibility); err != nil {
-		return err
-	}
-
-	at, err := getCurrentAccountToken(cmd.Context())
+	vis, err := ParseVisibility(cmd)
 	if err != nil {
 		return err
 	}
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	if vis == VisibilityUnset {
+		return fmt.Errorf("nothing to update — specify --visibility public or --visibility private")
+	}
+	visibility := string(vis)
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
 
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "%s→%s Setting %s%s%s to %s\n", colorCyan, colorReset, colorBold, name, colorReset, visibility) //nolint:errcheck,gosec

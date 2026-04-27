@@ -8,7 +8,38 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
+
+// Table layout constants shared by list commands.
+const (
+	tableTimeFmt    = "2006-01-02T15:04:05"
+	tableTimeWidth  = len(tableTimeFmt)
+	tableBuildWidth = 8
+)
+
+// truncate clips s to at most width runes, appending "…" if trimmed.
+func truncate(s string, width int) string {
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
+}
+
+// apiPath builds a full API URL: serverURL + /api/v1/ + operation + / + account + / + parts.
+// e.g. apiPath(serverURL, "alice", "accounts", "variables", "MY_KEY") → "https://…/api/v1/accounts/alice/variables/MY_KEY"
+func apiPath(serverURL, account string, operation string, parts ...string) string {
+	base := strings.TrimSuffix(serverURL, "/") + "/api/v1/" + operation + "/" + account
+	if len(parts) > 0 {
+		base += "/" + strings.Join(parts, "/")
+	}
+	return base
+}
 
 // apiCall makes an authenticated JSON API request to reqURL.
 // body is marshalled to JSON and sent as the request body, or nil for no body.
@@ -67,12 +98,19 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 	return resp.StatusCode, nil
 }
 
-// apiPath builds a full API URL: serverURL + /api/v1/ + operation + / + account + / + parts.
-// e.g. apiPath(serverURL, "alice", "accounts", "variables", "MY_KEY") → "https://…/api/v1/accounts/alice/variables/MY_KEY"
-func apiPath(serverURL, account string, operation string, parts ...string) string {
-	base := strings.TrimSuffix(serverURL, "/") + "/api/v1/" + operation + "/" + account
-	if len(parts) > 0 {
-		base += "/" + strings.Join(parts, "/")
+// writeJSON encodes v as indented JSON to w.
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v) //nolint:errcheck,gosec
+}
+
+// cmdAuth returns the current account token and the verbose flag for a command.
+func cmdAuth(cmd *cobra.Command) (AccountToken, bool, error) {
+	at, err := getCurrentAccountToken(cmd.Context())
+	if err != nil {
+		return AccountToken{}, false, err
 	}
-	return base
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	return at, verbose, nil
 }

@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
@@ -51,6 +56,15 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 				AccessToken:  "expired_token",
 				RefreshToken: "",
 				ExpiresAt:    time.Now().Add(-1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "testaccount",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "testaccount", Type: "personal"},
+				},
 			},
 		},
 	}
@@ -68,9 +82,8 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	_ = os.Chdir(tmpDir)
 	defer os.Chdir(origDir) //nolint:errcheck
 
-	cmd := pushCmd
-	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
-	err := cmd.Execute()
+	rootCmd.SetArgs([]string{"push", "test-agent"})
+	err := rootCmd.Execute()
 
 	if err == nil {
 		t.Fatal("expected push to fail with expired credentials, got nil")
@@ -268,9 +281,8 @@ func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
 
 	var err error
 	_ = captureStdout(t, func() {
-		cmd := pushCmd
-		cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
-		err = cmd.Execute()
+		rootCmd.SetArgs([]string{"push", "test-agent"})
+		err = rootCmd.Execute()
 	})
 
 	if err == nil {
@@ -300,6 +312,15 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 				AccessToken:  "expired_token",
 				RefreshToken: "stale_refresh_token",
 				ExpiresAt:    time.Now().Add(-1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "testaccount",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "testaccount", Type: "personal"},
+				},
 			},
 		},
 	}
@@ -317,9 +338,8 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	_ = os.Chdir(tmpDir)
 	defer os.Chdir(origDir) //nolint:errcheck
 
-	cmd := pushCmd
-	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
-	err := cmd.Execute()
+	rootCmd.SetArgs([]string{"push", "test-agent"})
+	err := rootCmd.Execute()
 
 	if err == nil {
 		t.Fatal("expected push to fail with stale refresh token, got nil")
@@ -940,26 +960,30 @@ func TestVisibilityNeedsConfirm(t *testing.T) {
 	}
 }
 
-func TestTransformSpecForRegistry_StripsOrgPrefix(t *testing.T) {
+func TestTransformSpecForRegistry_UsesAgentName(t *testing.T) {
 	tests := []struct {
 		name         string
 		specName     string
+		agentName    string // the resolved name passed by the cobra handler
 		expectedName string
 	}{
 		{
-			name:         "scoped name gets stripped",
-			specName:     "@postman/feb19-astro",
-			expectedName: "feb19-astro",
+			name:         "org-scoped spec name: agentName is the stripped form",
+			specName:     "@example/foobar",
+			agentName:    "foobar",
+			expectedName: "foobar",
 		},
 		{
-			name:         "bare name unchanged",
+			name:         "org-scoped spec name: agentName overrides stripped spec name",
+			specName:     "@example/foobar",
+			agentName:    "barbat",
+			expectedName: "barbat",
+		},
+		{
+			name:         "bare spec name: agentName matches spec",
 			specName:     "my-agent",
+			agentName:    "my-agent",
 			expectedName: "my-agent",
-		},
-		{
-			name:         "different org prefix",
-			specName:     "@acme-corp/data-pipeline",
-			expectedName: "data-pipeline",
 		},
 	}
 
@@ -972,7 +996,7 @@ func TestTransformSpecForRegistry_StripsOrgPrefix(t *testing.T) {
 				},
 			}
 
-			result := transformSpecForRegistry(specObj, "registry.example.com/ns", "agent", "tag1")
+			result := transformSpecForRegistry(specObj, "registry.example.com/ns", tt.agentName, "tag1")
 
 			gotName, ok := result["name"].(string)
 			if !ok {
@@ -1029,17 +1053,98 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 	_ = os.Chdir(tmpDir)
 	defer os.Chdir(origDir) //nolint:errcheck
 
-	// This will fail at the org token refresh step (no real WorkOS server),
-	// but it proves the @org/name parsing and namespace resolution worked
-	cmd := pushCmd
-	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
-	err := cmd.Execute()
+	// The spec has @my-org/test-agent but the logged-in account is personal; expect mismatch error
+	rootCmd.SetArgs([]string{"push", "test-agent"})
+	err := rootCmd.Execute()
 
-	// The command should fail trying to get the org-scoped token (no real WorkOS)
 	if err == nil {
-		t.Fatal("expected push to fail when getting org-scoped token, got nil")
+		t.Fatal("expected push to fail with account mismatch, got nil")
 	}
-	if !strings.Contains(err.Error(), "org-scoped token") {
-		t.Errorf("expected org-scoped token error, got: %s", err.Error())
+	if !strings.Contains(err.Error(), "does not match current account") {
+		t.Errorf("expected account mismatch error, got: %s", err.Error())
 	}
+}
+
+func TestPush_AllowAccountOverride(t *testing.T) {
+	registerCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			registerCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		// GET agent status — return 404 (new agent)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	// Standard creds: current account is "alice" (personal).
+	writeAccountTestCredentials(t, accountTestCreds(""))
+
+	// Spec references a different account (@acme-corp/test-agent).
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	specContent := "spec: package/v1\nname: \"@acme-corp/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"
+	require.NoError(t, os.WriteFile(specPath, []byte(specContent), 0600))
+
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	var err error
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"push", "test-agent", "--allow-account-override"})
+		err = rootCmd.Execute()
+	})
+
+	require.NoError(t, err)
+	assert.True(t, registerCalled, "expected /register endpoint to be called")
+	assert.Contains(t, out, "overridden to current account", "expected account override warning in output")
+}
+
+// setupPushHomeAndSpec creates a temp HOME, writes credentials for currentAccount,
+// writes an astropods.yml spec with the given agent name, and chdirs into the temp dir.
+func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	writeAccountTestCredentials(t, accountTestCreds(currentAccount))
+
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	specContent := fmt.Sprintf("spec: package/v1\nname: %q\nmeta: {}\nagent:\n  image: test:latest\n", specAgentName)
+	require.NoError(t, os.WriteFile(specPath, []byte(specContent), 0600))
+
+	origDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+	require.NoError(t, os.Chdir(tmpDir))
+}
+
+// resetPushFlags resets all push-command flags to their defaults and clears Changed.
+func resetPushFlags(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"visibility", "build", "allow-account-override", "file"} {
+		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+		}
+	}
+}
+
+func TestRunBlueprintPush_AccountMismatchErrorIsActionableNotMisleading(t *testing.T) {
+	setupPushHomeAndSpec(t, "alice", "@acme-corp/my-agent")
+	resetPushFlags(t)
+
+	blueprintPushCmd.SetContext(context.Background())
+	err := runBlueprintPush(blueprintPushCmd, []string{"my-agent"})
+
+	require.EqualError(t, err, errAccountMismatch("acme-corp", "alice").Error())
 }
