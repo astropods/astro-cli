@@ -139,7 +139,6 @@ test("SSR HTML leaks the full agents array, and the client refetches the same en
  * before the empty state — based on personal's count, not the org's.
  */
 test("skeleton count reflects personal account when active scope is an org", async ({ page, context }) => {
-  test.fail(); // known issue: loader hardcodes personal account; skeleton count is wrong when active scope is an org
   test.setTimeout(30_000);
 
   await context.addInitScript((org) => {
