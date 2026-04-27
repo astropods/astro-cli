@@ -21,11 +21,11 @@ export function FilterInput({
         containerClassName
       )}
     >
-      <MagnifyingGlassIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <MagnifyingGlassIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground dark:text-teal-25" />
       <input
         type="text"
         className={cn(
-          "w-full bg-transparent text-body text-foreground placeholder:text-muted-foreground outline-none",
+          "w-full bg-transparent text-body text-foreground placeholder:text-muted-foreground dark:placeholder:text-teal-25 outline-none",
           className
         )}
         {...props}
