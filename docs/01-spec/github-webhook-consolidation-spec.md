@@ -86,27 +86,13 @@ Replace `CountByRepoBaseForAccount(accountID, repoBase)` + conditional delete wi
 
 ## 6. Migration
 
-The repo uses Atlas with a declarative schema — changes are made to `sql/astro-server/schema.sql` and Atlas generates the DDL on apply. Atlas only handles structural changes, not data migrations, so the backfill is a separate step.
+The repo uses Atlas with a declarative schema — changes are made to `sql/astro-server/schema.sql` and Atlas generates the DDL on apply.
 
 **Schema changes (`sql/astro-server/schema.sql`):**
 - Add `github_webhooks` table
 - Drop `webhook_id` and `webhook_secret` from `github_connections`
 
-**Backfill (River job, run before schema apply drops the columns):**
-
-Populate `github_webhooks` from `github_connections` — for each distinct `repo_base`, pick the row with the earliest `created_at` where `webhook_id != 0`:
-
-```sql
-INSERT INTO github_webhooks (repo_base, webhook_id, webhook_secret, created_at)
-SELECT DISTINCT ON (repo_base)
-    split_part(repo_full_name, '/', 1) || '/' || split_part(repo_full_name, '/', 2),
-    webhook_id, webhook_secret, created_at
-FROM github_connections
-WHERE webhook_id != 0
-ORDER BY repo_base, created_at ASC;
-```
-
-Connections with `webhook_id = 0` (manual-build-only agents) have no webhook to migrate. Duplicate webhooks from multiple accounts for the same repo become orphaned on GitHub and can be removed manually.
+No backfill is needed. Only one internal user has GitHub connections in production; they will be asked to reconnect after the migration deploys, which re-creates the webhook via the new code path.
 
 ---
 
@@ -117,7 +103,6 @@ Connections with `webhook_id = 0` (manual-build-only agents) have no webhook to 
 | `sql/astro-server/schema.sql` | Add `github_webhooks` table; drop `webhook_id`, `webhook_secret` from `github_connections` |
 | `apps/astro-server/internal/githubwebhook/store.go` | **New** — `Get`, `Insert`, `DeleteIfNoConnections` |
 | `apps/astro-server/internal/githubconnection/store.go` | Remove `WebhookID`, `WebhookSecret` from `Connection`; remove `GetByRepoBase`, `GetByRepoBaseForAccount`, `CountByRepoBaseForAccount`; add global `ListByRepoAndBranch` |
-| `apps/astro-server/internal/riverqueue/` | **New** backfill job to populate `github_webhooks` before column drop |
 | `apps/astro-server/handlers/github.go` | Update `GitHubLink`, `GitHubWebhook`, `GitHubDisconnect`, `GitHubAccountDisconnect` |
 | `apps/astro-server/handlers/agents.go` | Update `ArchiveAgent` goroutine |
 | `apps/astro-server/main.go` | Wire `githubwebhook.Store` into handlers |
@@ -147,4 +132,4 @@ The existing code already saves the connection record before checking for or cre
 
 **Global fan-out is safe with a single secret** — the per-account scoping was a consequence of per-account secrets, not a security measure. With one secret in `github_webhooks`, HMAC verification still proves the push came from GitHub. Triggering builds in all connected accounts is the intended behavior, not a cross-account leak.
 
-**Orphaned webhook cleanup is out-of-band** — the migration backfills `github_webhooks` from the first account's webhook per repo but does not call GitHub's API to delete duplicates. A migration should not make external API calls.
+**No backfill required** — only one internal user has GitHub connections in production. The existing webhook data is dropped with the columns; the user reconnects after deploy and the new code path creates a clean entry in `github_webhooks`.
