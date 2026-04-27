@@ -42,7 +42,7 @@ Platform crawlers are unauthenticated — session checks cannot reliably gate OG
 - **G4:** Trading card SVG and PNG downloads work via existing client-side functions — no new server endpoint.
 - **G5:** Deployment URLs return no OG metadata.
 - **G6:** PNGs are generated on demand server-side, cached in memory, cacheable at the HTTP layer.
-- **G7:** No Go backend changes required.
+- **G7:** Served from astro-server, reusing the identitygen rasterizer.
 
 ## Non-Goals
 
@@ -69,13 +69,13 @@ Case 2: User pastes blueprint URL into LinkedIn / X / Slack
     YES            NO --> 404, no unfurl; Share social options disabled
      |
      v
-GET /badge/blueprint/:account/:name.png
-  1. Fetch blueprint from API
-  2. Visibility check -- 404 if private
-  3. blueprintToCardProps()
-  4. satori(BlueprintCard)   -- JSX -> SVG
-  5. Resvg().render()        -- SVG -> PNG
-  6. Return PNG (LRU cached)
+GET /badge/agents/:account/:name.png   (served from astro-server)
+  1. Fetch agent from DB; fetch metrics + avatar bytes in parallel
+  2. Visibility check -- 404 if agent.Visibility != "public"
+  3. Map agent fields to card data
+  4. Base64-encode avatar bytes; inject into SVG template
+  5. identitygen rasterizer  -- SVG -> PNG
+  6. Return PNG (in-memory cached)
      |
      v
 Blueprint Card PNG (1200x630, landscape)
@@ -96,7 +96,7 @@ Agent card downloads (already implemented, no new endpoint):
 
 ### Blueprint Badge Endpoint
 
-**Route:** `GET /badge/blueprint/:account/:name.png`
+**Route:** `GET /badge/agents/:account/:name.png` (astro-server)
 
 | Scenario | Status |
 |----------|--------|
@@ -141,68 +141,41 @@ Cache-Control: public, max-age=3600, stale-while-revalidate=86400
 
 #### Rendering
 
-Satori converts the `BlueprintCard` JSX component to SVG; Resvg converts SVG to PNG. Fonts are loaded once at server startup.
+`internal/identitygen/raster.go` already converts SVGs to PNG via oksvg + rasterx (used today for avatar generation). The badge handler extends this path: render a Go SVG template for the blueprint card, then pass it through the existing rasterizer.
 
-```typescript
-import satori from "satori";
-import { Resvg } from "@resvg/resvg-js";
+Fonts are embedded in the binary at server startup. No new Bun-side dependencies (Satori, Resvg, lru-cache) are introduced.
 
-const font = readFileSync("path/to/Inter-Regular.ttf");
-const fontBold = readFileSync("path/to/Inter-Bold.ttf");
+The SVG template lives in `internal/badge/template.go` — pure Go `text/template`. Avatar images are fetched from the avatar store, base64-encoded, and injected as `data:image/jpeg;base64,...` `<image>` elements directly into the SVG.
 
-async function handleBlueprintBadge(account: string, name: string): Promise<Response> {
-  const res = await fetch(`${API_URL}/api/v1/blueprints/${account}/${name}`);
-  if (!res.ok) return new Response(null, { status: res.status === 404 ? 404 : 502 });
-
-  const blueprint = await res.json();
-  if (!blueprint.public) return new Response(null, { status: 404 });
-
-  const svg = await satori(BlueprintCard(blueprintToCardProps(blueprint)), {
-    width: 1200,
-    height: 630,
-    fonts: [
-      { name: "Inter", data: font, weight: 400 },
-      { name: "Inter", data: fontBold, weight: 700 },
-    ],
-  });
-
-  const png = new Resvg(svg).render().asPng();
-  return new Response(png, {
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-    },
-  });
-}
-```
-
-`BlueprintCard` lives in `src/badge-blueprint.tsx`. Inline styles only — no Tailwind, no CSS modules.
+> **Pre-Phase 1 check:** verify oksvg renders `<image>` elements with data URI sources. If not supported, replace both avatar slots with inline SVG initials generated via `identitygen.GenerateIdentity`.
 
 #### Data Mapping
 
-| CardProps field | Source |
-|----------------|--------|
-| `displayName` | `blueprint.display_name` (fallback: `blueprint.name`) |
-| `description` | `blueprint.description` (clamped to 2 lines) |
-| `avatarUrl` | `blueprint.avatar_url` (fallback: initials) |
-| `deployCount` | `blueprint.deployment_count` |
-| `ownerHandle` | `blueprint.account` |
-| `ownerAvatarUrl` | `blueprint.account_avatar_url` |
+| Card field | Go source |
+|-----------|-----------|
+| `displayName` | `agent.Name` |
+| `description` | `agent.Versions[latest].AgentCard.Description` (clamped to 2 lines) |
+| `agentAvatarBytes` | `avatarStore.ReadAgentAvatar(ctx, account, name)` — fallback: `identitygen.GenerateIdentityJPEG` |
+| `deployCount` | `AgentMetrics.DeployCount` |
+| `ownerHandle` | `account` (URL param) |
+| `ownerAvatarBytes` | `avatarStore.ReadAvatar(ctx, account)` — fallback: `identitygen.GenerateIdentityJPEG` |
 
 ---
 
 ### Open Graph Meta Tags
 
-The `host` is derived from `new URL(request.url).host` in the loader — never hardcoded.
+The `origin` is derived from `new URL(request.url).origin` in the loader — never hardcoded.
 
 **Blueprint Detail page** (`BlueprintDetail.tsx`) already has a `meta()` export. Only the `ogImage` derivation changes. OG tags are omitted entirely for private blueprints.
 
 | Property | Old | New |
 |----------|-----|-----|
-| `og:image` | `${assetsBase}/avatars/${account}.jpg` | `https://{host}/badge/blueprint/{account}/{name}.png` |
+| `og:image` | `${assetsBase}/avatars/${account}.jpg` | `${origin}/badge/agents/{account}/{name}.png` |
 | `og:image:width` | — | `1200` |
 | `og:image:height` | — | `630` |
 | `twitter:image` | same as old `og:image` | same as new `og:image` |
+
+> `origin` = `new URL(request.url).origin` in the loader. `/badge/agents/` is proxied to astro-server via `PROXY_PREFIXES` in `apps/astro-client/server.ts` — a one-line client change.
 
 **Agent detail page:** no OG tags. Deployment URLs are intentionally dark.
 
@@ -210,23 +183,22 @@ The `host` is derived from `new URL(request.url).host` in the loader — never h
 
 ### Cache
 
+In-process cache on the Go side (e.g. `sync.Map` with TTL, or a small LRU in `internal/badge/cache.go`).
+
 | Property | Value |
 |----------|-------|
-| Key | `blueprint:${account}/${name}` |
-| Value | PNG `Uint8Array` |
+| Key | `${account}/${name}` |
+| Value | PNG `[]byte` |
 | Max entries | 500 |
 | TTL | 1 hour |
-| Package | `lru-cache` |
+
+No new npm packages required.
 
 ---
 
 ### Dependencies
 
-| Package | Change |
-|---------|--------|
-| `@resvg/resvg-js` | Add |
-| `satori` | Add |
-| `lru-cache` | Add |
+No new client-side npm packages. Go-side changes only (`internal/badge/`, extend `internal/identitygen/raster.go`).
 
 ---
 
@@ -263,24 +235,25 @@ Pre-filled messages:
 
 | File | Change |
 |------|--------|
-| `apps/astro-client/server.ts` | Add `/badge/blueprint/*` route before React Router handler |
-| `apps/astro-client/src/badge-blueprint.tsx` | **New.** `BlueprintCard` JSX + `generateBlueprintBadgePng()` |
-| `apps/astro-client/src/badge-cache.ts` | **New.** LRU cache instance |
-| `apps/astro-client/src/pages/blueprints/BlueprintDetail.tsx` | Replace `ogImage` in loader; add width/height; omit OG tags if private |
+| `apps/astro-client/server.ts` | Add `/badge` to `PROXY_PREFIXES` (one line) |
+| `apps/astro-server/internal/badge/handler.go` | **New.** `GET /badge/agents/:account/:name.png` handler |
+| `apps/astro-server/internal/badge/template.go` | **New.** SVG template for blueprint card |
+| `apps/astro-server/internal/badge/cache.go` | **New.** In-process PNG cache |
+| `apps/astro-server/internal/identitygen/raster.go` | Extend to accept external SVG input (~30 lines) |
+| `apps/astro-client/src/pages/BlueprintDetail.tsx` | Replace `ogImage` in loader; add width/height; omit OG tags if private |
 | `apps/astro-client/src/pages/DeployedAgentDetail.tsx` | Add Share menu; wire existing download functions; add social share intent links; disable social options for private blueprints |
-| `apps/astro-client/package.json` | Add `@resvg/resvg-js`, `satori`, `lru-cache` |
 
 ---
 
 ## Implementation Order
 
 **Phase 1 — Blueprint badge + unfurl:**
-1. Install `@resvg/resvg-js`, `satori`, `lru-cache`
-2. Design pass on `BlueprintCard` visual
-3. Implement `src/badge-blueprint.tsx` and `src/badge-cache.ts`
-4. Add `/badge/blueprint/*` handler in `server.ts`
-5. Verify: `curl http://localhost:3000/badge/blueprint/postman/release-note-helper.png > out.png`
-6. Update `BlueprintDetail.tsx` loader: new `ogImage`, add width/height, omit OG tags if private
+1. Extend `internal/identitygen/raster.go` to accept an SVG string and return PNG bytes (~30 lines)
+2. Design pass on blueprint card SVG template
+3. Implement `internal/badge/` (handler, template, cache) in astro-server
+4. Add `/badge` to `PROXY_PREFIXES` in `apps/astro-client/server.ts`
+5. Verify: `curl http://localhost:3000/badge/agents/postman/release-note-helper.png > out.png`
+6. Update `BlueprintDetail.tsx` loader: new `ogImage` path, add width/height, omit OG tags if private
 7. Verify with LinkedIn Post Inspector, Twitter Card Validator, Slack
 
 **Phase 2 — Share menu:**
@@ -294,8 +267,8 @@ Pre-filled messages:
 
 ## Key Design Decisions
 
-**1. Bun vs. Go for PNG generation.**  
-Satori is a TypeScript library — Bun is the natural fit. However, the Go backend already has `oksvg` + `rasterx` at `internal/identitygen/raster.go` for avatar generation. **Investigate before Phase 1:** pipe a sample Satori SVG through the Go rasterizer. If output quality is acceptable, serve the badge from Go (unified origin, no new Bun dependencies). If not, proceed with Bun + Resvg.
+**1. Go for PNG generation.**  
+`internal/identitygen/raster.go` already rasterizes SVGs via oksvg + rasterx. Extending it to accept a blueprint SVG template is ~30 lines. The badge endpoint lives in astro-server (`GET /badge/agents/:account/:name.png`); astro-client proxies via `PROXY_PREFIXES`. This eliminates Satori, Resvg, and lru-cache from the client bundle and consolidates raster logic in one place.
 
 **2. Blueprint card needs a creative pass.**  
 The card should be polished and blueprint-specific — not a generic layout. The structural mockup in this spec is a placeholder. Design happens before Phase 1 implementation.
@@ -309,5 +282,3 @@ The Share button constructs a platform intent URL with the blueprint URL. The cr
 **5. No OG tags in `root.tsx`.**  
 Per-page `meta()` exports are the correct scope. Global fallback tags would cause non-blueprint pages to unfurl incorrectly.
 
-**6. Satori requires inline styles.**  
-No Tailwind, no CSS modules. `BlueprintCard` uses inline style objects only and is maintained separately from the browser UI component.
