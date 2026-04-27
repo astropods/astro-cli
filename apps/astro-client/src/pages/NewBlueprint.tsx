@@ -50,15 +50,8 @@ type OAuthReturn = {
 // Read OAuth callback state synchronously from the URL and sessionStorage.
 // Called as a lazy useState initializer so state is correct on the very first render —
 // the carousel starts at the source step with no CSS transition at all.
-//
-// NOTE: touches window.location and sessionStorage synchronously during render.
-// Safe today only because ProtectedLayout renders null during SSR (useAuth reports
-// isLoading: true server-side), so this component never mounts on the server. If a
-// server loader is ever added here, or the auth bootstrap changes so ProtectedLayout
-// can render during SSR, guard this with:
-//   if (typeof window === "undefined") return null;
-// to avoid a server-side crash.
 function readOAuthReturn(): OAuthReturn | null {
+  if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
   if (params.get("github_connected") !== "true") return null;
   const login = params.get("github_login") ?? undefined;
