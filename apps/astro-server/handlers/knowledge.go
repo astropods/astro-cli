@@ -623,20 +623,16 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		}
 
 		// Refuse to delete a store that has active deployment bindings.
-		bindings, err := ksStore.GetBindingsForStore(c.Request.Context(), ks.ID)
+		bound, err := ksStore.GetBoundAgents(c.Request.Context(), ks.ID)
 		if err != nil {
 			log.Error("Failed to check store bindings", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check store bindings"})
 			return
 		}
-		if len(bindings) > 0 {
-			deploymentIDs := make([]string, len(bindings))
-			for i, b := range bindings {
-				deploymentIDs[i] = b.DeploymentID
-			}
+		if len(bound) > 0 {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":       "store has active deployment bindings",
-				"deployments": deploymentIDs,
+				"deployments": bound,
 			})
 			return
 		}

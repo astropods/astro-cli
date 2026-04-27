@@ -1,6 +1,7 @@
 package knowledgestore
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -85,7 +86,7 @@ func TestStore_CreateAndGet(t *testing.T) {
 		t.Errorf("GetByName returned unexpected record")
 	}
 
-	byARN, err := s.GetByARN(p.ARN)
+	byARN, err := s.GetByARN(context.Background(), p.ARN)
 	if err != nil {
 		t.Fatalf("GetByARN: %v", err)
 	}

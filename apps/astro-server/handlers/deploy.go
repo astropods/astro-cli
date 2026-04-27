@@ -2670,7 +2670,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				}
 			}
 			if !hasExplicitBindings {
-				if restored := deployment.RestoreBindingsFromSpec(prefillExisting.DeploymentSpecJSON); restored != nil {
+				if restored := deployment.RestoreBindingsFromSpec(log, prefillExisting.DeploymentSpecJSON); restored != nil {
 					req.Bindings = restored
 				}
 			}

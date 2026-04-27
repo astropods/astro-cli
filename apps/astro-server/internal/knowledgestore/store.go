@@ -1,6 +1,7 @@
 package knowledgestore
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -182,8 +183,8 @@ func (s *Store) GetByID(id string) (*KnowledgeStore, error) {
 }
 
 // GetByARN retrieves a store by its ARN. Returns nil, nil if not found.
-func (s *Store) GetByARN(arn string) (*KnowledgeStore, error) {
-	row := s.db.QueryRow(`SELECT `+storeColumns+` FROM knowledge_stores WHERE arn = $1`, arn)
+func (s *Store) GetByARN(ctx context.Context, arn string) (*KnowledgeStore, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+storeColumns+` FROM knowledge_stores WHERE arn = $1`, arn)
 	ks, err := scanStore(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

@@ -356,6 +356,17 @@ func (c *Config) Validate() error {
 		if c.Deployment.Environment == "" {
 			return fmt.Errorf("ENVIRONMENT environment variable is required")
 		}
+
+		// Template signature verification gates EnforceEditable bypass — a
+		// known key would let any caller forge specs that skip field checks.
+		// Allow the compiled-in dev key only against a local cluster.
+		if len(c.Deployment.TemplateSigningKey) == 0 {
+			if c.Deployment.K8sClientMode == "local" {
+				c.Deployment.TemplateSigningKey = localDevSigningKey
+			} else {
+				return fmt.Errorf("TEMPLATE_SIGNING_KEY environment variable is required (hex-encoded, ≥16 bytes)")
+			}
+		}
 	}
 
 	if c.Database.URL == "" {
@@ -392,25 +403,30 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// defaultSigningKey is a static 32-byte HMAC key used when TEMPLATE_SIGNING_KEY
-// is not set. Override via env var for multi-replica setups behind a load balancer.
-var defaultSigningKey = []byte{
+// localDevSigningKey is a static HMAC key used only when running against a
+// local cluster (K8sClientMode="local") and TEMPLATE_SIGNING_KEY is unset.
+// Validate() rejects this fallback for any non-local mode because anyone with
+// repo access could otherwise forge signatures and bypass EnforceEditable.
+var localDevSigningKey = []byte{
 	0x61, 0x73, 0x74, 0x72, 0x6f, 0x2d, 0x74, 0x6d,
 	0x70, 0x6c, 0x2d, 0x73, 0x69, 0x67, 0x6e, 0x2d,
 	0x6b, 0x65, 0x79, 0x2d, 0x64, 0x65, 0x66, 0x61,
 	0x75, 0x6c, 0x74, 0x2d, 0x76, 0x31, 0x2e, 0x30,
 }
 
-// loadSigningKey reads TEMPLATE_SIGNING_KEY (hex-encoded) from the environment.
-// Falls back to a compiled-in default key.
+// loadSigningKey decodes TEMPLATE_SIGNING_KEY (hex-encoded) from the
+// environment. Returns nil when the env var is unset or invalid; Validate()
+// then either substitutes localDevSigningKey (local mode) or fails.
 func loadSigningKey() []byte {
-	if raw := os.Getenv("TEMPLATE_SIGNING_KEY"); raw != "" {
-		key, err := hex.DecodeString(raw)
-		if err == nil && len(key) > 0 {
-			return key
-		}
+	raw := os.Getenv("TEMPLATE_SIGNING_KEY")
+	if raw == "" {
+		return nil
 	}
-	return defaultSigningKey
+	key, err := hex.DecodeString(raw)
+	if err != nil || len(key) == 0 {
+		return nil
+	}
+	return key
 }
 
 // getEnv gets an environment variable or returns a default value

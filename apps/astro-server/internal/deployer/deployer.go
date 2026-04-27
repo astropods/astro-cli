@@ -155,7 +155,7 @@ func (d *Deployer) resolveBoundKnowledge(
 		if !k.IsBound() {
 			continue
 		}
-		store, err := d.KnowledgeStore.GetByARN(k.Binding)
+		store, err := d.KnowledgeStore.GetByARN(ctx, k.Binding)
 		if err != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to look up bound store %q: %w", name, k.Binding, err)
 		}

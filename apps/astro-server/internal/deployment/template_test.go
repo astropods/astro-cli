@@ -3107,7 +3107,7 @@ func TestRestoreBindingsFromSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bindings := RestoreBindingsFromSpec(string(specJSON))
+	bindings := RestoreBindingsFromSpec(nil, string(specJSON))
 	if bindings == nil {
 		t.Fatal("expected non-nil bindings")
 	}
@@ -3133,21 +3133,21 @@ func TestRestoreBindingsFromSpec_NoBoundEntries(t *testing.T) {
 	}
 	specJSON, _ := json.Marshal(storedSpec)
 
-	bindings := RestoreBindingsFromSpec(string(specJSON))
+	bindings := RestoreBindingsFromSpec(nil, string(specJSON))
 	if bindings != nil {
 		t.Errorf("expected nil bindings when no entries are bound, got %v", bindings)
 	}
 }
 
 func TestRestoreBindingsFromSpec_EmptyJSON(t *testing.T) {
-	bindings := RestoreBindingsFromSpec("")
+	bindings := RestoreBindingsFromSpec(nil, "")
 	if bindings != nil {
 		t.Errorf("expected nil for empty JSON, got %v", bindings)
 	}
 }
 
 func TestRestoreBindingsFromSpec_InvalidJSON(t *testing.T) {
-	bindings := RestoreBindingsFromSpec("{invalid")
+	bindings := RestoreBindingsFromSpec(nil, "{invalid")
 	if bindings != nil {
 		t.Errorf("expected nil for invalid JSON, got %v", bindings)
 	}

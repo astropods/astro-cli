@@ -323,8 +323,8 @@ func TestDeleteKnowledgeStore_NoK8s(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
-	mock.ExpectQuery("SELECT deployment_id, knowledge_name, knowledge_store_id FROM knowledge_store_bindings").
-		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "knowledge_name", "knowledge_store_id"}))
+	mock.ExpectQuery(`SELECT b\.deployment_id, d\.agent_name, d\.display_name, b\.knowledge_name`).
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "agent_name", "display_name", "knowledge_name"}))
 	mock.ExpectExec("DELETE FROM knowledge_stores").WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := httptest.NewRequest(http.MethodDelete, "/knowledge/pg-main", nil)
@@ -669,8 +669,8 @@ func TestDeleteKnowledgeStore_ExternalSkipsK8s(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
-	mock.ExpectQuery("SELECT deployment_id, knowledge_name, knowledge_store_id FROM knowledge_store_bindings").
-		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "knowledge_name", "knowledge_store_id"}))
+	mock.ExpectQuery(`SELECT b\.deployment_id, d\.agent_name, d\.display_name, b\.knowledge_name`).
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "agent_name", "display_name", "knowledge_name"}))
 	mock.ExpectExec("DELETE FROM knowledge_stores").WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := httptest.NewRequest(http.MethodDelete, "/knowledge/pg-prod", nil)

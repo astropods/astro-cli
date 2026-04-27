@@ -13,6 +13,7 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // providerEnvKey returns the env-var key for a provider entry.
@@ -729,12 +730,17 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 // deployment spec JSON. Returns nil if no bound entries are found (or on
 // parse error). Used by the template handler to seed the TemplateRequest
 // when the client opens the configure panel for an existing deployment.
-func RestoreBindingsFromSpec(specJSON string) *spec.TemplateBindings {
+func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *spec.TemplateBindings {
 	if specJSON == "" {
 		return nil
 	}
 	var stored spec.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(specJSON), &stored); err != nil {
+		// The JSON came from our own DB — a decode failure means corruption
+		// or a schema break we should surface, not silently skip.
+		if log != nil {
+			log.Warn("Failed to unmarshal stored deployment spec for binding restore", "error", err)
+		}
 		return nil
 	}
 	restored := make(map[string]string)

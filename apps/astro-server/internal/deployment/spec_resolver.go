@@ -296,13 +296,10 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 					case "url":
 						scheme := ep.Protocol
 						if scheme == "" || scheme == "tcp" || scheme == "grpc" {
-							// Use provider URL scheme for non-HTTP protocols
-							if info.URLScheme != "" && info.URLScheme != "http" {
-								scheme = info.URLScheme
-							} else {
-								scheme = "http"
-							}
+							scheme = "http"
 						}
+						// Provider-declared URLScheme (e.g. "https", "ws") wins
+						// over the endpoint's transport-level protocol.
 						if info.URLScheme != "" && info.URLScheme != "http" {
 							scheme = info.URLScheme
 						}

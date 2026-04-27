@@ -44,7 +44,7 @@ func ResolveBindings(
 		}
 
 		// ARN must resolve to a store in the caller's account.
-		store, err := ksStore.GetByARN(arn)
+		store, err := ksStore.GetByARN(ctx, arn)
 		if err != nil {
 			errs = append(errs, spec.ValidationError{
 				Field:   field,

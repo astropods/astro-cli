@@ -35,7 +35,7 @@ export function BindingsGraph({ storeName, provider, agents }: Props) {
   const borderColor = "var(--border)";
   const mutedText = "var(--muted-foreground)";
   const fgText = "var(--foreground)";
-  const cardBg = "var(--color-white, #fff)";
+  const cardBg = "var(--surface)";
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-auto max-w-[400px] mx-auto" role="img" aria-label="Knowledge store bindings graph">
