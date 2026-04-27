@@ -525,15 +525,22 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		}
 
 		accountName := c.Param("account")
-		agentName := c.Param("name")
+		rawName := c.Param("name")
 
 		// Reject org-scoped names (e.g. "@org/agent") — the CLI should strip these before pushing
-		if strings.Contains(agentName, "/") || strings.HasPrefix(agentName, "@") {
+		if strings.Contains(rawName, "/") || strings.HasPrefix(rawName, "@") {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("invalid agent name %q: must not contain @org/ prefix — upgrade your CLI", agentName),
+				"error": fmt.Sprintf("invalid agent name %q: must not contain @org/ prefix — upgrade your CLI", rawName),
 			})
 			return
 		}
+		if !spec.IsValidName(rawName) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("invalid agent name %q: must be lowercase alphanumeric and hyphens only, 1–63 characters", rawName),
+			})
+			return
+		}
+		agentName := rawName
 
 		var req RegisterAgentRequest
 		if err := c.ShouldBindJSON(&req); err != nil {

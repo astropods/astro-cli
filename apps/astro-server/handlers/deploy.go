@@ -247,6 +247,12 @@ func prepareDeployment(
 	}
 
 	agentName := submittedSpec.Source.Name
+	if !spec.IsValidName(agentName) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("invalid agent name %q: must be lowercase alphanumeric and hyphens only, 1–63 characters", agentName),
+		})
+		return nil, false
+	}
 	buildID := submittedSpec.Source.Build
 
 	log.Info("Processing deployment spec",
@@ -2048,7 +2054,14 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		}
 
 		podName := c.Query("pod")
+		// workload is the K8s Deployment/StatefulSet name for the agent container,
+		// typically prefixed by the agent name (e.g. "my-agent-agent"). Used as a
+		// pod-label prefix filter in Loki: pod=~"<workload>-.+".
 		workloadName := c.Query("workload")
+		if !spec.IsValidName(workloadName) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid workload name %q", workloadName)})
+			return
+		}
 		containerName := c.Query("container")
 
 		loc := getTimezoneLocation(c)
@@ -2163,7 +2176,14 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
+		// workload is the K8s Deployment/StatefulSet name for the agent container,
+		// typically prefixed by the agent name (e.g. "my-agent-agent"). Used as a
+		// pod-label prefix filter in Loki: pod=~"<workload>-.+".
 		workloadName := c.Query("workload")
+		if !spec.IsValidName(workloadName) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid workload name %q", workloadName)})
+			return
+		}
 		containerName := c.Query("container")
 		podName := c.Query("pod")
 

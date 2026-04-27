@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
@@ -17,9 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 )
-
-// validVarName matches letters, digits, and underscores; must start with a letter or underscore.
-var validVarName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 type ListAccountVariablesResponse struct {
 	Variables []accountvars.VariableMetadata `json:"variables"`
@@ -118,7 +114,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 			entry.Name = strings.TrimSpace(entry.Name)
 			result := CreateVariableResult{Name: entry.Name}
 
-			if !validVarName.MatchString(entry.Name) {
+			if !spec.IsValidVarName(entry.Name) {
 				result.Status = "error"
 				result.Error = "invalid variable name"
 				results = append(results, result)

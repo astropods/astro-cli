@@ -2551,7 +2551,7 @@ func TestGetDeploymentLogs_LokiPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs?account=my-acct", nil)
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=my-agent-agent", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -2610,15 +2610,48 @@ func TestGetDeploymentLogs_LokiPath_PodOptional(t *testing.T) {
 	w := httptest.NewRecorder()
 	// No pod param — should be fine with Loki
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs?account=my-acct", nil)
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=my-agent-agent", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
-	// Query should use namespace only (no pod label)
-	if gotQuery != `{namespace="astro-ns-0"}` {
-		t.Errorf("loki query = %q, want {namespace=\"astro-ns-0\"}", gotQuery)
+	// No pod param — query should use workload prefix match, not an exact pod
+	if gotQuery != `{namespace="astro-ns-0", pod=~"my-agent-agent-.+"}` {
+		t.Errorf("loki query = %q, want {namespace=\"astro-ns-0\", pod=~\"my-agent-agent-.+\"}", gotQuery)
+	}
+}
+
+// TestGetDeploymentLogs_InvalidWorkloadRejected verifies that the server rejects
+// an invalid workload name with 400. The CLI is responsible for sending a
+// properly normalized workload name; the server does not mangle inputs.
+func TestGetDeploymentLogs_InvalidWorkloadRejected(t *testing.T) {
+	lokiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`)) //nolint:errcheck
+	}))
+	defer lokiSrv.Close()
+
+	lokiClient := loki.New(lokiSrv.URL)
+	router, deployMock, accountMock := setupLogsTest(t, lokiClient)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-ns-0",
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet,
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=My_Agent-agent&container=app", nil)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -2859,7 +2892,7 @@ func TestGetDeploymentLogs_TimezoneParam(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs?account=my-acct&timezone=America/New_York", nil)
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=my-agent-agent&timezone=America/New_York", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -2906,7 +2939,7 @@ func TestGetDeploymentLogs_InvalidTimezone_FallsBackToUTC(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs?account=my-acct&timezone=Not/ATimezone", nil)
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=my-agent-agent&timezone=Not/ATimezone", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -2957,7 +2990,7 @@ func TestStreamDeploymentLogs_TimezoneParam(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&timezone=America/New_York", nil)
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent&timezone=America/New_York", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -3018,7 +3051,7 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs?account=my-acct&pod=my-pod", nil)
+		"/api/v1/deployments/"+depID+"/logs?account=my-acct&workload=my-agent-agent&pod=my-pod", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
@@ -3088,7 +3121,7 @@ func TestStreamDeploymentLogs_Unauthorized(t *testing.T) {
 			nil, deploymentstore.NewStore(deployDB), nil))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/logs/stream?account=my-acct", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusUnauthorized {
@@ -3112,7 +3145,7 @@ func TestStreamDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+		"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
@@ -3149,7 +3182,7 @@ func TestStreamDeploymentLogs_LokiPath(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -3226,7 +3259,7 @@ func TestStreamDeploymentLogs_LokiPath_EmitsIDFields(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -3291,7 +3324,7 @@ func TestStreamDeploymentLogs_LokiPath_ReconnectsWhenWSCloses(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -3350,7 +3383,7 @@ func TestStreamDeploymentLogs_HandshakeAndHeartbeat(t *testing.T) {
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
-		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct", nil)
+		srv.URL+"/api/v1/deployments/"+depID+"/logs/stream?account=my-acct&workload=my-agent-agent", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)

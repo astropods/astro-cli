@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,16 +16,18 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // blueprintServerURLOverride is set in tests to redirect API calls to a test server.
 var blueprintServerURLOverride string
 
-var blueprintNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{4,}$`)
-
-func validateBlueprintName(name string) error {
-	if !blueprintNameRe.MatchString(name) {
-		return fmt.Errorf("blueprint name must be at least 4 characters and contain only letters, digits, underscores, or hyphens")
+func exactValidAgentName(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
+	}
+	if err := spec.ValidateName(args[0]); err != nil {
+		return fmt.Errorf("agent name %q: %w", args[0], err)
 	}
 	return nil
 }
@@ -75,7 +76,7 @@ var blueprintListCmd = &cobra.Command{
 var blueprintCreateCmd = &cobra.Command{
 	Use:    "create <name>",
 	Short:  "Register a new blueprint on the server",
-	Args:   cobra.ExactArgs(1),
+	Args:   exactValidAgentName,
 	RunE:   runBlueprintCreate,
 	Hidden: true,
 }
@@ -83,7 +84,7 @@ var blueprintCreateCmd = &cobra.Command{
 var blueprintGetCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Get blueprint metadata and config",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentName,
 	RunE:  runBlueprintGet,
 }
 
@@ -91,14 +92,14 @@ var blueprintPushCmd = &cobra.Command{
 	Use:   "push <name>",
 	Short: "Push blueprint image to registry",
 	Long:  "Push blueprint image to registry. If the blueprint does not yet exist it will be created automatically.",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentName,
 	RunE:  runBlueprintPush,
 }
 
 var blueprintArchiveCmd = &cobra.Command{
 	Use:   "archive <name>",
 	Short: "Archive a blueprint",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentName,
 	RunE:  runBlueprintArchive,
 }
 
@@ -106,14 +107,14 @@ var blueprintBuildCmd = &cobra.Command{
 	Use:   "build <name>",
 	Short: "Build blueprint image",
 	Long:  "Build the agent blueprint image. Use 'blueprint push' to push it to the registry.",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentName,
 	RunE:  runBlueprintBuild,
 }
 
 var blueprintSetCmd = &cobra.Command{
 	Use:   "set <name>",
 	Short: "Update blueprint settings",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentName,
 	RunE:  runBlueprintSet,
 }
 
@@ -173,7 +174,7 @@ func init() {
 		Use:   "build <name>",
 		Short: blueprintBuildCmd.Short,
 		Long:  blueprintBuildCmd.Long,
-		Args:  cobra.ExactArgs(1),
+		Args:  exactValidAgentName,
 		RunE:  runBlueprintBuild,
 	}
 	topLevelBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
@@ -183,7 +184,7 @@ func init() {
 		Use:   "push <name>",
 		Short: blueprintPushCmd.Short,
 		Long:  blueprintPushCmd.Long,
-		Args:  cobra.ExactArgs(1),
+		Args:  exactValidAgentName,
 		RunE:  runBlueprintPush,
 	}
 	rootCmd.AddCommand(topLevelPushCmd)
@@ -393,9 +394,6 @@ func printBlueprintNextSteps(w io.Writer) {
 
 func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if err := validateBlueprintName(name); err != nil {
-		return err
-	}
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err

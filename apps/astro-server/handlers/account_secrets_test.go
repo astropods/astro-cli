@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -370,12 +371,12 @@ func TestValidVarName(t *testing.T) {
 	}
 
 	for _, name := range valid {
-		if !validVarName.MatchString(name) {
+		if !spec.IsValidVarName(name) {
 			t.Errorf("expected %q to be valid", name)
 		}
 	}
 	for _, name := range invalid {
-		if validVarName.MatchString(name) {
+		if spec.IsValidVarName(name) {
 			t.Errorf("expected %q to be invalid", name)
 		}
 	}

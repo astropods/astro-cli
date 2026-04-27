@@ -10,9 +10,7 @@ import (
 const LabelKeyAgent = "astro.dev/agent"
 
 var (
-	// Regex for sanitizing names (alphanumeric and hyphens only)
-	sanitizeRegex = regexp.MustCompile(`[^a-z0-9-]`)
-	// Regex for consecutive hyphens
+	sanitizeRegex           = regexp.MustCompile(`[^a-z0-9-]`)
 	consecutiveHyphensRegex = regexp.MustCompile(`-+`)
 )
 

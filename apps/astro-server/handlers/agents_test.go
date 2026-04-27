@@ -215,9 +215,9 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
 
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(tt.body))
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 
@@ -243,9 +243,9 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -260,7 +260,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
 
 	body := `{
 		"name": "test-agent",
@@ -269,7 +269,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 		"spec_content": "invalid: yaml: [: content"
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -337,7 +337,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
@@ -349,7 +349,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 		"spec_content": "name: test-agent\n"
 	}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -408,6 +408,27 @@ func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
 			errMsg, _ := resp["error"].(string)
 			if !strings.Contains(errMsg, "@org/ prefix") {
 				t.Errorf("expected org prefix error message, got %q", errMsg)
+			}
+		})
+	}
+}
+
+func TestRegisterAgent_RejectsInvalidName(t *testing.T) {
+	invalid := []string{"Weather-poet", "My_Agent", "UPPER_CASE", "has space", "-leading", "trailing-"}
+	for _, name := range invalid {
+		t.Run(name, func(t *testing.T) {
+			router, index, _ := setupAgentTestRouter()
+			log := logger.New("error", "json")
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil))
+
+			body := `{"build_id":"b1","registry":"r.example.com","spec_content":"name: test\nversion: 1.0\n"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+url.PathEscape(name)+"/register", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for name %q, got %d: %s", name, rec.Code, rec.Body.String())
 			}
 		})
 	}
