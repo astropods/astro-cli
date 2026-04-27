@@ -1,4 +1,5 @@
-import { Link } from "react-router";
+import { useEffect } from "react";
+import { Link, useSearchParams } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useAccountBlueprints } from "@/api/queries";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
@@ -20,8 +21,20 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
-  const { activeAccount } = useActiveAccount();
+  const { activeAccount, setActiveAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Consume ?account= param once accounts have loaded so deep-links and
+  // org-switcher redirects land on the right scope without a flash.
+  useEffect(() => {
+    const accountParam = searchParams.get("account");
+    if (!accountParam || accounts.length === 0) return;
+    if (accounts.some((a) => a.name === accountParam)) {
+      setActiveAccount(accountParam);
+    }
+    setSearchParams({}, { replace: true });
+  }, [accounts, searchParams, setActiveAccount, setSearchParams]);
   const isReady = isAuthenticated && !!activeAccount;
   const { data, isLoading, isError, error, refetch } = useAccountBlueprints(activeAccount, {
     enabled: isReady,
