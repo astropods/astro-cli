@@ -280,34 +280,6 @@ func TestValidateRepoFullName(t *testing.T) {
 	}
 }
 
-func TestFilesTouchSubPath(t *testing.T) {
-	cases := []struct {
-		name    string
-		files   []string
-		subPath string
-		want    bool
-	}{
-		{"file inside subpath", []string{"svc/main.go"}, "svc", true},
-		{"nested file inside subpath", []string{"svc/internal/foo.go"}, "svc", true},
-		{"file not in subpath", []string{"README.md"}, "svc", false},
-		{"exact subpath name without slash", []string{"svc"}, "svc", false},
-		{"sibling directory", []string{"svc2/main.go"}, "svc", false},
-		{"empty file list", []string{}, "svc", false},
-		{"multiple files, one matches", []string{"README.md", "svc/main.go"}, "svc", true},
-		{"multiple files, none match", []string{"README.md", "docs/guide.md"}, "svc", false},
-		{"deeply nested subpath", []string{"a/b/c/d.go"}, "a/b/c", true},
-		{"file in parent does not match child subpath", []string{"a/b.go"}, "a/b", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := filesTouchSubPath(tc.files, tc.subPath)
-			if got != tc.want {
-				t.Errorf("filesTouchSubPath(%v, %q) = %v, want %v", tc.files, tc.subPath, got, tc.want)
-			}
-		})
-	}
-}
-
 // --- TestGitHubDisconnect tests ---
 
 func setupDisconnectTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {

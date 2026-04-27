@@ -481,6 +481,9 @@ func installExternalAPIStub(t *testing.T) (*externalAPIStub, func()) {
 			stub.githubPostHits.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "active": true, "events": []string{"push"}})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/contents/"):
+			// PathExists check — return 200 to indicate the subpath exists.
+			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
