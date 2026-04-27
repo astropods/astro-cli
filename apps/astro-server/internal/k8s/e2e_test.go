@@ -725,6 +725,92 @@ func serviceDNS(name, ns string) string {
 	return name + "." + ns + ".svc.cluster.local"
 }
 
+// effectiveAgentEnv returns the merged env the agent's "app" container will
+// see at runtime: envFrom Secret + envFrom ConfigMap + container.env, with
+// container.env overriding envFrom on key collisions (matches k8s precedence).
+// secretKeyRef / configMapKeyRef in container.env are resolved against the
+// stored Secrets/ConfigMaps. Used to verify that every expected env var is
+// reachable regardless of which path put it there.
+func effectiveAgentEnv(t *testing.T, r *e2eResult) map[string]string {
+	t.Helper()
+	ns := r.Namespace
+	agentName := r.DeploymentSpec.Source.Name
+	deplName := deployment.GenerateAgentResourceName(agentName, "agent")
+	depl, err := r.Clientset.AppsV1().Deployments(ns).Get(context.Background(), deplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get agent deployment %q: %v", deplName, err)
+	}
+	var app *corev1.Container
+	for i := range depl.Spec.Template.Spec.Containers {
+		c := &depl.Spec.Template.Spec.Containers[i]
+		if c.Name == "app" {
+			app = c
+			break
+		}
+	}
+	if app == nil {
+		t.Fatalf("agent app container not found in deployment %q", deplName)
+	}
+
+	env := map[string]string{}
+
+	// Phase 1: envFrom — Secret and ConfigMap data merged into env.
+	for _, src := range app.EnvFrom {
+		if src.SecretRef != nil {
+			s, err := r.Clientset.CoreV1().Secrets(ns).Get(context.Background(), src.SecretRef.Name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("envFrom secret %q: %v", src.SecretRef.Name, err)
+			}
+			for k, v := range s.Data {
+				env[k] = string(v)
+			}
+		}
+		if src.ConfigMapRef != nil {
+			cm, err := r.Clientset.CoreV1().ConfigMaps(ns).Get(context.Background(), src.ConfigMapRef.Name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("envFrom configmap %q: %v", src.ConfigMapRef.Name, err)
+			}
+			for k, v := range cm.Data {
+				env[k] = v
+			}
+		}
+	}
+
+	// Phase 2: env entries — override envFrom on key collisions.
+	for _, e := range app.Env {
+		switch {
+		case e.ValueFrom == nil:
+			env[e.Name] = e.Value
+		case e.ValueFrom.SecretKeyRef != nil:
+			ref := e.ValueFrom.SecretKeyRef
+			s, err := r.Clientset.CoreV1().Secrets(ns).Get(context.Background(), ref.Name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("env %q secretKeyRef %s/%s: %v", e.Name, ref.Name, ref.Key, err)
+			}
+			val, ok := s.Data[ref.Key]
+			if !ok {
+				t.Fatalf("env %q secretKeyRef %s/%s: key not found in secret", e.Name, ref.Name, ref.Key)
+			}
+			env[e.Name] = string(val)
+		case e.ValueFrom.ConfigMapKeyRef != nil:
+			ref := e.ValueFrom.ConfigMapKeyRef
+			cm, err := r.Clientset.CoreV1().ConfigMaps(ns).Get(context.Background(), ref.Name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("env %q configMapKeyRef %s/%s: %v", e.Name, ref.Name, ref.Key, err)
+			}
+			val, ok := cm.Data[ref.Key]
+			if !ok {
+				t.Fatalf("env %q configMapKeyRef %s/%s: key not found in configmap", e.Name, ref.Name, ref.Key)
+			}
+			env[e.Name] = val
+			// Other ValueFrom kinds (FieldRef, ResourceFieldRef) are not used
+			// by the agent template path; ignore until they are.
+		}
+	}
+
+	return env
+}
+
 func TestE2E_ProviderEnv_OllamaModel(t *testing.T) {
 	r := runE2E(t, `
 spec: package/v1
@@ -1839,20 +1925,16 @@ knowledge:
 	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
 
 	// Bare prefix → first alphabetically ("analytics"); name-qualified for all.
-	// POSTGRES_DB is per-knowledge-store as well — agents reference the
-	// per-name form (POSTGRES_USERS_DB) when they connect to a non-default
-	// postgres store; without the per-name DB key the connection fails.
+	// DB lands in the deploy Secret via the credentials-ref path — see
+	// TestE2E_PostgresKnowledge_CredentialFlow which asserts that.
 	// Postgres has no URLScheme → no _URL vars
 	assertConfigMapValues(t, r, map[string]string{
 		"POSTGRES_HOST":           analyticsDNS,
 		"POSTGRES_PORT":           "5432",
-		"POSTGRES_DB":             "my_agent",
 		"POSTGRES_ANALYTICS_HOST": analyticsDNS,
 		"POSTGRES_ANALYTICS_PORT": "5432",
-		"POSTGRES_ANALYTICS_DB":   "my_agent",
 		"POSTGRES_USERS_HOST":     usersDNS,
 		"POSTGRES_USERS_PORT":     "5432",
-		"POSTGRES_USERS_DB":       "my_agent",
 	})
 
 	// Postgres has no URLScheme → no URL vars at all
@@ -1985,13 +2067,13 @@ knowledge:
 
 	// `postgres` entry matches provider → bare keys only.
 	// `users` entry → qualified keys only.
+	// DB lands in deploy Secret via credentials-ref path; this test only
+	// covers the ConfigMap-routed connection details (HOST/PORT).
 	assertConfigMapValues(t, r, map[string]string{
 		"POSTGRES_HOST":       postgresDNS,
 		"POSTGRES_PORT":       "5432",
-		"POSTGRES_DB":         "my_agent",
 		"POSTGRES_USERS_HOST": usersDNS,
 		"POSTGRES_USERS_PORT": "5432",
-		"POSTGRES_USERS_DB":   "my_agent",
 	})
 
 	// Redundant qualified form for the matching entry MUST NOT exist.
@@ -2328,5 +2410,68 @@ knowledge:
 	}
 	if !foundUsersCreds {
 		t.Error("users StatefulSet should mount its own credential secret")
+	}
+
+	// --- Agent's effective env (merged across envFrom + container.env) ---
+	//
+	// Verifies that every expected key reaches the agent regardless of which
+	// path put it there:
+	//   - HOST / PORT come from main ConfigMap (envFrom).
+	//   - DB, and the BindCredentials-resolved USER / PASSWORD literals come
+	//     from main Secret (envFrom).
+	//   - USER / PASSWORD also exist as container.env secretKeyRef entries
+	//     pointing at the per-store cred Secrets; container.env overrides
+	//     envFrom on collisions (k8s precedence).
+	// All paths must agree on values; mismatches would silently corrupt
+	// the agent's view without this check.
+	cacheDNS := serviceDNS("my-agent-knowledge-cache", ns)
+	analyticsPwd := string(analyticsCredSecret.Data["POSTGRES_PASSWORD"])
+	usersPwd := string(usersCredSecret.Data["POSTGRES_PASSWORD"])
+	cachePwd := string(cacheCredSecret.Data["REDIS_PASSWORD"])
+
+	wantEnv := map[string]string{
+		// Postgres bare keys → primary entry "analytics" (alphabetically first;
+		// no name matches provider).
+		"POSTGRES_HOST":     analyticsDNS,
+		"POSTGRES_PORT":     "5432",
+		"POSTGRES_USER":     "astro",
+		"POSTGRES_PASSWORD": analyticsPwd,
+		"POSTGRES_DB":       "my_agent",
+		// Postgres qualified for "analytics" (primary also gets qualified per RFC §8.2
+		// when entry name != provider).
+		"POSTGRES_ANALYTICS_HOST":     analyticsDNS,
+		"POSTGRES_ANALYTICS_PORT":     "5432",
+		"POSTGRES_ANALYTICS_USER":     "astro",
+		"POSTGRES_ANALYTICS_PASSWORD": analyticsPwd,
+		"POSTGRES_ANALYTICS_DB":       "my_agent",
+		// Postgres qualified for "users" (non-primary, no bare).
+		"POSTGRES_USERS_HOST":     usersDNS,
+		"POSTGRES_USERS_PORT":     "5432",
+		"POSTGRES_USERS_USER":     "astro",
+		"POSTGRES_USERS_PASSWORD": usersPwd,
+		"POSTGRES_USERS_DB":       "my_agent",
+		// Redis: only one entry "cache" → bare keys only (not duplicate).
+		"REDIS_HOST":     cacheDNS,
+		"REDIS_PORT":     "6379",
+		"REDIS_URL":      "redis://" + cacheDNS + ":6379",
+		"REDIS_PASSWORD": cachePwd,
+	}
+	gotEnv := effectiveAgentEnv(t, r)
+	for k, want := range wantEnv {
+		got, ok := gotEnv[k]
+		if !ok {
+			t.Errorf("agent effective env missing %q (want %q)", k, want)
+			continue
+		}
+		if got != want {
+			t.Errorf("agent effective env[%q] = %q, want %q", k, got, want)
+		}
+	}
+	// Doubled-prefix forms must NOT appear (RFC §8.2 — cache happens to not
+	// match its provider, but check the postgres pair to lock the rule).
+	for _, bad := range []string{"POSTGRES_POSTGRES_HOST", "POSTGRES_POSTGRES_USER", "POSTGRES_POSTGRES_DB"} {
+		if _, present := gotEnv[bad]; present {
+			t.Errorf("agent effective env must not contain %q (no entry name matches provider here, but the doubled form is wrong regardless)", bad)
+		}
 	}
 }

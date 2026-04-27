@@ -3117,21 +3117,25 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 
 	// --- Agent environment (credential refs for per-name keys) ---
 
-	// Bare keys (first alphabetically = "postgres")
+	// Primary entry "postgres" (name == provider) gets bare keys only —
+	// the redundant qualified form (POSTGRES_POSTGRES_*) is suppressed per
+	// RFC §8.2.
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USER", "${knowledge.postgres.credentials.user}")
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_PASSWORD", "${knowledge.postgres.credentials.password}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "${knowledge.postgres.credentials.database}")
+	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_USER"]; exists {
+		t.Error("POSTGRES_POSTGRES_USER must not exist (entry name matches provider)")
+	}
+	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_PASSWORD"]; exists {
+		t.Error("POSTGRES_POSTGRES_PASSWORD must not exist (entry name matches provider)")
+	}
+	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_DB"]; exists {
+		t.Error("POSTGRES_POSTGRES_DB must not exist (entry name matches provider)")
+	}
 
-	// Per-name keys for "postgres" entry
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_USER", "${knowledge.postgres.credentials.user}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_PASSWORD", "${knowledge.postgres.credentials.password}")
-
-	// Per-name keys for "users" entry (not first, no bare keys)
+	// Per-name keys for "users" entry (non-primary, qualified only)
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_USER", "${knowledge.users.credentials.user}")
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_PASSWORD", "${knowledge.users.credentials.password}")
-
-	// DB flows through credential refs (bound stores have their own DB name)
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "${knowledge.postgres.credentials.database}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_POSTGRES_DB", "${knowledge.postgres.credentials.database}")
 	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_DB", "${knowledge.users.credentials.database}")
 
 	// Redis credentials also get agent env refs
