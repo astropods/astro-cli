@@ -9,6 +9,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // ollamaModels returns a curated list of popular models from the Ollama library.
@@ -76,7 +77,7 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 				Description("Lowercase letters, numbers, and hyphens. Must start with a letter.").
 				Placeholder("my-agent").
 				Value(&name).
-				Validate(scaffold.ValidateName),
+				Validate(spec.ValidateName),
 		).WithHideFunc(func() bool { return !needsName }),
 
 		huh.NewGroup(

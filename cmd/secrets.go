@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,18 +15,17 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // secretsServerURLOverride is set in tests to redirect API calls to a test server.
 var secretsServerURLOverride string
 
-var secretNameRe = regexp.MustCompile(`^[A-Za-z0-9_]{4,}$`)
-
-func validateSecretName(name string) error {
-	if !secretNameRe.MatchString(name) {
-		return fmt.Errorf("secret name must be at least 4 characters and contain only letters, digits, or underscores")
+func exactValidSecretName(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return err
 	}
-	return nil
+	return spec.ValidateVarName(args[0])
 }
 
 func secretsBaseURL() string {
@@ -53,28 +51,28 @@ var secretListCmd = &cobra.Command{
 var secretCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new secret",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidSecretName,
 	RunE:  runSecretCreate,
 }
 
 var secretUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update an existing secret's value",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidSecretName,
 	RunE:  runSecretUpdate,
 }
 
 var secretGetCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Get details for a secret or variable",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidSecretName,
 	RunE:  runSecretGet,
 }
 
 var secretDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a secret",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidSecretName,
 	RunE:  runSecretDelete,
 }
 
@@ -243,10 +241,6 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 
 func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, plain, overwrite bool) error {
 	name := args[0]
-	if err := validateSecretName(name); err != nil {
-		return err
-	}
-
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err

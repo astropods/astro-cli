@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui/create"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var (
@@ -71,7 +72,7 @@ func runCreate(_ *cobra.Command, args []string) error {
 
 	// If name was provided as arg, validate it upfront
 	if name != "" {
-		if err := scaffold.ValidateName(name); err != nil {
+		if err := spec.ValidateName(name); err != nil {
 			return fmt.Errorf("invalid name: %w", err)
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // secretTestServer returns a test server that handles variables API calls and
@@ -226,13 +227,14 @@ func TestSecretNameValidation(t *testing.T) {
 	}{
 		{name: "valid", input: "MY_KEY", wantErr: false},
 		{name: "valid with digits", input: "KEY_123", wantErr: false},
-		{name: "too short", input: "KEY", wantErr: true},
+		{name: "valid short", input: "KEY", wantErr: false},
+		{name: "digit start not allowed", input: "1BAD", wantErr: true},
 		{name: "hyphen not allowed", input: "MY-KEY", wantErr: true},
 		{name: "space not allowed", input: "MY KEY", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateSecretName(tc.input)
+			err := spec.ValidateVarName(tc.input)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {

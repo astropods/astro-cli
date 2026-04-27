@@ -82,11 +82,12 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 	}
 
 	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
+	originalName := agentName
 	if cfg.agentName != "" {
-		if cfg.agentName != agentName {
-			fmt.Printf("%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, cfg.agentName)
-		}
 		agentName = cfg.agentName
+	}
+	if cfg.agentName != "" && cfg.agentName != originalName {
+		fmt.Printf("%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, originalName, cfg.agentName)
 	}
 
 	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
