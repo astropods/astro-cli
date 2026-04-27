@@ -55,7 +55,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         refetch={refetch}
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
-        skeletonCount={loaderData.count}
+        skeletonCount={loaderData?.count}
       />
     </PageContainer>
   );
