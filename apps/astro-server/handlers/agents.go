@@ -789,23 +789,26 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 			if err != nil {
 				return // no connection — nothing to do
 			}
-			if conn.WebhookID != 0 && sessionOK {
-				token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
-					Provider:       "github",
-					UserID:         session.UserID,
-					OrganizationID: session.OrganizationID,
-				})
-				if tokenErr == nil {
-					gh := githubclient.New(token.AccessToken)
-					if delErr := gh.DeleteWebhook(context.Background(), conn.RepoFullName, conn.WebhookID); delErr != nil {
-						log.Warn("github: delete webhook on archive", "error", delErr, "repo", conn.RepoFullName)
-					}
-				}
-			}
+			repoBase := githubconnection.RepoBase(conn.RepoFullName)
 			if delErr := ghStore.Delete(context.Background(), acct.ID, agentName); delErr != nil {
 				log.Warn("github: delete connection on archive", "error", delErr, "agent", agentName)
 			} else {
 				log.Info("GitHub connection removed on archive", "account", acct.Name, "agent", agentName)
+			}
+			if conn.WebhookID != 0 && sessionOK {
+				if count, countErr := ghStore.CountByRepoBaseForAccount(context.Background(), acct.ID, repoBase); countErr == nil && count == 0 {
+					token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
+						Provider:       "github",
+						UserID:         session.UserID,
+						OrganizationID: session.OrganizationID,
+					})
+					if tokenErr == nil {
+						gh := githubclient.New(token.AccessToken)
+						if delErr := gh.DeleteWebhook(context.Background(), repoBase, conn.WebhookID); delErr != nil {
+							log.Warn("github: delete webhook on archive", "error", delErr, "repo", repoBase)
+						}
+					}
+				}
 			}
 		}()
 

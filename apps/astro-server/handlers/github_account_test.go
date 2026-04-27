@@ -16,6 +16,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -666,6 +667,138 @@ func TestValidateRepoFullName_RejectsOversizedSegments(t *testing.T) {
 	input := "owner/" + huge
 	if err := validateRepoFullName(input); err == nil {
 		t.Errorf("validateRepoFullName accepted a %d-char segment; GitHub caps names at %d", len(huge), maxSegmentLen)
+	}
+}
+
+// TestArchiveAgent_KeepsWebhookWhenSubpathConnExists verifies that archiving an agent whose
+// repo is a subpath does not delete the shared webhook when another agent on the same
+// account still references the same base repo.
+func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	indexDB, indexMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New (index): %v", err)
+	}
+	defer indexDB.Close()
+
+	ghDB, ghMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New (gh): %v", err)
+	}
+	defer ghDB.Close()
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	store := githubconnection.New(ghDB)
+
+	indexMock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Get: returns service-a's connection with webhook 42 on the subpath.
+	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs("test-account-id", "service-a").
+		WillReturnRows(connRow("conn-a", "test-account-id", "testaccount", "service-a",
+			"owner/repo/service-a", "main", "shared-secret", 42))
+
+	ghMock.ExpectExec("DELETE FROM github_connections").
+		WithArgs("test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// CountByRepoBaseForAccount: 1 remaining (service-b still uses owner/repo).
+	ghMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs("test-account-id", "owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := gin.New()
+	router.Use(injectTestAccount(), injectTestSession())
+	router.POST("/agents/:account/:name/archive",
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, pipes.New("fake-key")))
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	time.Sleep(100 * time.Millisecond) // let the background goroutine complete
+
+	if stub.githubDeleteHits.Load() != 0 {
+		t.Errorf("expected 0 webhook DELETEs when another subpath connection still exists; got %d",
+			stub.githubDeleteHits.Load())
+	}
+	if err := ghMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet gh SQL expectations: %v", err)
+	}
+}
+
+// TestArchiveAgent_DeletesWebhookWhenLastConn verifies that archiving the last agent
+// connected to a base repo deletes the webhook from GitHub.
+func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	indexDB, indexMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New (index): %v", err)
+	}
+	defer indexDB.Close()
+
+	ghDB, ghMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New (gh): %v", err)
+	}
+	defer ghDB.Close()
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	store := githubconnection.New(ghDB)
+
+	indexMock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs("test-account-id", "service-a").
+		WillReturnRows(connRow("conn-a", "test-account-id", "testaccount", "service-a",
+			"owner/repo/service-a", "main", "shared-secret", 42))
+
+	ghMock.ExpectExec("DELETE FROM github_connections").
+		WithArgs("test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// CountByRepoBaseForAccount: 0 — this was the last connection.
+	ghMock.ExpectQuery(`SELECT COUNT`).
+		WithArgs("test-account-id", "owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	router := gin.New()
+	router.Use(injectTestAccount(), injectTestSession())
+	router.POST("/agents/:account/:name/archive",
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, pipes.New("fake-key")))
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	time.Sleep(100 * time.Millisecond) // let the background goroutine complete
+
+	if stub.githubDeleteHits.Load() != 1 {
+		t.Errorf("expected 1 webhook DELETE when last connection is archived; got %d",
+			stub.githubDeleteHits.Load())
+	}
+	if err := ghMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet gh SQL expectations: %v", err)
 	}
 }
 
