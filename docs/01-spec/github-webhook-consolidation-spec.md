@@ -54,7 +54,17 @@ func (s *Store) Insert(ctx context.Context, repoBase string, webhookID int64, se
 func (s *Store) DeleteIfNoConnections(ctx context.Context, repoBase string) (webhookID int64, deleted bool, err error)
 ```
 
-`DeleteIfNoConnections` atomically deletes the `github_webhooks` row only if no `github_connections` rows reference that `repo_base`, returning the `webhook_id` so the caller can delete it from GitHub.
+`DeleteIfNoConnections` atomically deletes the `github_webhooks` row only if no `github_connections` rows reference that `repo_base`, returning the `webhook_id` so the caller can delete it from GitHub:
+
+```sql
+DELETE FROM github_webhooks
+WHERE repo_base = $1
+AND NOT EXISTS (
+    SELECT 1 FROM github_connections
+    WHERE repo_full_name = $1 OR repo_full_name LIKE $1 || '/%'
+)
+RETURNING webhook_id
+```
 
 ---
 
