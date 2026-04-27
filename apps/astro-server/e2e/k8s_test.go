@@ -88,12 +88,15 @@ const slackSpecJSON = `{
     "endpoints": {"grpc": {"port": 9090, "protocol": "grpc"}},
     "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
     "environment": {
-      "SLACK_CONFIG": "${variables.SLACK_CONFIG}"
+      "SLACK_CONFIG": "${variables.SLACK_CONFIG}",
+      "SLACK_BOT_TOKEN": "${variables.SLACK_BOT_TOKEN}",
+      "SLACK_APP_TOKEN": "${variables.SLACK_APP_TOKEN}"
     }
   },
   "variables": {
     "SLACK_CONFIG": {"value": "{\"actionable_reactions\":[\"ticket\",\"bug\"],\"allowed_channel_ids\":[\"C123\",\"C999\"],\"allowed_user_ids\":[\"U123\",\"U999\"]}", "secret": false, "targets": ["interface.slack"]},
-    "SLACK_BOT_TOKEN": {"value": "xoxb-test", "secret": true, "targets": ["interface.slack"]}
+    "SLACK_BOT_TOKEN": {"value": "xoxb-test", "secret": true, "targets": ["interface.slack"]},
+    "SLACK_APP_TOKEN": {"value": "xapp-test", "secret": true, "targets": ["interface.slack"]}
   },
   "observability": {"enabled": false}
 }`
