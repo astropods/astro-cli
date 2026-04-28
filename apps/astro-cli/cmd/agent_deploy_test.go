@@ -254,6 +254,14 @@ func TestRunBlueprintDeploy(t *testing.T) {
 			deplResp:   map[string]any{"error": "k8s down"},
 			wantErr:    "status 500",
 		},
+		{
+			name:       "deploy name conflict 409 returns actionable error",
+			tmplStatus: http.StatusOK,
+			tmplResp:   validTmplResp,
+			deplStatus: http.StatusConflict,
+			deplResp:   map[string]any{"error": "display_name already in use by another active deployment"},
+			wantErr:    errDeployNameConflict("my-agent").Error(),
+		},
 	}
 
 	for _, tc := range cases {

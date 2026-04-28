@@ -22,7 +22,6 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -38,14 +37,14 @@ func pushBaseURL() string {
 
 // pushConfig holds all parameters for a push operation.
 type pushConfig struct {
-	specPath             string
-	agentName            string // overrides spec name; empty = use spec
-	skipBuild            bool
-	skipPush             bool
-	platform             string
-	visibility           Visibility // VisibilityPublic, VisibilityPrivate, or VisibilityUnset (preserve existing)
-	allowAccountOverride bool
-	verbose              bool
+	specPath   string
+	agentName  string
+	skipBuild  bool
+	skipPush   bool
+	platform   string
+	visibility Visibility // VisibilityPublic, VisibilityPrivate, or VisibilityUnset (preserve existing)
+	yes        bool       // skip interactive confirmation prompts
+	verbose    bool
 }
 
 // runPush assumes the spec in cfg.specPath is valid; callers must validate before invoking.
@@ -81,21 +80,7 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
-	originalName := agentName
-	if cfg.agentName != "" {
-		agentName = cfg.agentName
-	}
-	if cfg.agentName != "" && cfg.agentName != originalName {
-		fmt.Printf("%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, originalName, cfg.agentName)
-	}
-
-	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
-		if !cfg.allowAccountOverride {
-			return errAccountMismatch(specAccount, at.Account)
-		}
-		fmt.Printf("%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account)
-	}
+	agentName := cfg.agentName
 
 	fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, colorCyan, at.Account, colorReset, tag)
 
@@ -283,7 +268,7 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 
 	needsConfirm := (visibility == VisibilityPublic && (!serverAgent.Exists || serverAgent.Visibility != string(VisibilityPublic))) ||
 		(cfg.visibility == VisibilityPrivate && serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic))
-	if needsConfirm {
+	if needsConfirm && !cfg.yes {
 		if !confirmVisibilityChange(serverAgent.Visibility, string(visibility)) {
 			return fmt.Errorf("push cancelled")
 		}
