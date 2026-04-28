@@ -49,7 +49,7 @@ func Execute() {
 	// Print first-run telemetry notice (once per install)
 	if telemetry.EnsureNoticed(binaryName) {
 		fmt.Fprintln(os.Stderr, "Notice: Astro collects anonymous usage data to improve the CLI.")
-		fmt.Fprintln(os.Stderr, "Run `"+binaryName+" configure --no-telemetry` to opt out.")
+		fmt.Fprintln(os.Stderr, "Run `"+binaryName+" settings update --telemetry off` to opt out.")
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -108,7 +108,11 @@ func resolveCommandName(cmd *cobra.Command, args []string) string {
 // isNoiseCommand returns true for commands that don't provide useful analytics signal.
 func isNoiseCommand(name string) bool {
 	switch name {
-	case "help", "version", "configure.telemetry", "completion":
+	case "help", "version", "settings.update":
+		return true
+	}
+	switch name {
+	case "settings.bash", "settings.zsh", "settings.fish", "settings.powershell":
 		return true
 	}
 	return false
