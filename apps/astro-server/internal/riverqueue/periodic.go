@@ -86,6 +86,23 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
+	// One-shot backfill: copy deployment_variables → deployment_build_env.
+	// RunOnStart fires once per server boot; subsequent invocations
+	// no-op when every deployment already has rows. The periodic
+	// interval is long because the backfill is meant to drain quickly
+	// after release and stay quiet thereafter.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(24*time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return BuildEnvBackfillArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: 24 * time.Hour,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	if cfg.OMClient != nil {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),

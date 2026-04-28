@@ -1802,7 +1802,13 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 
 func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 	deployMock.MatchExpectationsInOrder(false)
+	// SaveNormalizedSpec clears deployment_build_env once per call before
+	// fan-out inserts.
+	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	for _, name := range names {
+		// Legacy table — one row per variable.
 		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 			WithArgs(
 				sqlmock.AnyArg(), // deployment_id
@@ -1813,6 +1819,23 @@ func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 				sqlmock.AnyArg(), // optional
 				sqlmock.AnyArg(), // targets
 				sqlmock.AnyArg(), // nonce
+			).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		// Dual-write to deployment_build_env. With Targets=["agent"]
+		// (the default for variables in these test fixtures), the
+		// fan-out is one row per variable.
+		deployMock.ExpectExec(`INSERT INTO deployment_build_env`).
+			WithArgs(
+				sqlmock.AnyArg(), // deployment_id
+				sqlmock.AnyArg(), // role
+				name,             // env_name
+				sqlmock.AnyArg(), // value_encrypted
+				sqlmock.AnyArg(), // nonce
+				sqlmock.AnyArg(), // is_secret
+				sqlmock.AnyArg(), // source
+				sqlmock.AnyArg(), // user_var_name
+				sqlmock.AnyArg(), // account_var_ref
+				sqlmock.AnyArg(), // optional
 			).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
@@ -2484,9 +2507,14 @@ func TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs(t *testing.T) {
 		deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
 	}
-	// No slack-targeted variables should be inserted — shaping must strip
-	// SLACK_CONFIG before persistence. Without the fix, an extra INSERT
-	// fires and ExpectationsWereMet errors out.
+	// SaveNormalizedSpec clears deployment_build_env before re-fanning
+	// out user_var rows. With slack stripped from the spec, no
+	// build_env or deployment_variables INSERTs follow — only the
+	// DELETE happens. An extra INSERT here would mean stale SLACK_*
+	// refs leaked through shaping.
+	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
@@ -2834,12 +2862,20 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Variables persist to both tables now: legacy deployment_variables
+	// (one row per var) and deployment_build_env (one row per
+	// (variable, target_role) pair, preceded by a DELETE clearing
+	// prior rows for this deployment).
+	deployMock.MatchExpectationsInOrder(false)
+	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	for range 3 {
+		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		deployMock.ExpectExec(`INSERT INTO deployment_build_env`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()

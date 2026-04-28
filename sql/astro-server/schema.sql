@@ -249,6 +249,35 @@ CREATE TABLE public.deployment_resolved_keys (
     CONSTRAINT deployment_resolved_keys_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
 );
 
+-- Per-(deployment, role, env name) source of truth for the env each
+-- container in a deployment will see. Phased migration:
+--   1. This PR — table created; a one-shot backfill copies existing
+--      deployment_variables rows. Old tables stay; legacy code paths
+--      keep working unchanged.
+--   2. Follow-up PR — wires the new table into the API/UI and the
+--      applier filter, drops the old tables.
+-- See docs/01-spec/unified-deployment-env-spec.md.
+CREATE TABLE public.deployment_build_env (
+    deployment_id varchar(11) NOT NULL,
+    role varchar(64) NOT NULL,
+    env_name varchar(255) NOT NULL,
+    value_encrypted bytea NOT NULL,
+    nonce bytea,
+    is_secret boolean NOT NULL,
+    source varchar(32) NOT NULL,
+    user_var_name varchar(255),
+    account_var_ref text,
+    optional boolean,
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_build_env_pkey PRIMARY KEY (deployment_id, role, env_name),
+    CONSTRAINT deployment_build_env_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_build_env_user_vars
+    ON public.deployment_build_env (deployment_id, user_var_name)
+    WHERE source = 'user_var';
+
 CREATE TABLE public.deployment_events (
     id bigserial NOT NULL,
     deployment_id varchar(11) NOT NULL,
