@@ -498,8 +498,10 @@ func (a *Applier) ApplyDeploymentSpec(
 	// derived from the spec's grants so the token agrees with what was
 	// persisted in this same deploy.
 	var anyoneAdapters []string
+	hasGrants := false
 	if ds.Interfaces != nil && ds.Interfaces.Auth != nil {
 		if ds.Interfaces.Auth.Web != nil {
+			hasGrants = hasGrants || len(ds.Interfaces.Auth.Web.Grants) > 0
 			for _, g := range ds.Interfaces.Auth.Web.Grants {
 				if g.Anyone {
 					anyoneAdapters = append(anyoneAdapters, "web")
@@ -508,6 +510,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 		if ds.Interfaces.Auth.Slack != nil {
+			hasGrants = hasGrants || len(ds.Interfaces.Auth.Slack.Grants) > 0
 			for _, g := range ds.Interfaces.Auth.Slack.Grants {
 				if g.Anyone {
 					anyoneAdapters = append(anyoneAdapters, "slack")
@@ -517,8 +520,29 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 	var deployToken string
-	if a.deployTokenSecret != "" {
-		deployToken, _ = deploytoken.Sign(a.deploymentID, a.authzCallbackURL, anyoneAdapters, a.deployTokenSecret)
+	switch {
+	case a.deployTokenSecret == "" && hasGrants:
+		// The spec asks the messaging container to enforce specific grants,
+		// but we have nothing to sign the token with. Without the token the
+		// container falls back to AllowAll() and the grants are silently
+		// ignored. Refuse rather than fail open.
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: agentName,
+			Kind:     "Deployment",
+			Error:    "DEPLOY_TOKEN_SECRET is unset but interfaces.auth grants are configured; refusing to apply because the messaging container would fall back to AllowAll() without a signed deploy token",
+		})
+		return result, nil
+	case a.deployTokenSecret != "":
+		signed, err := deploytoken.Sign(a.deploymentID, a.authzCallbackURL, anyoneAdapters, a.deployTokenSecret)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: agentName,
+				Kind:     "Deployment",
+				Error:    fmt.Sprintf("sign deploy token: %v", err),
+			})
+			return result, nil
+		}
+		deployToken = signed
 	}
 
 	// Build optional sidecar configs for messaging and collector.

@@ -454,3 +454,70 @@ func TestReplaceGrants_InsertFails(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// ReplaceGrantsTx runs the same delete-then-insert against a caller-owned
+// transaction, so a grants failure can roll back the deployment row that
+// the same caller wrote — no separate Begin/Commit on this helper.
+func TestReplaceGrantsTx_RunsOnCallerTransaction(t *testing.T) {
+	_, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
+		WithArgs("dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
+		WithArgs("dep-1", "anyone", "", "slack").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := ReplaceGrantsTx(tx, "dep-1", []Grant{
+		{SubjectType: "anyone", SubjectID: "", Adapter: "slack"},
+	}); err != nil {
+		t.Fatalf("ReplaceGrantsTx: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// When ReplaceGrantsTx fails on the caller's transaction, the caller's
+// rollback discards both the grants insert AND any deployment-row write
+// they committed earlier in the same tx — that's the whole point of the
+// Tx-aware variant.
+func TestReplaceGrantsTx_InsertFails_CallerRollback(t *testing.T) {
+	_, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
+		WithArgs("dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
+		WithArgs("dep-1", "user", "alice", "slack").
+		WillReturnError(errors.New("user grants are web-only"))
+	mock.ExpectRollback()
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := ReplaceGrantsTx(tx, "dep-1", []Grant{
+		{SubjectType: "user", SubjectID: "alice", Adapter: "slack"},
+	}); err == nil {
+		t.Fatal("expected ReplaceGrantsTx to fail")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

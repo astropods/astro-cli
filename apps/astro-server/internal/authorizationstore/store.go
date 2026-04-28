@@ -250,6 +250,19 @@ func (s *Store) ReplaceGrants(deploymentID string, grants []Grant) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := ReplaceGrantsTx(tx, deploymentID, grants); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ReplaceGrantsTx is the same swap as ReplaceGrants but runs inside an
+// existing transaction. The deploy flow uses it to fold the grants write
+// into the same transaction that creates the deployment row, so a grants
+// failure rolls back the deployment instead of leaving it committed with
+// no grants (which would silently engage the no-grants owner-fallback and
+// widen access).
+func ReplaceGrantsTx(tx *sql.Tx, deploymentID string, grants []Grant) error {
 	if _, err := tx.Exec(`
 		DELETE FROM deployment_authorization_grants WHERE deployment_id = $1
 	`, deploymentID); err != nil {
@@ -264,5 +277,5 @@ func (s *Store) ReplaceGrants(deploymentID string, grants []Grant) error {
 			return fmt.Errorf("insert grant: %w", err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }

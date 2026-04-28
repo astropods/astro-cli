@@ -593,7 +593,16 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}
 		}
 
-		// Save deployment as pending with normalized spec in same transaction
+		// Save deployment as pending with normalized spec AND authorization
+		// grants in a single transaction. Folding the grants write into the
+		// same tx prevents the failure mode where the deployment row commits
+		// but the grants write rolls back, leaving the deployment exposed to
+		// the no-grants owner-fallback path.
+		//
+		// E11 semantics still hold: when the spec's auth block is omitted
+		// entirely, we leave grants untouched. When present (even with
+		// grants:[]), we atomically replace.
+		applyAuth := authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil
 		txFn := func(tx *sql.Tx, deploymentID string) error {
 			nsCfg := &deploymentstore.NormalizedSpecConfig{
 				Namespace:              dctx.k8sNS,
@@ -605,7 +614,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				return err
 			}
 			if len(bindingStoreIDs) > 0 {
-				return ksStore.SaveBindings(c.Request.Context(), tx, deploymentID, bindingStoreIDs)
+				if err := ksStore.SaveBindings(c.Request.Context(), tx, deploymentID, bindingStoreIDs); err != nil {
+					return err
+				}
+			}
+			if applyAuth {
+				grants := buildAuthorizationGrants(deploymentID, submittedSpec.Interfaces.Auth)
+				if err := authorizationstore.ReplaceGrantsTx(tx, deploymentID, grants); err != nil {
+					return fmt.Errorf("replace grants: %w", err)
+				}
 			}
 			return nil
 		}
@@ -619,22 +636,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("Failed to save deployment record", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
-		}
-
-		// Apply interfaces.auth.grants declared in the spec to the
-		// authorization table. The grants table is the runtime source of truth
-		// for per-request authorization checks; this is its only writer (no
-		// imperative API exists).
-		//
-		// E11: when the auth block is omitted entirely, do nothing — preserve
-		// any existing grants. When present (even with grants:[]), atomically
-		// replace the deployment's grant set with the spec's list.
-		if authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil {
-			if err := applyDeploymentAuthorization(authzStore, dctx.deploymentID, submittedSpec.Interfaces.Auth); err != nil {
-				log.Error("Failed to apply deployment authorization", "error", err, "deployment_id", dctx.deploymentID)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to apply authorization"})
-				return
-			}
 		}
 
 		// Reserve the blueprint name on first deploy — best-effort, never blocks the response.
@@ -2907,13 +2908,13 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 	}
 }
 
-// applyDeploymentAuthorization atomically replaces the deployment's grants
-// with the union of `interfaces.auth.web.grants` and
-// `interfaces.auth.slack.grants`. This is the only writer to the grants
-// table — there is no imperative add/remove API — so the spec is the single
-// source of truth.
-func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) error {
+// buildAuthorizationGrants flattens the spec's web and slack grant blocks
+// into a single store-shape list, ready for ReplaceGrants/ReplaceGrantsTx.
+func buildAuthorizationGrants(deploymentID string, auth *spec.DeploymentInterfacesAuth) []authorizationstore.Grant {
 	var grants []authorizationstore.Grant
+	if auth == nil {
+		return grants
+	}
 	if auth.Web != nil {
 		for _, g := range auth.Web.Grants {
 			grants = append(grants, specGrantToStore(deploymentID, g, authorizationstore.AdapterWeb))
@@ -2924,7 +2925,16 @@ func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deployme
 			grants = append(grants, specGrantToStore(deploymentID, g, authorizationstore.AdapterSlack))
 		}
 	}
-	if err := authzStore.ReplaceGrants(deploymentID, grants); err != nil {
+	return grants
+}
+
+// applyDeploymentAuthorization atomically replaces the deployment's grants
+// with the union of `interfaces.auth.web.grants` and
+// `interfaces.auth.slack.grants`. This is the only writer to the grants
+// table — there is no imperative add/remove API — so the spec is the single
+// source of truth.
+func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) error {
+	if err := authzStore.ReplaceGrants(deploymentID, buildAuthorizationGrants(deploymentID, auth)); err != nil {
 		return fmt.Errorf("replace grants: %w", err)
 	}
 	return nil

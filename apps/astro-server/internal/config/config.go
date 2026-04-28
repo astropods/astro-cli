@@ -223,7 +223,7 @@ func Load() (*Config, error) {
 		Security: SecurityConfig{
 			AllowedOrigins:    getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
 			TrustedProxies:    getEnvSlice("TRUSTED_PROXIES", []string{}),
-			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", "astro-dev-secret"),
+			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", DevDeployTokenSecret),
 		},
 		Deployment: DeploymentConfig{
 			RegistryURL:                   getEnv("REGISTRY_URL", ""),
@@ -369,6 +369,18 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("TEMPLATE_SIGNING_KEY environment variable is required (hex-encoded, ≥16 bytes)")
 			}
 		}
+
+		// The deploy token signs the per-deployment ASTRO_AUTHZ_TOKEN that the
+		// messaging container presents back to /deployments/authorize. The
+		// dev default literal is in the public source, so a deployment of
+		// astro-server that boots with it would let anyone forge a token for
+		// any deployment_id and bypass `RequireDeployToken`. Allow the dev
+		// default only against a local cluster.
+		if c.Security.DeployTokenSecret == "" || c.Security.DeployTokenSecret == DevDeployTokenSecret {
+			if c.Deployment.K8sClientMode != "local" {
+				return fmt.Errorf("DEPLOY_TOKEN_SECRET environment variable is required in non-local mode (the dev default is published in the public source)")
+			}
+		}
 	}
 
 	if c.Database.URL == "" {
@@ -404,6 +416,12 @@ func (c *Config) Validate() error {
 
 	return nil
 }
+
+// DevDeployTokenSecret is the HMAC secret used for the deploy token only when
+// running against a local cluster. Validate() rejects this default in any
+// non-local mode because the literal is in the public source — anyone could
+// forge a deploy token and bypass `RequireDeployToken`.
+const DevDeployTokenSecret = "astro-dev-secret"
 
 // localDevSigningKey is a static HMAC key used only when running against a
 // local cluster (K8sClientMode="local") and TEMPLATE_SIGNING_KEY is unset.

@@ -1768,8 +1768,50 @@ func TestApplyDeploymentSpec_SlackAnyoneGrantInToken(t *testing.T) {
 	}
 }
 
-// When deployTokenSecret is empty (local dev with no secret configured), no
-// token is signed, so neither container receives ASTRO_AUTHZ_TOKEN.
+// If grants are configured but the deploy-token secret is unset, the apply
+// must refuse — the messaging container would otherwise fall back to
+// AllowAll() and the spec's grants would be silently unenforced.
+func TestApplyDeploymentSpec_RefusesGrantsWithoutSecret(t *testing.T) {
+	a := newTestApplier()
+	a.deploymentID = "dep-123"
+	// a.deployTokenSecret intentionally empty
+
+	ds := minimalDeploymentSpec()
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters: []string{"web"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+		},
+		Auth: &spec.DeploymentInterfacesAuth{
+			Web: &spec.DeploymentWebAuth{
+				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+			},
+		},
+	}
+
+	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("expected a deploy error refusing to apply without DEPLOY_TOKEN_SECRET")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if strings.Contains(e.Error, "DEPLOY_TOKEN_SECRET") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected DEPLOY_TOKEN_SECRET in error message; got %+v", result.Errors)
+	}
+}
+
+// When deployTokenSecret is empty (local dev with no secret configured) and
+// no grants are configured, no token is signed and neither container
+// receives ASTRO_AUTHZ_TOKEN.
 func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 	a := newTestApplier()
 	a.deploymentID = "dep-123"
