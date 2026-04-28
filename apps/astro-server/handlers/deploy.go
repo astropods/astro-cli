@@ -2909,7 +2909,12 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 }
 
 // buildAuthorizationGrants flattens the spec's web and slack grant blocks
-// into a single store-shape list, ready for ReplaceGrants/ReplaceGrantsTx.
+// into a single store-shape list, ready for ReplaceGrantsTx.
+//
+// This is the only writer-side translator from spec form to store form. The
+// deploy handler runs the resulting list through ReplaceGrantsTx inside the
+// same transaction that creates the deployment row, so the grants table is
+// never out of sync with the deployments table.
 func buildAuthorizationGrants(deploymentID string, auth *spec.DeploymentInterfacesAuth) []authorizationstore.Grant {
 	var grants []authorizationstore.Grant
 	if auth == nil {
@@ -2926,18 +2931,6 @@ func buildAuthorizationGrants(deploymentID string, auth *spec.DeploymentInterfac
 		}
 	}
 	return grants
-}
-
-// applyDeploymentAuthorization atomically replaces the deployment's grants
-// with the union of `interfaces.auth.web.grants` and
-// `interfaces.auth.slack.grants`. This is the only writer to the grants
-// table — there is no imperative add/remove API — so the spec is the single
-// source of truth.
-func applyDeploymentAuthorization(authzStore *authorizationstore.Store, deploymentID string, auth *spec.DeploymentInterfacesAuth) error {
-	if err := authzStore.ReplaceGrants(deploymentID, buildAuthorizationGrants(deploymentID, auth)); err != nil {
-		return fmt.Errorf("replace grants: %w", err)
-	}
-	return nil
 }
 
 // specGrantToStore translates a spec-shape grant (account_id|user_id|anyone)

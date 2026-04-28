@@ -25,10 +25,14 @@ const (
 
 	// SubjectTypeAccount: any member of the named account is allowed.
 	SubjectTypeAccount = "account"
-	// SubjectTypeUser: this specific WorkOS user is allowed. Web only.
+	// SubjectTypeUser: this specific WorkOS user is allowed. Web-only — the
+	// schema enforces user_web_only_check, since slack identity is opaque
+	// and resolves to the owning account, never to a WorkOS user.
 	SubjectTypeUser = "user"
-	// SubjectTypeAnyone: anyone hitting the adapter is allowed. Web only.
-	// subject_id is empty for these rows.
+	// SubjectTypeAnyone: anyone hitting the adapter is allowed. Legal on
+	// both web and slack; for slack it collapses to "any caller in the
+	// bot's workspace" (slack identity always resolves to the owning
+	// account). subject_id is empty for these rows.
 	SubjectTypeAnyone = "anyone"
 
 	AdapterWeb   = "web"
@@ -239,29 +243,13 @@ func (s *Store) ListGrants(deploymentID string) ([]*Grant, error) {
 	return grants, rows.Err()
 }
 
-// ReplaceGrants atomically swaps the deployment's grant set for the supplied
-// list. This is the only writer to the grants table — there is no imperative
-// add/remove API. The deploy flow calls this with the spec's complete grants
-// list so the spec is the single source of truth.
-func (s *Store) ReplaceGrants(deploymentID string, grants []Grant) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := ReplaceGrantsTx(tx, deploymentID, grants); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// ReplaceGrantsTx is the same swap as ReplaceGrants but runs inside an
-// existing transaction. The deploy flow uses it to fold the grants write
-// into the same transaction that creates the deployment row, so a grants
-// failure rolls back the deployment instead of leaving it committed with
-// no grants (which would silently engage the no-grants owner-fallback and
-// widen access).
+// ReplaceGrantsTx atomically swaps the deployment's grant set for the
+// supplied list inside an existing transaction. This is the only writer to
+// the grants table — there is no imperative add/remove API. The deploy
+// flow folds it into the same transaction that creates the deployment
+// row so a grants failure rolls back the deployment instead of leaving it
+// committed with no grants (which would silently engage the no-grants
+// owner-fallback and widen access).
 func ReplaceGrantsTx(tx *sql.Tx, deploymentID string, grants []Grant) error {
 	if _, err := tx.Exec(`
 		DELETE FROM deployment_authorization_grants WHERE deployment_id = $1

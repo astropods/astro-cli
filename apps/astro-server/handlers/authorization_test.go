@@ -231,63 +231,12 @@ func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
 	}
 }
 
-// E5: applyDeploymentAuthorization performs an atomic delete-then-insert that
-// matches the spec's grants list, regardless of what was there before.
-func TestApplyDeploymentAuthorization(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close()
-	store := authorizationstore.NewStore(db)
-
-	mock.ExpectBegin()
-	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
-		WithArgs("dep-1", "user", "alice", "web").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
-		WithArgs("dep-1", "anyone", "", "web").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	err = applyDeploymentAuthorization(store, "dep-1", &spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
-				{UserID: "alice"},
-				{Anyone: true},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// E6: empty grants list still runs the delete (clears all grants).
-func TestApplyDeploymentAuthorization_Empty(t *testing.T) {
-	db, mock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
-	defer db.Close()
-	store := authorizationstore.NewStore(db)
-
-	mock.ExpectBegin()
-	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnResult(sqlmock.NewResult(0, 3))
-	mock.ExpectCommit()
-
-	if err := applyDeploymentAuthorization(store, "dep-1", &spec.DeploymentInterfacesAuth{}); err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
+// E5/E6: see internal/authorizationstore/store_test.go
+// (TestReplaceGrantsTx_RunsOnCallerTransaction,
+// TestReplaceGrantsTx_InsertFails_CallerRollback) for the
+// replace-on-an-existing-tx semantics. The handler-level wrapper is now
+// `buildAuthorizationGrants` + `ReplaceGrantsTx` called directly from
+// `txFn` in DeployAgent — no separate handler entry point to test.
 
 // E4: prefill reads grants from the live table and translates back to spec form.
 func TestMergeAuthorizationFromStore(t *testing.T) {

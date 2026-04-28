@@ -382,82 +382,8 @@ func TestListGrants(t *testing.T) {
 	}
 }
 
-// E5/E6 - replace is atomic delete-then-insert.
-func TestReplaceGrants(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
-		WithArgs("dep-1", "account", "acct-1", "web").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
-		WithArgs("dep-1", "anyone", "", "web").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	err := store.ReplaceGrants("dep-1", []Grant{
-		{SubjectType: "account", SubjectID: "acct-1", Adapter: "web"},
-		{SubjectType: "anyone", SubjectID: "", Adapter: "web"},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// E6 - empty grants list still runs the delete (clearing all grants).
-func TestReplaceGrants_Empty(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnResult(sqlmock.NewResult(0, 5))
-	mock.ExpectCommit()
-
-	if err := store.ReplaceGrants("dep-1", nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Insert failure rolls back — no partial state.
-func TestReplaceGrants_InsertFails(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectExec("\n\t\t\tINSERT INTO deployment_authorization_grants\n\t\t\t\t(deployment_id, subject_type, subject_id, adapter, updated_at)\n\t\t\tVALUES ($1, $2, $3, $4, now())\n\t\t").
-		WithArgs("dep-1", "account", "acct-1", "web").
-		WillReturnError(errors.New("constraint violation"))
-	mock.ExpectRollback()
-
-	err := store.ReplaceGrants("dep-1", []Grant{
-		{SubjectType: "account", SubjectID: "acct-1", Adapter: "web"},
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// ReplaceGrantsTx runs the same delete-then-insert against a caller-owned
-// transaction, so a grants failure can roll back the deployment row that
-// the same caller wrote — no separate Begin/Commit on this helper.
+// E5/E6 - replace is an atomic delete-then-insert against the caller's
+// transaction.
 func TestReplaceGrantsTx_RunsOnCallerTransaction(t *testing.T) {
 	_, mock, db := newMockStore(t)
 	defer db.Close()
@@ -478,6 +404,32 @@ func TestReplaceGrantsTx_RunsOnCallerTransaction(t *testing.T) {
 	if err := ReplaceGrantsTx(tx, "dep-1", []Grant{
 		{SubjectType: "anyone", SubjectID: "", Adapter: "slack"},
 	}); err != nil {
+		t.Fatalf("ReplaceGrantsTx: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// E6 - empty grants list still runs the delete (clearing all grants).
+func TestReplaceGrantsTx_Empty(t *testing.T) {
+	_, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("\n\t\tDELETE FROM deployment_authorization_grants WHERE deployment_id = $1\n\t").
+		WithArgs("dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 5))
+	mock.ExpectCommit()
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := ReplaceGrantsTx(tx, "dep-1", nil); err != nil {
 		t.Fatalf("ReplaceGrantsTx: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
