@@ -18,7 +18,7 @@ This complements the existing ALB OIDC (authn) layer documented in `messaging-oi
 - **Subject** — the target of a grant. One of:
   - `account` — any member of this account is allowed.
   - `user` — one specific WorkOS user is allowed.
-  - `anyone` — anyone hitting this adapter is allowed (a "public" grant). Web-only.
+  - `anyone` — anyone hitting this adapter is allowed (a "public" grant). Allowed under both web and slack; for slack it collapses to "any caller in the bot's workspace" since slack identity always resolves to the bot's owning account.
 - **Grant** — a row in `deployment_authorization_grants` saying "this subject may use this deployment via this adapter."
 - **Adapter** — the messaging interface the grant applies to: `web` or `slack`.
 
@@ -32,7 +32,7 @@ This complements the existing ALB OIDC (authn) layer documented in `messaging-oi
 
 ## Non-Goals
 
-1. **Per-slack-user authorization**: slack identity is opaque; we authorize the bot's owning account. `user` grants are web-only.
+1. **Per-slack-user authorization**: slack identity is opaque; we authorize the bot's owning account. `user` grants are web-only. `anyone` is allowed under slack but reduces to the same scope as `account_id:<owner>`.
 2. **Roles inside an agent**: access is binary (allowed/denied). No viewer/admin distinction — meaningless for an agent.
 3. **Replacing ALB OIDC**: web requests still flow through ALB OIDC for authn first.
 4. **Anonymous access**: every request must carry a resolvable identity.
@@ -108,10 +108,11 @@ interfaces:
         - anyone: true                   # opens web to anyone (web-only)
     slack:
       grants:
-        - account_id: <uuid>             # slack is account-only
+        - account_id: <uuid>             # any member of this account
+        - anyone: true                   # opens slack to any caller in the bot's workspace
 ```
 
-The adapter is implied by where the grant lives — there is no `adapter:` field on a grant. A grant must specify exactly one of `account_id`, `user_id`, or `anyone: true`. `user_id` and `anyone` are rejected under `slack.grants` (slack is account-only).
+The adapter is implied by where the grant lives — there is no `adapter:` field on a grant. A grant must specify exactly one of `account_id`, `user_id`, or `anyone: true`. `user_id` is rejected under `slack.grants` (slack identity is opaque, so per-user authz isn't possible there); `account_id` and `anyone` are both legal under slack.
 
 **Public deployment composition.** A truly anonymous deployment requires both an `anyone` grant *and* `web.type` left unset (so ALB OIDC isn't gating the ingress). With `web.type=oidc` plus an `anyone` grant, any authenticated WorkOS user gets in but anonymous traffic still doesn't — ALB rejects it before authz runs. The two layers compose; we don't try to hide one behind the other.
 
@@ -131,7 +132,7 @@ The deploy template returned for a brand-new deployment ships with sensible gran
 
 Prefill rules on a fresh deploy:
 - One `user` grant for the deployer's WorkOS user ID under `auth.web.grants`
-- One `account` grant for the deployment's owner account under `auth.slack.grants` (only if slack is in `interfaces.adapters`)
+- One `anyone` grant under `auth.slack.grants` (only if slack is in `interfaces.adapters`). Equivalent in scope to `account_id:<owner>` for slack since slack identity always resolves to the bot's owning account, and emitted as `anyone` so the messaging container can take the same fast-path bypass it does for web.
 
 Prefill is a starting point, not enforcement. Removing the prefilled grants before deploying is allowed; the resulting deployment will deny everyone (which is a valid configuration if the deployer plans to add specific grants and never use the agent themselves).
 
@@ -162,7 +163,7 @@ deployment_authorization_grants(
   adapter       varchar CHECK IN ('web', 'slack'),
   created_at, updated_at,
   UNIQUE (deployment_id, subject_type, subject_id, adapter),
-  CHECK (subject_type IN ('user', 'anyone') = false OR adapter = 'web'),  -- user/anyone grants are web-only
+  CHECK (subject_type <> 'user' OR adapter = 'web'),                      -- `user` grants are web-only
   CHECK (subject_type <> 'anyone' OR subject_id = '')                     -- anyone uses empty subject_id
 )
 ```
@@ -373,5 +374,5 @@ The implementation must pass every case in this list. Cases are grouped by surfa
 1. **Cache invalidation** — grant changes (via redeploy) are not visible to the messaging container until the local cache TTL expires. Acceptable for v1. Options if we need explicit revoke later: shorter TTL, or a versioned token bumped on auth change.
 2. **Validating user IDs at deploy time** — should we check the WorkOS user actually exists when applying a `user` grant? Cheaper to catch typos at deploy than to debug silent denies; recommend yes if a fast lookup exists.
 3. **UI surfacing of org-backed accounts** — when adding an account grant the picker should distinguish "Acme Corp (org, 50 members)" from "Jane Doe (personal)" so the user understands blast radius.
-4. **`anyone` + slack** — currently rejected (slack identity is the bot's owning account, so "anyone" is meaningless). Revisit if a cross-workspace slack model emerges.
+4. **`anyone` + slack** — accepted. It collapses to the same scope as `account_id:<owner>` (the bot is per-account), but is preferred as the seeded fresh-deploy default so the messaging container's `anyone_adapters` fast path applies symmetrically with web. Revisit if a cross-workspace slack model emerges.
 5. **Empty-identity authorize calls** — the server still accepts and handles them (for misbehaving clients), but the documented happy path for anonymous public traffic is the container's `anyone_adapters` short-circuit, not a server round-trip.

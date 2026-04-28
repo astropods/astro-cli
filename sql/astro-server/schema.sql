@@ -565,8 +565,10 @@ CREATE INDEX idx_knowledge_store_bindings_store ON public.knowledge_store_bindin
 -- subject_type='user'    → subject_id is a workos_user_id.
 -- subject_type='anyone'  → subject_id is empty; the row matches any caller.
 --
--- user/anyone grants are restricted to the web adapter (slack identity is opaque,
--- so per-user authz isn't possible there and anyone-on-slack is meaningless).
+-- `user` grants are restricted to the web adapter — slack identity is opaque,
+-- so per-user authz isn't possible there. `anyone` is allowed on either
+-- adapter; for slack it collapses to "any caller in the bot's workspace",
+-- which is the seeded fresh-deploy default.
 --
 -- subject_id has no FK because it's polymorphic. Cascade only on deployment_id.
 CREATE TABLE public.deployment_authorization_grants (
@@ -581,7 +583,7 @@ CREATE TABLE public.deployment_authorization_grants (
     CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, subject_type, subject_id, adapter),
     CONSTRAINT deployment_authorization_grants_subject_check CHECK (subject_type IN ('account', 'user', 'anyone')),
     CONSTRAINT deployment_authorization_grants_adapter_check CHECK (adapter IN ('web', 'slack')),
-    CONSTRAINT deployment_authorization_grants_web_only_check CHECK (subject_type = 'account' OR adapter = 'web'),
+    CONSTRAINT deployment_authorization_grants_user_web_only_check CHECK (subject_type <> 'user' OR adapter = 'web'),
     CONSTRAINT deployment_authorization_grants_anyone_empty_check CHECK (subject_type <> 'anyone' OR subject_id = ''),
     CONSTRAINT deployment_authorization_grants_deployment_fkey FOREIGN KEY (deployment_id)
         REFERENCES public.deployments(id) ON DELETE CASCADE

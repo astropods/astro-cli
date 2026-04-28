@@ -23,10 +23,11 @@ interfaces:
         - anyone: true                 # public (web only)
     slack:
       grants:
-        - account_id: <uuid>           # slack is account-only
+        - account_id: <uuid>           # any member of this account
+        - anyone: true                 # any caller in the bot's workspace (slack default)
 ```
 
-`user_id` and `anyone` are web-only — slack identity is opaque, so the platform only authorizes the bot's owning account. Validation rejects them under `slack.grants` at deploy time, and schema-level CHECK constraints enforce the same invariant in the storage layer.
+`user_id` is web-only — slack identity is opaque, so per-user authz isn't possible there. Validation rejects `user_id` under `slack.grants` at deploy time, and a schema-level CHECK enforces the same invariant in the storage layer. `anyone` is legal on both adapters; under slack it collapses to "any caller in the bot's workspace" (since slack identity always resolves to the owning account) and is the seeded fresh-deploy default for slack-enabled deployments so the messaging container's `anyone_adapters` fast path applies symmetrically with web.
 
 **Two-layer enforcement.** The messaging container short-circuits the easy case; the server is the authority for everything else:
 
@@ -35,7 +36,7 @@ interfaces:
 
 **No-grants fallback.** A deployment with zero grants falls back to owner-account access (any member of the owning account is allowed). This keeps pre-rollout deployments and explicitly-cleared deployments working without instant lockout. The fallback turns off the moment any grant is added.
 
-**Prefill, not enforcement.** Fresh deployments get a starter `user` grant for the deployer (web) and an `account` grant for the owner account (slack, if enabled). Users see and can edit these before submitting. Redeploys prefill from live grants so the UI reflects current state.
+**Prefill, not enforcement.** Fresh deployments get a starter `user` grant for the deployer (web) and, when slack is enabled, an `anyone` grant under slack — equivalent in scope to `account_id:<owner>` for slack but emitted as `anyone` so the container's fast-path bypass applies. Users see and can edit these before submitting. Redeploys prefill from live grants so the UI reflects current state.
 
 **Token rename and identity injection.** The deploy token env var is now `ASTRO_AUTHZ_TOKEN` (was `ASTRO_DEPLOY_TOKEN`) and is injected into the agent container too — not just the messaging sidecar — so agent code can identify itself to platform APIs. Per-store credential keys avoid `envFrom` collisions when multiple secret stores share names. `AGENT_URL`/`AGENT_HOST` renamed to `ASTRO_AGENT_URL`/`ASTRO_AGENT_HOST` for namespacing consistency.
 
@@ -45,7 +46,7 @@ interfaces:
 (deployment_id, subject_type, subject_id, adapter)  -- unique
 subject_type IN ('account','user','anyone')
 adapter IN ('web','slack')
-CHECK: user/anyone grants require adapter='web'
+CHECK: user grants require adapter='web' (anyone is allowed on either)
 CHECK: anyone grants require subject_id=''
 ```
 

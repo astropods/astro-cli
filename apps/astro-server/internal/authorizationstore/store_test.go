@@ -179,7 +179,7 @@ func TestIsAllowed_EmptyCandidates_NoAnyone(t *testing.T) {
 	}
 }
 
-// A14 - slack request, no grant for slack → denied (anyone is web-only by schema).
+// A14 - slack request, no grant for slack → denied (no anyone or account grant matches).
 func TestIsAllowed_SlackNoGrant(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()

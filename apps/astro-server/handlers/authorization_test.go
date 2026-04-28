@@ -79,12 +79,28 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 	}
 }
 
-// C6: anyone under slack.grants → reject.
+// C6: anyone under slack.grants → accepted (collapses to account_id:<owner>
+// for slack since the bot is per-account; this is the seeded fresh-deploy
+// default for slack-enabled deployments).
 func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Slack: &spec.DeploymentSlackAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Anyone: true},
+			},
+		},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// user_id under slack.grants → still rejected (slack identity is opaque).
+func TestValidateAuth_UserIDOnSlack(t *testing.T) {
+	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+		Slack: &spec.DeploymentSlackAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{
+				{UserID: "alice"},
 			},
 		},
 	})
@@ -152,7 +168,7 @@ func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
 	tmpl := &spec.AstroDeploymentSpec{
 		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
 	}
-	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces.Auth == nil || tmpl.Interfaces.Auth.Web == nil {
 		t.Fatal("expected auth.web block populated")
 	}
@@ -167,12 +183,13 @@ func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
 	}
 }
 
-// E1: with slack enabled, an additional account grant is seeded under slack.
+// E1: with slack enabled, an `anyone` grant is seeded under slack so the
+// channel is reachable out of the box.
 func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
 	tmpl := &spec.AstroDeploymentSpec{
 		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
 	}
-	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces.Auth.Web == nil || len(tmpl.Interfaces.Auth.Web.Grants) != 1 {
 		t.Fatalf("expected one web grant, got %+v", tmpl.Interfaces.Auth.Web)
 	}
@@ -182,7 +199,7 @@ func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
 	if tmpl.Interfaces.Auth.Slack == nil || len(tmpl.Interfaces.Auth.Slack.Grants) != 1 {
 		t.Fatalf("expected one slack grant, got %+v", tmpl.Interfaces.Auth.Slack)
 	}
-	if g := tmpl.Interfaces.Auth.Slack.Grants[0]; g.AccountID != "acct-Acme" {
+	if g := tmpl.Interfaces.Auth.Slack.Grants[0]; !g.Anyone {
 		t.Errorf("unexpected slack grant: %+v", g)
 	}
 }
@@ -199,7 +216,7 @@ func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
 			},
 		},
 	}
-	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	seedFreshAuthGrants(tmpl, "alice")
 	if len(tmpl.Interfaces.Auth.Web.Grants) != 1 || !tmpl.Interfaces.Auth.Web.Grants[0].Anyone {
 		t.Errorf("expected existing anyone grant preserved, got %+v", tmpl.Interfaces.Auth.Web.Grants)
 	}
@@ -208,7 +225,7 @@ func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
 // Robust to nil Interfaces — no panic.
 func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
 	tmpl := &spec.AstroDeploymentSpec{}
-	seedFreshAuthGrants(tmpl, "alice", "acct-Acme")
+	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces != nil {
 		t.Errorf("did not expect Interfaces to be created")
 	}

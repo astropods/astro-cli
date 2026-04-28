@@ -2807,7 +2807,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		// template before submitting and may remove or extend them. See spec
 		// section "Defaults and prefill".
 		if user, ok := middleware.GetUser(c); ok {
-			seedFreshAuthGrants(template, user.ID, acct.ID)
+			seedFreshAuthGrants(template, user.ID)
 		}
 
 		cache.set(cacheKey, template)
@@ -2820,14 +2820,15 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 }
 
 // seedFreshAuthGrants populates interfaces.auth grants with sensible defaults
-// on a fresh deploy. The deployer always gets a user grant under web. The
-// owning account additionally gets an account grant under slack when slack is
-// in the adapter list, since a fresh slack-enabled deployment is otherwise
-// unreachable through that channel.
+// on a fresh deploy. The deployer always gets a user grant under web. When
+// slack is in the adapter list, an `anyone` grant is seeded under slack so the
+// channel is reachable out of the box — slack identity resolves to the owner
+// account regardless of grant shape, so `anyone` and `account_id: <owner>`
+// collapse to the same effective scope (anyone in the bot's workspace).
 //
 // Existing grants in the template (e.g. coming from the agent's astropods.yml)
 // are preserved — we only seed when both blocks are empty.
-func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID, ownerAccountID string) {
+func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID string) {
 	if template.Interfaces == nil {
 		return
 	}
@@ -2846,7 +2847,7 @@ func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID, own
 
 	if slices.Contains(template.Interfaces.Adapters, "slack") {
 		auth.Slack = &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{AccountID: ownerAccountID}},
+			Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
 		}
 	}
 }
@@ -3001,11 +3002,12 @@ func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 				errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
 			}
 
-			// user/anyone grants are web-only — slack identity is opaque so
-			// per-user authz isn't possible there, and "anyone on slack" is
-			// meaningless because the slack bot is per-account.
-			if adapter == authorizationstore.AdapterSlack && (g.UserID != "" || g.Anyone) {
-				errs = append(errs, prefix+": slack grants must use account_id (user_id and anyone are web-only)")
+			// user grants are web-only under slack: slack identity is opaque
+			// so per-user authz isn't possible there. `anyone` is allowed —
+			// it collapses to the same scope as account_id:<owner> for slack
+			// (the bot is per-account), and is the seeded fresh-deploy default.
+			if adapter == authorizationstore.AdapterSlack && g.UserID != "" {
+				errs = append(errs, prefix+": slack grants must use account_id or anyone (user_id is web-only)")
 			}
 
 			// Detect duplicates within the same spec.

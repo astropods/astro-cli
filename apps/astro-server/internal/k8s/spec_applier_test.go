@@ -2,10 +2,12 @@ package k8s
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1710,6 +1712,59 @@ func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testi
 	}
 	if agentTok != msgTok {
 		t.Errorf("agent and messaging should share the same identity token; got distinct values")
+	}
+}
+
+// An `anyone` grant under slack must populate the deploy token's
+// anyone_adapters claim with "slack" so the messaging container can fast-path
+// slack traffic the same way it does for web.
+func TestApplyDeploymentSpec_SlackAnyoneGrantInToken(t *testing.T) {
+	a := newTestApplier()
+	a.deploymentID = "dep-123"
+	a.deployTokenSecret = "test-secret"
+
+	ds := minimalDeploymentSpec()
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters: []string{"slack"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+		},
+		Auth: &spec.DeploymentInterfacesAuth{
+			Slack: &spec.DeploymentSlackAuth{
+				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+			},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+
+	var token string
+	for _, c := range depl.Spec.Template.Spec.Containers {
+		for _, e := range c.Env {
+			if e.Name == "ASTRO_AUTHZ_TOKEN" {
+				token = e.Value
+			}
+		}
+	}
+	if token == "" {
+		t.Fatal("ASTRO_AUTHZ_TOKEN not set on agent container")
+	}
+	_, anyoneAdapters, err := deploytoken.Verify(token, "test-secret")
+	if err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+	if !slices.Contains(anyoneAdapters, "slack") {
+		t.Errorf("expected anyone_adapters to contain \"slack\", got %v", anyoneAdapters)
 	}
 }
 
