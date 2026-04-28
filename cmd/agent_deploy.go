@@ -73,12 +73,12 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
-	cmd.Flags().BoolP("dry-run", "n", false, "Validate inputs without deploying")
+	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
 	cmd.Flags().Bool("json", false, "Print JSON output on success")
 }
 
 func registerDeployFlags(cmd *cobra.Command) {
-	cmd.Flags().String("name", "", "Display name for the deployment")
+	cmd.Flags().StringP("name", "n", "", "Display name for the deployment")
 	registerDeployCommonFlags(cmd)
 }
 
@@ -277,6 +277,9 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	if status, err := apiCall(cmd.Context(), http.MethodPost, deployURL, template, at.Token, verbose, &result); err != nil {
 		if status == http.StatusNotFound {
 			return fmt.Errorf("agent deployment %q no longer exists", displayName)
+		}
+		if status == http.StatusConflict {
+			return errDeployNameConflict(displayName)
 		}
 		return err
 	}

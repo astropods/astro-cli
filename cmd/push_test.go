@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1131,7 +1132,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "allow-account-override", "file"} {
+	for _, name := range []string{"visibility", "no-build", "yes", "allow-account-override", "file"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
@@ -1147,4 +1148,149 @@ func TestRunBlueprintPush_AccountMismatchErrorIsActionableNotMisleading(t *testi
 	err := runBlueprintPush(blueprintPushCmd, []string{"my-agent"})
 
 	require.EqualError(t, err, errAccountMismatch("acme-corp", "alice").Error())
+}
+
+func TestRunBlueprintPush(t *testing.T) {
+	tests := []struct {
+		name           string
+		specName       string   // spec agent name (bare or @org/name)
+		args           []string // positional args (name override)
+		allowOverride  bool
+		yes            bool
+		visibility     Visibility
+		wantErr        error
+		wantOutput     []string // must appear in cmd output
+		wantNoOutput   []string // must not appear in cmd output
+		wantRegistered string   // name delivered to /register; empty if error expected
+	}{
+		// Bare spec name, no arg — name comes from spec.
+		{
+			name:           "bare spec no arg",
+			specName:       "my-agent",
+			wantRegistered: "my-agent",
+		},
+		// Org-scoped spec, account matches org prefix, no arg — bare name used, no warning.
+		{
+			name:           "org-scoped spec matching account no arg",
+			specName:       "@alice/my-agent",
+			wantNoOutput:   []string{"overridden"},
+			wantRegistered: "my-agent",
+		},
+		// Org-scoped spec, account mismatches, no arg, no override — error returned.
+		{
+			name:     "org-scoped spec mismatch no arg no override",
+			specName: "@acme-corp/my-agent",
+			wantErr:  errAccountMismatch("acme-corp", "alice"),
+		},
+		// Org-scoped spec, account mismatches, no arg, override flag — account warning only, spec bare name registered.
+		{
+			name:           "org-scoped spec mismatch no arg with override",
+			specName:       "@acme-corp/my-agent",
+			allowOverride:  true,
+			wantOutput:     []string{`spec account "acme-corp" overridden to current account "alice"`},
+			wantNoOutput:   []string{`spec name`},
+			wantRegistered: "my-agent",
+		},
+		// Arg matches spec bare name — no override warning emitted.
+		{
+			name:           "arg matches spec name no warning",
+			specName:       "my-agent",
+			args:           []string{"my-agent"},
+			wantNoOutput:   []string{"overridden"},
+			wantRegistered: "my-agent",
+		},
+		// Arg differs from spec bare name — name override warning, arg name registered.
+		{
+			name:           "arg overrides spec name",
+			specName:       "my-agent",
+			args:           []string{"new-name"},
+			wantOutput:     []string{`spec name "my-agent" overridden to "new-name"`},
+			wantRegistered: "new-name",
+		},
+		// Arg present, spec has mismatching org, no override — error before name resolution.
+		{
+			name:     "arg with account mismatch no override",
+			specName: "@acme-corp/my-agent",
+			args:     []string{"my-agent"},
+			wantErr:  errAccountMismatch("acme-corp", "alice"),
+		},
+		// Arg differs from spec AND account mismatches with override — both warnings, arg name registered.
+		{
+			name:          "arg overrides name and account with override",
+			specName:      "@acme-corp/my-agent",
+			args:          []string{"fooo"},
+			allowOverride: true,
+			wantOutput: []string{
+				`spec account "acme-corp" overridden to current account "alice"`,
+				`spec name "my-agent" overridden to "fooo"`,
+			},
+			wantRegistered: "fooo",
+		},
+		// --yes skips the visibility confirmation prompt for a public push.
+		{
+			name:           "yes flag skips public visibility confirmation",
+			specName:       "my-agent",
+			visibility:     VisibilityPublic,
+			yes:            true,
+			wantRegistered: "my-agent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var registeredName string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+					parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+					registeredName = parts[len(parts)-1]
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusCreated)
+					json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+			pushServerURLOverride = srv.URL
+			t.Cleanup(func() { pushServerURLOverride = "" })
+
+			setupPushHomeAndSpec(t, "", tt.specName)
+
+			resetPushFlags(t)
+			require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+			if tt.allowOverride {
+				require.NoError(t, blueprintPushCmd.Flags().Set("allow-account-override", "true"))
+			}
+			if tt.yes {
+				require.NoError(t, blueprintPushCmd.Flags().Set("yes", "true"))
+			}
+			if tt.visibility != "" {
+				require.NoError(t, blueprintPushCmd.Flags().Set("visibility", string(tt.visibility)))
+			}
+
+			buf := &bytes.Buffer{}
+			blueprintPushCmd.SetOut(buf)
+			t.Cleanup(func() { blueprintPushCmd.SetOut(nil) })
+			blueprintPushCmd.SetContext(context.Background())
+
+			err := runBlueprintPush(blueprintPushCmd, tt.args)
+
+			if tt.wantErr != nil {
+				require.EqualError(t, err, tt.wantErr.Error())
+			} else {
+				require.NoError(t, err)
+			}
+
+			out := buf.String()
+			for _, s := range tt.wantOutput {
+				assert.Contains(t, out, s)
+			}
+			for _, s := range tt.wantNoOutput {
+				assert.NotContains(t, out, s)
+			}
+			if tt.wantRegistered != "" {
+				assert.Equal(t, tt.wantRegistered, registeredName)
+			}
+		})
+	}
 }

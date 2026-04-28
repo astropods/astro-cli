@@ -15,6 +15,13 @@ import (
 
 var errNoSpecFile = errors.New("astropods.yml not found in current directory, run 'ast project create' to create a new agent harness or pass -f to specify a path to a valid spec")
 
+func errDeployNameConflict(displayName string) error {
+	return fmt.Errorf(
+		"deployment name %q is already in use — choose a different name:\n  %s deploy <blueprint> --name <new-name>",
+		displayName, binaryName,
+	)
+}
+
 func errAccountMismatch(specAccount, currentAccount string) error {
 	return fmt.Errorf(
 		"spec account %q does not match current account %q\n\n"+

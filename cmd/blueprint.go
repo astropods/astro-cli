@@ -16,6 +16,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -138,6 +139,7 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 }
 
@@ -193,7 +195,7 @@ func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name strin
 	if err != nil {
 		return
 	}
-	name = astroSpec.Name
+	_, name = utils.ParseAgentName(astroSpec.Name)
 	if len(args) > 0 {
 		name = args[0]
 	}
@@ -215,7 +217,11 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	specPath, name, err := resolveSpecAndName(cmd, args)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
+	if err != nil {
+		return err
+	}
+	astroSpec, err := validateSpecFile(specPath)
 	if err != nil {
 		return err
 	}
@@ -223,18 +229,37 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	noBuild, _ := cmd.Flags().GetBool("no-build")
+
+	// Resolve name: arg overrides spec; account always comes from the login token.
+	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
+
 	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
+	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
+		if !allowAccountOverride {
+			return errAccountMismatch(specAccount, at.Account)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
+	}
+
+	if len(args) > 0 {
+		if args[0] != agentName {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, args[0]) //nolint:errcheck
+		}
+		agentName = args[0]
+	}
+
+	noBuild, _ := cmd.Flags().GetBool("no-build")
+	yes, _ := cmd.Flags().GetBool("yes")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL())
 	return runPush(cmd.Context(), at, pushConfig{
-		specPath:             specPath,
-		agentName:            name,
-		skipBuild:            noBuild,
-		skipPush:             skipPush,
-		platform:             platform,
-		visibility:           vis,
-		allowAccountOverride: allowAccountOverride,
-		verbose:              verbose,
+		specPath:   specPath,
+		agentName:  agentName,
+		skipBuild:  noBuild,
+		skipPush:   skipPush,
+		platform:   platform,
+		visibility: vis,
+		yes:        yes,
+		verbose:    verbose,
 	})
 }
 
