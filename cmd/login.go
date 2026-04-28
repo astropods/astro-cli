@@ -24,8 +24,8 @@ import (
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Authenticate with the Astro platform",
-	Long: `Authenticate with the Astro platform using your browser.
+	Short: "Authenticate with the Astropods platform",
+	Long: `Authenticate with the Astropods platform using your browser.
 
 This command initiates the OAuth device authorization flow:
 1. A verification code is displayed in your terminal

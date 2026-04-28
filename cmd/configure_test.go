@@ -2,10 +2,17 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/config"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -330,4 +337,122 @@ func TestFormatVars_UnknownFormat(t *testing.T) {
 	if !strings.Contains(err.Error(), "yaml") {
 		t.Errorf("error should mention the bad format, got: %v", err)
 	}
+}
+
+// ─── Configure persistence ───────────────────────────────────────────────────
+
+type configPersistenceStore struct {
+	Projects map[string]struct {
+		Name string            `json:"name"`
+		Vars map[string]string `json:"vars"`
+	} `json:"projects"`
+}
+
+func writePersistenceSpec(t *testing.T, dir, name string) {
+	t.Helper()
+	content := fmt.Sprintf("spec: \"1.0\"\nname: \"%s\"\nmeta:\n  description: test\nagent:\n  image: nginx:alpine\n", name)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "astropods.yml"), []byte(content), 0o600))
+}
+
+func readPersistenceStore(t *testing.T) configPersistenceStore {
+	t.Helper()
+	path, err := config.ConfigsPath(binaryName)
+	require.NoError(t, err)
+	data, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+	var cfg configPersistenceStore
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	return cfg
+}
+
+func persistenceVarsFor(t *testing.T, cfg configPersistenceStore, projectDir string) map[string]string {
+	t.Helper()
+	if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
+		if entry, ok := cfg.Projects[resolved]; ok {
+			return entry.Vars
+		}
+	}
+	return cfg.Projects[projectDir].Vars
+}
+
+func TestConfigurePersistence_VarPersistsValues(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+	writePersistenceSpec(t, projectDir, "@org/my-agent")
+	t.Chdir(projectDir)
+
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"OTHER_KEY=other-1"}, nil))
+
+	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
+	require.Equal(t, "sk-1", vars["API_KEY"])
+	require.Equal(t, "other-1", vars["OTHER_KEY"], "second --var must not clobber first")
+}
+
+func TestConfigurePersistence_VarEmptyValueIsStored(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+	writePersistenceSpec(t, projectDir, "@org/my-agent")
+	t.Chdir(projectDir)
+
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil))
+	// --var KEY= stores an empty string, replacing any existing value.
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY="}, nil))
+
+	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
+	require.Contains(t, vars, "API_KEY", "--var KEY= must store the key (with empty value)")
+	require.Equal(t, "", vars["API_KEY"], "--var KEY= must store empty string")
+}
+
+func TestConfigurePersistence_RmVarRemovesKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+	writePersistenceSpec(t, projectDir, "@org/my-agent")
+	t.Chdir(projectDir)
+
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1", "OTHER=keep"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", nil, []string{"API_KEY"}))
+
+	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
+	require.NotContains(t, vars, "API_KEY", "API_KEY should be removed by --rm-var")
+	require.Equal(t, "keep", vars["OTHER"], "unrelated key must survive")
+}
+
+func TestConfigurePersistence_DoesNotEchoSecret(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+	writePersistenceSpec(t, projectDir, "@org/my-agent")
+	t.Chdir(projectDir)
+
+	const secret = "sk-DO-NOT-ECHO-12345"
+	out := &strings.Builder{}
+	configureCmd.SetOut(out)
+	t.Cleanup(func() { configureCmd.SetOut(nil) })
+
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=" + secret}, nil))
+	require.NotContains(t, out.String(), secret, "--var must not echo the secret value")
+}
+
+func TestConfigurePersistence_SymlinkPathConsistency(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevated privileges on Windows")
+	}
+	t.Setenv("HOME", t.TempDir())
+	realDir := t.TempDir()
+	writePersistenceSpec(t, realDir, "@org/my-agent")
+
+	linkDir := filepath.Join(t.TempDir(), "aliased")
+	require.NoError(t, os.Symlink(realDir, linkDir))
+
+	t.Chdir(realDir)
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-real"}, nil))
+
+	t.Chdir(linkDir)
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"EXTRA=added-via-symlink"}, nil))
+
+	cfg := readPersistenceStore(t)
+	require.Len(t, cfg.Projects, 1, "symlinked path must resolve to same store entry")
+	vars := persistenceVarsFor(t, cfg, realDir)
+	require.Equal(t, "sk-real", vars["API_KEY"])
+	require.Equal(t, "added-via-symlink", vars["EXTRA"])
 }

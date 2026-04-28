@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+// ── ParseModelFlag ────────────────────────────────────────────────────────────
+
+func TestParseModelFlag(t *testing.T) {
+	tests := []struct {
+		input        string
+		wantProvider string
+		wantModel    string
+		wantErr      bool
+	}{
+		{"", "", "", false},
+		{"anthropic", "anthropic", "", false},
+		{"openai", "openai", "", false},
+		{"ollama", "ollama", "", false},
+		{"ollama/llama3.3:70b", "ollama", "llama3.3:70b", false},
+		{"ollama/mistral:7b", "ollama", "mistral:7b", false},
+		{"badprovider", "", "", true},
+		{"ollama/not-a-real-model", "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			provider, model, err := ParseModelFlag(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseModelFlag(%q) expected error, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseModelFlag(%q) unexpected error: %v", tt.input, err)
+			}
+			if provider != tt.wantProvider {
+				t.Errorf("ParseModelFlag(%q) provider = %q, want %q", tt.input, provider, tt.wantProvider)
+			}
+			if model != tt.wantModel {
+				t.Errorf("ParseModelFlag(%q) model = %q, want %q", tt.input, model, tt.wantModel)
+			}
+		})
+	}
+}
+
 // ── buildConfig ───────────────────────────────────────────────────────────────
 
 func TestBuildConfig_OllamaModel(t *testing.T) {

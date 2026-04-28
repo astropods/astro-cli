@@ -23,11 +23,23 @@ import (
 var blueprintServerURLOverride string
 
 func exactValidAgentName(cmd *cobra.Command, args []string) error {
-	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-		return err
+	if len(args) != 1 {
+		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got %d", len(args))
 	}
 	if err := spec.ValidateName(args[0]); err != nil {
-		return fmt.Errorf("agent name %q: %w", args[0], err)
+		return fmt.Errorf("blueprint name %q: %w", args[0], err)
+	}
+	return nil
+}
+
+func optionalValidAgentName(_ *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("expected at most one argument (blueprint name), but got %d", len(args))
+	}
+	if len(args) == 1 {
+		if err := spec.ValidateName(args[0]); err != nil {
+			return fmt.Errorf("blueprint name %q: %w", args[0], err)
+		}
 	}
 	return nil
 }
@@ -92,10 +104,10 @@ var blueprintGetCmd = &cobra.Command{
 }
 
 var blueprintPushCmd = &cobra.Command{
-	Use:   "push <name>",
+	Use:   "push [name]",
 	Short: "Push blueprint image to registry",
 	Long:  "Push blueprint image to registry. If the blueprint does not yet exist it will be created automatically.",
-	Args:  exactValidAgentName,
+	Args:  optionalValidAgentName,
 	RunE:  runBlueprintPush,
 }
 
@@ -107,10 +119,10 @@ var blueprintArchiveCmd = &cobra.Command{
 }
 
 var blueprintBuildCmd = &cobra.Command{
-	Use:   "build <name>",
+	Use:   "build [name]",
 	Short: "Build blueprint image",
 	Long:  "Build the agent blueprint image. Use 'blueprint push' to push it to the registry.",
-	Args:  exactValidAgentName,
+	Args:  optionalValidAgentName,
 	RunE:  runBlueprintBuild,
 }
 
@@ -124,7 +136,7 @@ var blueprintSetCmd = &cobra.Command{
 // registerPushFlags adds push flags to any command that invokes runPush.
 func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-	cmd.Flags().Bool("build", false, "Build image before pushing")
+	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 }
@@ -150,37 +162,52 @@ func init() {
 
 	// Top-level aliases
 	topLevelBuildCmd := &cobra.Command{
-		Use:   "build <name>",
+		Use:   "build [name]",
 		Short: blueprintBuildCmd.Short,
 		Long:  blueprintBuildCmd.Long,
-		Args:  exactValidAgentName,
+		Args:  optionalValidAgentName,
 		RunE:  runBlueprintBuild,
 	}
 	topLevelBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	rootCmd.AddCommand(topLevelBuildCmd)
 
 	topLevelPushCmd := &cobra.Command{
-		Use:   "push <name>",
+		Use:   "push [name]",
 		Short: blueprintPushCmd.Short,
 		Long:  blueprintPushCmd.Long,
-		Args:  exactValidAgentName,
+		Args:  optionalValidAgentName,
 		RunE:  runBlueprintPush,
 	}
 	rootCmd.AddCommand(topLevelPushCmd)
 	registerPushFlags(topLevelPushCmd)
 }
 
-func runBlueprintBuild(cmd *cobra.Command, args []string) error {
-	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
+// resolveSpecAndName resolves the spec path, validates it, and returns the agent name.
+// The name comes from args[0] if provided, otherwise from the spec's name field.
+func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name string, err error) {
+	specPath, err = resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
-		return err
+		return
 	}
-	if _, err := validateSpecFile(specPath); err != nil {
+	astroSpec, err := validateSpecFile(specPath)
+	if err != nil {
+		return
+	}
+	name = astroSpec.Name
+	if len(args) > 0 {
+		name = args[0]
+	}
+	return
+}
+
+func runBlueprintBuild(cmd *cobra.Command, args []string) error {
+	specPath, name, err := resolveSpecAndName(cmd, args)
+	if err != nil {
 		return err
 	}
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	platform, _ := resolveBuildPlatform(auth.DefaultServerURL)
-	return runBuild(cmd.Context(), specPath, args[0], generateBuildID(), []string{platform}, false, verbose, false)
+	return runBuild(cmd.Context(), specPath, name, generateBuildID(), []string{platform}, false, verbose, false)
 }
 
 func runBlueprintPush(cmd *cobra.Command, args []string) error {
@@ -188,25 +215,21 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
+	specPath, name, err := resolveSpecAndName(cmd, args)
 	if err != nil {
-		return err
-	}
-	// Validate spec before auth so bad specs produce a useful error immediately.
-	if _, err := validateSpecFile(specPath); err != nil {
 		return err
 	}
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-	build, _ := cmd.Flags().GetBool("build")
+	noBuild, _ := cmd.Flags().GetBool("no-build")
 	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL())
 	return runPush(cmd.Context(), at, pushConfig{
 		specPath:             specPath,
-		agentName:            args[0],
-		skipBuild:            !build,
+		agentName:            name,
+		skipBuild:            noBuild,
 		skipPush:             skipPush,
 		platform:             platform,
 		visibility:           vis,
@@ -349,8 +372,6 @@ func printBlueprintNextSteps(w io.Writer) {
 	lines = append(lines, boldPrimary.Render("Waiting for first push..."))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  %s   %s", boldPrimary.Render(binaryName+" blueprint push"), dim.Render("push your agent image")))
-	lines = append(lines, "")
-	lines = append(lines, dim.Render("Tip: use ")+boldPrimary.Render("--build")+dim.Render(" to build the image first."))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).

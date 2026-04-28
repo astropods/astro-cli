@@ -8,7 +8,12 @@
 // return a plain string are named msgXxx.
 package cmd
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var errNoSpecFile = errors.New("astropods.yml not found in current directory, run 'ast project create' to create a new agent harness or pass -f to specify a path to a valid spec")
 
 func errAccountMismatch(specAccount, currentAccount string) error {
 	return fmt.Errorf(

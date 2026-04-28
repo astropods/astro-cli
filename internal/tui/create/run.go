@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 
@@ -12,7 +13,7 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-// ollamaModels returns a curated list of popular models from the Ollama library.
+// ollamaModelList is a curated list of popular models from the Ollama library.
 var ollamaModelList = []string{
 	"llama3.3:70b",
 	"llama3.2:3b",
@@ -42,7 +43,12 @@ var ollamaModelList = []string{
 }
 
 // Run launches the interactive huh form and returns the user's configuration.
-func Run(name string) (scaffold.ScaffoldConfig, error) {
+// modelOverride pre-selects the LLM provider and skips the model selection steps;
+// accepted values: "anthropic", "openai", "ollama", or "ollama/<model>".
+func Run(name, modelOverride string) (scaffold.ScaffoldConfig, error) {
+	preProvider, preModel, _ := ParseModelFlag(modelOverride) // already validated upstream
+	modelPreselected := modelOverride != ""
+
 	var (
 		description string
 		interfaces  = []string{"web"}
@@ -61,6 +67,18 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 
 		confirm = true
 	)
+
+	if modelPreselected {
+		switch preProvider {
+		case "ollama":
+			models = []string{"ollama"}
+			if preModel != "" {
+				ollamaModel = preModel
+			}
+		case "anthropic", "openai":
+			models = []string{preProvider}
+		}
+	}
 
 	hasOllama := func() bool { return slices.Contains(models, "ollama") }
 	hasAnthropic := func() bool { return slices.Contains(models, "anthropic") }
@@ -115,9 +133,9 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 					huh.NewOption("OpenAI", "openai"),
 				).
 				Value(&models),
-		),
+		).WithHideFunc(func() bool { return modelPreselected }),
 
-		// Ollama model — only shown when Ollama is selected
+		// Ollama model — only shown when Ollama is selected and not pre-set via --model
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Ollama model").
@@ -125,7 +143,7 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 				Options(huh.NewOptions[string](ollamaModelList...)...).
 				Value(&ollamaModel).
 				Filtering(true),
-		).WithHideFunc(func() bool { return !hasOllama() }),
+		).WithHideFunc(func() bool { return !hasOllama() || modelPreselected }),
 
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
@@ -305,6 +323,31 @@ func buildConfig(in formInputs) scaffold.ScaffoldConfig {
 	}
 
 	return config
+}
+
+// ParseModelFlag parses and validates a --model flag value.
+// Accepted: "anthropic", "openai", "ollama", or "ollama/<model>" where <model> must be in the known list.
+func ParseModelFlag(s string) (provider, model string, err error) {
+	if s == "" {
+		return
+	}
+	parts := strings.SplitN(s, "/", 2)
+	provider = parts[0]
+	switch provider {
+	case "anthropic", "openai":
+		// valid, no specific model
+	case "ollama":
+		if len(parts) == 2 {
+			model = parts[1]
+			if !slices.Contains(ollamaModelList, model) {
+				return "", "", fmt.Errorf("unknown ollama model %q\n\nKnown models:\n  %s",
+					model, strings.Join(ollamaModelList, "\n  "))
+			}
+		}
+	default:
+		return "", "", fmt.Errorf("unknown model provider %q; supported: anthropic, openai, ollama[/<model>]", provider)
+	}
+	return
 }
 
 // ErrCancelled is returned when the user aborts the form or answers No to the confirm prompt.

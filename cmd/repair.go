@@ -32,7 +32,7 @@ func runRepair(specPath, workingDir string) error {
 	if specPath != "" {
 		astroSpec, specErr = spec.ParseSpec(specPath)
 	} else {
-		specErr = fmt.Errorf("no spec file found (try: %s)", SpecFileAliases[0])
+		specErr = errNoSpecFile
 	}
 
 	var config scaffold.ScaffoldConfig

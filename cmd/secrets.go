@@ -21,18 +21,21 @@ import (
 // secretsServerURLOverride is set in tests to redirect API calls to a test server.
 var secretsServerURLOverride string
 
-func exactValidSecretName(cmd *cobra.Command, args []string) error {
-	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-		return err
-	}
-	return spec.ValidateVarName(args[0])
-}
-
 func secretsBaseURL() string {
 	if secretsServerURLOverride != "" {
 		return strings.TrimSuffix(secretsServerURLOverride, "/")
 	}
 	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+}
+
+func exactValidSecretName(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("this command expected exactly one argument <secret name>, but got %d", len(args))
+	}
+	if err := spec.ValidateVarName(args[0]); err != nil {
+		return fmt.Errorf("secret name %q: %w", args[0], err)
+	}
+	return nil
 }
 
 var secretCmd = &cobra.Command{
@@ -80,16 +83,16 @@ var secretDeleteCmd = &cobra.Command{
 }
 
 var secretImportCmd = &cobra.Command{
-	Use:   "import <file>",
-	Short: "Import variables from a .env file",
-	Long: `Import variables from a .env file into the active account vault.
+	Use:   "import",
+	Short: "Import variables from a file (e.g., .env)",
+	Long: `Import variables from a file (e.g., .env) into the active account vault.
 
 Lines of the form KEY=value are imported as secrets by default.
 Use --plain to store all imported variables as plain text.
 Use --plain-keys KEY1,KEY2 to mark specific keys as plain text.
 Blank values (KEY=) are silently skipped.
 Existing variables are skipped unless --overwrite is set.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.NoArgs,
 	RunE: runSecretImport,
 }
 
@@ -104,6 +107,7 @@ func init() {
 	secretListCmd.Flags().Bool("values", false, "Show variable values")
 	secretListCmd.Flags().Bool("json", false, "Output as JSON")
 	secretGetCmd.Flags().Bool("json", false, "Output as JSON")
+	secretImportCmd.Flags().StringP("file", "f", "", "Path to the file to import (e.g., .env)")
 	secretImportCmd.Flags().Bool("plain", false, "Store all imported variables as plain text")
 	secretImportCmd.Flags().String("plain-keys", "", "Comma-separated keys to store as plain text")
 	secretImportCmd.Flags().Bool("overwrite", false, "Overwrite existing variables")
@@ -493,13 +497,18 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSecretImport(cmd *cobra.Command, args []string) error {
+func runSecretImport(cmd *cobra.Command, _ []string) error {
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	f, err := os.Open(args[0]) //nolint:gosec
+	filePath := flagString(cmd, "file")
+	if filePath == "" {
+		return fmt.Errorf("flag --file is required")
+	}
+
+	f, err := os.Open(filePath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("cannot open file: %w", err)
 	}

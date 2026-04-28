@@ -22,6 +22,13 @@ import (
 // agentServerURLOverride is set in tests to redirect API calls to a test server.
 var agentServerURLOverride string
 
+func exactValidAgentDeploymentName(_ *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("this command expected exactly one argument <agent deployment name>, but got %d", len(args))
+	}
+	return nil
+}
+
 func agentBaseURL() string {
 	if agentServerURLOverride != "" {
 		return strings.TrimSuffix(agentServerURLOverride, "/")
@@ -44,49 +51,49 @@ var agentListCmd = &cobra.Command{
 var agentGetCmd = &cobra.Command{
 	Use:   "get <name>",
 	Short: "Get details for a deployed agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentGet,
 }
 
 var agentPauseCmd = &cobra.Command{
 	Use:   "pause <name>",
 	Short: "Pause a running agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentPause,
 }
 
 var agentResumeCmd = &cobra.Command{
 	Use:   "resume <name>",
 	Short: "Resume a paused agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentResume,
 }
 
 var agentDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a deployed agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentDelete,
 }
 
 var agentHistoryCmd = &cobra.Command{
 	Use:   "history <name>",
 	Short: "List deployment history for an agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentHistory,
 }
 
 var agentRestartCmd = &cobra.Command{
 	Use:   "restart <name>",
 	Short: "Restart a running agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentRestart,
 }
 
 var agentLogsCmd = &cobra.Command{
 	Use:   "logs <name>",
 	Short: "Fetch logs for a deployed agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentLogs,
 }
 

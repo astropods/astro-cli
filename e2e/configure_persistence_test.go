@@ -14,15 +14,15 @@ import (
 
 // Integration test for the "ast configure not persisting values after upgrade"
 // regression. We build the ast binary and drive it as a subprocess so the full
-// CLI path (cobra -> runConfigureSet -> MergeProjectVars -> project-configs.json)
+// CLI path (cobra -> runConfigureFlags -> MergeProjectVars -> project-configs.json)
 // is exercised end-to-end, not just the internal helpers.
 //
 // Covers four user scenarios tied to the fix:
 //
-//  1. `ast configure set KEY VALUE` persists the value.
-//  2. Re-running `set` on a different key does not clobber the first.
-//  3. `ast configure set KEY ""` explicitly clears the value (routed to Unset).
-//  4. `ast configure unset KEY` clears the value.
+//  1. `ast project configure --var KEY=VALUE` persists the value.
+//  2. Re-running with a different key does not clobber the first.
+//  3. `ast project configure --var KEY=` stores an empty string for the key.
+//  4. `ast project configure --rm-var KEY` removes the key.
 //  5. Running the binary from the same project via both a raw and a
 //     symlink-resolved path still resolves to the same store (path-key
 //     canonicalization).
@@ -133,8 +133,8 @@ func projectVarsFor(t *testing.T, cfg projectVarsFile, projectDir string) map[st
 	return nil
 }
 
-// TestConfigurePersistence_SetPersistsValues locks the regression: `set` must
-// write the value and a subsequent `set` on a different key must not clobber
+// TestConfigurePersistence_SetPersistsValues locks the regression: --var must
+// write the value and a subsequent --var on a different key must not clobber
 // the first. This is the user's primary complaint ("ast configure not
 // persisting values since upgrading the cli").
 func TestConfigurePersistence_SetPersistsValues(t *testing.T) {
@@ -143,62 +143,62 @@ func TestConfigurePersistence_SetPersistsValues(t *testing.T) {
 	projectDir := t.TempDir()
 	writeMinimalSpec(t, projectDir, "@org/my-agent")
 
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "API_KEY", "sk-1")
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "OTHER_KEY", "other-1")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "API_KEY=sk-1")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "OTHER_KEY=other-1")
 
 	vars := projectVarsFor(t, readProjectConfigs(t, tmpHome), projectDir)
 	if vars["API_KEY"] != "sk-1" {
 		t.Errorf("API_KEY = %q, want %q", vars["API_KEY"], "sk-1")
 	}
 	if vars["OTHER_KEY"] != "other-1" {
-		t.Errorf("OTHER_KEY = %q, want %q (second set must not clobber first)", vars["OTHER_KEY"], "other-1")
+		t.Errorf("OTHER_KEY = %q, want %q (second --var must not clobber first)", vars["OTHER_KEY"], "other-1")
 	}
 }
 
-// TestConfigurePersistence_SetEmptyRoutesToUnset confirms `set KEY ""` clears
-// the value (routed to Unset). Before the fix the empty value was stored as
-// "", which looked identical to an unset but behaved differently.
-func TestConfigurePersistence_SetEmptyRoutesToUnset(t *testing.T) {
+// TestConfigurePersistence_VarEmptyValueIsStored confirms --var KEY= stores an
+// empty string for the key, replacing any existing value. This is distinct from
+// --rm-var KEY which removes the key entirely.
+func TestConfigurePersistence_VarEmptyValueIsStored(t *testing.T) {
 	binPath := buildAstBinary(t)
 	tmpHome := t.TempDir()
 	projectDir := t.TempDir()
 	writeMinimalSpec(t, projectDir, "@org/my-agent")
 
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "API_KEY", "sk-1")
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "API_KEY", "")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "API_KEY=sk-1")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "API_KEY=")
 
 	vars := projectVarsFor(t, readProjectConfigs(t, tmpHome), projectDir)
-	if _, ok := vars["API_KEY"]; ok {
-		t.Errorf("API_KEY should be absent after set-empty, got %q", vars["API_KEY"])
+	if v, ok := vars["API_KEY"]; !ok {
+		t.Error("API_KEY should be present after --var KEY= (stored as empty string)")
+	} else if v != "" {
+		t.Errorf("API_KEY = %q, want empty string", v)
 	}
 }
 
-// TestConfigurePersistence_UnsetRemovesKey exercises the explicit unset
-// subcommand added alongside the skip-empty fix.
+// TestConfigurePersistence_UnsetRemovesKey exercises the --rm-var flag which
+// explicitly removes a key from the store.
 func TestConfigurePersistence_UnsetRemovesKey(t *testing.T) {
 	binPath := buildAstBinary(t)
 	tmpHome := t.TempDir()
 	projectDir := t.TempDir()
 	writeMinimalSpec(t, projectDir, "@org/my-agent")
 
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "API_KEY", "sk-1")
-	runAst(t, binPath, projectDir, tmpHome, "configure", "set", "OTHER", "keep")
-	runAst(t, binPath, projectDir, tmpHome, "configure", "unset", "API_KEY")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "API_KEY=sk-1", "--var", "OTHER=keep")
+	runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--rm-var", "API_KEY")
 
 	vars := projectVarsFor(t, readProjectConfigs(t, tmpHome), projectDir)
 	if _, ok := vars["API_KEY"]; ok {
-		t.Errorf("API_KEY should be removed by unset, still present: %q", vars["API_KEY"])
+		t.Errorf("API_KEY should be removed by --rm-var, still present: %q", vars["API_KEY"])
 	}
 	if vars["OTHER"] != "keep" {
 		t.Errorf("OTHER = %q, want keep (unrelated key must survive)", vars["OTHER"])
 	}
 }
 
-// TestConfigurePersistence_DoesNotEchoSecret verifies that `configure set`
-// output never contains the value the user passed. Secrets are the primary
-// payload of this store — if the happy-path banner ever leaked the value
-// (e.g. via a refactored "Set %s = %s" format string) it would end up in
-// terminal scrollback, shell history screenshots, and CI logs.
+// TestConfigurePersistence_DoesNotEchoSecret verifies that configure output
+// never contains the value passed via --var. Secrets are the primary payload
+// of this store — if the happy-path banner ever leaked the value it would end
+// up in terminal scrollback, shell history screenshots, and CI logs.
 func TestConfigurePersistence_DoesNotEchoSecret(t *testing.T) {
 	binPath := buildAstBinary(t)
 	tmpHome := t.TempDir()
@@ -206,10 +206,10 @@ func TestConfigurePersistence_DoesNotEchoSecret(t *testing.T) {
 	writeMinimalSpec(t, projectDir, "@org/my-agent")
 
 	const sentinelSecret = "sk-DO-NOT-ECHO-12345"
-	out := runAst(t, binPath, projectDir, tmpHome, "configure", "set", "API_KEY", sentinelSecret)
+	out := runAst(t, binPath, projectDir, tmpHome, "project", "configure", "--var", "API_KEY="+sentinelSecret)
 
 	if strings.Contains(out, sentinelSecret) {
-		t.Errorf("configure set echoed the secret value back to stdout/stderr:\n%s", out)
+		t.Errorf("configure --var echoed the secret value back to stdout/stderr:\n%s", out)
 	}
 }
 
@@ -233,8 +233,8 @@ func TestConfigurePersistence_SymlinkPathConsistency(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	runAst(t, binPath, realDir, tmpHome, "configure", "set", "API_KEY", "sk-real")
-	runAst(t, binPath, linkDir, tmpHome, "configure", "set", "EXTRA", "added-via-symlink")
+	runAst(t, binPath, realDir, tmpHome, "project", "configure", "--var", "API_KEY=sk-real")
+	runAst(t, binPath, linkDir, tmpHome, "project", "configure", "--var", "EXTRA=added-via-symlink")
 
 	cfg := readProjectConfigs(t, tmpHome)
 	if len(cfg.Projects) != 1 {

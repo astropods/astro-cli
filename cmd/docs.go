@@ -19,7 +19,7 @@ var docsHelp string
 var docsCmd = &cobra.Command{
 	Use:     "docs [category]",
 	Aliases: []string{"doc"},
-	Short:   "Display Astro documentation",
+	Short:   "Display Astropods documentation",
 	Long: `Display documentation in your terminal.
 
 Categories:

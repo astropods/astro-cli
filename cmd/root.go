@@ -32,7 +32,7 @@ func fullVersion() string {
 
 var rootCmd = &cobra.Command{
 	Use:   binaryName,
-	Short: "Astro CLI - Build, push, and develop AI agents",
+	Short: "Astropods CLI - Build, push, and develop AI agents",
 	Long: astroBanner() + `
 
 Build, push, and develop AI agents.`,
@@ -48,7 +48,7 @@ func Execute() {
 
 	// Print first-run telemetry notice (once per install)
 	if telemetry.EnsureNoticed(binaryName) {
-		fmt.Fprintln(os.Stderr, "Notice: Astro collects anonymous usage data to improve the CLI.")
+		fmt.Fprintln(os.Stderr, "Notice: Astropods collects anonymous usage data to improve the CLI.")
 		fmt.Fprintln(os.Stderr, "Run `"+binaryName+" settings update --telemetry off` to opt out.")
 		fmt.Fprintln(os.Stderr)
 	}
@@ -157,7 +157,7 @@ func resolveSpecPath(specFile, workingDir string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("no spec file found (try: %s)", strings.Join(SpecFileAliases, ", "))
+	return "", errNoSpecFile
 }
 
 // resolveSpecPathAndCwd resolves the spec path and also returns the working directory.
