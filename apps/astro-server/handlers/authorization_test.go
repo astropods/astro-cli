@@ -231,6 +231,94 @@ func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
 	}
 }
 
+// Deploy-time invariant: when the submitted spec has slack in adapters but
+// no slack grants are mentioned, auto-seed an `anyone` grant so the bot is
+// reachable. Complements seedFreshAuthGrants (template path): the deploy
+// path can also bypass the template (CLI direct deploy, or a template where
+// web grants were set but slack grants weren't), and a slack-enabled
+// deployment with no slack grants would otherwise sign a token with empty
+// anyone_adapters and leave the channel unreachable.
+func TestEnsureSlackAnyoneGrant_NoAuthBlock(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
+	}
+	ensureSlackAnyoneGrant(ds)
+	if ds.Interfaces.Auth == nil || ds.Interfaces.Auth.Slack == nil {
+		t.Fatal("expected slack auth block populated")
+	}
+	if len(ds.Interfaces.Auth.Slack.Grants) != 1 || !ds.Interfaces.Auth.Slack.Grants[0].Anyone {
+		t.Fatalf("expected one slack anyone grant, got %+v", ds.Interfaces.Auth.Slack.Grants)
+	}
+}
+
+// Web grants present but slack grants missing — the existing seed bails out
+// in this case, so the deploy-time invariant must seed slack independently.
+func TestEnsureSlackAnyoneGrant_WebGrantsOnly(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"web", "slack"},
+			Auth: &spec.DeploymentInterfacesAuth{
+				Web: &spec.DeploymentWebAuth{
+					Grants: []spec.DeploymentAuthorizationGrant{{UserID: "alice"}},
+				},
+			},
+		},
+	}
+	ensureSlackAnyoneGrant(ds)
+	if ds.Interfaces.Auth.Slack == nil || len(ds.Interfaces.Auth.Slack.Grants) != 1 {
+		t.Fatalf("expected one slack grant, got %+v", ds.Interfaces.Auth.Slack)
+	}
+	if !ds.Interfaces.Auth.Slack.Grants[0].Anyone {
+		t.Errorf("expected anyone grant, got %+v", ds.Interfaces.Auth.Slack.Grants[0])
+	}
+	// Web grants must not be touched.
+	if len(ds.Interfaces.Auth.Web.Grants) != 1 || ds.Interfaces.Auth.Web.Grants[0].UserID != "alice" {
+		t.Errorf("web grants modified: %+v", ds.Interfaces.Auth.Web.Grants)
+	}
+}
+
+// Existing slack grants must be preserved — do not overwrite a user's
+// account_id-scoped slack grant with anyone.
+func TestEnsureSlackAnyoneGrant_PreservesExistingSlackGrants(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"slack"},
+			Auth: &spec.DeploymentInterfacesAuth{
+				Slack: &spec.DeploymentSlackAuth{
+					Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "acct-1"}},
+				},
+			},
+		},
+	}
+	ensureSlackAnyoneGrant(ds)
+	if len(ds.Interfaces.Auth.Slack.Grants) != 1 {
+		t.Fatalf("expected one slack grant, got %+v", ds.Interfaces.Auth.Slack.Grants)
+	}
+	if ds.Interfaces.Auth.Slack.Grants[0].AccountID != "acct-1" {
+		t.Errorf("expected existing account grant preserved, got %+v", ds.Interfaces.Auth.Slack.Grants[0])
+	}
+}
+
+// Slack adapter not selected → no slack block created.
+func TestEnsureSlackAnyoneGrant_NoSlackAdapter(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
+	}
+	ensureSlackAnyoneGrant(ds)
+	if ds.Interfaces.Auth != nil && ds.Interfaces.Auth.Slack != nil {
+		t.Errorf("expected no slack block, got %+v", ds.Interfaces.Auth.Slack)
+	}
+}
+
+// Robust to nil Interfaces — no panic, no allocation.
+func TestEnsureSlackAnyoneGrant_NilInterfaces(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{}
+	ensureSlackAnyoneGrant(ds)
+	if ds.Interfaces != nil {
+		t.Errorf("did not expect Interfaces to be created")
+	}
+}
+
 // E5/E6: see internal/authorizationstore/store_test.go
 // (TestReplaceGrantsTx_RunsOnCallerTransaction,
 // TestReplaceGrantsTx_InsertFails_CallerRollback) for the

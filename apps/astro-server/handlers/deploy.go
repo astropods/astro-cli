@@ -422,6 +422,14 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	// Deploy-time invariant: a slack-enabled deploy must always carry at
+	// least one slack grant. Without it the messaging container's signed
+	// token has an empty anyone_adapters claim and the bot is unreachable.
+	// The template-path seed already covers fresh deploys, but CLI-direct
+	// deploys and templates with web-only grants fall through to here.
+	ensureSlackAnyoneGrant(submittedSpec)
+	ensureSlackAnyoneGrant(resolveResult.Spec)
+
 	if submittedSpec.Interfaces != nil {
 		if authErrs := validateAuthorizationSpec(submittedSpec.Interfaces.Auth); len(authErrs) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -2850,6 +2858,32 @@ func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID stri
 		auth.Slack = &spec.DeploymentSlackAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
 		}
+	}
+}
+
+// ensureSlackAnyoneGrant seeds an `anyone` grant under slack at deploy time
+// when the slack adapter is enabled but no slack grants are mentioned. The
+// template-path seed (seedFreshAuthGrants) only fires when both web and
+// slack blocks are empty, so it misses the common case where the user (or
+// astropods.yml) sets web grants but leaves slack unset. Without a slack
+// grant the signed token's anyone_adapters claim ends up empty and the
+// channel is unreachable. Existing slack grants are preserved.
+func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
+	if ds.Interfaces == nil {
+		return
+	}
+	if !slices.Contains(ds.Interfaces.Adapters, "slack") {
+		return
+	}
+	if ds.Interfaces.Auth == nil {
+		ds.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+	}
+	auth := ds.Interfaces.Auth
+	if auth.Slack != nil && len(auth.Slack.Grants) > 0 {
+		return
+	}
+	auth.Slack = &spec.DeploymentSlackAuth{
+		Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
 	}
 }
 
