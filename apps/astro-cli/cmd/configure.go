@@ -26,6 +26,7 @@ var configureCmd = &cobra.Command{
 	Use:     "configure",
 	Aliases: []string{"config"},
 	Short:   "Configure project credentials and inputs",
+	Args:    cobra.NoArgs,
 	RunE:    runConfigure,
 }
 
@@ -55,6 +56,7 @@ var configureTelemetryCmd = &cobra.Command{
 
 Use --enable to opt in, --disable to opt out.
 You can also set the ASTRO_NO_TELEMETRY environment variable to disable.`,
+	Args: cobra.NoArgs,
 	RunE: runConfigureTelemetry,
 }
 
@@ -298,7 +300,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath, err := resolveSpecPath(cmd, workingDir)
+	specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
 	if err != nil {
 		return err
 	}
@@ -523,7 +525,7 @@ func runConfigureSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath, err := resolveSpecPath(cmd, workingDir)
+	specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
 	if err != nil {
 		return err
 	}

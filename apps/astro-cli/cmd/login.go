@@ -35,6 +35,7 @@ This command initiates the OAuth device authorization flow:
 
 Credentials are stored in your system's keychain when available,
 otherwise in the CLI config directory with restricted permissions.`,
+	Args: cobra.NoArgs,
 	RunE: runLogin,
 }
 

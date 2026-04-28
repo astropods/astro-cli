@@ -20,6 +20,7 @@ If you used the system keychain, credentials are removed from there as well.
 Example:
   ast logout
   ast logout --all`,
+	Args: cobra.NoArgs,
 	RunE: runLogout,
 }
 

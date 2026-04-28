@@ -25,6 +25,7 @@ var docsCmd = &cobra.Command{
 Categories:
   agent  Agent development guide (LLM, tools, messaging). Default.
   help   CLI help: installation, quick start, commands, spec.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runDocs,
 }
 

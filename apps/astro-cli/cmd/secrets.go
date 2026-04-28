@@ -40,11 +40,14 @@ var secretCmd = &cobra.Command{
 	Aliases: []string{"secret"},
 	Short:   "Manage account secrets",
 	Long:    "Create, list, update, and delete secrets in the account vault. Values are write-only once set.",
+	Args:    cobra.NoArgs,
+	RunE:    func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
 var secretListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List secrets in the active account vault",
+	Args:  cobra.NoArgs,
 	RunE:  runSecretList,
 }
 

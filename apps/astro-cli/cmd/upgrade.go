@@ -18,6 +18,7 @@ import (
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade the CLI to the latest version",
+	Args:  cobra.NoArgs,
 	RunE:  runUpgrade,
 }
 

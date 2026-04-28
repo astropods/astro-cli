@@ -19,18 +19,21 @@ var connectCmd = &cobra.Command{
 	Use:   "connect",
 	Short: "Connect this device to Astro",
 	Long:  "Establish a persistent connection to the Astro server. The device registers itself and can receive remote commands.",
+	Args:  cobra.NoArgs,
 	RunE:  runConnect,
 }
 
 var connectInstallServiceCmd = &cobra.Command{
 	Use:   "install-service",
 	Short: "Install ast connect as an OS service (launchd/systemd)",
+	Args:  cobra.NoArgs,
 	RunE:  runConnectInstallService,
 }
 
 var connectUninstallServiceCmd = &cobra.Command{
 	Use:   "uninstall-service",
 	Short: "Remove the ast connect OS service",
+	Args:  cobra.NoArgs,
 	RunE:  runConnectUninstallService,
 }
 

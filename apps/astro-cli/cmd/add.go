@@ -64,7 +64,7 @@ func init() {
 }
 
 func runAddDomain(cmd *cobra.Command, domain, provider string) error {
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func runAddModel(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func runAddKnowledge(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func runAddIntegration(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func runAddProvider(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	name := args[0]
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}

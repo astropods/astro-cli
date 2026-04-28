@@ -37,17 +37,21 @@ var knowledgeCmd = &cobra.Command{
 	Use:   "knowledge",
 	Short: "Manage managed knowledge stores",
 	Long:  `Create, inspect, and delete managed knowledge stores.`,
+	Args:  cobra.NoArgs,
+	RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
 var knowledgeCreateCmd = &cobra.Command{
 	Use:   "create --provider <provider> --name <name>",
 	Short: "Create a managed knowledge store",
+	Args:  cobra.NoArgs,
 	RunE:  runKnowledgeCreate,
 }
 
 var knowledgeListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List managed knowledge stores",
+	Args:  cobra.NoArgs,
 	RunE:  runKnowledgeList,
 }
 
@@ -83,6 +87,7 @@ var knowledgeConnectCmd = &cobra.Command{
 	Use:   "connect --provider <provider> --name <name> --host <host> --port <port>",
 	Short: "Connect an external knowledge store",
 	Long:  `Onboard an existing database by providing connection details. The platform stores credentials encrypted under an ARN.`,
+	Args:  cobra.NoArgs,
 	RunE:  runKnowledgeConnect,
 }
 

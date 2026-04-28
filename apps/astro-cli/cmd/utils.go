@@ -150,6 +150,12 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v) //nolint:errcheck,gosec
 }
 
+// flagString returns the string value of a flag, or "" if the flag is not defined on cmd.
+func flagString(cmd *cobra.Command, name string) string {
+	s, _ := cmd.Flags().GetString(name)
+	return s
+}
+
 // cmdAuth returns the current account token and the verbose flag for a command.
 func cmdAuth(cmd *cobra.Command) (AccountToken, bool, error) {
 	at, err := getCurrentAccountToken(cmd.Context())

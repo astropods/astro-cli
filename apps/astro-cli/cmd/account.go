@@ -22,11 +22,14 @@ var accountCmd = &cobra.Command{
 	Use:   "account",
 	Short: "Manage accounts",
 	Long:  "List accounts you belong to and switch the active account.",
+	Args:  cobra.NoArgs,
+	RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
 var accountListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List accounts you belong to",
+	Args:  cobra.NoArgs,
 	RunE:  runAccountList,
 }
 
@@ -49,6 +52,7 @@ var accountTokenCmd = &cobra.Command{
 
 For personal accounts this is your personal access token.
 For organization accounts this is an org-scoped access token.`,
+	Args: cobra.NoArgs,
 	RunE: runAccountToken,
 }
 

@@ -65,11 +65,14 @@ var blueprintCmd = &cobra.Command{
 	Aliases: []string{"bp"},
 	Short:   "Manage agent blueprints",
 	Long:    "Manage agent blueprints as registered, versioned agent definitions on the platform.",
+	Args:    cobra.NoArgs,
+	RunE:    func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
 var blueprintListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List blueprints in the active account",
+	Args:  cobra.NoArgs,
 	RunE:  runBlueprintList,
 }
 
@@ -118,18 +121,6 @@ var blueprintSetCmd = &cobra.Command{
 	RunE:  runBlueprintSet,
 }
 
-var blueprintValidateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate astropods.yml against the spec schema",
-	Long: `Validate astropods.yml against the spec schema.
-Reports all schema violations and semantic errors.
-
-Example:
-  ast bp validate
-  ast bp validate -f /path/to/astropods.yml`,
-	RunE: runBlueprintValidate,
-}
-
 // registerPushFlags adds push flags to any command that invokes runPush.
 func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
@@ -147,18 +138,6 @@ func init() {
 	blueprintCmd.AddCommand(blueprintPushCmd)
 	blueprintCmd.AddCommand(blueprintArchiveCmd)
 	blueprintCmd.AddCommand(blueprintSetCmd)
-	blueprintCmd.AddCommand(blueprintValidateCmd)
-	blueprintValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-
-	topLevelValidateCmd := &cobra.Command{
-		Use:   blueprintValidateCmd.Use,
-		Short: blueprintValidateCmd.Short,
-		Long:  blueprintValidateCmd.Long,
-		RunE:  runBlueprintValidate,
-	}
-	topLevelValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-	rootCmd.AddCommand(topLevelValidateCmd)
-
 	blueprintListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("card", false, "Show agent description")
@@ -191,16 +170,8 @@ func init() {
 	registerPushFlags(topLevelPushCmd)
 }
 
-func runBlueprintValidate(cmd *cobra.Command, args []string) error {
-	specPath, err := resolveSpecPathFromCwd(cmd)
-	if err != nil {
-		return err
-	}
-	return runValidate(specPath)
-}
-
 func runBlueprintBuild(cmd *cobra.Command, args []string) error {
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -217,7 +188,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
