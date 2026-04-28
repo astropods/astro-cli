@@ -17,7 +17,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
-	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -49,22 +48,10 @@ as "no change" so existing secrets are preserved across re-runs.`,
 	RunE: runConfigureUnset,
 }
 
-var configureTelemetryCmd = &cobra.Command{
-	Use:   "telemetry",
-	Short: "Enable or disable anonymous telemetry",
-	Long: `Control whether the CLI sends anonymous usage data.
-
-Use --enable to opt in, --disable to opt out.
-You can also set the ASTRO_NO_TELEMETRY environment variable to disable.`,
-	Args: cobra.NoArgs,
-	RunE: runConfigureTelemetry,
-}
-
 func init() {
 	rootCmd.AddCommand(configureCmd)
 	configureCmd.AddCommand(configureSetCmd)
 	configureCmd.AddCommand(configureUnsetCmd)
-	configureCmd.AddCommand(configureTelemetryCmd)
 
 	configureCmd.Long = fmt.Sprintf(`Interactively set credentials and input values for your agent project.
 
@@ -78,12 +65,6 @@ a .env file.`, binaryName, binaryName)
 
 The value is stored in ~/.%s/project-configs.json and automatically
 loaded by '%s dev'.`, binaryName, binaryName)
-	configureTelemetryCmd.Flags().Bool("enable", false, "Enable anonymous telemetry")
-	configureTelemetryCmd.Flags().Bool("disable", false, "Disable anonymous telemetry")
-
-	// Also allow --no-telemetry / --telemetry directly on configure
-	configureCmd.Flags().Bool("no-telemetry", false, "Disable anonymous telemetry")
-	configureCmd.Flags().Bool("telemetry", false, "Enable anonymous telemetry")
 
 	configureCmd.Flags().String("out", "", "Print stored config vars in the given format: env or json")
 }
@@ -210,35 +191,6 @@ func (m *configureApp) View() string {
 	return m.form.View() + hint
 }
 
-func runConfigureTelemetry(cmd *cobra.Command, _ []string) error {
-	enable, _ := cmd.Flags().GetBool("enable")
-	disable, _ := cmd.Flags().GetBool("disable")
-
-	if !enable && !disable {
-		// Show current status
-		if telemetry.IsEnabled(binaryName) {
-			fmt.Println("Telemetry is enabled.")
-		} else {
-			fmt.Println("Telemetry is disabled.")
-		}
-		fmt.Println("Use --enable or --disable to change.")
-		return nil
-	}
-	if enable && disable {
-		return fmt.Errorf("cannot use both --enable and --disable")
-	}
-
-	if err := telemetry.SetEnabled(binaryName, enable); err != nil {
-		return fmt.Errorf("failed to update telemetry setting: %w", err)
-	}
-	if enable {
-		fmt.Println("Telemetry enabled.")
-	} else {
-		fmt.Println("Telemetry disabled. No usage data will be sent.")
-	}
-	return nil
-}
-
 func formatVars(format string, vars map[string]string) (string, error) {
 	switch format {
 	case "env":
@@ -277,22 +229,6 @@ func runConfigureOut(format string) error {
 func runConfigure(cmd *cobra.Command, args []string) error {
 	if format, _ := cmd.Flags().GetString("out"); format != "" {
 		return runConfigureOut(format)
-	}
-
-	noTelemetry, _ := cmd.Flags().GetBool("no-telemetry")
-	enableTelemetry, _ := cmd.Flags().GetBool("telemetry")
-	if noTelemetry || enableTelemetry {
-		if err := telemetry.SetEnabled(binaryName, enableTelemetry); err != nil {
-			return fmt.Errorf("failed to update telemetry setting: %w", err)
-		}
-		if enableTelemetry {
-			fmt.Println("Telemetry enabled.")
-		} else {
-			fmt.Println("Telemetry disabled.")
-		}
-		if noTelemetry && !enableTelemetry {
-			return nil // --no-telemetry is standalone
-		}
 	}
 
 	workingDir, err := os.Getwd()
