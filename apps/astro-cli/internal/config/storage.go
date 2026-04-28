@@ -214,11 +214,37 @@ func MergeProjectVars(binaryName, projectPath, agentName string, newVars map[str
 	}
 
 	for k, v := range newVars {
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
-			continue
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			proj.Vars[k] = trimmed
 		}
-		proj.Vars[k] = trimmed
+	}
+
+	return SaveProjectConfigs(binaryName, cfg)
+}
+
+// SetProjectVars writes vars for the given project, including empty strings.
+// Use this for explicit flag-driven writes (e.g. --var KEY=) where an empty
+// value is intentional. For interactive form submissions use MergeProjectVars.
+func SetProjectVars(binaryName, projectPath, agentName string, newVars map[string]string) error {
+	cfg, err := LoadProjectConfigs(binaryName)
+	if err != nil {
+		return err
+	}
+
+	proj, key, ok := lookupProject(cfg, projectPath)
+	if !ok {
+		proj = &ProjectConfig{
+			Name: agentName,
+			Vars: make(map[string]string),
+		}
+		cfg.Projects[key] = proj
+	}
+	if proj.Vars == nil {
+		proj.Vars = make(map[string]string)
+	}
+
+	for k, v := range newVars {
+		proj.Vars[k] = v
 	}
 
 	return SaveProjectConfigs(binaryName, cfg)

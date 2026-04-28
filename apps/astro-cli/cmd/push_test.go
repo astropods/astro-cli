@@ -1100,7 +1100,7 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 
 	var err error
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"push", "test-agent", "--allow-account-override"})
+		rootCmd.SetArgs([]string{"push", "test-agent", "--allow-account-override", "--no-build"})
 		err = rootCmd.Execute()
 	})
 
@@ -1131,7 +1131,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "build", "allow-account-override", "file"} {
+	for _, name := range []string{"visibility", "no-build", "allow-account-override", "file"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false

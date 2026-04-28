@@ -404,10 +404,12 @@ func TestSecretImport_PlainKeys(t *testing.T) {
 
 	require.NoError(t, secretImportCmd.Flags().Set("plain-keys", "DB_URL"))
 	t.Cleanup(func() { secretImportCmd.Flags().Set("plain-keys", "") }) //nolint:errcheck
+	require.NoError(t, secretImportCmd.Flags().Set("file", f))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("file", "") }) //nolint:errcheck
 
 	buf := &bytes.Buffer{}
 	secretImportCmd.SetOut(buf)
-	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
+	require.NoError(t, runSecretImport(secretImportCmd, nil))
 
 	vars := received["variables"].([]any)
 	require.Len(t, vars, 2)
@@ -449,10 +451,12 @@ func TestSecretImport_Plain(t *testing.T) {
 
 	require.NoError(t, secretImportCmd.Flags().Set("plain", "true"))
 	t.Cleanup(func() { secretImportCmd.Flags().Set("plain", "false") }) //nolint:errcheck,gosec
+	require.NoError(t, secretImportCmd.Flags().Set("file", f))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("file", "") }) //nolint:errcheck
 
 	buf := &bytes.Buffer{}
 	secretImportCmd.SetOut(buf)
-	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
+	require.NoError(t, runSecretImport(secretImportCmd, nil))
 
 	vars := received["variables"].([]any)
 	byName := map[string]map[string]any{}
@@ -490,9 +494,12 @@ func TestSecretImport_SkipsExisting(t *testing.T) {
 	f := t.TempDir() + "/test.env"
 	require.NoError(t, os.WriteFile(f, []byte(envContent), 0600))
 
+	require.NoError(t, secretImportCmd.Flags().Set("file", f))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("file", "") }) //nolint:errcheck
+
 	buf := &bytes.Buffer{}
 	secretImportCmd.SetOut(buf)
-	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
+	require.NoError(t, runSecretImport(secretImportCmd, nil))
 
 	require.True(t, postCalled, "should still POST for NEW_KEY")
 	require.Contains(t, buf.String(), "Skipped")
@@ -519,9 +526,11 @@ func TestSecretImport_OverwriteFlag(t *testing.T) {
 
 	require.NoError(t, secretImportCmd.Flags().Set("overwrite", "true"))
 	t.Cleanup(func() { secretImportCmd.Flags().Set("overwrite", "false") }) //nolint:errcheck
+	require.NoError(t, secretImportCmd.Flags().Set("file", f))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("file", "") }) //nolint:errcheck
 
 	secretImportCmd.SetOut(&bytes.Buffer{})
-	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
+	require.NoError(t, runSecretImport(secretImportCmd, nil))
 	require.False(t, listCalled, "should not fetch existing when --overwrite is set")
 }
 
@@ -533,10 +542,13 @@ func TestSecretImport_SkipsBlankValues(t *testing.T) {
 	_, setup := secretTestServer(t, handler)
 	setup()
 
-	buf := &bytes.Buffer{}
-	secretImportCmd.SetOut(buf)
 	f := t.TempDir() + "/test.env"
 	require.NoError(t, os.WriteFile(f, []byte("EMPTY=\nALSO_EMPTY=   \n# comment\n\n"), 0600))
-	require.NoError(t, runSecretImport(secretImportCmd, []string{f}))
+	require.NoError(t, secretImportCmd.Flags().Set("file", f))
+	t.Cleanup(func() { secretImportCmd.Flags().Set("file", "") }) //nolint:errcheck
+
+	buf := &bytes.Buffer{}
+	secretImportCmd.SetOut(buf)
+	require.NoError(t, runSecretImport(secretImportCmd, nil))
 	require.Contains(t, buf.String(), "No variables to import")
 }

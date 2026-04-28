@@ -11,8 +11,8 @@ import (
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
-	Short: "Log out from the Astro platform",
-	Long: `Log out from the Astro platform and clear stored credentials.
+	Short: "Log out from the Astropods platform",
+	Long: `Log out from the Astropods platform and clear stored credentials.
 
 This command removes your stored authentication credentials from your system.
 If you used the system keychain, credentials are removed from there as well.

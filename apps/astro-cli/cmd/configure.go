@@ -29,44 +29,34 @@ var configureCmd = &cobra.Command{
 	RunE:    runConfigure,
 }
 
-var configureSetCmd = &cobra.Command{
-	Use:   "set <KEY> <VALUE>",
-	Short: "Set a single config variable",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runConfigureSet,
-}
-
-var configureUnsetCmd = &cobra.Command{
-	Use:   "unset <KEY> [KEY...]",
-	Short: "Remove one or more config variables",
-	Long: `Explicitly remove stored values for the given keys.
-
-Use this when you want to clear a value you previously set. Leaving a field
-blank in the interactive form does NOT remove the value — blanks are treated
-as "no change" so existing secrets are preserved across re-runs.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runConfigureUnset,
+func registerConfigureFlags(cmd *cobra.Command) {
+	cmd.Flags().String("out", "", "Print stored config vars in the given format: env or json")
+	cmd.Flags().String("vars-file", "", "Import variables from an env file")
+	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
+	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
 }
 
 func init() {
-	rootCmd.AddCommand(configureCmd)
-	configureCmd.AddCommand(configureSetCmd)
-	configureCmd.AddCommand(configureUnsetCmd)
+	devCmd.AddCommand(configureCmd)
 
-	configureCmd.Long = fmt.Sprintf(`Interactively set credentials and input values for your agent project.
+	configureCmd.Long = fmt.Sprintf(`Configure credentials and input values for your agent project.
 
-Reads astropods.yml to determine required variables, presents an interactive
-form to fill them in, and stores values in ~/.%s/project-configs.json.
+Reads astropods.yml to determine required variables. '%[1]s project start' loads them automatically.
 
-Stored values are automatically loaded by '%s dev', removing the need for
-a .env file.`, binaryName, binaryName)
+Run without flags for an interactive form.`, binaryName)
 
-	configureSetCmd.Long = fmt.Sprintf(`Set a single configuration variable for the current project.
+	registerConfigureFlags(configureCmd)
 
-The value is stored in ~/.%s/project-configs.json and automatically
-loaded by '%s dev'.`, binaryName, binaryName)
-
-	configureCmd.Flags().String("out", "", "Print stored config vars in the given format: env or json")
+	topLevelConfigureCmd := &cobra.Command{
+		Use:    "configure",
+		Short:  configureCmd.Short,
+		Long:   configureCmd.Long,
+		Args:   configureCmd.Args,
+		RunE:   runConfigure,
+		Hidden: true,
+	}
+	registerConfigureFlags(topLevelConfigureCmd)
+	rootCmd.AddCommand(topLevelConfigureCmd)
 }
 
 // varEntry describes one configurable variable.
@@ -214,7 +204,7 @@ func runConfigureOut(format string) error {
 
 	vars := config.GetProjectVars(binaryName, workingDir)
 	if len(vars) == 0 {
-		fmt.Fprintln(os.Stderr, "ℹ️  No stored config variables found for this project.")
+		fmt.Fprintf(os.Stderr, "%sNo stored config variables found for this project.%s\n", colorDim, colorReset)
 		return nil
 	}
 
@@ -229,6 +219,14 @@ func runConfigureOut(format string) error {
 func runConfigure(cmd *cobra.Command, args []string) error {
 	if format, _ := cmd.Flags().GetString("out"); format != "" {
 		return runConfigureOut(format)
+	}
+
+	importFile, _ := cmd.Flags().GetString("vars-file")
+	setVals, _ := cmd.Flags().GetStringArray("var")
+	unsetKeys, _ := cmd.Flags().GetStringArray("rm-var")
+
+	if importFile != "" || len(setVals) > 0 || len(unsetKeys) > 0 {
+		return runConfigureFlags(cmd, importFile, setVals, unsetKeys)
 	}
 
 	workingDir, err := os.Getwd()
@@ -246,7 +244,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	fmt.Printf("📄 Configuring: %s\n\n", astroSpec.Name)
+	fmt.Printf("%s→%s Configuring: %s%s%s\n\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 	printedLines := 2
 
 	// Load .env for migration (pre-populate fields with existing file values)
@@ -257,7 +255,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	}
 	hasDotenv := dotenvVars != nil
 	if hasDotenv {
-		fmt.Printf("📂 Found %s — values will be pre-filled for migration\n\n", utils.DefaultEnvFile)
+		fmt.Printf("%s→%s Found %s — values will be pre-filled for migration\n\n", colorCyan, colorReset, utils.DefaultEnvFile)
 		printedLines += 2
 	}
 
@@ -352,7 +350,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 
 	// If nothing to configure, bail early
 	if len(credVars) == 0 && len(messagingVars) == 0 && len(inputVars) == 0 {
-		fmt.Println("ℹ️  No configurable variables found in spec.")
+		fmt.Printf("%sNo configurable variables found in spec.%s\n", colorDim, colorReset)
 		return nil
 	}
 
@@ -393,15 +391,20 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// MergeProjectVars skips empty values so a blank submission for a
-	// pre-filled secret preserves it. Split the counters to mirror that:
+	// In the TUI path a blank submission means "leave existing value alone".
+	// Filter out blank entries before calling MergeProjectVars, which skips
+	// empty values. The --var flag path uses SetProjectVars to allow KEY="".
+	//
+	// Split counters:
 	//   saved     — non-empty submission, will be written
 	//   preserved — blank submission but an existing stored value survives
 	//   blank     — blank submission with nothing previously stored
 	saved, preserved, blank := 0, 0, 0
+	filtered := make(map[string]string, len(newVars))
 	for _, v := range allVars {
 		if strings.TrimSpace(newVars[v.key]) != "" {
 			saved++
+			filtered[v.key] = newVars[v.key]
 			continue
 		}
 		if _, ok := stored[v.key]; ok {
@@ -411,11 +414,11 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := config.MergeProjectVars(binaryName, workingDir, astroSpec.Name, newVars); err != nil {
+	if err := config.MergeProjectVars(binaryName, workingDir, astroSpec.Name, filtered); err != nil {
 		return fmt.Errorf("failed to save project config: %w", err)
 	}
 
-	fmt.Printf("\n✅ Saved %d variable(s)", saved)
+	fmt.Printf("\n%s✓%s Saved %d variable(s)", colorGreen, colorReset, saved)
 	if preserved > 0 {
 		fmt.Printf(", preserved %d existing value(s)", preserved)
 	}
@@ -424,9 +427,9 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 	if preserved > 0 {
-		fmt.Println("ℹ️  Use `ast configure unset <KEY>` to explicitly clear a stored value.")
+		fmt.Printf("%sUse --rm-var KEY to explicitly clear a stored value.%s\n", colorDim, colorReset)
 	}
-	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
+	fmt.Printf("%sStored in: %s%s\n", colorDim, configsPathDisplay(), colorReset)
 
 	// Offer to delete .env if one was found
 	if hasDotenv {
@@ -443,9 +446,9 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		)
 		if err := prompt.Run(); err == nil && deleteDotenv {
 			if err := os.Remove(envFilePath); err != nil {
-				fmt.Printf("⚠️  Could not delete %s: %v\n", utils.DefaultEnvFile, err)
+				fmt.Printf("%s✗%s Could not delete %s: %v\n", colorRed, colorReset, utils.DefaultEnvFile, err)
 			} else {
-				fmt.Printf("🗑️  Deleted %s\n", utils.DefaultEnvFile)
+				fmt.Printf("%s✓%s Deleted %s\n", colorGreen, colorReset, utils.DefaultEnvFile)
 			}
 		}
 	}
@@ -453,64 +456,64 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runConfigureSet(cmd *cobra.Command, args []string) error {
-	key, value := args[0], strings.TrimSpace(args[1])
-
+func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys []string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
-	if err != nil {
-		return err
+	// Resolve spec for project name (needed by MergeProjectVars).
+	var specName string
+	if importFile != "" || len(setVals) > 0 {
+		specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
+		if err != nil {
+			return err
+		}
+		astroSpec, err := spec.ParseSpec(specPath)
+		if err != nil {
+			return fmt.Errorf("failed to parse spec: %w", err)
+		}
+		specName = astroSpec.Name
 	}
 
-	astroSpec, err := spec.ParseSpec(specPath)
-	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
+	if importFile != "" {
+		vars, err := godotenv.Read(importFile)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", importFile, err)
+		}
+		if err := config.MergeProjectVars(binaryName, workingDir, specName, vars); err != nil {
+			return fmt.Errorf("failed to import config: %w", err)
+		}
+		fmt.Printf("Imported %d variable(s) from %s\n", len(vars), importFile)
 	}
 
-	// `set KEY ""` used to clobber the stored value when MergeProjectVars
-	// wrote empty strings through. Now that empties are preserved, an empty
-	// VALUE is explicitly routed to unset to keep the observable "clear a
-	// var" behavior of `set` intact.
-	if value == "" {
-		if err := config.UnsetProjectVars(binaryName, workingDir, []string{key}); err != nil {
+	if len(setVals) > 0 {
+		vars := make(map[string]string, len(setVals))
+		for _, kv := range setVals {
+			idx := strings.IndexByte(kv, '=')
+			if idx < 0 {
+				return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
+			}
+			vars[kv[:idx]] = kv[idx+1:]
+		}
+		if err := config.SetProjectVars(binaryName, workingDir, specName, vars); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		for k := range vars {
+			fmt.Printf("Set %s\n", k)
+		}
+	}
+
+	if len(unsetKeys) > 0 {
+		if err := config.UnsetProjectVars(binaryName, workingDir, unsetKeys); err != nil {
 			return fmt.Errorf("failed to unset config: %w", err)
 		}
-		fmt.Printf("🗑️  Unset %s\n", key)
-		fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
-		return nil
+		for _, k := range unsetKeys {
+			fmt.Printf("Unset %s\n", k)
+		}
 	}
 
-	if err := config.MergeProjectVars(binaryName, workingDir, astroSpec.Name, map[string]string{key: value}); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Printf("✅ Set %s\n", key)
-	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
-	return nil
-}
-
-func runConfigureUnset(cmd *cobra.Command, args []string) error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	// Unset doesn't need the spec to resolve — stored vars are keyed by the
-	// project path, not by agent name. Parsing is still useful for nicer
-	// error messages if the user runs it in the wrong directory, but we
-	// skip it to keep `unset` usable even when the spec is temporarily
-	// broken.
-	if err := config.UnsetProjectVars(binaryName, workingDir, args); err != nil {
-		return fmt.Errorf("failed to unset config: %w", err)
-	}
-	for _, key := range args {
-		fmt.Printf("🗑️  Unset %s\n", key)
-	}
-	fmt.Printf("📁 Stored in: %s\n", configsPathDisplay())
+	fmt.Printf("Stored in: %s\n", configsPathDisplay())
 	return nil
 }
 

@@ -22,14 +22,15 @@ var (
 	pathFlag     string
 	templateFlag string
 	forceFlag    bool
+	modelFlag    string
 )
 
 var createCmd = &cobra.Command{
 	Use:   "create [name]",
-	Short: "Create a new Astro agent project",
-	Long: `Create a new Astro agent project with scaffolded files.
+	Short: "Create a new Astropods agent project",
+	Long: `Create a new Astropods agent project with scaffolded files.
 
-The create command generates a new agent project from a template:
+Generates a new agent project from a template:
 - astropods.yml specification file
 - agent source files for your agent logic
 - ingestion source files for data pipelines
@@ -44,18 +45,40 @@ Available templates:
 	RunE: runCreate,
 }
 
+func registerCreateFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
+	cmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
+	cmd.Flags().StringVarP(&templateFlag, "template", "t", "mastra", "Agent template (mastra, langchain)")
+	cmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
+	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "LLM provider: anthropic, openai, or ollama[/<model>] (e.g. ollama/llama3.3:70b)")
+}
+
+func initExamples(cmd string) string {
+	return fmt.Sprintf(`  %[1]s
+  %[1]s my-agent
+  %[1]s my-agent --yes
+  %[1]s my-agent --yes --model anthropic
+  %[1]s my-agent --yes --model ollama/llama3.3:70b
+  %[1]s my-agent --template langchain
+  %[1]s my-agent --path /path/to/projects
+  %[1]s my-agent --force`, cmd)
+}
+
 func init() {
-	rootCmd.AddCommand(createCmd)
-	createCmd.Example = fmt.Sprintf(`  %[1]s create
-  %[1]s create my-agent
-  %[1]s create my-agent --yes
-  %[1]s create my-agent --template langchain
-  %[1]s create my-agent --path /path/to/projects
-  %[1]s create my-agent --force`, binaryName)
-	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
-	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
-	createCmd.Flags().StringVarP(&templateFlag, "template", "t", "mastra", "Agent template (mastra, langchain)")
-	createCmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
+	devCmd.AddCommand(createCmd)
+	createCmd.Example = initExamples(binaryName + " project create")
+	registerCreateFlags(createCmd)
+
+	topLevelCreateCmd := &cobra.Command{
+		Use:   "create [name]",
+		Short: createCmd.Short,
+		Long:  createCmd.Long,
+		Args:  createCmd.Args,
+		RunE:  runCreate,
+	}
+	topLevelCreateCmd.Example = initExamples(binaryName + " project create")
+	registerCreateFlags(topLevelCreateCmd)
+	rootCmd.AddCommand(topLevelCreateCmd)
 }
 
 func runCreate(_ *cobra.Command, args []string) error {
@@ -68,6 +91,11 @@ func runCreate(_ *cobra.Command, args []string) error {
 	if _, ok := scaffold.LangForTemplate(templateFlag); !ok {
 		available := "  mastra     TypeScript/Bun agent using Mastra\n  langchain  Python agent using LangChain"
 		return fmt.Errorf("unknown template: %q\n\nAvailable templates:\n%s", templateFlag, available)
+	}
+
+	// Validate model flag
+	if _, _, err := create.ParseModelFlag(modelFlag); err != nil {
+		return err
 	}
 
 	// If name was provided as arg, validate it upfront
@@ -85,9 +113,10 @@ func runCreate(_ *cobra.Command, args []string) error {
 		}
 		printBanner()
 		config = scaffold.DefaultConfig(name)
+		applyModelOverride(&config, modelFlag)
 	} else {
 		var err error
-		config, err = create.Run(name)
+		config, err = create.Run(name, modelFlag)
 		if errors.Is(err, create.ErrCancelled) {
 			return nil
 		}
@@ -133,6 +162,17 @@ func runCreate(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {
+	provider, model, _ := create.ParseModelFlag(modelOverride) // already validated
+	switch provider {
+	case "anthropic", "openai":
+		config.Integrations = append(config.Integrations, provider)
+	case "ollama":
+		config.ModelProvider = "ollama"
+		config.Model = model
+	}
+}
+
 func printSuccess(name, targetDir string, usedDefaults bool) {
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
@@ -152,12 +192,13 @@ func printSuccess(name, targetDir string, usedDefaults bool) {
 
 	addStep("cd "+targetDir, "enter the project directory")
 	if usedDefaults {
-		addStep(binaryName+" configure", "set your API keys")
+		addStep(binaryName+" project configure", "set your API keys")
 	}
-	addStep(binaryName+" dev", "start your agent locally")
+	addStep(binaryName+" project start", "start your agent locally")
 
 	lines = append(lines, "")
-	lines = append(lines, dim.Render("Tip: run ")+boldPrimary.Render(binaryName+" explain")+dim.Render(" for a plain-English breakdown of your spec."))
+	lines = append(lines, dim.Render("Tip: run ")+boldPrimary.Render(binaryName+" spec explain")+dim.Render(" for a plain-English breakdown of your spec."))
+	lines = append(lines, dim.Render("Ready to ship? ")+boldPrimary.Render(binaryName+" push "+name)+dim.Render(" then ")+boldPrimary.Render(binaryName+" deploy "+name)+dim.Render("."))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).

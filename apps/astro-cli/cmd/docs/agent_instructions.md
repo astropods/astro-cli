@@ -19,7 +19,7 @@ const agent = new Agent({
 serve(agent);
 ```
 
-The adapter connects to the messaging service, registers the agent, and handles incoming messages. Run with `ast dev`.
+The adapter connects to the messaging service, registers the agent, and handles incoming messages. Run with `ast project start`.
 
 You don't need to use Mastra, and can choose a different agent framework. In that case, implement the `AgentAdapter` interface from `@astropods/adapter-core` and call `serve(adapter)` explicitly, or use the `@astropods/messaging` SDK directly. The Mastra adapter is the reference implementation.
 
@@ -62,7 +62,7 @@ Variables you need to run your agent, such as your API keys:
 | ------------------- | ----------------------------------- |
 | `ANTHROPIC_API_KEY` | Required for the examples (Claude). |
 
-Run `ast configure` to set them. `ast dev` injects them into the agent container.
+Run `ast project configure` to set them. `ast project start` injects them into the agent container.
 
 ## Project Structure
 
@@ -71,7 +71,7 @@ Run `ast configure` to set them. `ast dev` injects them into the agent container
 ├── astropods.yml       # Spec (schema: https://astropods.com/schema/package.json)
 ├── Dockerfile          # Agent container
 ├── package.json
-└── .env                # API keys (set via ast configure; not committed)
+
 ```
 
 You can optionally add ingestion pipelines. Add an `ingestion/` directory with `Dockerfile` and `index.ts`, then declare each pipeline in `astropods.yml`:
@@ -152,7 +152,7 @@ knowledge:
 ```
 
 - `volume` — where to mount persistent data inside the container. Required with `persistent: true`.
-- `inputs` — values injected into the container at runtime. Set via `ast configure` or defaults. Use `secret: true` for passwords and keys.
+- `inputs` — values injected into the container at runtime. Set via `ast project configure` or defaults. Use `secret: true` for passwords and keys.
 
 Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
 
@@ -161,7 +161,7 @@ Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(na
 | Package                     | Purpose                                                              |
 | --------------------------- | -------------------------------------------------------------------- |
 | `@mastra/core`              | LLM agent with tools and memory                                      |
-| `@astropods/adapter-mastra` | Connects Mastra agent to Astro messaging                             |
+| `@astropods/adapter-mastra` | Connects Mastra agent to Astropods messaging                         |
 | `@astropods/messaging`      | Messaging SDK for direct gRPC connection (when not using an adapter) |
 
 Install: `bun add @mastra/core @astropods/adapter-mastra`
@@ -169,8 +169,8 @@ Install: `bun add @mastra/core @astropods/adapter-mastra`
 ## Development
 
 ```bash
-ast dev          # Start agent and messaging
-ast dev logs     # Tail logs
+ast project start   # Start agent and messaging
+ast project logs    # Tail logs
 ```
 
 Open the playground at http://localhost:3100 to chat with your agent.

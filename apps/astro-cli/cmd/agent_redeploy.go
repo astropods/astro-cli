@@ -7,7 +7,7 @@ import (
 var agentRedeployCmd = &cobra.Command{
 	Use:   "redeploy <name>",
 	Short: "Redeploy an existing agent",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactValidAgentDeploymentName,
 	RunE:  runAgentRedeploy,
 }
 

@@ -105,7 +105,7 @@ func init() {
 		knowledgeCreateCmd, knowledgeConnectCmd, knowledgeListCmd, knowledgeStatusCmd,
 		knowledgeLogsCmd, knowledgeCredentialsCmd, knowledgeDeleteCmd,
 	} {
-		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astro server URL (overrides profile/default)")
+		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astropods server URL (overrides profile/default)")
 		c.Flags().StringVar(&knowledgeAccount, "account", "", "Account name (overrides profile default)")
 	}
 

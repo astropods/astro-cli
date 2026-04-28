@@ -65,7 +65,7 @@ Keys use format: `{profile}_{token_type}` (e.g., `default_access_token`)
 When keyring is unavailable, credentials are stored in `~/.ast/credentials.json` with permissions `0600`.
 
 ```
-~/.astro/
+~/.ast/
 └── credentials.json    # Profile metadata and server/registry URLs (tokens in keyring if available)
 ```
 
@@ -115,6 +115,6 @@ Tokens are refreshed automatically when within 5 minutes of expiry. The CLI chec
 ## Security Measures
 
 1. **Secure Storage**: Tokens stored in OS keyring when available
-2. **File Permissions**: `~/.astro` directory `0700`, files `0600`
+2. **File Permissions**: `~/.ast` directory `0700`, files `0600`
 3. **Token Isolation**: Environment tokens cleared after first read
 4. **Automatic Expiry**: Tokens validated before use, refreshed proactively

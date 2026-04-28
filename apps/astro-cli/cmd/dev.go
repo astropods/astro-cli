@@ -34,15 +34,16 @@ import (
 )
 
 var devCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Manage local development environment",
+	Use:     "project",
+	Aliases: []string{"dev"},
+	Short:   "Manage local project development environment",
 	Args:  cobra.NoArgs,
 	RunE:  runDevStart,
 }
 
 var devStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start dev containers",
+	Short: "Start project containers",
 	Args:  cobra.NoArgs,
 	RunE:  runDevStart,
 }
@@ -50,15 +51,18 @@ var devStartCmd = &cobra.Command{
 var devLogsCmd = &cobra.Command{
 	Use:   "logs [service]",
 	Short: "Tail container logs",
-	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Use --all to tail all services. Optionally specify a service name (e.g. astro-messaging) to tail a different container.`,
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDevLogs,
+	Long: `Tail logs from the running project containers.
+
+Defaults to the agent container. Use --all to tail all services.
+Optionally specify a service name (e.g. astro-messaging) to tail a specific container.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDevLogs,
 }
 
 var devStopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop dev containers",
-	Long:  `Stop and remove the running dev containers.`,
+	Short: "Stop project containers",
+	Long:  `Stop and remove the running projects containers.`,
 	Args:  cobra.NoArgs,
 	RunE:  runDevStop,
 }
@@ -87,26 +91,13 @@ func init() {
 	devCmd.AddCommand(devStopCmd)
 	devCmd.AddCommand(devTriggerCmd)
 
-	devCmd.Long = fmt.Sprintf(`Manage the local development environment for your agent.
+	devStartCmd.Long = fmt.Sprintf(`Start the local development environment with Docker containers.
 
-Subcommands:
-  start   Start dev containers (default when no subcommand given)
-  logs    Tail container logs
-  stop    Stop dev containers
-
-Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, binaryName)
-
-	devCmd.Example = fmt.Sprintf(`  %[1]s dev                  # start containers and exit
-  %[1]s dev start --rebuild  # force rebuild containers
-  %[1]s dev logs             # tail agent logs
-  %[1]s dev logs --all       # tail all service logs
-  %[1]s dev stop             # stop containers
-  %[1]s dev --local          # run agent as local process (blocking)`, binaryName)
-
-	devStartCmd.Long = fmt.Sprintf(`Start the local development environment with Docker containers. In non-local mode, containers start in background and the command exits. Use '%[1]s dev logs' to tail logs and '%[1]s dev stop' to stop.`, binaryName)
+Containers start in the background and the command exits.
+Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, binaryName)
 
 	// Flags on both devCmd and devStartCmd
-	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
+	for _, cmd := range []*cobra.Command{devStartCmd} {
 		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
