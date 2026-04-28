@@ -23,7 +23,7 @@ func TestStore_Upsert(t *testing.T) {
 	store, mock := newTestStore(t)
 
 	mock.ExpectExec("INSERT INTO github_connections").
-		WithArgs("acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(42), "secret123").
+		WithArgs("acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(context.Background(), &Connection{
@@ -34,8 +34,6 @@ func TestStore_Upsert(t *testing.T) {
 		WorkOSOrganizationID: "org-1",
 		RepoFullName:         "owner/repo",
 		Branch:               "main",
-		WebhookID:            42,
-		WebhookSecret:        "secret123",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -53,8 +51,8 @@ func TestStore_Get_Success(t *testing.T) {
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
-			"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-1", "acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(42), "s3cr3t", now, now))
+			"repo_full_name", "branch", "created_at", "updated_at",
+		}).AddRow("conn-1", "acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", now, now))
 
 	conn, err := store.Get(context.Background(), "acct-1", "my-agent")
 	if err != nil {
@@ -65,9 +63,6 @@ func TestStore_Get_Success(t *testing.T) {
 	}
 	if conn.RepoFullName != "owner/repo" {
 		t.Errorf("RepoFullName = %q, want %q", conn.RepoFullName, "owner/repo")
-	}
-	if conn.WebhookID != 42 {
-		t.Errorf("WebhookID = %d, want 42", conn.WebhookID)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
@@ -115,77 +110,33 @@ func TestRepoSubPath(t *testing.T) {
 	}
 }
 
-func TestStore_GetByRepoBase(t *testing.T) {
-	store, mock := newTestStore(t)
-	now := time.Now()
-
-	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("owner/repo").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
-			"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-2", "acct-1", "myorg", "my-agent", "user-1", "org-1", "owner/repo", "main", int64(7), "tok", now, now))
-
-	conn, err := store.GetByRepoBase(context.Background(), "owner/repo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if conn.ID != "conn-2" {
-		t.Errorf("ID = %q, want %q", conn.ID, "conn-2")
-	}
-	if conn.WebhookSecret != "tok" {
-		t.Errorf("WebhookSecret = %q, want %q", conn.WebhookSecret, "tok")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unmet expectations: %v", err)
-	}
-}
-
-func TestStore_CountByRepoBaseForAccount(t *testing.T) {
-	store, mock := newTestStore(t)
-
-	mock.ExpectQuery("SELECT COUNT").
-		WithArgs("acct-1", "owner/repo").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
-
-	n, err := store.CountByRepoBaseForAccount(context.Background(), "acct-1", "owner/repo")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 2 {
-		t.Errorf("count = %d, want 2", n)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unmet expectations: %v", err)
-	}
-}
-
-func TestStore_ListByRepoAndBranchForAccount(t *testing.T) {
+func TestStore_ListByRepoAndBranch(t *testing.T) {
 	store, mock := newTestStore(t)
 	now := time.Now()
 
 	cols := []string{
 		"id", "account_id", "account_name", "agent_name", "workos_user_id", "workos_org_id",
-		"repo_full_name", "branch", "webhook_id", "webhook_secret", "created_at", "updated_at",
+		"repo_full_name", "branch", "created_at", "updated_at",
 	}
-	// Only acct-1's connections are returned; acct-2's row is excluded by the account filter.
+	// Both acct-1 and acct-2 connections are returned — global fan-out, no account filter.
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
-		WithArgs("acct-1", "owner/repo", "main").
+		WithArgs("owner/repo", "main").
 		WillReturnRows(sqlmock.NewRows(cols).
-			AddRow("c1", "acct-1", "myorg", "agent-root", "u1", "o1", "owner/repo", "main", int64(7), "tok", now, now).
-			AddRow("c2", "acct-1", "myorg", "agent-svc", "u1", "o1", "owner/repo/svc", "main", int64(7), "tok", now, now))
+			AddRow("c1", "acct-1", "myorg", "agent-root", "u1", "o1", "owner/repo", "main", now, now).
+			AddRow("c2", "acct-2", "otherorg", "agent-svc", "u2", "o2", "owner/repo/svc", "main", now, now))
 
-	conns, err := store.ListByRepoAndBranchForAccount(context.Background(), "acct-1", "owner/repo", "main")
+	conns, err := store.ListByRepoAndBranch(context.Background(), "owner/repo", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(conns) != 2 {
 		t.Fatalf("got %d connections, want 2", len(conns))
 	}
-	for _, c := range conns {
-		if c.AccountID != "acct-1" {
-			t.Errorf("connection %q has AccountID %q, want %q", c.ID, c.AccountID, "acct-1")
-		}
+	if conns[0].AccountID != "acct-1" {
+		t.Errorf("conns[0].AccountID = %q, want acct-1", conns[0].AccountID)
+	}
+	if conns[1].AccountID != "acct-2" {
+		t.Errorf("conns[1].AccountID = %q, want acct-2", conns[1].AccountID)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
@@ -198,9 +149,9 @@ func TestStore_ListByAccount(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM github_connections").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
-			AddRow("agent-a", "owner/repo-a", int64(10), now).
-			AddRow("agent-b", "owner/repo-b", int64(10), now)) // same webhook_id simulates two subpaths in one monorepo
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("agent-a", "owner/repo-a", now).
+			AddRow("agent-b", "owner/repo-b", now))
 
 	conns, err := store.ListByAccount(context.Background(), "acct-1")
 	if err != nil {
@@ -211,9 +162,6 @@ func TestStore_ListByAccount(t *testing.T) {
 	}
 	if conns[0].AgentName != "agent-a" || conns[0].RepoFullName != "owner/repo-a" {
 		t.Errorf("conns[0] = {%q, %q}, want {agent-a, owner/repo-a}", conns[0].AgentName, conns[0].RepoFullName)
-	}
-	if conns[0].WebhookID != 10 {
-		t.Errorf("conns[0].WebhookID = %d, want 10", conns[0].WebhookID)
 	}
 	if conns[1].CreatedAt.IsZero() {
 		t.Errorf("conns[1].CreatedAt is zero, expected a valid timestamp")

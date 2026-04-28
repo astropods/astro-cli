@@ -24,6 +24,7 @@ import (
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
+	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -255,7 +256,7 @@ func GitHubAccountScan(log *logger.Logger, pipesClient *pipes.Client) gin.Handle
 
 // GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
-func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
+func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -304,35 +305,23 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 
 		// If a subpath is present, verify it exists in the repo before installing a webhook.
 		newBase := githubconnection.RepoBase(req.RepoFullName)
-		parts := strings.SplitN(req.RepoFullName, "/", 3)
-		if len(parts) == 3 && parts[2] != "" {
-			exists, pathErr := gh.PathExists(c.Request.Context(), newBase, req.Branch, parts[2])
+		if subPath := githubconnection.RepoSubPath(req.RepoFullName); subPath != "" {
+			exists, pathErr := gh.PathExists(c.Request.Context(), newBase, req.Branch, subPath)
 			if pathErr != nil {
-				log.Warn("github: check subpath", "error", pathErr, "repo", newBase, "path", parts[2])
+				log.Warn("github: check subpath", "error", pathErr, "repo", newBase, "path", subPath)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify subdirectory"})
 				return
 			}
 			if !exists {
-				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("subdirectory %q not found in %s on branch %s", parts[2], newBase, req.Branch)})
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("subdirectory %q not found in %s on branch %s", subPath, newBase, req.Branch)})
 				return
 			}
 		}
 
-		// Remove existing webhook if re-linking to a different base repo,
-		// but only if no other connections still reference that base repo.
-		existing, err := ghStore.Get(c.Request.Context(), acct.ID, agentName)
-		if err == nil && existing.WebhookID != 0 {
-			existingBase := githubconnection.RepoBase(existing.RepoFullName)
-			if existingBase != newBase {
-				// count <= 1 (not == 0) because the existing connection is still in the DB at this point
-				// (Upsert hasn't run yet); count == 1 means only this connection references the old base.
-				if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, existingBase); countErr == nil && count <= 1 {
-					oldGH := githubclient.New(token.AccessToken)
-					if delErr := oldGH.DeleteWebhook(c.Request.Context(), existingBase, existing.WebhookID); delErr != nil {
-						log.Warn("github: failed to remove old webhook", "error", delErr, "repo", existing.RepoFullName)
-					}
-				}
-			}
+		// Note the old base before upserting so we can clean up its webhook if re-linking.
+		var oldBase string
+		if existing, getErr := ghStore.Get(c.Request.Context(), acct.ID, agentName); getErr == nil {
+			oldBase = githubconnection.RepoBase(existing.RepoFullName)
 		}
 
 		// Reject if the repo+subpath is already connected to a different agent in this account.
@@ -349,24 +338,6 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			WorkOSOrganizationID: session.OrganizationID,
 			RepoFullName:         req.RepoFullName,
 			Branch:               req.Branch,
-			WebhookID:            0,
-			WebhookSecret:        "",
-		}
-
-		// Webhook dedup: reuse this account's existing webhook if it already has a connection
-		// to the same base repo (e.g. a subpath connection shares the root connection's webhook).
-		// Each account gets its own webhook — cross-account connections create independent webhooks.
-		if sharedConn, err := ghStore.GetByRepoBaseForAccount(c.Request.Context(), acct.ID, newBase); err == nil && sharedConn.WebhookID != 0 {
-			conn.WebhookID = sharedConn.WebhookID
-			conn.WebhookSecret = sharedConn.WebhookSecret
-			if err := ghStore.Upsert(c.Request.Context(), conn); err != nil {
-				log.Error("githubconnection: upsert (dedup)", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save connection"})
-				return
-			}
-			log.Info("GitHub repo linked (webhook reused)", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName)
-			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
-			return
 		}
 
 		// Save connection first so the blueprint detail page shows the GitHub
@@ -377,24 +348,57 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			return
 		}
 
-		// Install webhook on the base repo.
-		secretBytes := make([]byte, 32)
-		if _, err := rand.Read(secretBytes); err == nil {
-			webhookSecret := hex.EncodeToString(secretBytes)
-			webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
-			webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
-				RepoFullName: newBase,
-				PayloadURL:   webhookPayloadURL,
-				Secret:       webhookSecret,
-			})
-			if err != nil {
-				log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", newBase)
-			} else {
-				conn.WebhookID = webhookID
-				conn.WebhookSecret = webhookSecret
-				if updateErr := ghStore.Upsert(c.Request.Context(), conn); updateErr != nil {
-					log.Warn("github: webhook created but failed to persist", "error", updateErr)
+		// Clean up the old webhook if re-linking to a different base repo. This must run
+		// after Upsert: the connection now points at newBase, so oldBase has already lost
+		// one reference and DeleteIfNoConnections will delete it iff no other connections
+		// remain. Swapping the order would cause a spurious deletion when this is the only
+		// connection to oldBase.
+		if oldBase != "" && oldBase != newBase {
+			if oldWebhookID, deleted, _ := webhookStore.DeleteIfNoConnections(c.Request.Context(), oldBase); deleted {
+				if delErr := gh.DeleteWebhook(c.Request.Context(), oldBase, oldWebhookID); delErr != nil {
+					log.Warn("github: failed to remove old webhook", "error", delErr, "repo", oldBase)
 				}
+			}
+		}
+
+		// Global webhook dedup: if any account already registered a webhook for this base
+		// repo, reuse it — no GitHub API call needed.
+		if _, getErr := webhookStore.Get(c.Request.Context(), newBase); getErr == nil {
+			log.Info("GitHub repo linked (webhook reused)", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName)
+			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
+			return
+		}
+
+		// Install a new webhook on the base repo.
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			log.Warn("github: failed to generate webhook secret", "error", err)
+			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
+			return
+		}
+		webhookSecret := hex.EncodeToString(secretBytes)
+		webhookPayloadURL := fmt.Sprintf("%s/webhooks/github", cfg.WebhookBaseURL)
+		webhookID, err := gh.CreateWebhook(c.Request.Context(), githubclient.CreateWebhookInput{
+			RepoFullName: newBase,
+			PayloadURL:   webhookPayloadURL,
+			Secret:       webhookSecret,
+		})
+		if err != nil {
+			log.Warn("github: create webhook failed, pushes won't auto-build", "error", err, "repo", newBase)
+			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
+			return
+		}
+
+		// Persist the webhook globally. ON CONFLICT DO NOTHING means a concurrent link
+		// that already inserted will win (inserted=false); we delete our orphaned GitHub
+		// webhook and let the winner's row stand.
+		inserted, insertErr := webhookStore.Insert(c.Request.Context(), newBase, webhookID, webhookSecret)
+		if insertErr != nil {
+			log.Warn("github: webhook created but failed to persist", "error", insertErr)
+		}
+		if insertErr != nil || !inserted {
+			if delErr := gh.DeleteWebhook(c.Request.Context(), newBase, webhookID); delErr != nil {
+				log.Warn("github: delete orphaned webhook", "error", delErr, "repo", newBase)
 			}
 		}
 
@@ -472,7 +476,7 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 
 // GitHubAccountDisconnect handles DELETE /api/v1/accounts/:account/github.
 // Removes all agent repo connections and their webhooks for the account.
-func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {
+func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -494,9 +498,6 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 		}
 
 		// Best-effort webhook removal using the account's OAuth token.
-		// deletedWebhooks tracks webhook IDs already removed so that multiple
-		// blueprints sharing the same repo (e.g. different monorepo subpaths)
-		// don't trigger redundant GitHub API calls for the same webhook.
 		token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 			Provider:       "github",
 			UserID:         session.UserID,
@@ -507,17 +508,17 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 
 			if delErr := ghStore.Delete(c.Request.Context(), acct.ID, conn.AgentName); delErr != nil {
 				log.Error("github: delete connection on account disconnect", "error", delErr, "agent", conn.AgentName)
+				continue
 			}
 
-			// Delete the webhook only after removing the connection row so that
-			// CountByRepoBaseForAccount reflects the post-deletion state. Delete only when
-			// this account has no remaining connections to the base repo.
-			if tokenErr == nil && conn.WebhookID != 0 {
-				if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, repoBase); countErr == nil && count == 0 {
-					if gh := githubclient.New(token.AccessToken); gh != nil {
-						if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
-							log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", conn.RepoFullName)
-						}
+			// After removing the connection, atomically delete the global webhook if no
+			// connections remain for this repo. DeleteIfNoConnections is idempotent — the
+			// second call for the same base returns deleted=false.
+			if webhookStore != nil {
+				if wid, deleted, _ := webhookStore.DeleteIfNoConnections(c.Request.Context(), repoBase); deleted && tokenErr == nil {
+					gh := githubclient.New(token.AccessToken)
+					if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, wid); delErr != nil {
+						log.Warn("github: delete webhook on account disconnect", "error", delErr, "repo", repoBase)
 					}
 				}
 			}
@@ -539,7 +540,7 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 
 // GitHubDisconnect handles DELETE /api/v1/agents/:account/:name/github.
 // Removes the webhook from GitHub and deletes the connection record.
-func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {
+func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -573,9 +574,9 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 			return
 		}
 
-		// Remove webhook only if this account has no other connections to this base repo.
-		if conn.WebhookID != 0 {
-			if count, countErr := ghStore.CountByRepoBaseForAccount(c.Request.Context(), acct.ID, repoBase); countErr == nil && count == 0 && pipesClient != nil {
+		// Atomically delete the global webhook if no connections remain for this repo.
+		if webhookStore != nil {
+			if wid, deleted, _ := webhookStore.DeleteIfNoConnections(c.Request.Context(), repoBase); deleted && pipesClient != nil {
 				token, tokenErr := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 					Provider:       "github",
 					UserID:         session.UserID,
@@ -583,7 +584,7 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 				})
 				if tokenErr == nil {
 					gh := githubclient.New(token.AccessToken)
-					if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, conn.WebhookID); delErr != nil {
+					if delErr := gh.DeleteWebhook(c.Request.Context(), repoBase, wid); delErr != nil {
 						log.Warn("github: delete webhook", "error", delErr, "repo", repoBase)
 					}
 				}
@@ -698,7 +699,7 @@ type githubPushPayload struct {
 // GitHubWebhook handles POST /webhooks/github.
 // Receives push events from GitHub. No session auth — verified via HMAC.
 // Fan-out: every connection for the pushed repo+branch gets its own build.
-func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue githubBuildQueue) gin.HandlerFunc {
+func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, queue githubBuildQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader("X-GitHub-Event") != "push" {
 			c.Status(http.StatusOK)
@@ -717,21 +718,21 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			return
 		}
 
-		// Use GetByRepoBase to retrieve the shared webhook secret for HMAC verification.
-		baseConn, err := ghStore.GetByRepoBase(c.Request.Context(), payload.Repository.FullName)
+		// Look up the global webhook secret for HMAC verification.
+		webhook, err := webhookStore.Get(c.Request.Context(), payload.Repository.FullName)
 		if errors.Is(err, sql.ErrNoRows) {
 			c.Status(http.StatusOK)
 			return
 		}
 		if err != nil {
-			log.Error("github webhook: lookup connection", "error", err, "repo", payload.Repository.FullName)
+			log.Error("github webhook: lookup webhook", "error", err, "repo", payload.Repository.FullName)
 			c.Status(http.StatusInternalServerError)
 			return
 		}
 
 		// Verify HMAC signature.
 		sig := c.GetHeader("X-Hub-Signature-256")
-		if !verifyGitHubSignature(body, baseConn.WebhookSecret, sig) {
+		if !verifyGitHubSignature(body, webhook.WebhookSecret, sig) {
 			log.Warn("github webhook: invalid signature", "repo", payload.Repository.FullName)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 			return
@@ -756,10 +757,11 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, queue gi
 			commitAuthor = payload.HeadCommit.Author.Name
 		}
 
-		// Fan-out: query connections for this account+repo+branch. Scoped to the
-		// account that owns the verified webhook so a push from account A does not
-		// trigger builds in account B.
-		conns, err := ghStore.ListByRepoAndBranchForAccount(c.Request.Context(), baseConn.AccountID, payload.Repository.FullName, branch)
+		// Fan-out: trigger builds in every account connected to this repo+branch.
+		// The webhook secret is shared across all accounts — any account that has linked
+		// this repo will receive a build trigger from any verified push to it.
+		// This is intentional: one webhook per repo means one secret per repo.
+		conns, err := ghStore.ListByRepoAndBranch(c.Request.Context(), payload.Repository.FullName, branch)
 		if err != nil {
 			log.Error("github webhook: list connections", "error", err, "repo", payload.Repository.FullName)
 			c.Status(http.StatusInternalServerError)

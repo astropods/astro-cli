@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
+	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/gin-gonic/gin"
@@ -102,7 +104,7 @@ func TestGitHubWebhook_NonPushEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, nil, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(`{}`))
 	req.Header.Set("X-GitHub-Event", "ping")
@@ -119,7 +121,7 @@ func TestGitHubWebhook_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, nil, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader("not json"))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -140,14 +142,16 @@ func TestGitHubWebhook_UnknownRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	store := githubconnection.New(db)
+	connStore := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
-	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+	// webhookStore.Get: no webhook registered for this repo → handler returns 200.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
 		WithArgs("owner/unknown-repo").
-		WillReturnRows(sqlmock.NewRows([]string{}))
+		WillReturnRows(sqlmock.NewRows(webhookCols()))
 
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, store, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, connStore, whStore, nil))
 
 	payload := `{"ref":"refs/heads/main","after":"abc123","repository":{"full_name":"owner/unknown-repo"}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(payload))
@@ -172,25 +176,19 @@ func TestGitHubWebhook_InvalidSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	store := githubconnection.New(db)
+	connStore := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
-	connID := "conn-1"
 	repoFullName := "owner/repo"
 	webhookSecret := "correct-secret"
-	now := time.Now()
 
-	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+	// webhookStore.Get: returns the global webhook secret for HMAC verification.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
 		WithArgs(repoFullName).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name",
-			"workos_user_id", "workos_org_id", "repo_full_name", "branch",
-			"webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow(connID, "acct-1", "testaccount", "test-agent",
-			"user-1", "org-1", repoFullName, "main",
-			int64(12345), webhookSecret, now, now))
+		WillReturnRows(webhookRow(repoFullName, webhookSecret, 12345))
 
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, store, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, connStore, whStore, nil))
 
 	payload := `{"ref":"refs/heads/main","after":"abc123","repository":{"full_name":"owner/repo"}}`
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(payload))
@@ -216,37 +214,27 @@ func TestGitHubWebhook_WrongBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	store := githubconnection.New(db)
+	connStore := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
 	repoFullName := "owner/repo"
 	webhookSecret := "my-secret"
-	now := time.Now()
 
 	// The push is to "feat" but the connection tracks "main".
 	payloadBody := `{"ref":"refs/heads/feat","after":"abc123def456","repository":{"full_name":"owner/repo"}}`
 
-	// GetByRepoBase: returns the connection so HMAC can be verified.
-	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+	// webhookStore.Get: returns the webhook secret for HMAC verification.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
 		WithArgs(repoFullName).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name",
-			"workos_user_id", "workos_org_id", "repo_full_name", "branch",
-			"webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-2", "acct-1", "testaccount", "test-agent",
-			"user-1", "org-1", repoFullName, "main",
-			int64(12345), webhookSecret, now, now))
+		WillReturnRows(webhookRow(repoFullName, webhookSecret, 12345))
 
-	// ListByRepoAndBranchForAccount: no connections for account+branch "feat" — push is ignored.
+	// ListByRepoAndBranch: no connections for repo+branch "feat" — push is ignored.
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
-		WithArgs("acct-1", repoFullName, "feat").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name",
-			"workos_user_id", "workos_org_id", "repo_full_name", "branch",
-			"webhook_id", "webhook_secret", "created_at", "updated_at",
-		}))
+		WithArgs(repoFullName, "feat").
+		WillReturnRows(sqlmock.NewRows(connCols()))
 
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, store, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, connStore, whStore, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(payloadBody))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -271,27 +259,22 @@ func TestGitHubWebhook_BranchDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	store := githubconnection.New(db)
+	connStore := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
 	repoFullName := "owner/repo"
 	webhookSecret := "my-secret"
-	now := time.Now()
 
 	// after == zeros means branch deletion.
 	payloadBody := `{"ref":"refs/heads/main","after":"0000000000000000000000000000000000000000","repository":{"full_name":"owner/repo"}}`
 
-	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+	// webhookStore.Get: returns the webhook secret for HMAC verification.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
 		WithArgs(repoFullName).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "account_name", "agent_name",
-			"workos_user_id", "workos_org_id", "repo_full_name", "branch",
-			"webhook_id", "webhook_secret", "created_at", "updated_at",
-		}).AddRow("conn-3", "acct-1", "testaccount", "test-agent",
-			"user-1", "org-1", repoFullName, "main",
-			int64(12345), webhookSecret, now, now))
+		WillReturnRows(webhookRow(repoFullName, webhookSecret, 12345))
 
 	router := gin.New()
-	router.POST("/webhooks/github", GitHubWebhook(log, store, nil))
+	router.POST("/webhooks/github", GitHubWebhook(log, connStore, whStore, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/github", strings.NewReader(payloadBody))
 	req.Header.Set("X-GitHub-Event", "push")
@@ -340,7 +323,7 @@ func TestGitHubAccountDisconnect_Unauthenticated(t *testing.T) {
 	log := logger.New("error", "json")
 	router := gin.New()
 	// No session middleware — GetSession will return false.
-	router.DELETE("/api/v1/accounts/:account/github", GitHubAccountDisconnect(log, nil, nil))
+	router.DELETE("/api/v1/accounts/:account/github", GitHubAccountDisconnect(log, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount/github", nil)
 	rec := httptest.NewRecorder()
@@ -375,8 +358,8 @@ func TestGitHubAccountListConnections_Success(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
-			AddRow("my-agent", "owner/my-repo", int64(42), now))
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("my-agent", "owner/my-repo", now))
 
 	injectAcct := func(c *gin.Context) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
@@ -526,20 +509,21 @@ func TestGitHubAccountDisconnect_KeepsWebhookWhenOtherSubpathConnExists(t *testi
 	}
 	defer db.Close()
 	store := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
 	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("acct-A").
-		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "webhook_id", "created_at"}).
-			AddRow("agent-a", "owner/repo", int64(42), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("agent-a", "owner/repo", time.Now()))
 
 	mock.ExpectExec("DELETE FROM github_connections").
 		WithArgs("acct-A", "agent-a").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// count=1: a subpath connection for the same account still references webhook 42.
-	mock.ExpectQuery(`SELECT COUNT`).
-		WithArgs("acct-A", "owner/repo").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// DeleteIfNoConnections: another connection still references owner/repo — no rows returned.
+	mock.ExpectQuery("DELETE FROM github_webhooks").
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"webhook_id"}))
 
 	pipesClient := pipes.New("fake-workos-key")
 
@@ -550,7 +534,7 @@ func TestGitHubAccountDisconnect_KeepsWebhookWhenOtherSubpathConnExists(t *testi
 		c.Next()
 	})
 	router.DELETE("/accounts/:account/github",
-		GitHubAccountDisconnect(logger.New("error", "json"), pipesClient, store))
+		GitHubAccountDisconnect(logger.New("error", "json"), pipesClient, store, whStore))
 
 	req := httptest.NewRequest(http.MethodDelete, "/accounts/accountA/github", nil)
 	w := httptest.NewRecorder()
@@ -583,6 +567,7 @@ func TestGitHubLink_ReusesWebhookWithinSameAccount(t *testing.T) {
 	}
 	defer db.Close()
 	store := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
 
 	mock.MatchExpectationsInOrder(false)
 
@@ -596,19 +581,15 @@ func TestGitHubLink_ReusesWebhookWithinSameAccount(t *testing.T) {
 		WithArgs("acct-A", "owner/repo/svc").
 		WillReturnRows(sqlmock.NewRows(connCols()))
 
-	// GetByRepoBaseForAccount(acct-A, "owner/repo") → finds the root connection with webhook 99.
-	mock.ExpectQuery(`SELECT .+ FROM github_connections.+account_id = \$1.+repo_full_name = \$2 OR`).
-		WithArgs("acct-A", "owner/repo").
-		WillReturnRows(connRow("conn-root", "acct-A", "accountA", "agent-root",
-			"owner/repo", "main", "shared-secret", 99))
-
-	// Upsert inherits webhook_id=99 and shared secret — no new webhook created.
+	// Upsert — 7 args, no webhook_id/secret.
 	mock.ExpectExec("INSERT INTO github_connections").
-		WithArgs(
-			"acct-A", "accountA", "agent-svc", "user-1", "org-1",
-			"owner/repo/svc", "main", int64(99), "shared-secret",
-		).
+		WithArgs("acct-A", "accountA", "agent-svc", "user-1", "org-1", "owner/repo/svc", "main").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// webhookStore.Get("owner/repo") → finds existing webhook — reuse, no new webhook created.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
+		WithArgs("owner/repo").
+		WillReturnRows(webhookRow("owner/repo", "shared-secret", 99))
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -617,7 +598,7 @@ func TestGitHubLink_ReusesWebhookWithinSameAccount(t *testing.T) {
 		c.Next()
 	})
 	router.POST("/agents/:account/:name/github/link",
-		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store,
+		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store, whStore,
 			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/accountA/agent-svc/github/link",
@@ -696,30 +677,31 @@ func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
 
 	index := agentindex.NewIndexWithDB(indexDB)
 	store := githubconnection.New(ghDB)
+	whStore := githubwebhook.New(ghDB)
 
 	indexMock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// Get: returns service-a's connection with webhook 42 on the subpath.
+	// Get: returns service-a's connection on the subpath.
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("test-account-id", "service-a").
 		WillReturnRows(connRow("conn-a", "test-account-id", "testaccount", "service-a",
-			"owner/repo/service-a", "main", "shared-secret", 42))
+			"owner/repo/service-a", "main"))
 
 	ghMock.ExpectExec("DELETE FROM github_connections").
 		WithArgs("test-account-id", "service-a").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// CountByRepoBaseForAccount: 1 remaining (service-b still uses owner/repo).
-	ghMock.ExpectQuery(`SELECT COUNT`).
-		WithArgs("test-account-id", "owner/repo").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// DeleteIfNoConnections: another connection still references owner/repo — no rows returned.
+	ghMock.ExpectQuery("DELETE FROM github_webhooks").
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"webhook_id"}))
 
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, pipes.New("fake-key")))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, whStore, pipes.New("fake-key")))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()
@@ -762,6 +744,7 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 
 	index := agentindex.NewIndexWithDB(indexDB)
 	store := githubconnection.New(ghDB)
+	whStore := githubwebhook.New(ghDB)
 
 	indexMock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
@@ -770,21 +753,21 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("test-account-id", "service-a").
 		WillReturnRows(connRow("conn-a", "test-account-id", "testaccount", "service-a",
-			"owner/repo/service-a", "main", "shared-secret", 42))
+			"owner/repo/service-a", "main"))
 
 	ghMock.ExpectExec("DELETE FROM github_connections").
 		WithArgs("test-account-id", "service-a").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// CountByRepoBaseForAccount: 0 — this was the last connection.
-	ghMock.ExpectQuery(`SELECT COUNT`).
-		WithArgs("test-account-id", "owner/repo").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	// DeleteIfNoConnections: no remaining connections — returns the webhook_id.
+	ghMock.ExpectQuery("DELETE FROM github_webhooks").
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"webhook_id"}).AddRow(int64(42)))
 
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, pipes.New("fake-key")))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, nil, store, whStore, pipes.New("fake-key")))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()
@@ -802,6 +785,239 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	}
 	if err := ghMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet gh SQL expectations: %v", err)
+	}
+}
+
+// TestGitHubLink_OrphansWebhookOnPKConflict verifies that when two instances race to
+// register a webhook for the same base repo, the loser (INSERT returns 0 rows) deletes
+// its orphaned GitHub webhook and still returns 201.
+func TestGitHubLink_OrphansWebhookOnPKConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	store := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
+
+	// No existing connection for this agent.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND agent_name = \$2`).
+		WithArgs("acct-1", "agent-a").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// No conflicting connection for this repo.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND repo_full_name = \$2`).
+		WithArgs("acct-1", "owner/repo").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// Upsert succeeds.
+	mock.ExpectExec("INSERT INTO github_connections").
+		WithArgs("acct-1", "testaccount", "agent-a", "user-1", "org-1", "owner/repo", "main").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// webhookStore.Get → no existing webhook, so a new one is created via GitHub API.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows(webhookCols()))
+
+	// webhookStore.Insert → 0 rows affected: another instance won the race.
+	mock.ExpectExec("INSERT INTO github_webhooks").
+		WithArgs("owner/repo", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-1", OrganizationID: "org-1"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
+		c.Next()
+	})
+	router.POST("/agents/:account/:name/github/link",
+		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store, whStore,
+			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai"}))
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/agent-a/github/link",
+		strings.NewReader(`{"repo_full_name":"owner/repo","branch":"main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if stub.githubPostHits.Load() != 1 {
+		t.Errorf("expected 1 POST /hooks; got %d", stub.githubPostHits.Load())
+	}
+	if stub.githubDeleteHits.Load() != 1 {
+		t.Errorf("expected 1 DELETE /hooks to clean up orphaned webhook; got %d", stub.githubDeleteHits.Load())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// installTokenErrorStub swaps http.DefaultTransport with a stub where the WorkOS
+// token endpoint returns 500, causing GetAccessToken to return a non-nil error.
+// Tracks GitHub DELETE /hooks hits and returns a restore func.
+func installTokenErrorStub(t *testing.T) (deleteHits *atomic.Int32, restore func()) {
+	t.Helper()
+	var hits atomic.Int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/user_management/users/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/repos/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/hooks/") {
+			hits.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	srv := httptest.NewServer(mux)
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	return &hits, func() {
+		http.DefaultTransport = old
+		srv.Close()
+	}
+}
+
+// TestGitHubLink_InsertDBError_CleansUpOrphanedGitHubWebhook verifies that when
+// webhookStore.Insert returns a non-conflict DB error, the GitHub-side webhook that
+// was just created is deleted to avoid leaving an orphaned webhook on the repo.
+func TestGitHubLink_InsertDBError_CleansUpOrphanedGitHubWebhook(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stub, restore := installExternalAPIStub(t)
+	defer restore()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	store := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
+
+	// No existing connection for this agent (oldBase stays empty).
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND agent_name = \$2`).
+		WithArgs("acct-1", "agent-a").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// No conflicting connection for this repo.
+	mock.ExpectQuery(`SELECT .+ FROM github_connections.+WHERE account_id = \$1 AND repo_full_name = \$2`).
+		WithArgs("acct-1", "owner/repo").
+		WillReturnRows(sqlmock.NewRows(connCols()))
+
+	// Upsert succeeds.
+	mock.ExpectExec("INSERT INTO github_connections").
+		WithArgs("acct-1", "testaccount", "agent-a", "user-1", "org-1", "owner/repo", "main").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// webhookStore.Get → no existing webhook; new one will be created via GitHub API.
+	mock.ExpectQuery(`SELECT .+ FROM github_webhooks`).
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows(webhookCols()))
+
+	// webhookStore.Insert → transient DB error. The GitHub webhook was already created;
+	// the handler must roll it back.
+	mock.ExpectExec("INSERT INTO github_webhooks").
+		WithArgs("owner/repo", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(errors.New("simulated transient db error"))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-1", OrganizationID: "org-1"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
+		c.Next()
+	})
+	router.POST("/agents/:account/:name/github/link",
+		GitHubLink(logger.New("error", "json"), pipes.New("fake"), store, whStore,
+			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai"}))
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/agent-a/github/link",
+		strings.NewReader(`{"repo_full_name":"owner/repo","branch":"main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := stub.githubPostHits.Load(); got != 1 {
+		t.Errorf("expected 1 POST /hooks; got %d", got)
+	}
+	if got := stub.githubDeleteHits.Load(); got != 1 {
+		t.Errorf("expected 1 DELETE /hooks to roll back orphaned webhook after insert error; got %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations: %v", err)
+	}
+}
+
+// TestGitHubAccountDisconnect_TokenError_DeletesWebhookRow verifies that when the
+// account's OAuth token is unavailable, the github_webhooks row is still deleted
+// when no connections remain. The GitHub API call is skipped (best-effort), but the
+// DB row must always be removed to avoid leaving an orphaned row.
+func TestGitHubAccountDisconnect_TokenError_DeletesWebhookRow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	deleteHits, restore := installTokenErrorStub(t)
+	defer restore()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	store := githubconnection.New(db)
+	whStore := githubwebhook.New(db)
+
+	mock.ExpectQuery(`SELECT .+ FROM github_connections`).
+		WithArgs("acct-A").
+		WillReturnRows(sqlmock.NewRows([]string{"agent_name", "repo_full_name", "created_at"}).
+			AddRow("agent-a", "owner/repo", time.Now()))
+
+	mock.ExpectExec("DELETE FROM github_connections").
+		WithArgs("acct-A", "agent-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// DeleteIfNoConnections must run even when the token is unavailable.
+	mock.ExpectQuery("DELETE FROM github_webhooks").
+		WithArgs("owner/repo").
+		WillReturnRows(sqlmock.NewRows([]string{"webhook_id"}).AddRow(int64(42)))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user-A", OrganizationID: "org-A"})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-A", Name: "accountA"})
+		c.Next()
+	})
+	router.DELETE("/accounts/:account/github",
+		GitHubAccountDisconnect(logger.New("error", "json"), pipes.New("fake-workos-key"), store, whStore))
+
+	req := httptest.NewRequest(http.MethodDelete, "/accounts/accountA/github", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if deleteHits.Load() != 0 {
+		t.Errorf("expected 0 GitHub DELETE /hooks when token is unavailable; got %d", deleteHits.Load())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet SQL expectations (DeleteIfNoConnections did not run): %v", err)
 	}
 }
 

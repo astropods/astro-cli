@@ -156,7 +156,7 @@ func TestArchiveAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -179,7 +179,7 @@ func TestArchiveAgent_NotFound(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "nonexistent").
@@ -198,7 +198,7 @@ func TestArchiveAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -229,7 +229,7 @@ func TestArchiveAgent_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected
-	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil, nil, nil, nil))
+	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()

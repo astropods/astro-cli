@@ -38,6 +38,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
+	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -392,15 +393,16 @@ func runAPI(
 	// Create audit log store
 	auditStore := auditlog.NewStore(db)
 
-	// Initialize GitHub connection store and WorkOS Pipes client.
+	// Initialize GitHub connection store, webhook store, and WorkOS Pipes client.
 	ghStore := githubconnection.New(db)
+	webhookStore := githubwebhook.New(db)
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, pipesClient, ksStore, promClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, ksStore, promClient)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -541,12 +543,11 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client) {
-	authzStore := authorizationstore.NewStore(db)
-
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
+	authzStore := authorizationstore.NewStore(db)
 
 	// Serve OpenAPI spec
 	router.GET("/openapi.json", api.JSON())
@@ -1027,7 +1028,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(426, &handlers.ErrorResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, omClient, db, auditStore, ghStore, pipesClient),
+				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, omClient, db, auditStore, ghStore, webhookStore, pipesClient),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1292,13 +1293,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		githubRoutes.Use(middleware.ResolveAccount(accountStore))
 		{
 			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
-				handlers.GitHubLink(log, pipesClient, ghStore, githubCfg),
+				handlers.GitHubLink(log, pipesClient, ghStore, webhookStore, githubCfg),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.GitHubLinkRequest{}),
 			)
 			api.DELETE(githubRoutes, "/github", "Disconnect GitHub repo from agent",
-				handlers.GitHubDisconnect(log, pipesClient, ghStore),
+				handlers.GitHubDisconnect(log, pipesClient, ghStore, webhookStore),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 			)
@@ -1331,7 +1332,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("account", "Account name"),
 			)
 			api.DELETE(accountGitHubRoutes, "/github", "Disconnect GitHub from account",
-				handlers.GitHubAccountDisconnect(log, pipesClient, ghStore),
+				handlers.GitHubAccountDisconnect(log, pipesClient, ghStore, webhookStore),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1370,7 +1371,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		}
 
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)
-		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, queue))
+		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, webhookStore, queue))
 	}
 
 }

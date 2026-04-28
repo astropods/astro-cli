@@ -442,8 +442,6 @@ CREATE TABLE public.github_connections (
     workos_org_id text NOT NULL DEFAULT '',
     repo_full_name varchar NOT NULL,
     branch varchar NOT NULL DEFAULT 'main',
-    webhook_id bigint,
-    webhook_secret varchar NOT NULL,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT github_connections_pkey PRIMARY KEY (id),
@@ -492,6 +490,14 @@ CREATE TABLE public.github_build_components (
 );
 
 CREATE UNIQUE INDEX idx_build_components_build_name ON public.github_build_components(build_id, component_name);
+
+CREATE TABLE public.github_webhooks (
+    repo_base      varchar     NOT NULL,
+    webhook_id     bigint      NOT NULL,
+    webhook_secret varchar     NOT NULL,
+    created_at     timestamp   NOT NULL DEFAULT now(),
+    CONSTRAINT github_webhooks_pkey PRIMARY KEY (repo_base)
+);
 
 CREATE TABLE public.knowledge_stores (
     id                 varchar(11)  NOT NULL,

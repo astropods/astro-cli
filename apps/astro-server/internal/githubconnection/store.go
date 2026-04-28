@@ -19,8 +19,6 @@ type Connection struct {
 	WorkOSOrganizationID string
 	RepoFullName         string
 	Branch               string
-	WebhookID            int64
-	WebhookSecret        string
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -71,8 +69,8 @@ func New(db *sql.DB) *Store {
 func (s *Store) Upsert(ctx context.Context, c *Connection) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO github_connections
-			(account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch, webhook_id, webhook_secret, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+			(account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 		ON CONFLICT (account_id, agent_name)
 		DO UPDATE SET
 			account_name    = EXCLUDED.account_name,
@@ -80,10 +78,8 @@ func (s *Store) Upsert(ctx context.Context, c *Connection) error {
 			workos_org_id   = EXCLUDED.workos_org_id,
 			repo_full_name  = EXCLUDED.repo_full_name,
 			branch          = EXCLUDED.branch,
-			webhook_id      = EXCLUDED.webhook_id,
-			webhook_secret  = EXCLUDED.webhook_secret,
 			updated_at      = now()
-	`, c.AccountID, c.AccountName, c.AgentName, c.WorkOSUserID, c.WorkOSOrganizationID, c.RepoFullName, c.Branch, c.WebhookID, c.WebhookSecret)
+	`, c.AccountID, c.AccountName, c.AgentName, c.WorkOSUserID, c.WorkOSOrganizationID, c.RepoFullName, c.Branch)
 	return err
 }
 
@@ -91,7 +87,7 @@ func (s *Store) Upsert(ctx context.Context, c *Connection) error {
 func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
+		       created_at, updated_at
 		FROM github_connections
 		WHERE account_id = $1 AND agent_name = $2
 	`, accountID, agentName)
@@ -99,7 +95,7 @@ func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connecti
 	var c Connection
 	if err := row.Scan(
 		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+		&c.RepoFullName, &c.Branch,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -111,7 +107,7 @@ func (s *Store) Get(ctx context.Context, accountID, agentName string) (*Connecti
 func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
+		       created_at, updated_at
 		FROM github_connections
 		WHERE id = $1
 	`, id)
@@ -119,7 +115,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 	var c Connection
 	if err := row.Scan(
 		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+		&c.RepoFullName, &c.Branch,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -132,7 +128,7 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Connection, error) {
 func (s *Store) GetByRepoForAccount(ctx context.Context, accountID, repoFullName string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
+		       created_at, updated_at
 		FROM github_connections
 		WHERE account_id = $1 AND repo_full_name = $2
 	`, accountID, repoFullName)
@@ -140,7 +136,7 @@ func (s *Store) GetByRepoForAccount(ctx context.Context, accountID, repoFullName
 	var c Connection
 	if err := row.Scan(
 		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+		&c.RepoFullName, &c.Branch,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -166,76 +162,18 @@ func RepoSubPath(repoFullName string) string {
 	return parts[2]
 }
 
-// GetByRepoBase returns any connection whose repo_full_name equals repoBase or starts
-// with repoBase+"/". Used to retrieve the webhook secret for HMAC verification on push.
-func (s *Store) GetByRepoBase(ctx context.Context, repoBase string) (*Connection, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
-		FROM github_connections
-		WHERE repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\'
-		LIMIT 1
-	`, repoBase)
-
-	var c Connection
-	if err := row.Scan(
-		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
-		&c.CreatedAt, &c.UpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-// GetByRepoBaseForAccount returns any connection for the given account whose repo_full_name
-// equals repoBase or starts with repoBase+"/". Used for webhook dedup on link.
-func (s *Store) GetByRepoBaseForAccount(ctx context.Context, accountID, repoBase string) (*Connection, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
-		FROM github_connections
-		WHERE account_id = $1
-		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
-		LIMIT 1
-	`, accountID, repoBase)
-
-	var c Connection
-	if err := row.Scan(
-		&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-		&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
-		&c.CreatedAt, &c.UpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-// CountByRepoBaseForAccount counts connections for the given account whose repo_full_name
-// equals repoBase or starts with repoBase+"/". Used to decide whether to delete the webhook
-// on disconnect — webhooks are scoped per account, so only this account's count matters.
-func (s *Store) CountByRepoBaseForAccount(ctx context.Context, accountID, repoBase string) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM github_connections
-		WHERE account_id = $1
-		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
-	`, accountID, repoBase).Scan(&n)
-	return n, err
-}
-
-// ListByRepoAndBranchForAccount returns connections for a specific account whose
-// repo_full_name equals repoFullName or starts with repoFullName+"/", filtered by
-// branch. Used for webhook fan-out scoped to the account that owns the verified webhook.
-func (s *Store) ListByRepoAndBranchForAccount(ctx context.Context, accountID, repoFullName, branch string) ([]*Connection, error) {
+// ListByRepoAndBranch returns all connections across all accounts whose repo_full_name
+// equals repoFullName or starts with repoFullName+"/", filtered by branch. Used for
+// global webhook fan-out — a single verified push triggers builds in every account
+// connected to that repo and branch.
+func (s *Store) ListByRepoAndBranch(ctx context.Context, repoFullName, branch string) ([]*Connection, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, account_id, account_name, agent_name, workos_user_id, workos_org_id, repo_full_name, branch,
-		       webhook_id, webhook_secret, created_at, updated_at
+		       created_at, updated_at
 		FROM github_connections
-		WHERE account_id = $1
-		  AND (repo_full_name = $2 OR repo_full_name LIKE replace($2, '_', '\_') || '/%' ESCAPE '\')
-		  AND branch = $3
-	`, accountID, repoFullName, branch)
+		WHERE (repo_full_name = $1 OR repo_full_name LIKE replace($1, '_', '\_') || '/%' ESCAPE '\')
+		  AND branch = $2
+	`, repoFullName, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +184,7 @@ func (s *Store) ListByRepoAndBranchForAccount(ctx context.Context, accountID, re
 		var c Connection
 		if err := rows.Scan(
 			&c.ID, &c.AccountID, &c.AccountName, &c.AgentName, &c.WorkOSUserID, &c.WorkOSOrganizationID,
-			&c.RepoFullName, &c.Branch, &c.WebhookID, &c.WebhookSecret,
+			&c.RepoFullName, &c.Branch,
 			&c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("githubconnection: scan connection: %w", err)
@@ -256,10 +194,10 @@ func (s *Store) ListByRepoAndBranchForAccount(ctx context.Context, accountID, re
 	return conns, rows.Err()
 }
 
-// ListByAccount returns all connections for an account (agent_name + repo_full_name only).
+// ListByAccount returns all connections for an account.
 func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT agent_name, repo_full_name, webhook_id, created_at
+		SELECT agent_name, repo_full_name, created_at
 		FROM github_connections
 		WHERE account_id = $1
 		ORDER BY agent_name
@@ -271,7 +209,7 @@ func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*Connect
 	var conns []*Connection
 	for rows.Next() {
 		var c Connection
-		if err := rows.Scan(&c.AgentName, &c.RepoFullName, &c.WebhookID, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.AgentName, &c.RepoFullName, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		conns = append(conns, &c)
