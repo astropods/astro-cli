@@ -18,6 +18,7 @@ var whoamiCmd = &cobra.Command{
 
 This command shows your user details and validates that your credentials
 are still valid, refreshing them if necessary.`,
+	Args: cobra.NoArgs,
 	RunE: runWhoami,
 }
 

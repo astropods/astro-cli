@@ -12,7 +12,6 @@ import (
 	"text/template"
 
 	"github.com/aymanbagabas/go-udiff"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
@@ -20,37 +19,20 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-var repairCmd = &cobra.Command{
-	Use:    "repair",
-	Short:  "Check and repair project files against the template",
-	Hidden: true,
-	RunE:   runRepair,
-}
-
-func init() {
-	rootCmd.AddCommand(repairCmd)
-	repairCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Update all outdated files without prompting")
-}
-
 type repairFileCheck struct {
 	path         string
 	templatePath string
 	static       bool // copy verbatim, skip template rendering
 }
 
-func runRepair(cmd *cobra.Command, args []string) error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	specPath, resolveErr := resolveSpecPath(cmd, workingDir)
+// runRepair expects an already-resolved spec path and working directory; the caller is responsible for resolution.
+func runRepair(specPath, workingDir string) error {
 	var astroSpec *spec.AstroSpec
 	var specErr error
-	if resolveErr == nil {
+	if specPath != "" {
 		astroSpec, specErr = spec.ParseSpec(specPath)
 	} else {
-		specErr = resolveErr
+		specErr = fmt.Errorf("no spec file found (try: %s)", SpecFileAliases[0])
 	}
 
 	var config scaffold.ScaffoldConfig

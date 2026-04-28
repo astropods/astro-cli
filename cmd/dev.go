@@ -36,12 +36,14 @@ import (
 var devCmd = &cobra.Command{
 	Use:   "dev",
 	Short: "Manage local development environment",
+	Args:  cobra.NoArgs,
 	RunE:  runDevStart,
 }
 
 var devStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start dev containers",
+	Args:  cobra.NoArgs,
 	RunE:  runDevStart,
 }
 
@@ -57,6 +59,7 @@ var devStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop dev containers",
 	Long:  `Stop and remove the running dev containers.`,
+	Args:  cobra.NoArgs,
 	RunE:  runDevStop,
 }
 
@@ -183,11 +186,11 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
-	specFile, err := specFilePath(cmd)
+	specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
 	if err != nil {
 		return "", err
 	}
-	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse spec: %w", err)
 	}
@@ -206,7 +209,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath, err := resolveSpecPath(cmd, workingDir)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}
@@ -613,7 +616,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	specPath, err := resolveSpecPathFromCwd(cmd)
+	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
 	}

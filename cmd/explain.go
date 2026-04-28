@@ -2,42 +2,15 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-var explainCmd = &cobra.Command{
-	Use:   "explain",
-	Short: "Explain the agent project based on its spec",
-	Long: `Parse the astropods.yml spec and display a human-readable explanation
-of the agent project: its components, what env vars each component
-injects into the agent, and what credentials and inputs are required.`,
-	RunE: runExplain,
-}
-
-func init() {
-	rootCmd.AddCommand(explainCmd)
-	explainCmd.Example = fmt.Sprintf(`  %[1]s explain
-  %[1]s explain -f custom-spec.yml`, binaryName)
-}
-
-func runExplain(cmd *cobra.Command, args []string) error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	specPath, err := resolveSpecPath(cmd, workingDir)
-	if err != nil {
-		return err
-	}
-
+// runExplain expects an already-resolved spec path and working directory; the caller is responsible for resolution.
+func runExplain(specPath, workingDir string) error {
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)

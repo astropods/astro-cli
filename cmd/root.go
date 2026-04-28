@@ -134,28 +134,13 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
 }
 
-// specFilePath returns the value of the -f/--file flag on cmd, but only when
-// the user explicitly set it. Returns "" when the flag is absent or defaulted,
-// letting the caller fall through to alias-based discovery.
-func specFilePath(cmd *cobra.Command) (string, error) {
-	f := cmd.Flags().Lookup("file")
-	if f == nil || !f.Changed {
-		return "", nil
-	}
-	return f.Value.String(), nil
-}
-
 // SpecFileAliases are filenames checked in order when the user does not pass --file.
 var SpecFileAliases = []string{"astropods.yml", "astropods.yaml", "astroai.yml", "astro.yml"}
 
-// resolveSpecPath returns the path to the spec file. If the user passed --file
-// explicitly, that path is used (relative paths are joined with workingDir).
-// Otherwise, the first existing file from SpecFileAliases in workingDir is returned.
-func resolveSpecPath(cmd *cobra.Command, workingDir string) (string, error) {
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return "", err
-	}
+// resolveSpecPath returns the path to the spec file. If specFile is non-empty
+// it is used directly (relative paths are joined with workingDir). Otherwise
+// the first existing file from SpecFileAliases in workingDir is returned.
+func resolveSpecPath(specFile, workingDir string) (string, error) {
 	if specFile != "" {
 		if filepath.IsAbs(specFile) {
 			return specFile, nil
@@ -171,12 +156,18 @@ func resolveSpecPath(cmd *cobra.Command, workingDir string) (string, error) {
 	return "", fmt.Errorf("no spec file found (try: %s)", strings.Join(SpecFileAliases, ", "))
 }
 
-// resolveSpecPathFromCwd resolves the spec path using the current working directory.
-// It is the convenience wrapper used by commands.
-func resolveSpecPathFromCwd(cmd *cobra.Command) (string, error) {
-	workingDir, err := os.Getwd()
+// resolveSpecPathAndCwd resolves the spec path and also returns the working directory.
+func resolveSpecPathAndCwd(specFile string) (specPath, workingDir string, err error) {
+	workingDir, err = os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
+		return "", "", fmt.Errorf("failed to get working directory: %w", err)
 	}
-	return resolveSpecPath(cmd, workingDir)
+	specPath, err = resolveSpecPath(specFile, workingDir)
+	return
+}
+
+// resolveSpecPathFromCwd resolves the spec path using the current working directory.
+func resolveSpecPathFromCwd(specFile string) (string, error) {
+	specPath, _, err := resolveSpecPathAndCwd(specFile)
+	return specPath, err
 }
