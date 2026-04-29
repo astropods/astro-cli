@@ -37,8 +37,8 @@ var devCmd = &cobra.Command{
 	Use:     "project",
 	Aliases: []string{"dev"},
 	Short:   "Manage local project development environment",
-	Args:  cobra.NoArgs,
-	RunE:  runDevStart,
+	Args:    cobra.NoArgs,
+	RunE:    runDevStart,
 }
 
 var devStartCmd = &cobra.Command{
@@ -110,43 +110,13 @@ Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, binary
 	devLogsCmd.Flags().BoolVar(&logsAll, "all", false, "Tail logs from all services (not just agent)")
 }
 
-// checkDockerRunning verifies Docker is installed and the daemon is accessible.
+// checkDockerRunning verifies the Docker daemon is accessible.
 func checkDockerRunning() error {
 	if runtime.GOOS == "windows" {
 		return fmt.Errorf("Windows is not supported — please use macOS or Linux") //nolint:staticcheck
 	}
-
-	if _, err := exec.LookPath("docker"); err != nil {
-		msg := "Docker is not installed."
-		if runtime.GOOS == "darwin" {
-			msg += "\n  → Download Docker Desktop for Mac: https://docs.docker.com/desktop/install/mac-install/"
-		} else {
-			msg += "\n  → Install Docker Engine: https://docs.docker.com/engine/install/"
-		}
-		return fmt.Errorf("%s", msg)
-	}
-
-	cmd := exec.Command("docker", "info")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-		dim := lipgloss.NewStyle().Faint(true)
-		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-
-		var hint2 string
-		if runtime.GOOS == "darwin" {
-			hint2 = hint.Render("→ Open Docker Desktop from your Applications folder or system tray")
-		} else {
-			hint2 = hint.Render("→ Run: sudo systemctl start docker")
-		}
-
-		msg := red.Render("🐳 Docker is not running") + "\n" +
-			dim.Render("Start Docker and re-run your command.") + "\n\n" +
-			hint2
-		return fmt.Errorf("%s", msg)
-	}
-	return nil
+	_, err := newDockerClient()
+	return err
 }
 
 // devStatePath returns the path to the dev-environment marker file.
@@ -699,30 +669,24 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 func checkComposeHealth(projectName string) {
 	time.Sleep(3 * time.Second)
 
-	out, err := exec.Command("docker", "compose", "-p", projectName, "ps", "--format", "{{.Name}}\t{{.State}}\t{{.Status}}").Output() //nolint:gosec
+	ctx := context.Background()
+	svc, err := newComposeService(false)
+	if err != nil {
+		return
+	}
+	containers, err := svc.Ps(ctx, projectName, api.PsOptions{All: true})
 	if err != nil {
 		return
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, line := range lines {
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 {
-			continue
-		}
-		name, state := parts[0], strings.ToLower(parts[1])
-		status := ""
-		if len(parts) == 3 {
-			status = parts[2]
-		}
-
-		switch state {
+	for _, c := range containers {
+		switch string(c.State) {
 		case "running":
-			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, name, colorDim, status, colorReset)
+			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, c.Name, colorDim, c.Status, colorReset)
 		case "exited", "dead":
-			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, name, colorRed, status, colorReset)
+			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, c.Name, colorRed, c.Status, colorReset)
 		default:
-			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, name, colorDim, status, colorReset)
+			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, c.Name, colorDim, c.Status, colorReset)
 		}
 	}
 	fmt.Println()

@@ -5,5 +5,6 @@ import (
 )
 
 func main() {
+	defer cmd.CloseDockerClient() //nolint:errcheck
 	cmd.Execute()
 }

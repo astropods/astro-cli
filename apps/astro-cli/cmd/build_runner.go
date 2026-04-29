@@ -55,11 +55,10 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 	//	envVars = make(map[string]string)
 	//}
 
-	cli, err := client.New(client.FromEnv)
+	cli, err := newDockerClient()
 	if err != nil {
-		return fmt.Errorf("failed to create Docker client: %w", err)
+		return err
 	}
-	defer cli.Close() //nolint:errcheck
 
 	imagesBuilt := 0
 
