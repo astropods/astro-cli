@@ -20,6 +20,7 @@ export interface SidebarCardProps {
   integrations: ResolvedIntegration[];
   capabilities?: string[];
   authors?: BlueprintAuthor[];
+  publishers?: BlueprintAuthor[];
   rating?: number;
   installs?: number;
   recommendedAgents?: BlueprintCardProps[];
@@ -34,6 +35,7 @@ export function SidebarCard({
   integrations,
   capabilities = [],
   authors = [],
+  publishers = [],
   rating,
   installs,
   recommendedAgents = [],
@@ -55,6 +57,10 @@ export function SidebarCard({
   const ownerName = owner?.first_name && owner?.last_name
     ? `${owner.first_name} ${owner.last_name}`
     : agent.account;
+  const ownerHandle = agent.account;
+
+  // Audit log publishers take precedence over agent card authors as the source of truth.
+  const displayAuthors = publishers.length > 0 ? publishers : authors;
 
   const repository = getBlueprintRepository(agent);
   const isDraft = agent.versions.length === 0;
@@ -92,9 +98,9 @@ export function SidebarCard({
       />
 
       <SidebarAuthor
-        authors={authors}
+        authors={displayAuthors}
         ownerName={ownerName}
-        ownerHandle={agent.account}
+        ownerHandle={ownerHandle}
       />
 
       {repository && <SidebarRepository repository={repository} />}

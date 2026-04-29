@@ -261,7 +261,7 @@ func setupAgentGetRouter(withUser bool, userID string) (*gin.Engine, *agentindex
 			c.Next()
 		})
 	}
-	router.GET("/agents/:account/:name", GetAgent(log, index, store, hearts, nil, nil, nil))
+	router.GET("/agents/:account/:name", GetAgent(log, index, store, hearts, nil, nil, nil, nil, nil))
 
 	return router, index, store, indexMock, accountMock
 }

@@ -461,6 +461,7 @@ CREATE INDEX idx_audit_logs_account_created ON public.audit_logs (account_id, cr
 CREATE INDEX idx_audit_logs_account_resource ON public.audit_logs (account_id, resource_type, created_at DESC);
 CREATE INDEX idx_audit_logs_actor ON public.audit_logs (actor_id, created_at DESC);
 CREATE INDEX idx_audit_logs_created ON public.audit_logs (created_at);
+CREATE INDEX idx_audit_logs_creator_lookup ON public.audit_logs (account_id, action, resource_type, resource_id, created_at ASC);
 
 CREATE TABLE public.github_connections (
     id uuid NOT NULL DEFAULT gen_random_uuid(),

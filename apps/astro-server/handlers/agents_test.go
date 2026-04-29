@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,140 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
+
+// --- stubs for resolvePublishers ---
+
+type stubUserGetter struct {
+	users map[string]*auth.User
+}
+
+func (s *stubUserGetter) GetUser(_ context.Context, userID string) (*auth.User, error) {
+	u, ok := s.users[userID]
+	if !ok {
+		return nil, fmt.Errorf("user not found: %s", userID)
+	}
+	return u, nil
+}
+
+type stubAccountLister struct {
+	accounts map[string][]account.AccountWithRole
+}
+
+func (s *stubAccountLister) GetAccountsForUser(userID string) ([]account.AccountWithRole, error) {
+	return s.accounts[userID], nil
+}
+
+func TestResolvePublishers_EmptyActors(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
+
+	result := resolvePublishers(context.Background(), nil, users, accts)
+	if len(result) != 0 {
+		t.Errorf("expected empty slice, got %v", result)
+	}
+}
+
+func TestResolvePublishers_FullNameAndHandle(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{
+		"u1": {FirstName: "Jane", LastName: "Smith"},
+	}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{
+		"u1": {{Name: "janesmith", Type: "personal"}},
+	}}
+
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 publisher, got %d", len(result))
+	}
+	if result[0].Name != "Jane Smith" {
+		t.Errorf("expected name 'Jane Smith', got %q", result[0].Name)
+	}
+	if result[0].Account != "janesmith" {
+		t.Errorf("expected account 'janesmith', got %q", result[0].Account)
+	}
+}
+
+func TestResolvePublishers_NoWorkOSName_FallsBackToHandle(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{
+		"u1": {FirstName: "", LastName: ""},
+	}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{
+		"u1": {{Name: "ghostuser", Type: "personal"}},
+	}}
+
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 publisher, got %d", len(result))
+	}
+	if result[0].Name != "ghostuser" {
+		t.Errorf("expected name 'ghostuser', got %q", result[0].Name)
+	}
+}
+
+func TestResolvePublishers_NoNameNoHandle_Skipped(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{
+		"u1": {FirstName: "", LastName: ""},
+	}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
+
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	if len(result) != 0 {
+		t.Errorf("expected actor with no name/handle to be skipped, got %v", result)
+	}
+}
+
+func TestResolvePublishers_WorkOSError_Skipped(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
+
+	result := resolvePublishers(context.Background(), []string{"missing-user"}, users, accts)
+	if len(result) != 0 {
+		t.Errorf("expected unresolvable actor to be skipped, got %v", result)
+	}
+}
+
+func TestResolvePublishers_MultipleActors_OrderPreserved(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{
+		"u1": {FirstName: "Alice", LastName: ""},
+		"u2": {FirstName: "Bob", LastName: ""},
+		"u3": {FirstName: "Carol", LastName: ""},
+	}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{
+		"u1": {{Name: "alice", Type: "personal"}},
+		"u2": {{Name: "bob", Type: "personal"}},
+		"u3": {{Name: "carol", Type: "personal"}},
+	}}
+
+	result := resolvePublishers(context.Background(), []string{"u1", "u2", "u3"}, users, accts)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 publishers, got %d", len(result))
+	}
+	for i, want := range []string{"Alice", "Bob", "Carol"} {
+		if result[i].Name != want {
+			t.Errorf("position %d: expected %q, got %q", i, want, result[i].Name)
+		}
+	}
+}
+
+func TestResolvePublishers_NonPersonalAccountIgnored(t *testing.T) {
+	users := &stubUserGetter{users: map[string]*auth.User{
+		"u1": {FirstName: "Dev", LastName: "Team"},
+	}}
+	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{
+		"u1": {
+			{Name: "acme-org", Type: "organization"},
+			{Name: "devteam", Type: "personal"},
+		},
+	}}
+
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 publisher, got %d", len(result))
+	}
+	if result[0].Account != "devteam" {
+		t.Errorf("expected personal account 'devteam', got %q", result[0].Account)
+	}
+}
 
 func setupAgentTestRouter() (*gin.Engine, *agentindex.Index, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)

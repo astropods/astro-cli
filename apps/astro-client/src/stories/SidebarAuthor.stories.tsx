@@ -31,3 +31,29 @@ export const WithInitials: Story = {
     ownerHandle: "acme",
   },
 };
+
+export const MultipleAuthors: Story = {
+  args: {
+    authors: [
+      { name: "Jane Smith", account: "janesmith" },
+      { name: "Chris Patty", account: "chrispatty" },
+      { name: "Taylor Green", account: "taylorlgreen" },
+    ],
+    ownerName: "Acme Corp",
+    ownerHandle: "acme",
+  },
+};
+
+export const ManyAuthors: Story = {
+  args: {
+    authors: [
+      { name: "Jane Smith", account: "janesmith" },
+      { name: "Chris Patty", account: "chrispatty" },
+      { name: "Taylor Green", account: "taylorlgreen" },
+      { name: "Sam Rivera", account: "samrivera" },
+      { name: "Alex Kim", account: "alexkim" },
+    ],
+    ownerName: "Acme Corp",
+    ownerHandle: "acme",
+  },
+};

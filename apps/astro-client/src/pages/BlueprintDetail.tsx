@@ -317,6 +317,7 @@ function BlueprintDetailInner({
               integrations={integrations}
               capabilities={capabilities}
               authors={authors}
+              publishers={blueprint.publishers}
               installs={blueprint.metrics?.deploy_count}
               recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
@@ -332,6 +333,7 @@ function BlueprintDetailInner({
           integrations={integrations}
           capabilities={capabilities}
           authors={authors}
+          publishers={blueprint.publishers}
           installs={blueprint.metrics?.deploy_count}
           recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}

@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -40,6 +41,12 @@ type AgentMetrics struct {
 	DeployCount      int64 `json:"deploy_count"`
 }
 
+// AgentPublisher identifies a user who has pushed this agent.
+type AgentPublisher struct {
+	Name    string `json:"name"`
+	Account string `json:"account,omitempty"`
+}
+
 // AgentResponse represents an agent with all its versions
 type AgentResponse struct {
 	Account      string                 `json:"account"`
@@ -54,6 +61,7 @@ type AgentResponse struct {
 	HeartCount   int                    `json:"heart_count"`
 	Hearted      bool                   `json:"hearted"`
 	Metrics      *AgentMetrics          `json:"metrics"`
+	Publishers   []AgentPublisher       `json:"publishers,omitempty"`
 }
 
 // AgentVersionResponse represents a specific version of an agent
@@ -391,9 +399,48 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 	}
 }
 
+type userGetter interface {
+	GetUser(ctx context.Context, userID string) (*auth.User, error)
+}
+
+type accountLister interface {
+	GetAccountsForUser(userID string) ([]account.AccountWithRole, error)
+}
+
+// resolvePublishers maps a list of WorkOS actor IDs to AgentPublishers.
+// Actors that cannot be resolved (missing name and handle) are silently skipped.
+func resolvePublishers(ctx context.Context, actorIDs []string, users userGetter, accounts accountLister) []AgentPublisher {
+	var publishers []AgentPublisher
+	for _, actorID := range actorIDs {
+		user, err := users.GetUser(ctx, actorID)
+		if err != nil {
+			continue
+		}
+		pub := AgentPublisher{}
+		if accts, err := accounts.GetAccountsForUser(actorID); err == nil {
+			for _, a := range accts {
+				if a.Type == "personal" {
+					pub.Account = a.Name
+					break
+				}
+			}
+		}
+		fullName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+		if fullName != "" {
+			pub.Name = fullName
+		} else if pub.Account != "" {
+			pub.Name = pub.Account
+		} else {
+			continue
+		}
+		publishers = append(publishers, pub)
+	}
+	return publishers
+}
+
 // GetAgent handles GET /api/v1/agents/:account/:name
 // Private agents are only visible to account members; public agents are visible to all
-func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos *auth.WorkOSClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		name := c.Param("name")
@@ -485,6 +532,12 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count
 			resp.Hearted = heartInfo.Hearted
+		}
+
+		if auditStore != nil && workos != nil {
+			if actorIDs, err := auditStore.DistinctActorsFor(c.Request.Context(), acct.ID, auditlog.AgentRegister, "agent", name); err == nil {
+				resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore)
+			}
 		}
 
 		c.JSON(http.StatusOK, resp)

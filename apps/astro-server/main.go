@@ -627,7 +627,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)
-			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
+			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.PathParam("name", "Agent name"),

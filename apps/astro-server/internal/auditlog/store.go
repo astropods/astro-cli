@@ -256,6 +256,31 @@ func (s *Store) LatestPerResource(ctx context.Context, accountID, resourceType s
 	return result, rows.Err()
 }
 
+// DistinctActorsFor returns the unique actor IDs that performed the given action
+// on a specific resource, ordered by their first occurrence ascending.
+func (s *Store) DistinctActorsFor(ctx context.Context, accountID, action, resourceType, resourceID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT actor_id FROM audit_logs
+		 WHERE account_id = $1 AND action = $2 AND resource_type = $3 AND resource_id = $4
+		 GROUP BY actor_id
+		 ORDER BY MIN(created_at) ASC`,
+		accountID, action, resourceType, resourceID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+	var actors []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		actors = append(actors, id)
+	}
+	return actors, rows.Err()
+}
+
 func nullIfEmpty(s string) *string {
 	if s == "" {
 		return nil

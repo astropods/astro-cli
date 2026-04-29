@@ -29,7 +29,7 @@ function AuthorFullCard({ author }: { author: BlueprintAuthor }) {
           {author.name}
         </span>
         {author.account && (
-          <span className="text-[11px] text-[var(--faint-foreground)] font-mono truncate">
+          <span className="text-[11px] text-muted-foreground font-mono truncate">
             @{author.account}
           </span>
         )}
@@ -97,7 +97,7 @@ export function SidebarAuthor({
           <UserAvatar handle={ownerHandle} name={ownerName} className="h-9 w-9" />
           <div className="flex flex-col">
             <span className="text-[13px] font-medium text-foreground">{ownerName}</span>
-            <span className="text-[11px] text-[var(--faint-foreground)] font-mono">
+            <span className="text-[11px] text-muted-foreground font-mono">
               @{ownerHandle}
             </span>
           </div>

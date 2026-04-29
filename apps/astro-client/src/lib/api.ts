@@ -1021,6 +1021,7 @@ export interface Blueprint {
   heart_count?: number;
   hearted?: boolean;
   metrics?: BlueprintMetrics;
+  publishers?: BlueprintAuthor[];
 }
 
 export interface BlueprintsListResponse {
