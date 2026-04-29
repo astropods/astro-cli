@@ -12,12 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
@@ -180,10 +180,14 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 		fmt.Printf("%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
 		if cfg.skipPush && !cfg.skipBuild {
+			dockerCli, err := newDockerClient()
+			if err != nil {
+				return err
+			}
+
 			retag := func(local, remote string) error {
-				retagCmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
-				if out, err := retagCmd.CombinedOutput(); err != nil {
-					return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
+				if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: local, Target: remote}); err != nil {
+					return fmt.Errorf("failed to retag %s → %s: %w", local, remote, err)
 				}
 				fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
 				return nil

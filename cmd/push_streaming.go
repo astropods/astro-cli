@@ -92,12 +92,11 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 
 	ctx := context.Background()
 
-	dockerCli, err := client.New(client.FromEnv)
+	dockerCli, err := newDockerClient()
 	if err != nil {
 		fmt.Println()
-		return 0, fmt.Errorf("failed to create Docker client: %w", err)
+		return 0, err
 	}
-	defer dockerCli.Close() //nolint:errcheck
 
 	// Tag image for remote registry
 	if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: localImageName, Target: remoteImageName}); err != nil {
