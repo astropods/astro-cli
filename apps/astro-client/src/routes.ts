@@ -1,6 +1,9 @@
 import { type RouteConfig, route, layout, index, prefix } from "@react-router/dev/routes";
 
 export default [
+  // Resource route — returns a PNG, not HTML, so lives outside the layout.
+  route("badge/agents/*", "pages/BadgeAgent.tsx"),
+
   layout("components/Layout.tsx", [
     // Auth redirects
     route("login", "pages/Login.tsx"),

@@ -12,6 +12,7 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY apps/astro-client/package.json ./apps/astro-client/
 COPY packages/astro-theme/package.json ./packages/astro-theme/
 COPY packages/astro-trading-card/package.json ./packages/astro-trading-card/
+COPY packages/blueprint-jellybean/package.json ./packages/blueprint-jellybean/
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.bun/install/cache \
@@ -57,6 +58,11 @@ COPY --from=builder /app/apps/astro-client/build ./build
 COPY --from=builder /app/apps/astro-client/server.ts ./server.ts
 COPY --from=builder /app/apps/astro-client/logger.ts ./logger.ts
 COPY --from=builder /app/apps/astro-client/request-logger.ts ./request-logger.ts
+COPY --from=builder /app/packages/blueprint-jellybean ./node_modules/@astropods/blueprint-jellybean
+# Install blueprint-jellybean's own deps (resvg-js) inside its directory so bun's
+# package-boundary-aware resolution can find them — they won't resolve from /app/node_modules.
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    cd /app/node_modules/@astropods/blueprint-jellybean && bun install --production
 
 # Create non-root user
 RUN echo "astro:x:1000:1000::/app:/bin/sh" >> /etc/passwd && \
@@ -73,6 +79,6 @@ EXPOSE 3000
 
 # Health check — uses Bun instead of curl (not available in bun:1-slim)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD bun -e "const r = await fetch('http://localhost:3000/'); if (!r.ok) process.exit(1);"
+    CMD bun -e "const r = await fetch('http://localhost:3000/healthz'); if (!r.ok) process.exit(1);"
 
 ENTRYPOINT ["bun", "run", "./server.ts"]

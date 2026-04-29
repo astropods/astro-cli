@@ -79,7 +79,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const account = params.account ?? "";
   const agentSlug = params.agentSlug ?? "";
-  const origin = new URL(request.url).origin;
+  const origin = process.env.PUBLIC_ORIGIN || new URL(request.url).origin;
 
   const [blueprint, blueprintsData, accountData] = await Promise.all([
     account && agentSlug ? api.getBlueprint(account, agentSlug).catch(() => null) : null,
@@ -101,11 +101,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const canonicalUrl = account && agentSlug ? `${origin}/${account}/${agentSlug}` : origin;
-  const assetsBase = import.meta.env.VITE_ASSETS_URL?.replace(/\/$/, "");
-  const avatarHandle = accountData?.name || account;
-  const ogImage = assetsBase && avatarHandle
-    ? `${assetsBase}/avatars/${encodeURIComponent(avatarHandle)}.jpg`
-    : `${origin}/assets/placeholders/accounts/avatar_01.svg`;
+  const isPublic = blueprint?.visibility === "public"
+    && (blueprint?.versions.length ?? 0) > 0;
+  const ogImage = isPublic && account && agentSlug
+    ? `${origin}/badge/agents/${encodeURIComponent(account)}/${encodeURIComponent(agentSlug)}.png`
+    : null;
 
   // Pre-fetch GitHub status for draft blueprints owned by the authenticated user so
   // AGENT.md is available immediately on page load (no flash, no sessionStorage).
@@ -113,18 +113,17 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? await api.getGitHubStatus(account, agentSlug).catch(() => null)
     : null;
 
-  return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage, githubStatus };
+  return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage, isPublic, githubStatus };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
   const blueprint = data?.blueprint;
   const canonicalUrl = data?.canonicalUrl;
-  const ogImage = data?.ogImage;
+  const ogImage = data?.ogImage; // null for private blueprints
   if (!blueprint) {
     return [
       { title: "Agent Details | Astro" },
       ...(canonicalUrl ? [{ property: "og:url", content: canonicalUrl } as const] : []),
-      ...(ogImage ? [{ property: "og:image", content: ogImage } as const] : []),
     ];
   }
   const title = `${blueprint.account}/${blueprint.name} | Astro`;
@@ -136,11 +135,18 @@ export const meta: Route.MetaFunction = ({ data }) => {
     ...(canonicalUrl ? [{ property: "og:url", content: canonicalUrl } as const] : []),
     { property: "og:title", content: title },
     { property: "og:description", content: description },
-    ...(ogImage ? [{ property: "og:image", content: ogImage } as const] : []),
-    { name: "twitter:card", content: "summary_large_image" },
+    // OG image only for public blueprints — private blueprints get no image unfurl
+    ...(ogImage
+      ? [
+          { property: "og:image", content: ogImage } as const,
+          { property: "og:image:width", content: "1200" } as const,
+          { property: "og:image:height", content: "628" } as const,
+          { name: "twitter:card", content: "summary_large_image" } as const,
+          { name: "twitter:image", content: ogImage } as const,
+        ]
+      : [{ name: "twitter:card", content: "summary" } as const]),
     { name: "twitter:title", content: title },
     { name: "twitter:description", content: description },
-    ...(ogImage ? [{ name: "twitter:image", content: ogImage } as const] : []),
   ];
 };
 
