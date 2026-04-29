@@ -91,6 +91,7 @@ function ThemeSwitcher() {
           <Tooltip key={value}>
             <TooltipTrigger asChild>
               <button
+                aria-label={`Use ${label.toLowerCase()} theme`}
                 onClick={(e) => {
                   e.preventDefault();
                   setTheme(value);
@@ -98,8 +99,8 @@ function ThemeSwitcher() {
                 className={cn(
                   "rounded p-1.5 transition-colors",
                   theme === value
-                    ? "bg-stone-200 text-foreground dark:bg-stone-700"
-                    : "text-muted-foreground hover:text-foreground hover:bg-stone-100 dark:hover:bg-stone-800",
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 )}
               >
                 <Icon className="size-4" />
@@ -344,6 +345,7 @@ export function AppHeader() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full"
+                aria-label={`User menu for ${displayName}`}
               >
                 <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
               </Button>

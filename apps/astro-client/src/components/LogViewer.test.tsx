@@ -166,6 +166,16 @@ describe("LogViewer", () => {
     expect(screen.getByText("Failed to load logs.")).toBeInTheDocument();
   });
 
+  // The scroll surface uses the semantic `bg-card` token so it themes
+  // alongside the rest of the app instead of being a hard-coded white panel.
+  it("scroll container uses semantic bg-card, not bg-white", () => {
+    const { container } = renderViewer();
+    const scroll = container.querySelector(".overflow-y-auto");
+    expect(scroll).not.toBeNull();
+    expect(scroll).toHaveClass("bg-card");
+    expect(scroll).not.toHaveClass("bg-white");
+  });
+
   it("does not render refresh button without onRefresh", () => {
     renderViewer();
     expect(screen.queryByRole("button", { name: "Refresh logs" })).not.toBeInTheDocument();

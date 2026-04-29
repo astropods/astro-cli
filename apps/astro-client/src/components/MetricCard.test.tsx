@@ -63,4 +63,15 @@ describe("MetricCard", () => {
     );
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
+
+  // The outer tile is rendered through the `<Card>` primitive so it picks
+  // up the semantic `bg-card` token (which themes correctly across light
+  // and dark) rather than a raw palette utility.
+  it("renders the outer container as the <Card> primitive with bg-card", () => {
+    const { container } = render(<MetricCard label="x" value="y" />);
+    const card = container.querySelector("[data-slot='card']");
+    expect(card).not.toBeNull();
+    expect(card).toHaveClass("bg-card");
+    expect(card).not.toHaveClass("bg-white");
+  });
 });

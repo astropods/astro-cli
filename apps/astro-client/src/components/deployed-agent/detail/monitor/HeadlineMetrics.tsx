@@ -1,9 +1,9 @@
 import { MetricCard } from "@/components/MetricCard";
+import { Card } from "@/components/ui/card";
 
 const C = {
   bgDeep: "var(--muted)",
   border: "var(--border)",
-  bgAlt: "var(--surface)",
 } as const;
 
 export type WindowKey = "1h" | "24h" | "7d";
@@ -52,7 +52,7 @@ function formatLatencyHeadlineMs(ms: number | null): string {
 
 export function MetricCardSkeleton() {
   return (
-    <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", height: 100, boxSizing: "border-box" }}>
+    <Card className="p-[12px_14px] h-[100px] box-border">
       <SkeletonBar width="60%" height={14} />
       <div style={{ marginTop: 8 }}>
         <SkeletonBar width="70%" />
@@ -62,7 +62,7 @@ export function MetricCardSkeleton() {
         <SkeletonBar width="8%" height={14} />
         <SkeletonBar width="30%" height={14} />
       </div>
-    </div>
+    </Card>
   );
 }
 

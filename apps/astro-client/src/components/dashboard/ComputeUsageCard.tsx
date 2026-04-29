@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatNumber, RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 
@@ -18,7 +19,7 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
 
   return (
     <>
-      <div className={cn("relative rounded-[10px] border border-border bg-surface p-[12px_14px]", className)}>
+      <Card className={cn("p-[12px_14px] relative", className)}>
         <span className="mb-4 block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
           {label}
         </span>
@@ -56,7 +57,7 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
             </div>
           </>
         )}
-      </div>
+      </Card>
       {quota != null && (
         <RequestIncreaseDialog
           featureKey="compute"

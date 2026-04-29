@@ -17,7 +17,17 @@ tasks:
     command: "bun x vitest run"
     inputs:
       - "src/**/*"
+      - "eslint-rules/**/*"
       - "vite.config.ts"
+
+  lint:
+    command: "bun run lint"
+    inputs:
+      - "src/**/*"
+      - "eslint.config.js"
+      - "eslint-rules/**/*"
+      - "eslint-suppressions.json"
+      - "package.json"
 
   e2e.setup:
     command: "bun x playwright install chromium"

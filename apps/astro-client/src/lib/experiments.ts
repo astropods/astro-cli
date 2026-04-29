@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useSyncExternalStore } from "react";
 
 export interface Experiments {
   theming: boolean;
@@ -14,7 +14,7 @@ const DEFAULTS: Experiments = {
 
 function load(): Experiments {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = typeof window === "undefined" ? null : localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     return { ...DEFAULTS, ...JSON.parse(raw) };
   } catch {
@@ -23,28 +23,56 @@ function load(): Experiments {
 }
 
 function save(experiments: Experiments) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(experiments));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(experiments));
+  } catch {
+    // localStorage may be unavailable (SSR, private mode); silently ignore.
+  }
+}
+
+// Module-level store shared by every `useExperiments()` consumer via
+// `useSyncExternalStore`. A single snapshot + listener set means toggling
+// from one component re-renders all other consumers in the same tab.
+//
+// The `storage` event fires only in OTHER tabs (browsers do not dispatch it
+// in the tab that wrote the value), so same-tab notification has to be
+// driven manually by `notify()` after each `save()`.
+const listeners = new Set<() => void>();
+let snapshot: Experiments = load();
+
+function notify() {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
+function getSnapshot(): Experiments {
+  return snapshot;
+}
+
+export function setExperiment<K extends keyof Experiments>(key: K, value: Experiments[K]) {
+  if (snapshot[key] === value) return;
+  snapshot = { ...snapshot, [key]: value };
+  save(snapshot);
+  notify();
+}
+
+if (typeof window !== "undefined") {
+  // Cross-tab sync: pick up writes from sibling tabs and rebroadcast to
+  // local subscribers.
+  window.addEventListener("storage", (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    snapshot = load();
+    notify();
+  });
 }
 
 export function useExperiments() {
-  const [experiments, setExperimentsState] = useState<Experiments>(load);
-
-  // Sync across tabs.
-  useEffect(() => {
-    function onStorage(e: StorageEvent) {
-      if (e.key === STORAGE_KEY) setExperimentsState(load());
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const setExperiment = useCallback(<K extends keyof Experiments>(key: K, value: Experiments[K]) => {
-    setExperimentsState((prev) => {
-      const next = { ...prev, [key]: value };
-      save(next);
-      return next;
-    });
-  }, []);
-
+  const experiments = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   return { experiments, setExperiment };
 }

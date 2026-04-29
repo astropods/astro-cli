@@ -1,5 +1,6 @@
 import React from "react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 function SkeletonBar({ className }: { className?: string }) {
@@ -47,7 +48,7 @@ export function MetricCard({ label, value, valueSuffix, description, trend = nul
   const chartData = sparkline?.map((v) => ({ v }));
 
   return (
-    <div className={cn("rounded-[10px] border border-border bg-white dark:bg-surface p-[12px_14px]", className)}>
+    <Card className={cn("p-[12px_14px]", className)}>
       <span className={cn("block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground", showTrend || sparkline || description ? "mb-2" : "mb-4")}>
         {label}
       </span>
@@ -88,6 +89,6 @@ export function MetricCard({ label, value, valueSuffix, description, trend = nul
       ) : (
         <TrendIndicator value={trend} higherIsBetter={higherIsBetter} />
       ))}
-    </div>
+    </Card>
   );
 }

@@ -301,7 +301,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
           </div>
         )}
         <div className="relative flex-1 min-h-0">
-        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-white py-2.5 pb-3.5">
+        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto bg-card py-2.5 pb-3.5">
           {renderLogContent()}
         </div>
         {showJumpToBottom && (

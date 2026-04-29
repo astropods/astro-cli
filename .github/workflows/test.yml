@@ -81,6 +81,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Lint (astro-client)
+        run: bun x moon run astro-client:lint
+
       - name: Run tests
         run: bun run test
         working-directory: apps/astro-client

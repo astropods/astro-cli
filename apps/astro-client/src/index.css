@@ -235,6 +235,8 @@ body {
   --color-destructive: var(--destructive);
   --color-faint-foreground: var(--faint-foreground);
   --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
   --color-border-strong: var(--border-strong);
   --color-code-text: var(--code-text);
   --color-border: var(--border);

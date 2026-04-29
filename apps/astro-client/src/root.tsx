@@ -16,6 +16,7 @@ import { AuthProvider, useAuth } from "./lib/auth";
 import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
 import { QueryAuthSync } from "./lib/QueryAuthSync";
+import { Button } from "./components/ui/button";
 
 export const meta: Route.MetaFunction = () => [
   { title: "Astro" },
@@ -108,15 +109,11 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     <main className="flex items-center justify-center min-h-screen">
       <div className="flex flex-col items-center gap-4 text-center">
         <h1 className="text-7xl font-extrabold">{message}</h1>
-        <p className="max-w-md text-stone-600 text-sm">{details}</p>
+        <p className="max-w-md text-muted-foreground text-sm">{details}</p>
         {showReload && (
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-2 rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 transition-colors"
-          >
+          <Button onClick={() => window.location.reload()} className="mt-2">
             Reload page
-          </button>
+          </Button>
         )}
       </div>
     </main>

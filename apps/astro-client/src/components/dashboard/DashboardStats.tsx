@@ -27,14 +27,12 @@ export function DashboardStats({
         value={totalTokens.toLocaleString()}
         showTrend={false}
         loading={isLoading || allTimeLoading}
-        className="bg-white dark:bg-background"
       />
       <MetricCard
         label="TOTAL REQUESTS"
         value={totalRequests.toLocaleString()}
         showTrend={false}
         loading={isLoading || allTimeLoading}
-        className="bg-white dark:bg-background"
       />
       <UsageCard
         label="TOTAL COMPUTE"
@@ -43,7 +41,6 @@ export function DashboardStats({
         unit="hours"
         account={account}
         loading={isLoading || usageLoading}
-        className="bg-white dark:bg-background"
       />
     </div>
   );
