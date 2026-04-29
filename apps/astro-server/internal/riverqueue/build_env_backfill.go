@@ -52,8 +52,7 @@ func (w *BuildEnvBackfillWorker) Work(ctx context.Context, _ *river.Job[BuildEnv
 			LIMIT $2
 		`, lastID, batchSize)
 		if err != nil {
-			w.log.Error("BuildEnv backfill: query deployments", "error", err)
-			return nil
+			return fmt.Errorf("query deployments: %w", err)
 		}
 
 		type pending struct {
@@ -92,6 +91,9 @@ func (w *BuildEnvBackfillWorker) Work(ctx context.Context, _ *river.Job[BuildEnv
 
 	w.log.Info("BuildEnv backfill completed",
 		"processed", processed, "skipped", skipped, "failed", failed)
+	if failed > 0 {
+		return fmt.Errorf("backfill incomplete: %d deployment(s) failed", failed)
+	}
 	return nil
 }
 
@@ -185,6 +187,7 @@ func (w *BuildEnvBackfillWorker) backfillOne(ctx context.Context, deploymentID, 
 					(deployment_id, role, env_name, value_encrypted, nonce,
 					 is_secret, source, user_var_name, account_var_ref, optional)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+				ON CONFLICT (deployment_id, role, env_name) DO NOTHING
 			`, deploymentID, role, v.name, valueEncrypted, nonce,
 				v.secret, "user_var", userVarName, accountVarRef, optional); err != nil {
 				return false, fmt.Errorf("insert %s/%s: %w", role, v.name, err)

@@ -304,8 +304,9 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count variables: %v", err)
 	}
-	if varCount != 3 {
-		t.Errorf("expected 3 variables, got %d", varCount)
+	if varCount != 2 {
+		// OPTIONAL_V has nil Targets and is skipped by both writers for parity.
+		t.Errorf("expected 2 variables, got %d", varCount)
 	}
 
 	// Verify secret variable value is stripped (no encryptor passed)
@@ -1276,5 +1277,135 @@ func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
 	}
 	if byName["PLAIN_KEY"].Ref != "" {
 		t.Errorf("PLAIN_KEY.Ref = %q, want empty (no ref)", byName["PLAIN_KEY"].Ref)
+	}
+}
+
+// --- build_env dual-write parity tests (review concerns from #852) ---
+
+func minimalAgentSpec() *spec.AstroDeploymentSpec {
+	return &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "review-test", Build: "b1", Registry: "r"},
+		Agent: spec.DeploymentAgent{
+			Image:     "img:b1",
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Replicas:  1,
+		},
+	}
+}
+
+func countBuildEnv(t *testing.T, db *sql.DB, depID string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM deployment_build_env WHERE deployment_id = $1`,
+		depID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count build_env: %v", err)
+	}
+	return n
+}
+
+func countDeploymentVariables(t *testing.T, db *sql.DB, depID string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM deployment_variables WHERE deployment_id = $1`,
+		depID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count deployment_variables: %v", err)
+	}
+	return n
+}
+
+func TestSaveNormalizedSpec_EmptyTargets_DoesNotDiverge(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := minimalAgentSpec()
+	ds.Variables = map[string]spec.Variable{
+		"NO_TARGETS": {Value: "x", Secret: false, Targets: nil},
+	}
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: ds.Source.Name,
+		BuildID: ds.Source.Build, Namespace: "ns-empty-targets",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil, nil)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	legacyRows := countDeploymentVariables(t, db, d.ID)
+	buildEnvRows := countBuildEnv(t, db, d.ID)
+	if legacyRows != buildEnvRows {
+		t.Errorf("variable parity drift: deployment_variables=%d, deployment_build_env=%d (NO_TARGETS row only lives in legacy table)",
+			legacyRows, buildEnvRows)
+	}
+}
+
+func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	aesKey := make([]byte, 32)
+	if _, err := rand.Read(aesKey); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := envelope.NewTestEncryptor(aesKey)
+	if err != nil {
+		t.Fatalf("NewTestEncryptor: %v", err)
+	}
+
+	ds := minimalAgentSpec()
+	ds.Variables = map[string]spec.Variable{
+		"API_KEY":   {Value: "sk-secret-123", Secret: true, Targets: []string{"agent"}},
+		"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
+	}
+	resolved := deployment.ResolveDeploymentSpecEnv(ds, deployment.ResolveContext{
+		Namespace: "ns-repair-be", AgentName: ds.Source.Name, BuildID: ds.Source.Build,
+	})
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: ds.Source.Name,
+		BuildID: ds.Source.Build, Namespace: "ns-repair-be",
+		SpecJSON:         `{"agent":{"image":"img:b1"}}`,
+		EncryptedDataKey: enc.EncryptedDataKey,
+		KMSKeyARN:        enc.KMSKeyARN,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, enc, nil)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending: %v", err)
+	}
+
+	beBefore := countBuildEnv(t, db, d.ID)
+	if beBefore == 0 {
+		t.Fatalf("build_env should be populated by dual-write before repair")
+	}
+	legacyBefore := countDeploymentVariables(t, db, d.ID)
+	if legacyBefore == 0 {
+		t.Fatalf("deployment_variables should be populated by dual-write before repair")
+	}
+
+	if _, _, _, err := store.RepairNormalizedSpec(d.ID, &NormalizedSpecConfig{
+		Namespace: "ns-repair-be",
+	}, nil); err != nil {
+		t.Fatalf("RepairNormalizedSpec: %v", err)
+	}
+
+	legacyAfter := countDeploymentVariables(t, db, d.ID)
+	beAfter := countBuildEnv(t, db, d.ID)
+
+	if legacyAfter != legacyBefore {
+		t.Errorf("Repair must preserve deployment_variables: before=%d, after=%d", legacyBefore, legacyAfter)
+	}
+	if beAfter != beBefore {
+		t.Errorf("Repair must preserve deployment_build_env (parity with deployment_variables): before=%d, after=%d",
+			beBefore, beAfter)
 	}
 }

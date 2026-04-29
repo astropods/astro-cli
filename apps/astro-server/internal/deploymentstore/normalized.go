@@ -121,6 +121,11 @@ type NormalizedSpecConfig struct {
 	IngestionIngressDomain string            // e.g. "ingestion.astropods.ai"
 	VarRefs                map[string]string // variable name → original account variable ref (before resolution)
 	ManagedSecrets         map[string]string // platform-injected secrets (e.g. ANTHROPIC_API_KEY) that bypass user variables
+	// SkipBuildEnvClear suppresses the DELETE FROM deployment_build_env that
+	// normally runs at the start of the variables block. Set by RepairNormalizedSpec
+	// so that existing build_env rows are preserved when variables cannot be
+	// re-encrypted (KMS encryptor is unavailable at repair time).
+	SkipBuildEnvClear bool
 }
 
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
@@ -673,21 +678,32 @@ func SaveNormalizedSpec(
 	//     window where a new deploy lands between the migration's
 	//     CREATE TABLE and the next backfill run.
 	//
-	// Rows for this deployment in deployment_build_env are cleared
-	// up-front so an update-deploy gets a clean per-(role, env) set.
-	if _, err := tx.Exec(
-		`DELETE FROM deployment_build_env WHERE deployment_id = $1`,
-		deploymentID,
-	); err != nil {
-		return fmt.Errorf("clear deployment_build_env: %w", err)
-	}
-
 	ingestionRoleNames := make([]string, 0, len(ds.Ingestion))
 	for n := range ds.Ingestion {
 		ingestionRoleNames = append(ingestionRoleNames, n)
 	}
 
+	// Clear deployment_build_env so an update-deploy gets a clean per-(role, env)
+	// set. Skipped during repair: RepairNormalizedSpec sets SkipBuildEnvClear so
+	// existing rows are preserved when the KMS encryptor is unavailable.
+	if nsCfg == nil || !nsCfg.SkipBuildEnvClear {
+		if _, err := tx.Exec(
+			`DELETE FROM deployment_build_env WHERE deployment_id = $1`,
+			deploymentID,
+		); err != nil {
+			return fmt.Errorf("clear deployment_build_env: %w", err)
+		}
+	}
+
 	for name, v := range ds.Variables {
+		targets := v.Targets
+		if len(targets) == 0 {
+			// Variables with no targets have nowhere to land in either table —
+			// deployment_build_env produces no rows for empty targets, so skip
+			// deployment_variables too to keep the two writers in sync.
+			continue
+		}
+
 		val := v.Value
 		var nonce []byte
 		if v.Secret && val != "" && enc != nil {
@@ -697,10 +713,6 @@ func SaveNormalizedSpec(
 			}
 			val = base64.StdEncoding.EncodeToString(ciphertext)
 			nonce = n
-		}
-		targets := v.Targets
-		if targets == nil {
-			targets = []string{}
 		}
 		// Persist the original account variable ref (cleared from spec before reaching here)
 		// so the prefilled template can restore it instead of leaking the resolved value.
@@ -872,6 +884,14 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	// Clear variables from the spec so SaveNormalizedSpec doesn't re-insert
 	// them with empty/stripped values, duplicating existing rows.
 	ds.Variables = nil
+
+	// Tell SaveNormalizedSpec not to DELETE deployment_build_env — we are
+	// preserving existing rows because the KMS encryptor is unavailable and
+	// the secrets cannot be re-encrypted from the stripped spec JSON.
+	if nsCfg == nil {
+		nsCfg = &NormalizedSpecConfig{}
+	}
+	nsCfg.SkipBuildEnvClear = true
 
 	// Re-run SaveNormalizedSpec with resolved env (for key tracking) but nil
 	// encryptor and cleared variables so only workloads/services/ingresses
