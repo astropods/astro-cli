@@ -52,4 +52,10 @@ export default defineConfig([
     },
   },
   ...storybook.configs["flat/recommended"],
+  {
+    files: ['src/stories/**'],
+    rules: {
+      'storybook/no-redundant-story-name': 'off',
+    },
+  },
 ])

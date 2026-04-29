@@ -1,18 +1,24 @@
-# Knowledge Stores Polish
+# Knowledge Store Polish
 
 ## Summary
 
-Visual pass on the Knowledge Stores list page and the "Add store" provider picker, plus a reusable `Table` primitive extracted from the Variables & Secrets page. Also refreshes and expands the integration icon catalog. No behavior changes.
+Visual polish across the knowledge store creation flow, detail page, and settings. Restores two post-create screens dropped in a prior refactor, redesigns the provisioning stage with a step list, and aligns the detail page and settings cards with the agent settings design system. Also fixes dark mode `destructive` token visibility.
 
 ## Design
 
-**Reusable Table primitives.** Extracted the styled-table look used by the Variables & Secrets page into `components/ui/table.tsx` so other list surfaces can adopt the same row affordances, header treatment, and rounded wrapper without duplicating Tailwind. Fully on theme tokens (no ad-hoc stone colors), with Storybook coverage.
+**Post-create flow.** `SuccessStage` was recreated from the pre-polish version when `NewKnowledgeStore.tsx` was split into atomic components, dropping all changes from PR #753. Restored: confetti, animated check icon, combined YAML+CLI code block card, and single-row back/view actions.
 
-**Knowledge Stores list.** Empty-state CTA now uses the default button size to match the rest of the app, and the table treatment matches the traces table empty-state for consistency across "data lives here" surfaces.
+`PendingAcceptanceStage` (PrivateLink post-create screen) was dropped entirely in the same refactor. Restored: three-step stepper (Registered → Awaiting approval → Connected), store card, and `PrivateLinkSection` for instructions/events. The redundant "Action required" banner is suppressed on this screen since the stepper already communicates state. `PrivateLinkSection` gains a `showBanner` prop and stacks endpoint/region values instead of inline pills.
 
-**Provider selection.** Cards on the "Choose a provider" step are visually distinct from the stone-tinted shell (pure white in light mode, `dark:bg-popover` preserved for dark). Tightened spacing, the icon tile affordance, and the selected-state ring. Subtext clarified ("Pick the database or vector store to back this knowledge store"). The "Managed available" tag is now "Managed option" using the blue `Tag` variant, consistent with how optional capabilities are badged elsewhere.
+**Provisioning stage.** Replaced the raw K8s event log with a fixed step list showing all stages upfront — completed steps with a teal check, active step with a spinner, upcoming steps dimmed to 35% opacity. Labels match the server's `humanizeKnowledgeEvent` output. Header centered with accurate copy.
 
-**Integration icons.** Added Neo4j and MySQL brand marks and refreshed Qdrant, across light and dark variants.
+**Provider selection.** Removed the "Managed option" tag from provider cards.
+
+**Detail page overview.** Stone-200 headers on Agent bindings and Event log cards, `rounded-md` corners, white fill on metric cards with dark mode variant. Chip dark mode fix. Ghost "View logs" button. LogViewer toolbar gets stone-200 header.
+
+**Settings panel.** Aligned to agent settings style: stone-200 headers, `rounded-md`, `divide-y` row separators with no body background. Danger Zone redesigned with `destructive` token for border/header and a new `variant="inline"` on `DangerZoneItem` to render as a plain row inside the parent card.
+
+**Theme.** Dark mode `destructive` token updated from `red-800` to `red-400` — `red-800` was nearly invisible on dark backgrounds. All usages now auto-adapt without per-component overrides.
 
 ## Migration
 

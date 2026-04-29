@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useKnowledgeCredentials } from "@/api/queries/knowledge";
-import { cn } from "@/lib/utils";
+
 import { SettingRow } from "./SettingRow";
 
 const CREDENTIAL_DESCRIPTIONS: Record<string, string> = {
@@ -44,8 +44,8 @@ export function CredentialsCard({ account, storeName }: { account: string; store
   };
 
   return (
-    <div className="rounded-lg border border-border bg-white overflow-hidden">
-      <div className={cn("flex items-center justify-between px-5 py-4", enabled && "border-b border-border")}>
+    <div className="rounded-md border border-border overflow-hidden divide-y divide-border">
+      <div className="flex items-center justify-between px-5 py-3 bg-stone-200 dark:bg-muted">
         <div>
           <h3 className="text-heading-4 text-foreground">Credentials</h3>
           <p className="mt-0.5 text-body-sm text-muted-foreground">Fetched securely on demand and not stored in your browser.</p>

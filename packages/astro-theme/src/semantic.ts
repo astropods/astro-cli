@@ -66,7 +66,7 @@ export const darkTheme: Record<SemanticToken, string> = {
   "code-text": "var(--color-teal-300)",
   accent: "var(--color-teal-800)",
   "accent-foreground": "var(--color-stone-100)",
-  destructive: "var(--color-red-800)",
+  destructive: "var(--color-red-400)",
   border: "color-mix(in oklch, var(--color-teal-300) 15%, transparent)",
   input: "color-mix(in oklch, var(--color-teal-300) 20%, transparent)",
   "input-background": "color-mix(in oklch, var(--color-stone-100) 5%, transparent)",

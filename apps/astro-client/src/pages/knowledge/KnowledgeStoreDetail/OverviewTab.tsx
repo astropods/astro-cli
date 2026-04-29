@@ -32,22 +32,24 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
       {store.status !== "pending-acceptance" && <>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} />
-          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} />
-          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} />
-          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading}
+          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
+          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
+          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
+          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card"
             description={metrics?.uptime_seconds != null ? <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground"><CheckCircleIcon className="size-3.5 shrink-0 text-teal-600" />No restarts detected</span> : undefined}
           />
         </div>
 
         <div className={cn("grid gap-8", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
-          <div className="rounded-lg border border-border bg-white p-5">
-            <div className="flex items-center gap-2 mb-2">
+          <div className="rounded-md border border-border bg-white dark:bg-card overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-stone-200 dark:bg-muted">
               <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
               <Tag>{store.bound_agents?.length ?? 0}</Tag>
             </div>
             {store.bound_agents && store.bound_agents.length > 0 ? (
-              <BindingsGraph storeName={store.name} provider={store.provider} agents={store.bound_agents} />
+              <div className="p-5">
+                <BindingsGraph storeName={store.name} provider={store.provider} agents={store.bound_agents} />
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Bot className="size-10 text-muted-foreground" />
@@ -61,10 +63,10 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
           {store.mode === "managed" && (
             <div className="flex flex-col">
-              <div className="rounded-lg border border-border bg-surface overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-white">
+              <div className="rounded-md border border-border bg-surface overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-stone-200 dark:bg-muted">
                   <h3 className="text-heading-4 text-foreground">Event log</h3>
-                  <Button variant="outline" size="sm" onClick={onViewLogs}>View logs →</Button>
+                  <Button variant="ghost" size="sm" onClick={onViewLogs}>View logs</Button>
                 </div>
                 <EventTimeline store={store} />
               </div>

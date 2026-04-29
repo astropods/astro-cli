@@ -1,5 +1,8 @@
 import { useEffect } from "react";
-import { ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
+import { CheckIcon } from "@heroicons/react/24/outline";
+import { PendingAcceptanceStage } from "./PendingAcceptanceStage";
+import { Tag } from "@/components/Tag";
+import { StatusBadge } from "@/components/StatusBadge";
 import { Spinner } from "@/components/ui/spinner";
 import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
 import { useKnowledgeStore } from "@/api/queries/knowledge";
@@ -24,6 +27,22 @@ export function ProvisioningStage({
 }) {
   const { data: store } = useKnowledgeStore(account, storeName);
 
+  const MANAGED_STEPS = [
+    "Assigning resources",
+    "Downloading database engine",
+    "Database engine ready",
+    "Preparing store",
+    "Store starting up",
+  ];
+  const EXTERNAL_STEPS = [
+    "Validating credentials",
+    "Testing connection",
+    "Saving configuration",
+    "Verifying access",
+    "Finalizing",
+  ];
+  const steps = mode === "managed" ? MANAGED_STEPS : EXTERNAL_STEPS;
+
   useEffect(() => {
     if (!store) return;
     if (store.status === "ready") {
@@ -33,59 +52,69 @@ export function ProvisioningStage({
     }
   }, [store, onReady, onError]);
 
-  const events = store?.events ?? [];
-  const heading = mode === "managed" ? "Provisioning your store" : "Connecting your store";
+  if (store?.status === "pending-acceptance") {
+    return <PendingAcceptanceStage store={store} />;
+  }
+
+  const completedCount = Math.min(store?.events?.length ?? 0, steps.length);
+  const heading = mode === "managed" ? "Setting up your store" : "Connecting your store";
   const subtitle = mode === "managed"
-    ? "Setting up infrastructure. This usually takes a moment."
+    ? "This may take a few moments."
     : "Verifying connectivity and saving credentials.";
 
   return (
     <div className="mx-auto max-w-lg">
-      <div className="flex flex-col items-center text-center">
-        <Spinner size={40} className="text-teal-600" />
-        <h2 className="mt-6 text-heading-4 text-foreground">{heading}</h2>
-        <p className="mt-1 text-body-sm text-muted-foreground">{subtitle}</p>
+      <div className="mb-8 text-center">
+        <h2 className="text-heading-1 text-foreground">{heading}</h2>
+        <p className="mt-1 text-body text-muted-foreground">{subtitle}</p>
       </div>
 
-      <div className="mt-8 rounded-lg border border-border bg-surface p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-            <ProviderIcon provider={provider} className="size-6" />
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
+        <div className="flex items-center gap-3 px-4 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+            <ProviderIcon provider={provider} className="size-5" />
           </div>
-          <div className="min-w-0">
+          <div className="flex-1 min-w-0">
             <span className="font-medium text-foreground">{storeName}</span>
-            <p className="text-body-sm text-muted-foreground">
-              {PROVIDER_LABELS[provider]} &middot; {mode === "managed" ? "Managed" : "External"}
-            </p>
+            <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tag color={mode === "managed" ? "blue" : "default"}>{mode === "managed" ? "Managed" : "External"}</Tag>
+            <StatusBadge color="warning" indicator spinning>Provisioning</StatusBadge>
           </div>
         </div>
       </div>
 
-      {events.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {events.map((event, i) => {
-            const isWarning = event.type === "Warning";
-            return (
-              <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
-                {isWarning ? (
-                  <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
-                ) : (
-                  <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-600" />
+      <div className="mt-4 rounded-lg border border-border bg-white dark:bg-surface overflow-hidden">
+        {steps.map((step, i) => {
+          const isDone = i < completedCount;
+          const isActive = i === completedCount;
+          const isPending = i > completedCount;
+          return (
+            <div
+              key={step}
+              className={`flex items-center gap-3 px-4 py-3 transition-opacity duration-500 ${i < steps.length - 1 ? "border-b border-border/60" : ""} ${isPending ? "opacity-35" : "opacity-100"}`}
+            >
+              <div className="shrink-0">
+                {isDone && (
+                  <div className="flex size-5 items-center justify-center rounded-full bg-teal-600 dark:bg-teal-500">
+                    <CheckIcon className="size-3 text-white stroke-[2.5]" />
+                  </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
-                  <span className="text-body-sm text-muted-foreground">: {event.message}</span>
-                </div>
-                {event.count > 1 && (
-                  <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">
-                    x{event.count}
-                  </span>
+                {isActive && (
+                  <Spinner size={20} className="text-teal-600 dark:text-teal-500" />
+                )}
+                {isPending && (
+                  <div className="size-5 rounded-full border-[1.5px] border-border" />
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <span className={`text-body-sm ${isDone || isActive ? "text-foreground" : "text-muted-foreground"} ${isActive ? "font-medium" : ""}`}>
+                {step}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {store?.endpoint && (
         <div className="mt-4">

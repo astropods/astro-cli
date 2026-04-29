@@ -1,5 +1,4 @@
-import { Tag } from "@/components/Tag";
-import { PROVIDER_LABELS, ALL_PROVIDERS, MANAGED_SET, PROVIDER_CATEGORIES } from "@/components/knowledge/knowledge-utils";
+import { PROVIDER_LABELS, ALL_PROVIDERS, PROVIDER_CATEGORIES } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
@@ -23,10 +22,7 @@ export function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) =>
               <ProviderIcon provider={p} className="size-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="font-medium text-foreground">{PROVIDER_LABELS[p]}</span>
-                {MANAGED_SET.has(p) && <Tag color="blue">Managed option</Tag>}
-              </div>
+              <span className="font-medium text-foreground">{PROVIDER_LABELS[p]}</span>
               <p className="text-body-sm text-muted-foreground">{PROVIDER_CATEGORIES[p]}</p>
             </div>
           </button>

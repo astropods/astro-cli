@@ -1,12 +1,4 @@
 {
-  "build/server/assets/server-build-6o6tUATh.js": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
   "e2e/adapter-toggle.spec.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -148,7 +140,7 @@
   },
   "src/components/knowledge/PrivateLinkSection.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 16
+      "count": 13
     }
   },
   "src/components/new-blueprint/RepoPicker.test.tsx": {
@@ -246,14 +238,9 @@
       "count": 1
     }
   },
-  "src/pages/knowledge/KnowledgeStoreDetail/Chip.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/KnowledgeStoreDetail/CredentialsCard.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 2
+      "count": 1
     }
   },
   "src/pages/knowledge/KnowledgeStoreDetail/EventTimeline.tsx": {
@@ -268,12 +255,12 @@
   },
   "src/pages/knowledge/KnowledgeStoreDetail/OverviewTab.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 3
+      "count": 1
     }
   },
   "src/pages/knowledge/KnowledgeStoreDetail/SettingsPanel.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 3
+      "count": 1
     }
   },
   "src/pages/knowledge/NewKnowledgeStore/ConfigureForm.tsx": {
@@ -286,14 +273,9 @@
       "count": 2
     }
   },
-  "src/pages/knowledge/NewKnowledgeStore/ProvisioningStage.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
   "src/pages/knowledge/NewKnowledgeStore/SuccessStage.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 5
+      "count": 2
     }
   },
   "src/pages/settings/OrgSettingsLayout.tsx": {

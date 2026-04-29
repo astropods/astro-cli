@@ -29,7 +29,7 @@ const CLOUD_CONSOLE: Record<string, {
   },
 };
 
-export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
+export function PrivateLinkSection({ store, showBanner = true }: { store: KnowledgeStore; showBanner?: boolean }) {
   if (!store.endpoint) return null;
 
   const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
@@ -42,7 +42,7 @@ export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
   return (
     <div className="space-y-3">
       {/* Action required warning banner */}
-      {isPending && (
+      {isPending && showBanner && (
         <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3.5 text-sm text-yellow-800">
           <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
           <div>
@@ -53,7 +53,7 @@ export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
       )}
 
       {/* Steps card */}
-      <div className="rounded-lg overflow-hidden border border-border bg-white divide-y divide-border">
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-card divide-y divide-border">
 
         {/* Step 1 — Complete */}
         <div className="flex items-start gap-4 px-5 py-4">
@@ -63,18 +63,9 @@ export function PrivateLinkSection({ store }: { store: KnowledgeStore }) {
           <div className="flex-1 min-w-0 pt-0.5">
             <p className="text-body font-medium text-foreground">Store registered in Astro</p>
             {store.endpoint.region && (
-              <div className="mt-2 flex items-start gap-1.5 flex-wrap">
-                {store.endpoint.endpoint_id && (
-                  <span className="flex items-center gap-1.5 min-w-0 rounded-sm bg-stone-100 px-2 py-0.5">
-                    <span className="shrink-0 text-body-sm text-muted-foreground">Endpoint</span>
-                    <span className="font-mono text-mono-sm text-foreground break-all">{store.endpoint.endpoint_id}</span>
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1.5 rounded-sm bg-stone-100 px-2 py-0.5">
-                  <span className="text-body-sm text-muted-foreground">Region</span>
-                  <span className="font-mono text-mono-sm text-foreground">{store.endpoint.region}</span>
-                </span>
-              </div>
+              <p className="mt-1 font-mono text-mono-sm text-muted-foreground">
+                {[store.endpoint.endpoint_id, store.endpoint.region].filter(Boolean).join(" · ")}
+              </p>
             )}
           </div>
         </div>
