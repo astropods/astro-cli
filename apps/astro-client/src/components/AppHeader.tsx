@@ -147,26 +147,70 @@ export function AppHeader() {
             </Link>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-4">
             {(isAuthenticated || isLoading) && (
-              <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+              <>
+                <RRNavLink to={explorePath} className="group hidden min-[700px]:flex items-center gap-1.5 whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground">
+                  <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
+                  Explore
+                </RRNavLink>
+                {externalNav.map((item) => (
+                  <ExternalOrNavLink
+                    key={item.to}
+                    to={item.to}
+                    external={item.external}
+                    className="hidden min-[700px]:block whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {item.label}
+                  </ExternalOrNavLink>
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="hidden min-[700px]:inline-flex px-0 text-[13px] font-normal text-muted-foreground hover:text-foreground"
+                  onClick={() => setFeedbackOpen(true)}
+                >
+                  Feedback
+                </Button>
+                <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+              </>
             )}
-            <Button variant="outline" size="icon" className="group min-[480px]:hidden" aria-label="Explore" asChild>
-              <Link to={explorePath}>
-                <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" className="group hidden min-[480px]:flex gap-1.5 text-[13px] font-normal" asChild>
-              <Link to={explorePath}>
-                <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
-                Explore
-              </Link>
-            </Button>
+            {!isAuthenticated && !isLoading && (
+              <>
+                {/* Explore + Docs + Blog: visible at 700px+, in sheet below that */}
+                <RRNavLink to={explorePath} className="group hidden min-[700px]:flex items-center gap-1.5 whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground">
+                  <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
+                  Explore
+                </RRNavLink>
+                {externalNav.map((item) => (
+                  <ExternalOrNavLink
+                    key={item.to}
+                    to={item.to}
+                    external={item.external}
+                    className="hidden min-[700px]:block whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {item.label}
+                  </ExternalOrNavLink>
+                ))}
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" asChild className="hidden min-[380px]:inline-flex text-[13px] font-normal">
+                    <Link to="/login">Log in</Link>
+                  </Button>
+                  <Button size="sm" asChild>
+                    <Link to="/signup">Get started</Link>
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
 
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={(!isAuthenticated && !isLoading) ? "min-[700px]:hidden" : ""}
+              >
                 <Bars3Icon className="size-5" />
                 <span className="sr-only">Open menu</span>
               </Button>
@@ -221,26 +265,28 @@ export function AppHeader() {
                       {experiments.theming && <ThemeSwitcher />}
                     </div>
                     <Separator className="my-1" />
-                    <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => setFeedbackOpen(true)}>
+                    <Button variant="ghost" className="w-full justify-start min-[700px]:hidden" asChild>
+                      <Link to={explorePath}>Explore</Link>
+                    </Button>
+                    <Button variant="ghost" className="w-full justify-start min-[700px]:hidden" onClick={() => setFeedbackOpen(true)}>
                       Feedback
                     </Button>
                     {externalNav.map((item) => (
-                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2" asChild>
+                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2 min-[700px]:hidden" asChild>
                         <a href={item.to} target="_blank" rel="noopener noreferrer">{item.label}</a>
                       </Button>
                     ))}
                   </>
                 ) : (
                   <>
-                    <Button variant="ghost" className="w-full justify-start" asChild>
+                    <Button variant="ghost" className="w-full justify-start min-[380px]:hidden" asChild>
                       <Link to="/login">Log in</Link>
                     </Button>
-                    <Button className="w-full justify-start" asChild>
-                      <Link to="/signup">Sign up</Link>
+                    <Button variant="ghost" className="w-full justify-start min-[700px]:hidden" asChild>
+                      <Link to={explorePath}>Explore</Link>
                     </Button>
-                    <Separator className="my-1" />
                     {externalNav.map((item) => (
-                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2" asChild>
+                      <Button key={item.to} variant="ghost" className="w-full justify-start gap-2 min-[700px]:hidden" asChild>
                         <a href={item.to} target="_blank" rel="noopener noreferrer">{item.label}</a>
                       </Button>
                     ))}
@@ -305,6 +351,10 @@ export function AppHeader() {
 
       {/* Right: external nav + auth */}
       <div className="ml-auto flex items-center gap-4">
+        <RRNavLink to={explorePath} className="group flex items-center gap-1.5 whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground">
+          <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
+          Explore
+        </RRNavLink>
         {externalNav.map((item) => (
           <ExternalOrNavLink
             key={item.to}
@@ -315,27 +365,21 @@ export function AppHeader() {
             {item.label}
           </ExternalOrNavLink>
         ))}
-
         {(isAuthenticated || isLoading) && (
           <>
-            <button
-              className="whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground cursor-pointer disabled:pointer-events-none disabled:opacity-50"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-0 text-[13px] font-normal text-muted-foreground hover:text-foreground"
               onClick={() => setFeedbackOpen(true)}
               disabled={isLoading}
             >
               Feedback
-            </button>
+            </Button>
             <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           </>
         )}
-
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" asChild className="group gap-1.5 mr-2 text-[13px] font-normal">
-            <Link to={explorePath}>
-              <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
-              Explore
-            </Link>
-          </Button>
+        <div className="flex items-center gap-2">
         {isLoading ? (
           <Skeleton className="size-8 rounded-full" />
         ) : isAuthenticated && user ? (
@@ -404,11 +448,11 @@ export function AppHeader() {
           </DropdownMenu>
         ) : (
           <>
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" size="sm" asChild className="text-[13px] font-normal">
               <Link to="/login">Log in</Link>
             </Button>
-            <Button asChild>
-              <Link to="/signup">Sign up</Link>
+            <Button size="sm" asChild>
+              <Link to="/signup">Get started</Link>
             </Button>
           </>
         )}
