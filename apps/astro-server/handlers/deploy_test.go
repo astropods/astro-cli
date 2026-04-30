@@ -27,7 +27,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	fakeKube "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
 
@@ -818,6 +820,89 @@ func TestListAstroDeployments_PrefersNewestRunningPod(t *testing.T) {
 	}
 	if !wl.Containers[0].Ready {
 		t.Error("expected container from newer pod to be ready")
+	}
+}
+
+// TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom verifies that
+// when a container has both an envFrom-resolved key and a direct env entry
+// with the same name, the result has one entry per name with the direct
+// entry winning — mirroring K8s runtime precedence and preventing duplicate
+// React keys downstream.
+func TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom(t *testing.T) {
+	const ns = "astro-test-0"
+	cs := fakeKube.NewClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "agent-creds", Namespace: ns},
+			Data: map[string][]byte{
+				"POSTGRES_USER":     []byte("astro"),
+				"POSTGRES_PASSWORD": []byte("p1"),
+				"GITHUB_TOKEN":      []byte("ghs_xx"),
+			},
+		},
+	)
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-pod", Namespace: ns},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				EnvFrom: []corev1.EnvFromSource{{
+					SecretRef: &corev1.SecretEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "agent-creds"},
+					},
+				}},
+				Env: []corev1.EnvVar{{
+					Name: "POSTGRES_USER",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "knowledge-postgres-creds"},
+							Key:                  "POSTGRES_USER",
+						},
+					},
+				}, {
+					Name: "POSTGRES_PASSWORD",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "knowledge-postgres-creds"},
+							Key:                  "POSTGRES_PASSWORD",
+						},
+					},
+				}},
+			}},
+		},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name: "app", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+			}},
+		},
+	}
+
+	got := buildContainerStatuses(context.Background(), cs, pod)
+	if len(got) != 1 || got[0].Name != "app" {
+		t.Fatalf("expected one container 'app', got %+v", got)
+	}
+
+	seen := map[string]int{}
+	bySource := map[string]string{}
+	for _, ev := range got[0].Env {
+		seen[ev.Name]++
+		bySource[ev.Name] = ev.From
+	}
+
+	for _, k := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "GITHUB_TOKEN"} {
+		if seen[k] != 1 {
+			t.Errorf("env %q appears %d times, want 1", k, seen[k])
+		}
+	}
+	// Direct env (secretKeyRef → "secret:NAME/KEY", with slash) must win
+	// over envFrom ("secret:NAME", no slash) for keys present in both.
+	for _, k := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD"} {
+		if !strings.Contains(bySource[k], "/") {
+			t.Errorf("%s: expected direct secretKeyRef source (with '/'), got %q", k, bySource[k])
+		}
+	}
+	// Keys only in envFrom keep the envFrom source.
+	if bySource["GITHUB_TOKEN"] != "secret:agent-creds" {
+		t.Errorf("GITHUB_TOKEN: expected envFrom source, got %q", bySource["GITHUB_TOKEN"])
 	}
 }
 
@@ -1800,30 +1885,22 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 }
 
+// expectVariableInsertsByName mocks the user-variable persistence
+// SaveNormalizedSpec performs at deploy time. The single write is
+// to deployment_build_env: one DELETE clearing prior rows, then one
+// INSERT per (variable, target_role) pair (fan-out). The legacy
+// deployment_variables table is gone; reads come from build_env via
+// GetDeploymentVariables, which now queries build_env directly.
+//
+// MatchExpectationsInOrder(false) lets the DELETE and INSERTs arrive
+// in any order. Tests that exercise multi-role fan-out should register
+// additional INSERT expectations explicitly.
 func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 	deployMock.MatchExpectationsInOrder(false)
-	// SaveNormalizedSpec clears deployment_build_env once per call before
-	// fan-out inserts.
 	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	for _, name := range names {
-		// Legacy table — one row per variable.
-		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-			WithArgs(
-				sqlmock.AnyArg(), // deployment_id
-				name,             // name
-				sqlmock.AnyArg(), // value
-				sqlmock.AnyArg(), // ref
-				sqlmock.AnyArg(), // secret
-				sqlmock.AnyArg(), // optional
-				sqlmock.AnyArg(), // targets
-				sqlmock.AnyArg(), // nonce
-			).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		// Dual-write to deployment_build_env. With Targets=["agent"]
-		// (the default for variables in these test fixtures), the
-		// fan-out is one row per variable.
 		deployMock.ExpectExec(`INSERT INTO deployment_build_env`).
 			WithArgs(
 				sqlmock.AnyArg(), // deployment_id
@@ -1938,8 +2015,6 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 		"SLACK_APP_TOKEN",
 		"SLACK_CONFIG",
 	)
-	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 
 	body := deployableSpec("")
@@ -1991,7 +2066,7 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`DELETE FROM deployment_workloads`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`DELETE FROM deployment_sidecars`).WillReturnResult(sqlmock.NewResult(0, 0))
-	deployMock.ExpectExec(`DELETE FROM deployment_variables`).WillReturnResult(sqlmock.NewResult(0, 0))
+	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).WillReturnResult(sqlmock.NewResult(0, 0))
 	// Event insert
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -2012,8 +2087,6 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		"SLACK_APP_TOKEN",
 		"SLACK_CONFIG",
 	)
-	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 
 	body := deployableSpec(depID)
@@ -2429,14 +2502,12 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	expectVariableInsertsByName(
-		deployMock,
-		"SLACK_BOT_TOKEN",
-		"SLACK_APP_TOKEN",
-		"SLACK_CONFIG",
-	)
-	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// No adapter selected in the submitted spec → EnforceEditable strips all
+	// interface-targeted variables (including the three slack vars). Only the
+	// DELETE fires; no user-var INSERTs follow.
+	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	deployMock.ExpectCommit()
 
 	body := deployableSpecWithLegacySlackVars()
@@ -2507,16 +2578,14 @@ func TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs(t *testing.T) {
 		deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
 	}
-	// SaveNormalizedSpec clears deployment_build_env before re-fanning
-	// out user_var rows. With slack stripped from the spec, no
-	// build_env or deployment_variables INSERTs follow — only the
-	// DELETE happens. An extra INSERT here would mean stale SLACK_*
-	// refs leaked through shaping.
+	// SaveNormalizedSpec clears any existing deployment_build_env rows
+	// before re-inserting per-(role, env_name) user_var rows. With slack
+	// stripped from the spec, no user_var rows should be inserted —
+	// only the DELETE happens. An extra INSERT here would mean stale
+	// SLACK_* refs leaked through shaping.
 	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 
 	body := deployableSpecWithStaleSlackRefs()
@@ -2862,22 +2931,11 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	// Variables persist to both tables now: legacy deployment_variables
-	// (one row per var) and deployment_build_env (one row per
-	// (variable, target_role) pair, preceded by a DELETE clearing
-	// prior rows for this deployment).
-	deployMock.MatchExpectationsInOrder(false)
+	// No adapter selected → EnforceEditable strips the SLACK_* vars from the
+	// submitted spec. DELETE fires; no variable INSERTs follow.
 	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	for range 3 {
-		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		deployMock.ExpectExec(`INSERT INTO deployment_build_env`).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-	}
-	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 
 	body := deployableSpecWithScheduleIngestion("0 0 * * *")
@@ -4540,13 +4598,14 @@ func TestPostTemplate_WithDeploymentID_PrefillsValues(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
 			AddRow(acctID, "myorg", "organization", nil, nil, now, now, "", nil))
-	// GetDeploymentVariables
-	deployMock.ExpectQuery(`SELECT`).
+	// GetDeploymentVariables (now reads deployment_build_env user_var rows)
+	deployMock.ExpectQuery(`SELECT role, env_name, value_encrypted, nonce, is_secret`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
 		}).
-			AddRow(depID, "API_KEY", "", "my-vault-secret", true, false, `{"agent"}`, nil).
-			AddRow(depID, "LOG_LEVEL", "warn", "", false, true, `{"agent"}`, nil))
+			AddRow("agent", "API_KEY", []byte{}, nil, true, "API_KEY", "my-vault-secret", false).
+			AddRow("agent", "LOG_LEVEL", []byte("warn"), nil, false, "LOG_LEVEL", "", true))
 
 	rec := postTemplate(t, router, `{"deployment_id": "dep-prefill-1"}`)
 

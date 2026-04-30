@@ -1243,6 +1243,16 @@ export interface EnvVar {
   name: string;
   value?: string;
   from?: string;
+  // Authoritative provenance from deployment_build_env when present:
+  // 'user_var' | 'platform_meta' | 'service_url' | 'knowledge_cred' |
+  // 'auth_token' | 'adapter_config' | 'derived'. Empty for legacy
+  // deployments without rows yet — clients fall back to inferring from
+  // `from`.
+  source?: string;
+  // Authoritative secret flag from deployment_build_env. When true the
+  // value is redacted in the UI; replaces the client-side
+  // isSensitiveEnvVar name heuristic.
+  is_secret?: boolean;
 }
 
 export interface ContainerStatus {

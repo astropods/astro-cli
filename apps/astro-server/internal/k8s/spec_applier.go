@@ -60,6 +60,14 @@ func (a *Applier) ApplyDeploymentSpec(
 		maps.Copy(allCredentials, credResult.Credentials)
 	}
 
+	// Surface the merged credential set on the result so the caller can
+	// run deployment.Resolve over the spec and persist deployment_build_env
+	// rows without re-deriving credentials.
+	if len(allCredentials) > 0 {
+		result.AllCredentials = make(map[string]string, len(allCredentials))
+		maps.Copy(result.AllCredentials, allCredentials)
+	}
+
 	// Resolve all ${} references and build ConfigMap/Secret data
 	rctx := deployment.ResolveContext{
 		Namespace:        a.namespace,
@@ -77,20 +85,29 @@ func (a *Applier) ApplyDeploymentSpec(
 		resolved.SecretData["ANTHROPIC_API_KEY"] = a.managedAnthropicAPIKey
 	}
 
+	// Filter out interface-only entries before building the agent's
+	// shared CM+Secret. Variables targeting interface.* (e.g.
+	// SLACK_BOT_TOKEN with Targets=["interface.slack"]) are consumed by
+	// the messaging container's own scoped Secret further down; they
+	// must not leak into the agent's bundle. The messaging carve-out
+	// reads from the unfiltered `resolved.SecretData` directly, so this
+	// filter only narrows the agent's view.
+	agentSecData, agentCMData := scopeAgentEnv(ds, resolved)
+
 	// Only generate resource names when there is data to back them;
 	// referencing a non-existent Secret/ConfigMap causes K8s errors.
 	secretName := ""
-	if resolved.HasSecretValues() {
+	if hasNonEmpty(agentSecData) {
 		secretName = deployment.GenerateSecretName(agentName, buildID)
 	}
 	configMapName := ""
-	if len(resolved.ConfigMapData) > 0 {
+	if len(agentCMData) > 0 {
 		configMapName = deployment.GenerateConfigMapName(agentName, buildID)
 	}
 
 	// Phase 1: Create Secret (credentials)
-	if resolved.HasSecretValues() {
-		secret := BuildSecret(a.namespace, accountName, agentName, buildID, resolved.SecretData)
+	if hasNonEmpty(agentSecData) {
+		secret := BuildSecret(a.namespace, accountName, agentName, buildID, agentSecData)
 		status, err := a.applySecret(ctx, secret)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -101,8 +118,8 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Phase 2: Create ConfigMap (connection strings + resolved env)
-	if len(resolved.ConfigMapData) > 0 {
-		configMap := BuildConfigMap(a.namespace, accountName, agentName, buildID, resolved.ConfigMapData)
+	if len(agentCMData) > 0 {
+		configMap := BuildConfigMap(a.namespace, accountName, agentName, buildID, agentCMData)
 		status, err := a.applyConfigMap(ctx, configMap)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -115,7 +132,12 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Compute a content hash of ConfigMap + Secret data. When injected as a pod
 	// template annotation, it forces a rolling restart when only env vars change
 	// (k8s does not restart pods for ConfigMap/Secret content changes alone).
-	envHash := hashEnvData(resolved)
+	//
+	// Hash the *filtered* maps the agent actually mounts, not the unfiltered
+	// resolved set. This way rotating an interface-only secret (e.g.
+	// SLACK_BOT_TOKEN) doesn't restart the agent pod — only the messaging
+	// container's own scoped Secret changed.
+	envHash := hashFilteredEnvData(agentCMData, agentSecData)
 
 	// Phase 3: Create Services
 	// Model services
@@ -561,7 +583,10 @@ func (a *Applier) ApplyDeploymentSpec(
 			grpcPort = 9090
 		}
 
-		// Resolve web port from "http" endpoint, avoiding conflict with the agent port
+		// Resolve web port from "http" endpoint, pushing it off any port
+		// it would collide with on the messaging pod (agent app port —
+		// same pod) or container (grpc port — same container). +10 each
+		// shift, retrying until no collision.
 		webPort := int32(0)
 		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
 			webPort = int32(ep.Port) // nolint:gosec
@@ -569,8 +594,8 @@ func (a *Applier) ApplyDeploymentSpec(
 		if webPort == 0 {
 			webPort = 8090
 		}
-		if webPort == agentPort {
-			webPort = agentPort + 10
+		for webPort == agentPort || webPort == grpcPort {
+			webPort = webPort + 10
 		}
 
 		// Resolve interface resources from deployment spec
@@ -839,6 +864,15 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Phase 7: CronJobs/Jobs for ingestion
+	//
+	// Ingestion containers need the same per-store knowledge credentials
+	// the agent does. With template.go's ${knowledge.x.credentials.y}
+	// auto-injection removed, those values no longer flow through the
+	// agent's full Secret (which ingestion used to envFrom). Instead we
+	// pass the same secretKeyRef entries knowledgeCredEnvVars produces
+	// for the agent — the K8s objects are shared between roles.
+	ingestionExtraEnv := knowledgeCredEnvVars(ds, agentName, knowledgeCredSecrets)
+
 	var manualIngestions []string
 	for name, ingestion := range ds.Ingestion {
 		resourceName := deployment.GenerateResourceName(agentName, "ingestion", name)
@@ -865,6 +899,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					SecretName: secretName, ConfigMapName: configMapName,
 					Ingestion:       ingestionSpec,
 					ImagePullPolicy: a.imagePullPolicy,
+					ExtraEnv:        ingestionExtraEnv,
 				})
 				status, err := a.applyCronJob(ctx, cronJob)
 				result.Resources = append(result.Resources, status)
@@ -882,6 +917,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				SecretName: secretName, ConfigMapName: configMapName,
 				Ingestion:       ingestionSpec,
 				ImagePullPolicy: a.imagePullPolicy,
+				ExtraEnv:        ingestionExtraEnv,
 			})
 			status, err := a.applyJob(ctx, job)
 			result.Resources = append(result.Resources, status)
@@ -909,6 +945,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				SecretName: secretName, ConfigMapName: configMapName,
 				Ingestion:       ingestionSpec,
 				ImagePullPolicy: a.imagePullPolicy,
+				ExtraEnv:        ingestionExtraEnv,
 			}, port)
 			status, err := a.applyDeployment(ctx, depl)
 			result.Resources = append(result.Resources, status)
@@ -1267,6 +1304,11 @@ func providerCredKeys(provider string) []knowledgeCredKey {
 		return []knowledgeCredKey{
 			{suffix: "USER", secretKey: "POSTGRES_USER"},         //nolint:gosec // env var key, not a credential
 			{suffix: "PASSWORD", secretKey: "POSTGRES_PASSWORD"}, //nolint:gosec // env var key, not a credential
+			// DB rounds out the BindCredentials triple. With the
+			// template.go auto-injection of credential refs removed,
+			// knowledgeCredEnvVars is the only path that puts the
+			// database name on the agent + ingestion containers.
+			{suffix: "DB", secretKey: "POSTGRES_DB"}, //nolint:gosec // env var key, not a credential
 		}
 	case "redis":
 		return []knowledgeCredKey{
@@ -1444,15 +1486,84 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 	return result
 }
 
-// hashEnvData computes a short hex hash of the resolved ConfigMap + Secret data.
-// Used as a pod template annotation to trigger rolling restarts when env vars change.
-func hashEnvData(resolved *deployment.ResolvedEnv) string {
+// scopeAgentEnv returns the (ConfigMap, Secret) data the agent and ingestion
+// containers should mount. It filters out variables whose Targets are
+// exclusively interface-scoped (e.g. SLACK_BOT_TOKEN with
+// Targets=["interface.slack"]), which are consumed by the messaging
+// container's own scoped Secret and must not leak into the agent's bundle.
+//
+// A variable is interface-only when every entry in its Targets begins with
+// "interface.". Variables with mixed targets (e.g. ["agent","ingestion"])
+// stay in the agent's view, since the agent legitimately needs them.
+//
+// Auto-emitted entries (ASTRO_AGENT_*, OTEL_EXPORTER_OTLP_ENDPOINT, etc.)
+// are not in ds.Variables; they pass through unfiltered.
+func scopeAgentEnv(ds *spec.AstroDeploymentSpec, resolved *deployment.ResolvedEnv) (sec, cm map[string]string) {
+	exclude := interfaceOnlyKeys(ds)
+
+	sec = make(map[string]string, len(resolved.SecretData))
+	for k, v := range resolved.SecretData {
+		if exclude[k] {
+			continue
+		}
+		sec[k] = v
+	}
+	cm = make(map[string]string, len(resolved.ConfigMapData))
+	for k, v := range resolved.ConfigMapData {
+		if exclude[k] {
+			continue
+		}
+		cm[k] = v
+	}
+	return sec, cm
+}
+
+// interfaceOnlyKeys returns the set of variable names whose Targets are
+// exclusively "interface.*" entries. These belong to the messaging
+// container only and must not appear in the agent's mounted Secret.
+func interfaceOnlyKeys(ds *spec.AstroDeploymentSpec) map[string]bool {
+	out := map[string]bool{}
+	for name, v := range ds.Variables {
+		if len(v.Targets) == 0 {
+			continue
+		}
+		allInterface := true
+		for _, t := range v.Targets {
+			if !strings.HasPrefix(t, "interface.") {
+				allInterface = false
+				break
+			}
+		}
+		if allInterface {
+			out[strings.ToUpper(name)] = true
+		}
+	}
+	return out
+}
+
+// hasNonEmpty reports whether any value in the map is non-empty and not
+// an unresolved ${} reference. Mirrors ResolvedEnv.HasSecretValues so the
+// applier can skip Secret creation for stripped/unresolved specs.
+func hasNonEmpty(data map[string]string) bool {
+	for _, v := range data {
+		if v != "" && !spec.IsReference(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// hashFilteredEnvData hashes the (cmData, secData) the agent + ingestion
+// containers will actually mount. Variant of hashEnvData that takes the
+// already-filtered maps instead of the full ResolvedEnv, so changes to
+// interface-only entries don't trigger an unnecessary agent restart.
+func hashFilteredEnvData(cmData, secData map[string]string) string {
 	h := sha256.New()
-	keys := make([]string, 0, len(resolved.ConfigMapData)+len(resolved.SecretData))
-	for k := range resolved.ConfigMapData {
+	keys := make([]string, 0, len(cmData)+len(secData))
+	for k := range cmData {
 		keys = append(keys, "cm:"+k)
 	}
-	for k := range resolved.SecretData {
+	for k := range secData {
 		keys = append(keys, "s:"+k)
 	}
 	sort.Strings(keys)
@@ -1460,9 +1571,9 @@ func hashEnvData(resolved *deployment.ResolvedEnv) string {
 		h.Write([]byte(k))
 		h.Write([]byte{0})
 		if strings.HasPrefix(k, "cm:") {
-			h.Write([]byte(resolved.ConfigMapData[strings.TrimPrefix(k, "cm:")]))
+			h.Write([]byte(cmData[strings.TrimPrefix(k, "cm:")]))
 		} else {
-			h.Write([]byte(resolved.SecretData[strings.TrimPrefix(k, "s:")]))
+			h.Write([]byte(secData[strings.TrimPrefix(k, "s:")]))
 		}
 		h.Write([]byte{0})
 	}

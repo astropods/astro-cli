@@ -55,11 +55,17 @@ export function DeploymentsTab({
         ready: c.ready,
         vars: (c.env ?? []).map((e) => {
           const val = e.value ?? "";
+          // When the API supplies `source` from deployment_build_env, it's
+          // authoritative for both the badge and the secret flag. Fall back
+          // to the From-based heuristic for legacy deployments.
+          const fromHeuristic = e.from ?? "static";
+          const source = e.source && e.source !== "" ? e.source : fromHeuristic;
+          const secret = e.is_secret ?? isSensitiveEnvVar(e.name, val, fromHeuristic);
           return {
             key: e.name,
             value: val,
-            source: e.from ?? "static",
-            secret: isSensitiveEnvVar(e.name, val, e.from ?? "static"),
+            source,
+            secret,
           };
         }).sort((a, b) => a.key.localeCompare(b.key)),
       }));

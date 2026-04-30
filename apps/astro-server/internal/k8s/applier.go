@@ -69,6 +69,17 @@ type ApplierConfig struct {
 	// ASTRO_AUTHZ_URL alongside ASTRO_AUTHZ_TOKEN. When empty (local dev),
 	// the messaging container falls back to AllowAll.
 	AuthzCallbackURL string
+	// DeploymentID is reused as the key for deployment_build_env writes.
+	// Already set above for collector wiring; PersistResolutions uses it.
+	// (Field reused, not redeclared.)
+
+	// PersistResolutions is invoked once per ApplyDeploymentSpec, after
+	// Resolve has run, to write rows to deployment_build_env. The applier
+	// can't import deploymentstore directly (deploymentstore depends on
+	// k8s); the deployer wires this callback to its Store + Encryptor.
+	// Best-effort: returning an error logs a warning and the apply
+	// continues.
+	PersistResolutions func(deploymentID string, rows []deployment.Resolution) error
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -104,6 +115,7 @@ type Applier struct {
 	boundCredentials       map[string]string
 	deployTokenSecret      string
 	authzCallbackURL       string
+	persistResolutions     func(deploymentID string, rows []deployment.Resolution) error
 }
 
 // NewApplier creates a new applier
@@ -138,6 +150,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		boundCredentials:       cfg.BoundCredentials,
 		deployTokenSecret:      cfg.DeployTokenSecret,
 		authzCallbackURL:       cfg.AuthzCallbackURL,
+		persistResolutions:     cfg.PersistResolutions,
 	}
 }
 
@@ -163,6 +176,13 @@ type ApplyResult struct {
 	Resources        []deployment.ResourceStatus
 	ServiceEndpoints []deployment.ServiceEndpoint
 	Errors           []deployment.DeploymentError
+
+	// AllCredentials is the union of bound and self-hosted knowledge
+	// credentials that were available during this apply, keyed
+	// "<knowledgeName>.<attr>". Surfaced to the caller so the orchestrator
+	// (deployer) can run deployment.Resolve over the spec and persist
+	// rows to deployment_build_env without re-deriving the cred set.
+	AllCredentials map[string]string
 }
 
 // applySecret creates or updates a Secret

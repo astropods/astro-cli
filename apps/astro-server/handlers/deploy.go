@@ -824,11 +824,85 @@ type ServiceEndpointInfo struct {
 	Type string `json:"type,omitempty"`
 }
 
+// annotateWorkloadsWithRows overlays Source and IsSecret on each
+// container env entry by looking up the matching deployment_build_env
+// row by (role, env_name). Values from K8s are preserved; this only
+// adds provenance metadata.
+//
+// Role mapping: workload component label + container name → Role.
+//   - component "agent" + container "messaging" → RoleMessaging
+//   - component "agent" + container "*"         → RoleAgent
+//   - component "collector"                     → RoleCollector
+//   - component "knowledge-<name>"              → KnowledgeRole(<name>)
+//   - component "ingestion-<name>"              → IngestionRole(<name>)
+func annotateWorkloadsWithRows(workloads []WorkloadDetail, rows []deploymentstore.BuildEnvRow) {
+	idx := indexBuildEnvRows(rows)
+	for wi := range workloads {
+		wl := &workloads[wi]
+		for ci := range wl.Containers {
+			c := &wl.Containers[ci]
+			role := roleFor(wl.Component, c.Name)
+			if role == "" {
+				continue
+			}
+			for ei := range c.Env {
+				ev := &c.Env[ei]
+				key := role + "|" + ev.Name
+				if r, ok := idx[key]; ok {
+					ev.Source = r.Source
+					ev.IsSecret = r.IsSecret
+				}
+			}
+		}
+	}
+}
+
+// indexBuildEnvRows returns a "<role>|<env_name>" lookup over rows.
+func indexBuildEnvRows(rows []deploymentstore.BuildEnvRow) map[string]deploymentstore.BuildEnvRow {
+	out := make(map[string]deploymentstore.BuildEnvRow, len(rows))
+	for _, r := range rows {
+		out[r.Role+"|"+r.EnvName] = r
+	}
+	return out
+}
+
+// roleFor maps a (workload component, container name) to the
+// deployment_build_env role string. Returns "" when the pair doesn't
+// correspond to a tracked role (e.g. integration containers, which
+// aren't represented in the unified env table today).
+func roleFor(component, containerName string) string {
+	switch {
+	case component == "agent" && containerName == "messaging":
+		return string(deployment.RoleMessaging)
+	case component == "agent":
+		return string(deployment.RoleAgent)
+	case component == "collector":
+		return string(deployment.RoleCollector)
+	case strings.HasPrefix(component, "knowledge-"):
+		return string(deployment.KnowledgeRole(strings.TrimPrefix(component, "knowledge-")))
+	case strings.HasPrefix(component, "ingestion-"):
+		return string(deployment.IngestionRole(strings.TrimPrefix(component, "ingestion-")))
+	}
+	return ""
+}
+
 // EnvVar represents a single environment variable in a container
 type EnvVar struct {
 	Name  string `json:"name"`
 	Value string `json:"value,omitempty"`
 	From  string `json:"from,omitempty"` // e.g. "secret:my-secret/key" or "configmap:cm/key"
+	// Source is the categorical provenance from deployment_build_env when
+	// available (one of: 'user_var', 'platform_meta', 'service_url',
+	// 'knowledge_cred', 'auth_token', 'adapter_config', 'derived'). Empty
+	// when no row exists for this (role, env_name) — in that case clients
+	// fall back to inferring from From.
+	Source string `json:"source,omitempty"`
+	// IsSecret is the authoritative secret flag from deployment_build_env
+	// when available. Replaces the client-side `isSensitiveEnvVar` name
+	// heuristic; clients should redact when this is true. Defaults to
+	// false; callers that need a value rely on the existing redaction
+	// behavior (•••••• already in Value for K8s-sourced secrets).
+	IsSecret bool `json:"is_secret,omitempty"`
 }
 
 // ContainerStatus represents the status of a single container in a pod
@@ -1099,6 +1173,19 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 				result = dep
 				break
 			}
+		}
+
+		// Annotate K8s-derived env entries with authoritative metadata
+		// (Source, IsSecret) from deployment_build_env. The values still
+		// come from K8s; the rows just supply provenance the UI uses for
+		// badge color and redaction, replacing the client-side
+		// isSensitiveEnvVar name heuristic. No-op when no rows exist
+		// (legacy deployments fall back to From-based inference client-side).
+		if rows, rowErr := deployStore.GetBuildEnv(dbDep.ID); rowErr == nil && len(rows) > 0 {
+			annotateWorkloadsWithRows(result.Workloads, rows)
+		} else if rowErr != nil {
+			log.Warn("GetBuildEnv failed for deployment annotation",
+				"error", rowErr, "deployment_id", dbDep.ID)
 		}
 
 		if auditStore != nil {
@@ -1730,17 +1817,26 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 		return result
 	}
 
-	// Build a map of spec containers (regular + init) for env var lookup
+	// Build per-container env, mirroring K8s runtime precedence: envFrom is
+	// resolved first, then direct env entries overlay (a direct entry with
+	// the same name as an envFrom-resolved key wins). Returning one entry
+	// per name keeps the API contract honest and frees callers from having
+	// to dedupe.
 	specContainers := map[string][]EnvVar{}
 	for _, sc := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
-		var envVars []EnvVar
+		byName := map[string]EnvVar{}
+		order := []string{}
+		put := func(ev EnvVar) {
+			if _, exists := byName[ev.Name]; !exists {
+				order = append(order, ev.Name)
+			}
+			byName[ev.Name] = ev
+		}
 
-		// Resolve envFrom references into individual key-value pairs
 		for _, ef := range sc.EnvFrom {
 			if ef.ConfigMapRef != nil {
-				data := resolveConfigMap(ef.ConfigMapRef.Name)
-				for k, v := range data {
-					envVars = append(envVars, EnvVar{
+				for k, v := range resolveConfigMap(ef.ConfigMapRef.Name) {
+					put(EnvVar{
 						Name:  ef.Prefix + k,
 						Value: v,
 						From:  "configmap:" + ef.ConfigMapRef.Name,
@@ -1748,9 +1844,8 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 				}
 			}
 			if ef.SecretRef != nil {
-				keys := resolveSecretKeys(ef.SecretRef.Name)
-				for _, k := range keys {
-					envVars = append(envVars, EnvVar{
+				for _, k := range resolveSecretKeys(ef.SecretRef.Name) {
+					put(EnvVar{
 						Name:  ef.Prefix + k,
 						Value: "••••••••",
 						From:  "secret:" + ef.SecretRef.Name,
@@ -1776,7 +1871,12 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 			} else {
 				ev.Value = e.Value
 			}
-			envVars = append(envVars, ev)
+			put(ev)
+		}
+
+		envVars := make([]EnvVar, 0, len(order))
+		for _, name := range order {
+			envVars = append(envVars, byName[name])
 		}
 		specContainers[sc.Name] = envVars
 	}

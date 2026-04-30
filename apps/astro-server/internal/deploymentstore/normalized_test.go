@@ -1385,11 +1385,7 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 
 	beBefore := countBuildEnv(t, db, d.ID)
 	if beBefore == 0 {
-		t.Fatalf("build_env should be populated by dual-write before repair")
-	}
-	legacyBefore := countDeploymentVariables(t, db, d.ID)
-	if legacyBefore == 0 {
-		t.Fatalf("deployment_variables should be populated by dual-write before repair")
+		t.Fatalf("build_env should be populated before repair")
 	}
 
 	if _, _, _, err := store.RepairNormalizedSpec(d.ID, &NormalizedSpecConfig{
@@ -1398,14 +1394,11 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
 
-	legacyAfter := countDeploymentVariables(t, db, d.ID)
+	// SkipBuildEnvClear suppresses the build_env DELETE in SaveNormalizedSpec,
+	// so existing rows must survive the repair (KMS encryptor is unavailable
+	// at repair time, so we can't re-encrypt secrets).
 	beAfter := countBuildEnv(t, db, d.ID)
-
-	if legacyAfter != legacyBefore {
-		t.Errorf("Repair must preserve deployment_variables: before=%d, after=%d", legacyBefore, legacyAfter)
-	}
 	if beAfter != beBefore {
-		t.Errorf("Repair must preserve deployment_build_env (parity with deployment_variables): before=%d, after=%d",
-			beBefore, beAfter)
+		t.Errorf("Repair must preserve deployment_build_env: before=%d, after=%d", beBefore, beAfter)
 	}
 }

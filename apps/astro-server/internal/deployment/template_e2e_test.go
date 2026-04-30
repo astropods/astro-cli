@@ -609,14 +609,10 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 		}
 	}
 
-	// Slack adapter tokens (from messaging interfaces)
-	if v, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
-		t.Error("missing SLACK_BOT_TOKEN variable")
-	} else if !v.Optional {
-		t.Error("SLACK_BOT_TOKEN should be optional")
-	}
-	if _, ok := ds.Variables["SLACK_APP_TOKEN"]; !ok {
-		t.Error("missing SLACK_APP_TOKEN variable")
+	// Slack vars are not in the raw template — they are injected by ApplyAdapterShaping
+	// when the user selects the slack adapter. Dev config is server-side irrelevant.
+	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; ok {
+		t.Error("SLACK_BOT_TOKEN should not be in raw template (injected at shaping time)")
 	}
 
 	// === Agent environment wiring ===

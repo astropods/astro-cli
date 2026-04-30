@@ -522,7 +522,7 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 		if _, err := tx.Exec(`DELETE FROM deployment_sidecars WHERE deployment_id = $1`, oldID); err != nil {
 			return nil, fmt.Errorf("failed to delete old sidecars for %s: %w", oldID, err)
 		}
-		if _, err := tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, oldID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM deployment_build_env WHERE deployment_id = $1`, oldID); err != nil {
 			return nil, fmt.Errorf("failed to delete old variables for %s: %w", oldID, err)
 		}
 	}
@@ -644,7 +644,7 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete old sidecars: %w", err)
 	}
-	_, err = tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, p.ID)
+	_, err = tx.Exec(`DELETE FROM deployment_build_env WHERE deployment_id = $1`, p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete old variables: %w", err)
 	}

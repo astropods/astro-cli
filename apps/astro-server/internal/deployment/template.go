@@ -275,20 +275,14 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						}
 					}
 
-					// Wire credential refs into agent environment so the agent
-					// can connect to the knowledge store with proper per-name keys.
-					// Credentials are auto-generated at deploy time by the platform
-					// (ensureKnowledgeCredentialSecrets) — no user-facing variables needed.
-					for _, cred := range prov.BindCredentials {
-						suffix := strings.ToUpper(cred.Attr)
-						// Use "DB" suffix for database (not "DATABASE") to match common conventions.
-						if cred.Attr == "database" {
-							suffix = "DB"
-						}
-						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, knowledge.Provider, suffix, isDup, isPrimary) {
-							agentEnv[key] = fmt.Sprintf("${knowledge.%s.credentials.%s}", name, cred.Attr)
-						}
-					}
+					// Knowledge credential env vars (POSTGRES_USER/_PASSWORD/_DB
+					// per store, with per-store renaming for multi-store
+					// disambiguation) are NOT injected into agent.Environment.
+					// They flow directly via secretKeyRef entries the applier
+					// emits from knowledgeCredEnvVars — no resolved-value path,
+					// no duplicate with the agent's full Secret. The same
+					// secretKeyRef list is also passed to ingestion containers
+					// so they keep their access to provider creds.
 				} else {
 					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", spec.SanitizeEnvName(name))
 					agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
@@ -340,6 +334,15 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		agentEnv[ci.Key] = fmt.Sprintf("${variables.%s}", ci.Key)
 	}
 
+	// Build ingestion before collecting inputs so that component-level input
+	// defaults can be injected into the ingestion container environment.
+	if len(astroSpec.Ingestion) > 0 {
+		ds.Ingestion = make(map[string]spec.DeploymentIngestion, len(astroSpec.Ingestion))
+		for name, ingestion := range astroSpec.Ingestion {
+			ds.Ingestion[name] = buildDeploymentIngestion(ingestion, input)
+		}
+	}
+
 	// Collect inputs from all sources into variables map
 	collectVariablesFromInputs(astroSpec, ds, agentEnv, variables)
 
@@ -376,14 +379,6 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Update:      spec.DefaultUpdateStrategy(),
 	}
 
-	// Process ingestion
-	if len(astroSpec.Ingestion) > 0 {
-		ds.Ingestion = make(map[string]spec.DeploymentIngestion, len(astroSpec.Ingestion))
-		for name, ingestion := range astroSpec.Ingestion {
-			ds.Ingestion[name] = buildDeploymentIngestion(ingestion, input)
-		}
-	}
-
 	// Interfaces block — only emitted when the agent supports messaging
 	if astroSpec.Agent.HasMessaging() {
 		ds.Interfaces = &spec.DeploymentInterfaces{
@@ -399,77 +394,13 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			},
 		}
 
-		// All Slack-related variables are forced to targets: ["interface.slack"] so they
-		// group under the Slack toggle in the deploy UI. We merge into existing
-		// variables (preserving Value/Default from inputs) rather than overwriting.
 		if ds.Variables == nil {
 			ds.Variables = make(map[string]spec.Variable)
 		}
-		mergeSlackVar := func(key string, v spec.Variable) {
-			if existing, ok := ds.Variables[key]; ok {
-				existing.Targets = v.Targets
-				existing.Description = v.Description
-				existing.Label = v.Label
-				existing.Placeholder = v.Placeholder
-				existing.HelpURL = v.HelpURL
-				ds.Variables[key] = existing
-			} else {
-				ds.Variables[key] = v
-			}
-		}
-		mergeSlackVar("SLACK_BOT_TOKEN", spec.Variable{
-			Description: "Slack bot token for API access and messaging",
-			Label:       "Slack Bot Token",
-			Placeholder: "xoxb-...",
-			HelpURL:     "https://docs.slack.dev/authentication/tokens/",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
-		})
-		mergeSlackVar("SLACK_APP_TOKEN", spec.Variable{
-			Description: "Slack app-level token for socket mode connections",
-			Label:       "Slack App Token",
-			Placeholder: "xapp-...",
-			HelpURL:     "https://docs.slack.dev/authentication/tokens/",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
-		})
 
-		slackCfgDefault := slackConfigDefault(astroSpec)
-		ds.Variables["SLACK_CONFIG"] = spec.Variable{
-			Description: "Slack adapter configuration",
-			Label:       "Slack Configuration",
-			Datatype:    "object",
-			Optional:    true,
-			Secret:      false,
-			Targets:     []string{"interface.slack"},
-			Value:       slackCfgDefault,
-			Default:     slackCfgDefault,
-			Fields: map[string]spec.VariableField{
-				"actionable_reactions": {
-					Label:       "Actionable Reactions",
-					Description: "Emoji names the bot acts on",
-					Placeholder: "ticket, bug",
-					Datatype:    "csv",
-					Optional:    true,
-				},
-				"allowed_channel_ids": {
-					Label:       "Allowed Channel IDs",
-					Description: "Restrict to specific channels",
-					Placeholder: "C12345, C67890",
-					Datatype:    "csv",
-					Optional:    true,
-				},
-				"allowed_user_ids": {
-					Label:       "Allowed User IDs",
-					Description: "Restrict to specific users",
-					Placeholder: "U12345, U67890",
-					Datatype:    "csv",
-					Optional:    true,
-				},
-			},
-		}
+		// Slack variables are NOT injected here. They are adapter-specific and
+		// only belong in the spec once the user selects the slack adapter.
+		// ApplyAdapterShaping handles injection at that point.
 
 		wireInterfaceEnvironment(ds)
 	}
@@ -754,6 +685,81 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 //  1. Strip variables that belong exclusively to non-selected adapters, plus their
 //     ${variables.KEY} references in interfaces.environment.
 //  2. Flip slack token optionality based on whether "slack" is selected.
+//
+// injectSlackVariables adds SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and SLACK_CONFIG
+// to ds.Variables. It merges into any values already present (preserving
+// injectSlackVariables adds SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and SLACK_CONFIG
+// to ds.Variables. Called by ApplyAdapterShaping when the slack adapter is
+// selected. Merges into any values already present from user inputs, preserving
+// Value, Ref, and Default while overwriting platform-owned metadata.
+func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
+	if ds.Variables == nil {
+		ds.Variables = make(map[string]spec.Variable)
+	}
+	merge := func(key string, v spec.Variable) {
+		if existing, ok := ds.Variables[key]; ok {
+			// Preserve user-supplied content; overwrite platform-owned metadata.
+			v.Value = existing.Value
+			v.Ref = existing.Ref
+			v.Default = existing.Default
+			ds.Variables[key] = v
+		} else {
+			ds.Variables[key] = v
+		}
+	}
+	merge("SLACK_BOT_TOKEN", spec.Variable{
+		Description: "Slack bot token for API access and messaging",
+		Label:       "Slack Bot Token",
+		Placeholder: "xoxb-...",
+		HelpURL:     "https://docs.slack.dev/authentication/tokens/",
+		Optional:    true,
+		Secret:      true,
+		Targets:     []string{"interface.slack"},
+	})
+	merge("SLACK_APP_TOKEN", spec.Variable{
+		Description: "Slack app-level token for socket mode connections",
+		Label:       "Slack App Token",
+		Placeholder: "xapp-...",
+		HelpURL:     "https://docs.slack.dev/authentication/tokens/",
+		Optional:    true,
+		Secret:      true,
+		Targets:     []string{"interface.slack"},
+	})
+	if _, ok := ds.Variables["SLACK_CONFIG"]; !ok {
+		ds.Variables["SLACK_CONFIG"] = spec.Variable{
+			Description: "Slack adapter configuration",
+			Label:       "Slack Configuration",
+			Datatype:    "object",
+			Optional:    true,
+			Secret:      false,
+			Targets:     []string{"interface.slack"},
+			Fields: map[string]spec.VariableField{
+				"actionable_reactions": {
+					Label:       "Actionable Reactions",
+					Description: "Emoji names the bot acts on",
+					Placeholder: "ticket, bug",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+				"allowed_channel_ids": {
+					Label:       "Allowed Channel IDs",
+					Description: "Restrict to specific channels",
+					Placeholder: "C12345, C67890",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+				"allowed_user_ids": {
+					Label:       "Allowed User IDs",
+					Description: "Restrict to specific users",
+					Placeholder: "U12345, U67890",
+					Datatype:    "csv",
+					Optional:    true,
+				},
+			},
+		}
+	}
+}
+
 func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string) {
 	if ds.Interfaces == nil {
 		return
@@ -763,7 +769,13 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 		selectedSet[a] = true
 	}
 
-	// 1. Strip variables belonging exclusively to non-selected adapters.
+	// 1. When slack is selected, ensure slack variables are present.
+	if selectedSet["slack"] {
+		injectSlackVariables(ds)
+		wireInterfaceEnvironment(ds)
+	}
+
+	// 2. Strip variables belonging exclusively to non-selected adapters.
 	for key, v := range ds.Variables {
 		if len(v.Targets) == 0 {
 			continue
@@ -788,7 +800,7 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 		}
 	}
 
-	// 2. Slack token optionality: required when slack is selected, optional otherwise.
+	// 3. Slack token optionality: required when slack is selected, optional otherwise.
 	slackSelected := selectedSet["slack"]
 	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
 		if v, ok := ds.Variables[key]; ok {
@@ -1185,18 +1197,6 @@ func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
 			}
 		}
 	}
-}
-
-func slackConfigDefault(s *spec.AstroSpec) string {
-	cfg := s.Dev.SlackConfig()
-	if cfg == nil {
-		return ""
-	}
-	b, err := json.Marshal(cfg)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }
 
 func defaultEditableFields() []string {

@@ -1308,21 +1308,21 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 			t.Fatalf("unexpected apply errors: %v", result.Errors)
 		}
 
-		// The agent's main credentials Secret holds every secret variable.
+		// The agent's main credentials Secret no longer carries
+		// interface-only variables (SLACK_BOT_TOKEN / SLACK_APP_TOKEN
+		// target only "interface.slack"; the scope filter excludes them
+		// from the agent's bundle). With only interface-only variables in
+		// this fixture, the agent's Secret should not exist at all.
 		agentSecretName := deployment.GenerateSecretName("my-agent", "build-123")
-		agentSecret, err := a.clientset.CoreV1().Secrets("default").Get(
+		if _, err := a.clientset.CoreV1().Secrets("default").Get(
 			context.Background(), agentSecretName, metav1.GetOptions{},
-		)
-		if err != nil {
-			t.Fatalf("get agent secret %q: %v", agentSecretName, err)
-		}
-		if got := string(agentSecret.Data["SLACK_BOT_TOKEN"]); got != "xoxb-real-token" {
-			t.Errorf("agent secret SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-real-token")
+		); err == nil {
+			t.Errorf("agent secret %q should not exist when the deployment has only interface-targeted secrets", agentSecretName)
 		}
 
-		// The messaging-only Secret holds the same values, but is a separate
-		// resource so the messaging sidecar mounts only this narrower bundle
-		// (avoids leaking unrelated agent credentials like ANTHROPIC_API_KEY).
+		// The messaging-only Secret holds the slack tokens — the messaging
+		// sidecar mounts this narrower bundle and never sees the agent's
+		// credentials.
 		msgSecretName := deployment.GenerateMessagingSecretName("my-agent", "build-123")
 		msgSecret, err := a.clientset.CoreV1().Secrets("default").Get(
 			context.Background(), msgSecretName, metav1.GetOptions{},
@@ -1388,8 +1388,10 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 			t.Error("messaging container missing SLACK_ENABLED=true env var")
 		}
 
-		// The main agent container still mounts the full agent secret —
-		// scoping only happens for the messaging sidecar.
+		// The main agent container's envFrom no longer references the
+		// (now non-existent) agent Secret, since this fixture has only
+		// interface-targeted secrets. With non-interface secrets in the
+		// spec, the agent Secret would exist and the agent would mount it.
 		var agentContainer *corev1.Container
 		for i := range depl.Spec.Template.Spec.Containers {
 			c := &depl.Spec.Template.Spec.Containers[i]
@@ -1401,14 +1403,10 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		if agentContainer == nil {
 			t.Fatal("agent container not found")
 		}
-		foundAgentSecretRef := false
 		for _, ef := range agentContainer.EnvFrom {
 			if ef.SecretRef != nil && ef.SecretRef.Name == agentSecretName {
-				foundAgentSecretRef = true
+				t.Errorf("agent container should not mount %q when only interface-targeted secrets exist", agentSecretName)
 			}
-		}
-		if !foundAgentSecretRef {
-			t.Errorf("agent container missing envFrom secretRef %q", agentSecretName)
 		}
 	})
 }
@@ -1847,5 +1845,197 @@ func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 				t.Errorf("init container %q should not have ASTRO_AUTHZ_TOKEN when secret unset", c.Name)
 			}
 		}
+	}
+}
+
+func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Agent(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"db": {
+			Image:     "test-registry.example.com/pgvector:latest",
+			Endpoints: httpEp(5432),
+			Replicas:  1,
+			Update:    spec.DefaultUpdateStrategy(),
+			Provider:  "postgres",
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get agent deployment: %v", err)
+	}
+
+	var agentContainer *corev1.Container
+	for i := range depl.Spec.Template.Spec.Containers {
+		c := &depl.Spec.Template.Spec.Containers[i]
+		if c.Name != "messaging" && !strings.HasPrefix(c.Name, "collector") {
+			agentContainer = c
+			break
+		}
+	}
+	if agentContainer == nil {
+		t.Fatal("agent container not found")
+	}
+
+	// Agent must receive POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB via
+	// secretKeyRef — not as plain env values.
+	credSecretName := knowledgeCredSecretName("my-agent", "db")
+	wantKeys := []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"}
+	for _, key := range wantKeys {
+		found := false
+		for _, ev := range agentContainer.Env {
+			if ev.Name == key && ev.ValueFrom != nil && ev.ValueFrom.SecretKeyRef != nil &&
+				ev.ValueFrom.SecretKeyRef.Name == credSecretName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("agent container missing secretKeyRef for %s (secret %q)", key, credSecretName)
+		}
+	}
+}
+
+func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Ingestion(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"db": {
+			Image:     "test-registry.example.com/pgvector:latest",
+			Endpoints: httpEp(5432),
+			Replicas:  1,
+			Update:    spec.DefaultUpdateStrategy(),
+			Provider:  "postgres",
+		},
+	}
+	ds.Ingestion = map[string]spec.DeploymentIngestion{
+		"sync": {
+			Image:   "test-registry.example.com/sync:latest",
+			Trigger: spec.DeploymentTrigger{Type: "startup"},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	jobName := deployment.GenerateResourceName("my-agent", "ingestion", "sync")
+	job, err := a.clientset.BatchV1().Jobs("default").Get(
+		context.Background(), jobName, metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get ingestion job: %v", err)
+	}
+
+	if len(job.Spec.Template.Spec.Containers) == 0 {
+		t.Fatal("ingestion job has no containers")
+	}
+	container := &job.Spec.Template.Spec.Containers[0]
+
+	credSecretName := knowledgeCredSecretName("my-agent", "db")
+	wantKeys := []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"}
+	for _, key := range wantKeys {
+		found := false
+		for _, ev := range container.Env {
+			if ev.Name == key && ev.ValueFrom != nil && ev.ValueFrom.SecretKeyRef != nil &&
+				ev.ValueFrom.SecretKeyRef.Name == credSecretName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("ingestion container missing secretKeyRef for %s (secret %q)", key, credSecretName)
+		}
+	}
+}
+
+// K8: ingestion container mounts the deployment ConfigMap and Secret via envFrom.
+func TestApplyDeploymentSpec_K8_IngestionContainerMountsConfigMapAndSecret(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+	ds.Variables = map[string]spec.Variable{
+		"PLAIN_VAR":  {Value: "hello", Secret: false, Targets: []string{"agent", "ingestion"}},
+		"SECRET_VAR": {Value: "secret", Secret: true, Targets: []string{"agent", "ingestion"}},
+	}
+	ds.Ingestion = map[string]spec.DeploymentIngestion{
+		"nightly": {
+			Image:   "test-registry.example.com/sync:latest",
+			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cronJobName := deployment.GenerateResourceName("my-agent", "ingestion", "nightly")
+	cronJob, err := a.clientset.BatchV1().CronJobs("default").Get(
+		context.Background(), cronJobName, metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get CronJob: %v", err)
+	}
+
+	if len(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers) == 0 {
+		t.Fatal("ingestion CronJob has no containers")
+	}
+	container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+
+	expectedCM := deployment.GenerateConfigMapName("my-agent", "build-123")
+	expectedSecret := deployment.GenerateSecretName("my-agent", "build-123")
+
+	hasCM, hasSecret := false, false
+	for _, ef := range container.EnvFrom {
+		if ef.ConfigMapRef != nil && ef.ConfigMapRef.Name == expectedCM {
+			hasCM = true
+		}
+		if ef.SecretRef != nil && ef.SecretRef.Name == expectedSecret {
+			hasSecret = true
+		}
+	}
+	if !hasCM {
+		t.Errorf("K8: ingestion container missing envFrom ConfigMapRef %q", expectedCM)
+	}
+	if !hasSecret {
+		t.Errorf("K8: ingestion container missing envFrom SecretRef %q", expectedSecret)
+	}
+}
+
+// K10: secret variable values never appear in the ConfigMap — they only go into the Secret.
+func TestApplyDeploymentSpec_K10_SecretValueNotInConfigMap(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+	ds.Agent.Environment = map[string]string{
+		"API_KEY":   "${variables.API_KEY}",
+		"LOG_LEVEL": "${variables.LOG_LEVEL}",
+	}
+	ds.Variables = map[string]spec.Variable{
+		"API_KEY":   {Value: "sk-top-secret", Secret: true},
+		"LOG_LEVEL": {Value: "debug", Secret: false},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cmName := deployment.GenerateConfigMapName("my-agent", "build-123")
+	cm, err := a.clientset.CoreV1().ConfigMaps("default").Get(
+		context.Background(), cmName, metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("K10: get ConfigMap: %v", err)
+	}
+	if _, ok := cm.Data["API_KEY"]; ok {
+		t.Error("K10: secret value API_KEY must not appear in the ConfigMap")
+	}
+	if cm.Data["LOG_LEVEL"] != "debug" {
+		t.Errorf("K10: non-secret LOG_LEVEL missing from ConfigMap, got %v", cm.Data)
 	}
 }

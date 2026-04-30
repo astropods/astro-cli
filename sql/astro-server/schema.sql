@@ -226,36 +226,9 @@ CREATE TABLE public.deployment_volumes (
 
 CREATE UNIQUE INDEX idx_deployment_volumes_path ON public.deployment_volumes(workload_id, mount_path);
 
-CREATE TABLE public.deployment_variables (
-    deployment_id varchar(11) NOT NULL,
-    name varchar NOT NULL,
-    value text NOT NULL DEFAULT '',
-    ref text NOT NULL DEFAULT '',
-    secret boolean NOT NULL DEFAULT false,
-    optional boolean NOT NULL DEFAULT false,
-    targets text[] NOT NULL DEFAULT '{}',
-    nonce bytea,
-    CONSTRAINT deployment_variables_pkey PRIMARY KEY (deployment_id, name),
-    CONSTRAINT deployment_variables_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
-);
-
-CREATE TABLE public.deployment_resolved_keys (
-    deployment_id varchar(11) NOT NULL,
-    configmap_keys text[] NOT NULL DEFAULT '{}',
-    secret_keys text[] NOT NULL DEFAULT '{}',
-    configmap_hashes jsonb NOT NULL DEFAULT '{}',
-    secret_hashes jsonb NOT NULL DEFAULT '{}',
-    CONSTRAINT deployment_resolved_keys_pkey PRIMARY KEY (deployment_id),
-    CONSTRAINT deployment_resolved_keys_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
-);
-
--- Per-(deployment, role, env name) source of truth for the env each
--- container in a deployment will see. Phased migration:
---   1. This PR — table created; a one-shot backfill copies existing
---      deployment_variables rows. Old tables stay; legacy code paths
---      keep working unchanged.
---   2. Follow-up PR — wires the new table into the API/UI and the
---      applier filter, drops the old tables.
+-- Single source of truth for the env each container in a deployment sees.
+-- One row per (deployment, role, env name). The K8s ConfigMap and Secret
+-- mounted by each container are a pure projection of these rows.
 -- See docs/01-spec/unified-deployment-env-spec.md.
 CREATE TABLE public.deployment_build_env (
     deployment_id varchar(11) NOT NULL,

@@ -1,10 +1,8 @@
 package deploymentstore
 
 import (
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,6 +13,21 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/lib/pq"
 )
+
+// encryptResolution prepares a Resolution's value for storage in
+// deployment_build_env. Mirrors deployment_variables semantics:
+//   - secret rows: encrypted ciphertext + nonce.
+//   - non-secret rows: plaintext bytes, nil nonce.
+//
+// Storing non-secret values plaintext means the API + admingrpc can
+// read them without KMS access. Secret values still require KMS to
+// decrypt, just like before.
+func encryptResolution(enc *envelope.Encryptor, r deployment.Resolution) ([]byte, []byte, error) {
+	if !r.IsSecret || enc == nil {
+		return []byte(r.Value), nil, nil
+	}
+	return enc.Encrypt([]byte(r.Value))
+}
 
 // Workload represents a single K8s workload row.
 type Workload struct {
@@ -664,136 +677,60 @@ func SaveNormalizedSpec(
 		}
 	}
 
-	// --- Variables ---
+	// --- User-declared variables ---
 	//
-	// Dual-write during the migration window:
-	//   - deployment_variables (legacy): one row per (deployment, name).
-	//     Still consumed by RehydrateSecrets, admingrpc, prefill paths.
-	//   - deployment_build_env: one row per (deployment, role, env_name).
-	//     Per-(variable, target_role) fan-out; populated for new
-	//     deployments here, for existing deployments by the
-	//     BuildEnvBackfillWorker. The follow-up PR that drops
-	//     deployment_variables relies on every deployment having rows
-	//     in this table — dual-writing on every write closes the
-	//     window where a new deploy lands between the migration's
-	//     CREATE TABLE and the next backfill run.
+	// Two writes during the migration window:
+	//   - deployment_build_env (rows with source='user_var') — primary;
+	//     read by RehydrateSecrets and the deployment-detail API.
+	//   - deployment_variables — legacy; still consumed by admingrpc
+	//     and a few drift / template-prefill paths that haven't been
+	//     migrated. Will be dropped together with those readers.
 	//
-	ingestionRoleNames := make([]string, 0, len(ds.Ingestion))
-	for n := range ds.Ingestion {
-		ingestionRoleNames = append(ingestionRoleNames, n)
-	}
-
-	// Clear deployment_build_env so an update-deploy gets a clean per-(role, env)
-	// set. Skipped during repair: RepairNormalizedSpec sets SkipBuildEnvClear so
-	// existing rows are preserved when the KMS encryptor is unavailable.
-	if nsCfg == nil || !nsCfg.SkipBuildEnvClear {
-		if _, err := tx.Exec(
-			`DELETE FROM deployment_build_env WHERE deployment_id = $1`,
-			deploymentID,
-		); err != nil {
-			return fmt.Errorf("clear deployment_build_env: %w", err)
-		}
-	}
-
-	for name, v := range ds.Variables {
-		targets := v.Targets
-		if len(targets) == 0 {
-			// Variables with no targets have nowhere to land in either table —
-			// deployment_build_env produces no rows for empty targets, so skip
-			// deployment_variables too to keep the two writers in sync.
-			continue
-		}
-
-		val := v.Value
-		var nonce []byte
-		if v.Secret && val != "" && enc != nil {
-			ciphertext, n, err := enc.Encrypt([]byte(val))
-			if err != nil {
-				return fmt.Errorf("encrypt variable %s: %w", name, err)
-			}
-			val = base64.StdEncoding.EncodeToString(ciphertext)
-			nonce = n
-		}
-		// Persist the original account variable ref (cleared from spec before reaching here)
-		// so the prefilled template can restore it instead of leaking the resolved value.
-		ref := ""
+	// The build_env write fans out per (variable, role) target;
+	// deployment_variables stays a single row per (deployment, name).
+	{
+		varRefs := map[string]string{}
 		if nsCfg != nil {
-			ref = nsCfg.VarRefs[name]
+			varRefs = nsCfg.VarRefs
 		}
-		if _, err := tx.Exec(`
-			INSERT INTO deployment_variables (deployment_id, name, value, ref, secret, optional, targets, nonce)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, deploymentID, name, val, ref, v.Secret, v.Optional, pq.Array(targets), nonce); err != nil {
-			return fmt.Errorf("insert variable %s: %w", name, err)
+		userRows := deployment.UserVarResolutions(ds, varRefs)
+		if nsCfg == nil || !nsCfg.SkipBuildEnvClear {
+			if _, err := tx.Exec(
+				`DELETE FROM deployment_build_env WHERE deployment_id = $1`,
+				deploymentID,
+			); err != nil {
+				return fmt.Errorf("clear deployment_build_env: %w", err)
+			}
 		}
-
-		// Dual-write to deployment_build_env. Same encryption shape
-		// (ciphertext bytes + nonce for secrets; plaintext bytes with
-		// nil nonce for non-secrets) the backfill worker uses, so a
-		// row written here and a row migrated from a legacy entry are
-		// indistinguishable downstream.
-		valueEncrypted, beNonce, err := buildEnvValueFromLegacy(val, nonce, v.Secret)
-		if err != nil {
-			return fmt.Errorf("encode build_env value %s: %w", name, err)
-		}
-		userVarName := sql.NullString{String: name, Valid: true}
-		var accountVarRef sql.NullString
-		if ref != "" {
-			accountVarRef = sql.NullString{String: ref, Valid: true}
-		}
-		optional := sql.NullBool{Bool: v.Optional, Valid: true}
-		for _, role := range rolesForBuildEnvTargets(targets, ingestionRoleNames) {
+		for _, r := range userRows {
+			ct, nonce, err := encryptResolution(enc, r)
+			if err != nil {
+				return fmt.Errorf("encrypt %s/%s: %w", r.Role, r.EnvName, err)
+			}
+			var userVarName, accountVarRef sql.NullString
+			var optional sql.NullBool
+			if r.UserVarName != "" {
+				userVarName = sql.NullString{String: r.UserVarName, Valid: true}
+			}
+			if r.AccountVarRef != "" {
+				accountVarRef = sql.NullString{String: r.AccountVarRef, Valid: true}
+			}
+			optional = sql.NullBool{Bool: r.Optional, Valid: true}
 			if _, err := tx.Exec(`
 				INSERT INTO deployment_build_env
 					(deployment_id, role, env_name, value_encrypted, nonce,
 					 is_secret, source, user_var_name, account_var_ref, optional)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-			`, deploymentID, role, name, valueEncrypted, beNonce,
-				v.Secret, "user_var", userVarName, accountVarRef, optional); err != nil {
-				return fmt.Errorf("insert build_env %s/%s: %w", role, name, err)
+			`, deploymentID, string(r.Role), r.EnvName, ct, nonce,
+				r.IsSecret, string(r.Source), userVarName, accountVarRef, optional); err != nil {
+				return fmt.Errorf("insert build_env %s/%s: %w", r.Role, r.EnvName, err)
 			}
 		}
 	}
 
-	// --- Resolved Keys ---
-	// Store the actual ConfigMap/Secret key sets and value hashes so drift
-	// detection can compare against what K8s will contain.
-	if resolved != nil {
-		cmKeys := make([]string, 0, len(resolved.ConfigMapData))
-		cmHashes := make(map[string]string, len(resolved.ConfigMapData))
-		for k, v := range resolved.ConfigMapData {
-			cmKeys = append(cmKeys, k)
-			cmHashes[k] = hashValue(v)
-		}
-		secKeys := make([]string, 0, len(resolved.SecretData))
-		secHashes := make(map[string]string, len(resolved.SecretData))
-		for k, v := range resolved.SecretData {
-			secKeys = append(secKeys, k)
-			// Only hash non-empty values; empty means the value was stripped
-			// (e.g. during repair) and we can't verify it.
-			if v != "" {
-				secHashes[k] = hashValue(v)
-			}
-		}
-		cmHashJSON, err := json.Marshal(cmHashes)
-		if err != nil {
-			return fmt.Errorf("marshal configmap hashes: %w", err)
-		}
-		secHashJSON, err := json.Marshal(secHashes)
-		if err != nil {
-			return fmt.Errorf("marshal secret hashes: %w", err)
-		}
-		_, err = tx.Exec(`
-			INSERT INTO deployment_resolved_keys (deployment_id, configmap_keys, secret_keys, configmap_hashes, secret_hashes)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (deployment_id) DO UPDATE
-			SET configmap_keys = EXCLUDED.configmap_keys, secret_keys = EXCLUDED.secret_keys,
-			    configmap_hashes = EXCLUDED.configmap_hashes, secret_hashes = EXCLUDED.secret_hashes
-		`, deploymentID, pq.Array(cmKeys), pq.Array(secKeys), cmHashJSON, secHashJSON)
-		if err != nil {
-			return fmt.Errorf("upsert resolved keys: %w", err)
-		}
-	}
+	// deployment_resolved_keys is dropped along with deployment_variables.
+	// Drift detection that consumed it is paused; a row-based replacement
+	// will land alongside re-enabling the periodic job.
 
 	return nil
 }
@@ -911,28 +848,123 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	return len(sums), len(svcs), len(ings), nil
 }
 
-// GetDeploymentVariables returns all variables for a deployment.
+// GetDeploymentVariables returns the user-declared variables for a
+// deployment, reconstructed from deployment_build_env user_var rows.
+//
+// One Variable per distinct user_var_name. Targets is reconstructed
+// from the set of roles the variable fans out to:
+//
+//	role 'agent'              → "agent"
+//	role 'messaging'          → "interface"   (adapter detail is lost)
+//	role 'ingestion:<name>'   → "ingestion"
+//	role 'knowledge:<name>'   → (skipped — knowledge containers aren't user targets)
+//	role 'collector'          → (skipped — collector isn't a user target)
+//
+// Value is plaintext for non-secret rows and base64-encoded ciphertext
+// for secret rows, matching the legacy deployment_variables shape so
+// existing callers keep working.
 func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) {
 	rows, err := s.db.Query(`
-		SELECT deployment_id, name, value, ref, secret, optional, targets, nonce
-		FROM deployment_variables
-		WHERE deployment_id = $1
-		ORDER BY name
+		SELECT role, env_name, value_encrypted, nonce, is_secret,
+		       user_var_name, account_var_ref, optional
+		FROM deployment_build_env
+		WHERE deployment_id = $1 AND source = 'user_var'
+		ORDER BY user_var_name, role
 	`, deploymentID)
 	if err != nil {
-		return nil, fmt.Errorf("query deployment variables: %w", err)
+		return nil, fmt.Errorf("query deployment_build_env user_vars: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var result []Variable
-	for rows.Next() {
-		var v Variable
-		if err := rows.Scan(&v.DeploymentID, &v.Name, &v.Value, &v.Ref, &v.Secret, &v.Optional, pq.Array(&v.Targets), &v.Nonce); err != nil {
-			return nil, fmt.Errorf("scan variable: %w", err)
-		}
-		result = append(result, v)
+	type pending struct {
+		v       Variable
+		targets map[string]bool
 	}
-	return result, rows.Err()
+	byName := map[string]*pending{}
+	order := []string{}
+
+	for rows.Next() {
+		var (
+			role, envName  string
+			valueEncrypted []byte
+			nonce          []byte
+			isSecret       bool
+			userVarName    sql.NullString
+			accountVarRef  sql.NullString
+			optional       sql.NullBool
+		)
+		if err := rows.Scan(&role, &envName, &valueEncrypted, &nonce, &isSecret,
+			&userVarName, &accountVarRef, &optional); err != nil {
+			return nil, fmt.Errorf("scan deployment_build_env: %w", err)
+		}
+		name := userVarName.String
+		if name == "" {
+			name = envName
+		}
+
+		p, ok := byName[name]
+		if !ok {
+			val := ""
+			var n []byte
+			if isSecret {
+				if len(valueEncrypted) > 0 {
+					val = base64.StdEncoding.EncodeToString(valueEncrypted)
+					n = nonce
+				}
+			} else {
+				val = string(valueEncrypted)
+			}
+			p = &pending{
+				v: Variable{
+					DeploymentID: deploymentID,
+					Name:         name,
+					Value:        val,
+					Ref:          accountVarRef.String,
+					Secret:       isSecret,
+					Optional:     optional.Bool,
+					Nonce:        n,
+				},
+				targets: map[string]bool{},
+			}
+			byName[name] = p
+			order = append(order, name)
+		}
+		switch {
+		case role == "agent":
+			p.targets["agent"] = true
+		case role == "messaging":
+			p.targets["interface"] = true
+		case strings.HasPrefix(role, "ingestion:"):
+			p.targets["ingestion"] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]Variable, 0, len(order))
+	for _, name := range order {
+		p := byName[name]
+		ts := make([]string, 0, len(p.targets))
+		for t := range p.targets {
+			ts = append(ts, t)
+		}
+		// Stable order for consumers that compare slices.
+		strSort(ts)
+		p.v.Targets = ts
+		result = append(result, p.v)
+	}
+	return result, nil
+}
+
+// strSort is a tiny helper to keep the dependency footprint here narrow
+// (avoids importing "sort" just for one call).
+func strSort(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
 }
 
 // ResolvedKeys holds the expected ConfigMap and Secret key sets for a deployment,
@@ -968,12 +1000,6 @@ func (s *Store) GetResolvedKeys(deploymentID string) (*ResolvedKeys, error) {
 		_ = json.Unmarshal(secHashJSON, &rk.SecretHashes)
 	}
 	return rk, nil
-}
-
-// hashValue returns the hex-encoded SHA-256 of a string.
-func hashValue(v string) string {
-	h := sha256.Sum256([]byte(v))
-	return hex.EncodeToString(h[:])
 }
 
 // GetWorkloads returns all workloads for a deployment.
@@ -1174,68 +1200,4 @@ func (s *Store) GetIngresses(deploymentID string) ([]*Ingress, error) {
 		result = append(result, &ing)
 	}
 	return result, rows.Err()
-}
-
-// rolesForBuildEnvTargets converts a deployment_variables Targets list
-// into the role strings deployment_build_env stores. Mirrors the
-// backfill worker's rolesForLegacyTargets — every change to one must
-// stay in sync with the other.
-//
-//	"agent"               → "agent"
-//	"interface.<adapter>" → "messaging" (one row, all adapter targets fold)
-//	"ingestion"           → "ingestion:<name>" for every declared ingestion
-//	"ingestion.<name>"    → "ingestion:<name>" only
-func rolesForBuildEnvTargets(targets []string, ingestionNames []string) []string {
-	seen := map[string]bool{}
-	add := func(role string) {
-		if !seen[role] {
-			seen[role] = true
-		}
-	}
-	for _, t := range targets {
-		switch {
-		case t == "agent":
-			add("agent")
-		case strings.HasPrefix(t, "interface."):
-			add("messaging")
-		case t == "ingestion":
-			for _, n := range ingestionNames {
-				add("ingestion:" + n)
-			}
-		case strings.HasPrefix(t, "ingestion."):
-			add("ingestion:" + strings.TrimPrefix(t, "ingestion."))
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for r := range seen {
-		out = append(out, r)
-	}
-	return out
-}
-
-// buildEnvValueFromLegacy converts a deployment_variables stored value
-// into the (value_encrypted, nonce) bytea pair deployment_build_env
-// stores. Three legacy shapes:
-//
-//   - Secret with KMS configured: value is base64(ciphertext), nonce is set.
-//     → base64-decode value to raw ciphertext bytes; pass nonce through.
-//   - Secret with no KMS (local dev / test): value is plaintext, nonce nil.
-//     → store plaintext bytes, nil nonce.
-//   - Non-secret: value is plaintext, nonce nil.
-//     → store plaintext bytes, nil nonce.
-//
-// The presence of a nonce is the discriminator. Mirrors the backfill
-// worker's decodeLegacyValue; the two stay in sync.
-func buildEnvValueFromLegacy(legacyValue string, nonce []byte, isSecret bool) ([]byte, []byte, error) {
-	if isSecret && len(nonce) > 0 {
-		if legacyValue == "" {
-			return []byte{}, nonce, nil
-		}
-		ct, err := base64.StdEncoding.DecodeString(legacyValue)
-		if err != nil {
-			return nil, nil, fmt.Errorf("base64 decode: %w", err)
-		}
-		return ct, nonce, nil
-	}
-	return []byte(legacyValue), nil, nil
 }

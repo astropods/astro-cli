@@ -36,17 +36,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
-	jobs = append(jobs, river.NewPeriodicJob(
-		river.PeriodicInterval(10*time.Minute),
-		func() (river.JobArgs, *river.InsertOpts) {
-			return ReconcileArgs{}, &river.InsertOpts{
-				UniqueOpts: river.UniqueOpts{
-					ByPeriod: 10 * time.Minute,
-				},
-			}
-		},
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
+	// Drift / reconcile periodic job is paused while the env model
+	// migrates to deployment_build_env. The reconcile worker reads
+	// deployment_resolved_keys, which is going away in the cleanup
+	// flow. Re-enable once a row-based drift check exists.
+	//
+	// jobs = append(jobs, river.NewPeriodicJob(
+	// 	river.PeriodicInterval(10*time.Minute),
+	// 	func() (river.JobArgs, *river.InsertOpts) {
+	// 		return ReconcileArgs{}, &river.InsertOpts{
+	// 			UniqueOpts: river.UniqueOpts{
+	// 				ByPeriod: 10 * time.Minute,
+	// 			},
+	// 		}
+	// 	},
+	// 	&river.PeriodicJobOpts{RunOnStart: true},
+	// ))
 
 	jobs = append(jobs, river.NewPeriodicJob(
 		river.PeriodicInterval(30*time.Second),
@@ -85,23 +90,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}
-
-	// One-shot backfill: copy deployment_variables → deployment_build_env.
-	// RunOnStart fires once per server boot; subsequent invocations
-	// no-op when every deployment already has rows. The periodic
-	// interval is long because the backfill is meant to drain quickly
-	// after release and stay quiet thereafter.
-	jobs = append(jobs, river.NewPeriodicJob(
-		river.PeriodicInterval(24*time.Hour),
-		func() (river.JobArgs, *river.InsertOpts) {
-			return BuildEnvBackfillArgs{}, &river.InsertOpts{
-				UniqueOpts: river.UniqueOpts{
-					ByPeriod: 24 * time.Hour,
-				},
-			}
-		},
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
 
 	if cfg.OMClient != nil {
 		jobs = append(jobs, river.NewPeriodicJob(

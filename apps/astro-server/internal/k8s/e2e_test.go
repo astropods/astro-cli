@@ -2303,50 +2303,14 @@ knowledge:
 		t.Error("cache cred secret REDIS_PASSWORD: expected non-empty")
 	}
 
-	// --- Deployment Secret (resolved credential refs for agent) ---
-
-	deploySecretName := deployment.GenerateSecretName("my-agent", r.DeploymentSpec.Source.Build)
-	deploySecret := r.getSecret(t, ns, deploySecretName)
-
-	// Bare keys (first alphabetically = "analytics")
-	if string(deploySecret.Data["POSTGRES_USER"]) != "astro" {
-		t.Errorf("deploy secret POSTGRES_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_USER"]))
-	}
-	if string(deploySecret.Data["POSTGRES_PASSWORD"]) != string(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) {
-		t.Error("deploy secret POSTGRES_PASSWORD should match analytics entry's password")
-	}
-
-	// Per-name keys for "analytics" entry
-	if string(deploySecret.Data["POSTGRES_ANALYTICS_USER"]) != "astro" {
-		t.Errorf("deploy secret POSTGRES_ANALYTICS_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_ANALYTICS_USER"]))
-	}
-	if string(deploySecret.Data["POSTGRES_ANALYTICS_PASSWORD"]) != string(analyticsCredSecret.Data["POSTGRES_PASSWORD"]) {
-		t.Error("deploy secret POSTGRES_ANALYTICS_PASSWORD should match analytics entry's password")
-	}
-
-	// Per-name keys for "users" entry
-	if string(deploySecret.Data["POSTGRES_USERS_USER"]) != "astro" {
-		t.Errorf("deploy secret POSTGRES_USERS_USER: expected 'astro', got %q", string(deploySecret.Data["POSTGRES_USERS_USER"]))
-	}
-	if string(deploySecret.Data["POSTGRES_USERS_PASSWORD"]) != string(usersCredSecret.Data["POSTGRES_PASSWORD"]) {
-		t.Error("deploy secret POSTGRES_USERS_PASSWORD should match users entry's password")
-	}
-
-	// DB credentials (from auto-generated Secret, not hardcoded)
-	if string(deploySecret.Data["POSTGRES_DB"]) != "my_agent" {
-		t.Errorf("deploy secret POSTGRES_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_DB"]))
-	}
-	if string(deploySecret.Data["POSTGRES_ANALYTICS_DB"]) != "my_agent" {
-		t.Errorf("deploy secret POSTGRES_ANALYTICS_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_ANALYTICS_DB"]))
-	}
-	if string(deploySecret.Data["POSTGRES_USERS_DB"]) != "my_agent" {
-		t.Errorf("deploy secret POSTGRES_USERS_DB: expected 'my_agent', got %q", string(deploySecret.Data["POSTGRES_USERS_DB"]))
-	}
-
-	// Redis credential
-	if string(deploySecret.Data["REDIS_PASSWORD"]) != string(cacheCredSecret.Data["REDIS_PASSWORD"]) {
-		t.Error("deploy secret REDIS_PASSWORD should match cache entry's password")
-	}
+	// --- Deployment Secret ---
+	//
+	// Credential env vars (POSTGRES_USER / _PASSWORD / _DB and their
+	// per-store renamed forms; REDIS_PASSWORD) no longer materialise
+	// in the agent's deploy Secret — they flow exclusively via direct
+	// secretKeyRef entries on the agent container, pointing at the
+	// per-store cred Secrets asserted above. The merged effective env
+	// check further down confirms the agent still sees them.
 
 	// --- ConfigMap (HOST, PORT — static values; DB now in Secret) ---
 

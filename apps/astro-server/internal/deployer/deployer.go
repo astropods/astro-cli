@@ -140,7 +140,123 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		},
 	})
 
-	return applier.ApplyDeploymentSpec(ctx, &ds)
+	applyResult, applyErr := applier.ApplyDeploymentSpec(ctx, &ds)
+
+	// On success, persist the resolved env to deployment_build_env.
+	// Best-effort: failure here logs but does not fail the apply, since
+	// the table is shadow-write today (the K8s applier still wires env
+	// the old way; the rows are consumed by the API + UI). Once the
+	// applier itself projects from these rows, this becomes load-bearing.
+	if applyErr == nil && applyResult != nil && len(applyResult.Errors) == 0 {
+		if err := d.populateBuildEnv(ctx, dep, &ds, boundKnowledge, applyResult.AllCredentials); err != nil {
+			d.Log.Warn("Failed to populate deployment_build_env",
+				"error", err, "deployment_id", dep.ID)
+		}
+	}
+
+	return applyResult, applyErr
+}
+
+// populateBuildEnv runs deployment.Resolve over the rehydrated spec and
+// writes the result to deployment_build_env. The rows are the source of
+// truth the API + UI read from; the K8s applier keeps wiring env the
+// old way until a follow-up flips it to projection from this table.
+//
+// Encryption uses the deployment's existing data key (decrypted via KMS)
+// rather than minting a new one, so the rows stay readable across
+// re-applies.
+func (d *Deployer) populateBuildEnv(
+	ctx context.Context,
+	dep *deploymentstore.Deployment,
+	ds *spec.AstroDeploymentSpec,
+	boundKnowledge map[string]deployment.BoundKnowledgeInfo,
+	allCredentials map[string]string,
+) error {
+	if d.Store == nil {
+		return nil
+	}
+
+	enc, err := d.encryptorForDeployment(ctx, dep)
+	if err != nil {
+		return fmt.Errorf("encryptor: %w", err)
+	}
+	if enc == nil {
+		// No KMS configured — skip writing for now. (Local dev / tests.)
+		return nil
+	}
+
+	// account_var_ref provenance for user_var rows.
+	storedVars, err := d.Store.GetDeploymentVariables(dep.ID)
+	if err != nil {
+		return fmt.Errorf("get variables: %w", err)
+	}
+	refs := make(map[string]string, len(storedVars))
+	for _, v := range storedVars {
+		if v.Ref != "" {
+			refs[v.Name] = v.Ref
+		}
+	}
+
+	opts := deployment.ResolveOptions{
+		Namespace:         dep.Namespace,
+		BoundKnowledge:    boundKnowledge,
+		BoundCredentials:  allCredentials,
+		AccountVarRefs:    refs,
+		AuthToken:         "", // applier owns token signing today; deployer doesn't see it
+		LangfuseAuthToken: "", // ditto
+		LangfuseBaseURL:   "",
+		DeploymentID:      dep.ID,
+	}
+	rows, err := deployment.Resolve(ds, opts)
+	if err != nil {
+		return fmt.Errorf("resolve: %w", err)
+	}
+
+	writes := make([]deploymentstore.BuildEnvWrite, 0, len(rows))
+	for _, r := range rows {
+		writes = append(writes, deploymentstore.BuildEnvWrite{
+			Role:          string(r.Role),
+			EnvName:       r.EnvName,
+			Value:         r.Value,
+			IsSecret:      r.IsSecret,
+			Source:        string(r.Source),
+			UserVarName:   r.UserVarName,
+			AccountVarRef: r.AccountVarRef,
+			Optional:      r.Optional,
+		})
+	}
+	return d.Store.SaveBuildEnv(dep.ID, writes, enc)
+}
+
+// encryptorForDeployment returns an Encryptor that uses the deployment's
+// existing data key (decrypted via KMS), or nil if KMS isn't configured
+// or the deployment has no encrypted data key.
+func (d *Deployer) encryptorForDeployment(
+	ctx context.Context,
+	dep *deploymentstore.Deployment,
+) (*envelope.Encryptor, error) {
+	if len(dep.EncryptedDataKey) == 0 || d.Cfg.Deployment.KMSKeyARN == "" {
+		return nil, nil
+	}
+	kmsClient := d.kmsClient(ctx)
+	if kmsClient == nil {
+		return nil, nil
+	}
+	out, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
+		CiphertextBlob: dep.EncryptedDataKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("kms decrypt data key: %w", err)
+	}
+	enc, err := envelope.NewEncryptorFromPlaintext(out.Plaintext, dep.EncryptedDataKey, d.Cfg.Deployment.KMSKeyARN)
+	// Zero the plaintext key as soon as the gcm is built.
+	for i := range out.Plaintext {
+		out.Plaintext[i] = 0
+	}
+	if err != nil {
+		return nil, fmt.Errorf("build encryptor: %w", err)
+	}
+	return enc, nil
 }
 
 // resolveBoundKnowledge looks up store info and decrypts credentials for all bound
@@ -227,19 +343,26 @@ func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment
 	return err
 }
 
-// RehydrateSecrets loads secret variable values from the deployment_variables
-// table and injects them back into the spec. Values may be KMS-encrypted;
-// if so they are decrypted using the deployment's encrypted data key.
+// RehydrateSecrets loads user-variable values from the
+// deployment_build_env user_var rows and injects them back into the
+// spec. Values are encrypted with the deployment's data key (every row,
+// secret or not — the schema is uniform); we decrypt via KMS when
+// configured.
+//
+// Multiple rows can share a user_var_name (a variable with
+// Targets=["agent","ingestion"] produces one row per role). Their
+// values are identical by construction, so we take the first one we
+// see and skip duplicates.
 func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.Deployment, ds *spec.AstroDeploymentSpec) error {
-	storedVars, err := d.Store.GetDeploymentVariables(dep.ID)
+	rows, err := d.Store.GetBuildEnv(dep.ID)
 	if err != nil {
-		return fmt.Errorf("get deployment variables: %w", err)
+		return fmt.Errorf("get deployment_build_env: %w", err)
 	}
-	if len(storedVars) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
 
-	// Build a decryptor if the deployment has KMS-encrypted secrets
+	// Build a decryptor if the deployment has KMS-encrypted secrets.
 	var dec *envelope.Decryptor
 	if len(dep.EncryptedDataKey) > 0 && d.Cfg.Deployment.KMSKeyARN != "" {
 		if kmsClient := d.kmsClient(ctx); kmsClient != nil {
@@ -254,27 +377,36 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 		ds.Variables = make(map[string]spec.Variable)
 	}
 
-	for _, sv := range storedVars {
-		existing, ok := ds.Variables[sv.Name]
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if r.Source != "user_var" || r.UserVarName == "" {
+			continue
+		}
+		if seen[r.UserVarName] {
+			continue
+		}
+		seen[r.UserVarName] = true
+
+		existing, ok := ds.Variables[r.UserVarName]
 		if !ok {
 			continue
 		}
 
-		val := sv.Value
-		if sv.Secret && dec != nil && len(sv.Nonce) > 0 {
-			ciphertext, b64Err := base64.StdEncoding.DecodeString(val)
-			if b64Err == nil {
-				plaintext, decErr := dec.Decrypt(ciphertext, sv.Nonce)
-				if decErr == nil {
-					val = string(plaintext)
-				} else {
-					d.Log.Warn("Failed to decrypt variable", "name", sv.Name, "deployment_id", dep.ID)
-				}
+		var val string
+		if dec != nil && len(r.Nonce) > 0 {
+			plaintext, decErr := dec.Decrypt(r.ValueEncrypted, r.Nonce)
+			if decErr != nil {
+				d.Log.Warn("Failed to decrypt variable", "name", r.UserVarName, "deployment_id", dep.ID)
+				continue
 			}
+			val = string(plaintext)
+		} else {
+			// No KMS configured — plaintext stored in value_encrypted.
+			val = string(r.ValueEncrypted)
 		}
 
 		existing.Value = val
-		ds.Variables[sv.Name] = existing
+		ds.Variables[r.UserVarName] = existing
 	}
 
 	return nil

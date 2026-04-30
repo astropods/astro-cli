@@ -310,6 +310,132 @@ func TestTemplate_ModelDefaultPort(t *testing.T) {
 	}
 }
 
+// D1: ollama with an explicit models list wires OLLAMA_MODEL into the agent env.
+func TestTemplate_ProviderModel_OllamaWithModelsList(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"llm": {Provider: "ollama", Models: []string{"llama3.2", "mistral"}},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Models["llm"]; !ok {
+		t.Fatal("models.llm: expected container entry for ollama")
+	}
+
+	modelEnv, ok := ds.Agent.Environment["OLLAMA_MODEL"]
+	if !ok {
+		t.Fatal("agent.environment.OLLAMA_MODEL: not found")
+	}
+	if !strings.Contains(modelEnv, "llama3.2") || !strings.Contains(modelEnv, "mistral") {
+		t.Errorf("OLLAMA_MODEL: expected both models, got %q", modelEnv)
+	}
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_HOST", "${models.llm.host}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.llm.http.url}/api")
+}
+
+// D3: openai cloud model — no container, OPENAI_API_KEY variable wired to agent.
+func TestTemplate_ProviderModel_OpenAI(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"gpt": {Provider: "openai"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Models["gpt"]; ok {
+		t.Error("models.gpt: cloud provider must not produce a container entry")
+	}
+	v, ok := ds.Variables["OPENAI_API_KEY"]
+	if !ok {
+		t.Fatal("variables: OPENAI_API_KEY not found")
+	}
+	if !v.Secret {
+		t.Error("variables.OPENAI_API_KEY: expected secret=true")
+	}
+	assertEnvRef(t, ds.Agent.Environment, "OPENAI_API_KEY", "${variables.OPENAI_API_KEY}")
+}
+
+// D4: google cloud model — no container, GOOGLE_API_KEY variable wired to agent.
+func TestTemplate_ProviderModel_Google(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"gemini": {Provider: "google"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Models["gemini"]; ok {
+		t.Error("models.gemini: cloud provider must not produce a container entry")
+	}
+	if _, ok := ds.Variables["GOOGLE_API_KEY"]; !ok {
+		t.Fatal("variables: GOOGLE_API_KEY not found")
+	}
+	assertEnvRef(t, ds.Agent.Environment, "GOOGLE_API_KEY", "${variables.GOOGLE_API_KEY}")
+}
+
+// D5: cohere cloud model — no container, COHERE_API_KEY variable wired to agent.
+func TestTemplate_ProviderModel_Cohere(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"cmd": {Provider: "cohere"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Models["cmd"]; ok {
+		t.Error("models.cmd: cloud provider must not produce a container entry")
+	}
+	if _, ok := ds.Variables["COHERE_API_KEY"]; !ok {
+		t.Fatal("variables: COHERE_API_KEY not found")
+	}
+	assertEnvRef(t, ds.Agent.Environment, "COHERE_API_KEY", "${variables.COHERE_API_KEY}")
+}
+
+// D7: two cloud providers together — both credential variables present, both wired.
+func TestTemplate_ProviderModel_MultipleCloudProviders(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"claude": {Provider: "anthropic"},
+		"gpt":    {Provider: "openai"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if len(ds.Models) != 0 {
+		t.Errorf("models: expected 0 container entries for cloud-only providers, got %d", len(ds.Models))
+	}
+	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; !ok {
+		t.Fatal("variables: ANTHROPIC_API_KEY not found")
+	}
+	if _, ok := ds.Variables["OPENAI_API_KEY"]; !ok {
+		t.Fatal("variables: OPENAI_API_KEY not found")
+	}
+	assertEnvExists(t, ds.Agent.Environment, "ANTHROPIC_API_KEY")
+	assertEnvExists(t, ds.Agent.Environment, "OPENAI_API_KEY")
+}
+
+// D8: self-hosted and cloud model together — ollama container deployed,
+// anthropic produces only a credential variable.
+func TestTemplate_ProviderModel_SelfHostedAndCloud(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"local":  {Provider: "ollama"},
+		"claude": {Provider: "anthropic"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Models["local"]; !ok {
+		t.Error("models.local: expected container entry for ollama")
+	}
+	if _, ok := ds.Models["claude"]; ok {
+		t.Error("models.claude: cloud provider must not produce a container entry")
+	}
+	assertEnvExists(t, ds.Agent.Environment, "OLLAMA_HOST")
+	assertEnvExists(t, ds.Agent.Environment, "ANTHROPIC_API_KEY")
+}
+
 // ===== Phase 4: Knowledge =====
 
 func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
@@ -432,6 +558,91 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	// Container mode uses KNOWLEDGE_* prefix
 	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM_DB_HOST", "${knowledge.custom_db.host}")
 	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM_DB_PORT", "${knowledge.custom_db.http.port}")
+}
+
+func TestTemplate_ProviderKnowledge_Postgres(t *testing.T) {
+	input := baseInput()
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"db": {Provider: "postgres"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	k := ds.Knowledge["db"]
+	if !strings.Contains(k.Image, "pgvector") {
+		t.Errorf("image: expected pgvector image, got %s", k.Image)
+	}
+	if spec.PrimaryPort(k.Endpoints) != 5432 {
+		t.Errorf("endpoints primary port: expected 5432, got %d", spec.PrimaryPort(k.Endpoints))
+	}
+	if k.Persistent {
+		t.Error("persistent: expected false (not set in spec)")
+	}
+	if k.Storage != nil {
+		t.Error("storage: expected nil for non-persistent store")
+	}
+	if k.Healthcheck == nil || len(k.Healthcheck.Test) == 0 {
+		t.Errorf("healthcheck: expected exec test for postgres provider, got %+v", k.Healthcheck)
+	}
+
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_HOST", "${knowledge.db.host}")
+	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_PORT", "${knowledge.db.http.port}")
+
+	// Credentials must not be in the agent env — they flow via secretKeyRef at apply time.
+	for _, cred := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} {
+		if _, ok := ds.Agent.Environment[cred]; ok {
+			t.Errorf("agent.environment.%s: must not be present — flows via secretKeyRef", cred)
+		}
+	}
+}
+
+func TestTemplate_ProviderKnowledge_Postgres_Persistent(t *testing.T) {
+	input := baseInput()
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"db": {Provider: "postgres", Persistent: true},
+	}
+
+	ds := mustGenerate(t, input)
+
+	k := ds.Knowledge["db"]
+	if !k.Persistent {
+		t.Error("persistent: expected true")
+	}
+	if k.Storage == nil {
+		t.Fatal("storage: expected non-nil for persistent store")
+	}
+	if k.Storage.Size != "10Gi" {
+		t.Errorf("storage.size: expected 10Gi, got %s", k.Storage.Size)
+	}
+	if k.Storage.AccessMode != "ReadWriteOnce" {
+		t.Errorf("storage.access_mode: expected ReadWriteOnce, got %s", k.Storage.AccessMode)
+	}
+	if k.Update.Strategy != "recreate" {
+		t.Errorf("update.strategy: expected recreate for persistent store, got %s", k.Update.Strategy)
+	}
+}
+
+func TestTemplate_ProviderKnowledge_Pinecone(t *testing.T) {
+	input := baseInput()
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"index": {Provider: "pinecone"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Cloud knowledge provider — no sidecar container in the spec.
+	if _, ok := ds.Knowledge["index"]; ok {
+		t.Error("knowledge.index: cloud provider should not produce a container entry")
+	}
+
+	v, ok := ds.Variables["PINECONE_API_KEY"]
+	if !ok {
+		t.Fatal("variables: PINECONE_API_KEY not found")
+	}
+	if !v.Secret {
+		t.Error("variables.PINECONE_API_KEY: expected secret=true")
+	}
+	assertEnvRef(t, ds.Agent.Environment, "PINECONE_API_KEY", "${variables.PINECONE_API_KEY}")
 }
 
 func TestTemplate_KnowledgeNonPersistent_NoStorage(t *testing.T) {
@@ -829,84 +1040,134 @@ func TestTemplate_TopLevelInputs_SecretNotInAgentEnv(t *testing.T) {
 	}
 }
 
-func TestTemplate_NoIntegrations_AdapterVariablesPresent(t *testing.T) {
-	ds := mustGenerate(t, baseInput())
+// F4: agent component inputs appear as variables with target="agent" and are
+// wired into agent.environment for non-secret inputs.
+func TestTemplate_AgentComponentInputs(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Inputs = []spec.Input{
+		{Name: "FEATURE_FLAG", Datatype: "boolean", Default: "false", Optional: true, Description: "Toggle feature"},
+		{Name: "API_SECRET", Datatype: "string", Secret: true, Description: "A secret API key"},
+	}
 
-	// Template always includes adapter credential placeholders so users know what to fill in.
-	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
-		t.Error("expected SLACK_BOT_TOKEN adapter variable in template")
+	ds := mustGenerate(t, input)
+
+	flag, ok := ds.Variables["FEATURE_FLAG"]
+	if !ok {
+		t.Fatal("variables: FEATURE_FLAG not found")
 	}
-	if _, ok := ds.Variables["SLACK_APP_TOKEN"]; !ok {
-		t.Error("expected SLACK_APP_TOKEN adapter variable in template")
+	if flag.Default != "false" {
+		t.Errorf("FEATURE_FLAG.Default: expected false, got %q", flag.Default)
 	}
-	if !ds.Variables["SLACK_BOT_TOKEN"].Optional {
-		t.Error("SLACK_BOT_TOKEN should be optional in template (adapter is disabled by default)")
+	if !flag.Optional {
+		t.Error("FEATURE_FLAG.Optional: expected true")
 	}
-	if !ds.Variables["SLACK_APP_TOKEN"].Optional {
-		t.Error("SLACK_APP_TOKEN should be optional in template (adapter is disabled by default)")
+	if len(flag.Targets) != 1 || flag.Targets[0] != "agent" {
+		t.Errorf("FEATURE_FLAG.Targets: expected [agent], got %v", flag.Targets)
+	}
+
+	// Non-secret agent input wired to agent env.
+	assertEnvRef(t, ds.Agent.Environment, "FEATURE_FLAG", "${variables.FEATURE_FLAG}")
+
+	// Secret agent input must not appear in agent env.
+	if _, ok := ds.Agent.Environment["API_SECRET"]; ok {
+		t.Error("API_SECRET: secret input must not be in agent.environment")
 	}
 }
 
-func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
-	boolPtr := func(v bool) *bool { return &v }
-
+// F5: model component inputs with a default value are injected directly into
+// the model container's environment — they do NOT produce a variable entry.
+func TestTemplate_ModelComponentInputs(t *testing.T) {
 	input := baseInput()
-	input.Spec.Dev = &spec.Dev{
-		Interfaces: &spec.DevInterfaces{
-			Messaging: &spec.DevMessaging{
-				Adapters: []string{"slack"},
-				Slack: &spec.SlackAdapterConfig{
-					ActionableReactions: []string{"ticket", "bug"},
-					AllowedChannelIDs:   []string{"C123", "C999"},
-					AllowedUserIDs:      []string{"U123", "U999"},
-					SocketMode:          boolPtr(false),
-					AutoThread:          boolPtr(true),
-				},
-			},
+	input.Spec.Models = map[string]spec.Model{
+		"llm": {
+			Container: &spec.ContainerConfig{Image: "llm:latest", Port: 8000},
+			Inputs:    []spec.Input{{Name: "CONTEXT_LENGTH", Datatype: "number", Default: "4096"}},
 		},
 	}
 
 	ds := mustGenerate(t, input)
 
+	if ds.Models["llm"].Environment["CONTEXT_LENGTH"] != "4096" {
+		t.Errorf("models.llm.environment.CONTEXT_LENGTH: expected 4096, got %q", ds.Models["llm"].Environment["CONTEXT_LENGTH"])
+	}
+	// Model inputs are NOT promoted to the variables map.
+	if _, ok := ds.Variables["CONTEXT_LENGTH"]; ok {
+		t.Error("variables: CONTEXT_LENGTH must not be in variables — model inputs go to the container env directly")
+	}
+}
+
+// F6: knowledge component inputs with a default value are injected directly
+// into the knowledge container's environment — they do NOT produce a variable entry.
+func TestTemplate_KnowledgeComponentInputs(t *testing.T) {
+	input := baseInput()
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"cache": {
+			Provider: "redis",
+			Inputs:   []spec.Input{{Name: "MAXMEMORY", Datatype: "string", Default: "512mb"}},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if ds.Knowledge["cache"].Environment["MAXMEMORY"] != "512mb" {
+		t.Errorf("knowledge.cache.environment.MAXMEMORY: expected 512mb, got %q", ds.Knowledge["cache"].Environment["MAXMEMORY"])
+	}
+	if _, ok := ds.Variables["MAXMEMORY"]; ok {
+		t.Error("variables: MAXMEMORY must not be in variables — knowledge inputs go to the container env directly")
+	}
+}
+
+// F7: ingestion component inputs produce a variable with target="ingestion.<name>"
+// AND inject the default into the ingestion container's environment.
+func TestTemplate_IngestionComponentInputs(t *testing.T) {
+	input := baseInput()
+	input.Spec.Ingestion = map[string]spec.Ingestion{
+		"sync": {
+			Container: spec.ContainerConfig{Image: "sync:latest"},
+			Trigger:   spec.IngestionTrigger{Type: "startup"},
+			Inputs:    []spec.Input{{Name: "BATCH_SIZE", Datatype: "number", Default: "100", Optional: true}},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	v, ok := ds.Variables["BATCH_SIZE"]
+	if !ok {
+		t.Fatal("variables: BATCH_SIZE not found")
+	}
+	if len(v.Targets) != 1 || v.Targets[0] != "ingestion.sync" {
+		t.Errorf("BATCH_SIZE.Targets: expected [ingestion.sync], got %v", v.Targets)
+	}
+	if v.Default != "100" {
+		t.Errorf("BATCH_SIZE.Default: expected 100, got %q", v.Default)
+	}
+	// Default also wired directly into ingestion container env.
+	if ds.Ingestion["sync"].Environment["BATCH_SIZE"] != "100" {
+		t.Errorf("ingestion.sync.environment.BATCH_SIZE: expected 100, got %q", ds.Ingestion["sync"].Environment["BATCH_SIZE"])
+	}
+}
+
+// When slack is selected via ApplyAdapterShaping, all three slack vars appear
+// with correct metadata and are wired into interfaces.environment.
+func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
+	ds := mustGenerate(t, baseInput())
+	ApplyAdapterShaping(ds, []string{"slack"})
+
 	v, ok := ds.Variables["SLACK_CONFIG"]
 	if !ok {
-		t.Fatal("SLACK_CONFIG variable not found in template")
+		t.Fatal("SLACK_CONFIG variable not found after slack shaping")
 	}
 	if v.Secret {
 		t.Error("SLACK_CONFIG should not be secret")
 	}
 	if !v.Optional {
-		t.Error("SLACK_CONFIG should be optional")
+		t.Error("SLACK_CONFIG should remain optional (valid empty defaults exist)")
 	}
 	if len(v.Targets) != 1 || v.Targets[0] != "interface.slack" {
 		t.Errorf("SLACK_CONFIG targets = %v, want [interface.slack]", v.Targets)
 	}
-	if v.Default != v.Value {
-		t.Errorf("SLACK_CONFIG default should equal value, got default=%q value=%q", v.Default, v.Value)
-	}
-
-	// Value must be valid JSON containing the expected fields
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(v.Value), &parsed); err != nil {
-		t.Fatalf("SLACK_CONFIG value is not valid JSON: %v (value=%q)", err, v.Value)
-	}
-	reactions, _ := parsed["actionable_reactions"].([]any)
-	if len(reactions) != 2 || reactions[0] != "ticket" || reactions[1] != "bug" {
-		t.Errorf("SLACK_CONFIG actionable_reactions = %v, want [ticket bug]", reactions)
-	}
-	channels, _ := parsed["allowed_channel_ids"].([]any)
-	if len(channels) != 2 || channels[0] != "C123" || channels[1] != "C999" {
-		t.Errorf("SLACK_CONFIG allowed_channel_ids = %v, want [C123 C999]", channels)
-	}
-	users, _ := parsed["allowed_user_ids"].([]any)
-	if len(users) != 2 || users[0] != "U123" || users[1] != "U999" {
-		t.Errorf("SLACK_CONFIG allowed_user_ids = %v, want [U123 U999]", users)
-	}
-	if parsed["socket_mode"] != false {
-		t.Errorf("SLACK_CONFIG socket_mode = %v, want false", parsed["socket_mode"])
-	}
-	if parsed["auto_thread"] != true {
-		t.Errorf("SLACK_CONFIG auto_thread = %v, want true", parsed["auto_thread"])
+	if v.Value != "" {
+		t.Errorf("SLACK_CONFIG value should be empty (no dev config), got %q", v.Value)
 	}
 
 	envRef, ok := ds.Interfaces.Environment["SLACK_CONFIG"]
@@ -917,35 +1178,12 @@ func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
 		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_CONFIG}", envRef)
 	}
 
-	// Secret variables targeting an interface adapter must ALSO appear in
-	// interfaces.environment. The resolver routes them to SecretData, and the
-	// applier mounts those entries via a messaging-only Secret on the sidecar.
-	// Without this listing, the messaging container would have no way to read
-	// the slack tokens at runtime (it never mounts the agent's main secret).
-	if ref, ok := ds.Interfaces.Environment["SLACK_BOT_TOKEN"]; !ok {
-		t.Error("interfaces.environment should contain SLACK_BOT_TOKEN ref")
-	} else if ref != "${variables.SLACK_BOT_TOKEN}" {
-		t.Errorf("SLACK_BOT_TOKEN ref = %q, want ${variables.SLACK_BOT_TOKEN}", ref)
-	}
-	if ref, ok := ds.Interfaces.Environment["SLACK_APP_TOKEN"]; !ok {
-		t.Error("interfaces.environment should contain SLACK_APP_TOKEN ref")
-	} else if ref != "${variables.SLACK_APP_TOKEN}" {
-		t.Errorf("SLACK_APP_TOKEN ref = %q, want ${variables.SLACK_APP_TOKEN}", ref)
-	}
-}
-
-func TestTemplate_SlackConfigVariable_NoSpecConfig(t *testing.T) {
-	ds := mustGenerate(t, baseInput())
-
-	v, ok := ds.Variables["SLACK_CONFIG"]
-	if !ok {
-		t.Fatal("SLACK_CONFIG variable should always be present when messaging is enabled")
-	}
-	if v.Value != "" {
-		t.Errorf("SLACK_CONFIG value should be empty when no slack config in spec, got %q", v.Value)
-	}
-	if v.Default != "" {
-		t.Errorf("SLACK_CONFIG default should be empty when no slack config in spec, got %q", v.Default)
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"} {
+		if ref, ok := ds.Interfaces.Environment[key]; !ok {
+			t.Errorf("interfaces.environment should contain %s ref", key)
+		} else if ref != "${variables."+key+"}" {
+			t.Errorf("%s ref = %q, want ${variables.%s}", key, ref, key)
+		}
 	}
 }
 
@@ -976,189 +1214,285 @@ func TestTemplate_NameDerivedVariableKeys(t *testing.T) {
 
 // ===== Phase 8: Interfaces =====
 
-func TestTemplate_InterfacesDefaults(t *testing.T) {
-	ds := mustGenerate(t, baseInput())
+// A7: messaging enabled → all interfaces block fields have correct defaults.
+func TestYAML_Interfaces_A7_AllDefaults(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+`)
 
 	if ds.Interfaces == nil {
 		t.Fatal("interfaces: expected non-nil")
 	}
+
+	// No adapter selected by default
 	if len(ds.Interfaces.Adapters) != 0 {
 		t.Errorf("interfaces.adapters: expected empty, got %v", ds.Interfaces.Adapters)
 	}
-	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
-	if grpcEp == nil || grpcEp.Port != 9090 {
-		t.Errorf("interfaces.endpoints.grpc.port: expected 9090, got %v", grpcEp)
-	}
-	if ds.Interfaces.Resources != spec.MessagingResources {
-		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
-	}
+
+	// Messaging image resolved through registry
 	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
-		t.Errorf("interfaces.image: expected registry.example.com/dockerhub/astropods/messaging:latest, got %s", ds.Interfaces.Image)
+		t.Errorf("interfaces.image: got %s", ds.Interfaces.Image)
 	}
-	// http endpoint should have expose.enabled=false
+
+	// gRPC endpoint on 9090
+	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
+	if grpcEp == nil {
+		t.Fatal("interfaces.endpoints.grpc: expected non-nil")
+	}
+	if grpcEp.Port != 9090 {
+		t.Errorf("interfaces.endpoints.grpc.port: expected 9090, got %d", grpcEp.Port)
+	}
+
+	// HTTP endpoint present but not publicly exposed
 	httpEp := spec.EndpointByName(ds.Interfaces.Endpoints, "http")
-	if httpEp != nil && httpEp.Expose != nil && httpEp.Expose.Enabled {
-		t.Error("interfaces.endpoints.http.expose.enabled: expected false")
-	}
-	// auth should default to oidc
-	if ds.Interfaces.Auth == nil || ds.Interfaces.Auth.Web == nil || ds.Interfaces.Auth.Web.Type != "oidc" {
-		t.Errorf("interfaces.auth.web.type: expected oidc, got %v", ds.Interfaces.Auth)
-	}
-}
-
-func TestTemplate_MessagingDisabled(t *testing.T) {
-	input := baseInput()
-	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: false}
-	ds := mustGenerate(t, input)
-
-	if ds.Interfaces != nil {
-		t.Error("interfaces: expected nil when messaging is disabled")
-	}
-	// Slack variables should not be present
-	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; ok {
-		t.Error("SLACK_BOT_TOKEN should not be present when messaging is disabled")
-	}
-}
-
-func TestTemplate_FrontendEnabled(t *testing.T) {
-	input := baseInput()
-	input.Spec.Agent.Interfaces = &spec.Interfaces{Frontend: true, Messaging: false}
-	ds := mustGenerate(t, input)
-
-	// Agent endpoint should be port 80 with expose enabled
-	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
 	if httpEp == nil {
-		t.Fatal("agent.endpoints.http: expected non-nil")
+		t.Fatal("interfaces.endpoints.http: expected non-nil")
 	}
-	if httpEp.Port != 80 {
-		t.Errorf("agent.endpoints.http.port: expected 80, got %d", httpEp.Port)
+	if httpEp.Port != 8080 {
+		t.Errorf("interfaces.endpoints.http.port: expected 8080, got %d", httpEp.Port)
 	}
-	if httpEp.Expose == nil || !httpEp.Expose.Enabled {
-		t.Error("agent.endpoints.http.expose.enabled: expected true for frontend")
+	if httpEp.Expose != nil && httpEp.Expose.Enabled {
+		t.Error("interfaces.endpoints.http.expose.enabled: expected false by default")
 	}
-	// No messaging sidecar
-	if ds.Interfaces != nil {
-		t.Error("interfaces: expected nil when messaging is disabled")
-	}
-}
 
-func TestTemplate_FrontendAndMessaging(t *testing.T) {
-	input := baseInput()
-	input.Spec.Agent.Interfaces = &spec.Interfaces{Frontend: true, Messaging: true}
-	ds := mustGenerate(t, input)
-
-	// Agent endpoint exposed for frontend
-	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
-	if httpEp == nil || httpEp.Expose == nil || !httpEp.Expose.Enabled {
-		t.Error("agent.endpoints.http.expose.enabled: expected true for frontend")
+	// Resources match MessagingResources
+	if ds.Interfaces.Resources != spec.MessagingResources {
+		t.Errorf("interfaces.resources: expected MessagingResources %+v, got %+v", spec.MessagingResources, ds.Interfaces.Resources)
 	}
-	// Messaging sidecar present
-	if ds.Interfaces == nil {
-		t.Fatal("interfaces: expected non-nil when messaging is enabled")
+
+	// Auth defaults to web OIDC; no slack auth configured
+	if ds.Interfaces.Auth == nil {
+		t.Fatal("interfaces.auth: expected non-nil")
+	}
+	if ds.Interfaces.Auth.Web == nil {
+		t.Fatal("interfaces.auth.web: expected non-nil")
+	}
+	if ds.Interfaces.Auth.Web.Type != "oidc" {
+		t.Errorf("interfaces.auth.web.type: expected oidc, got %q", ds.Interfaces.Auth.Web.Type)
+	}
+	if ds.Interfaces.Auth.Slack != nil {
+		t.Errorf("interfaces.auth.slack: expected nil by default, got %+v", ds.Interfaces.Auth.Slack)
 	}
 }
 
 // ===== Phase 9: Full Combination =====
 
+// TestTemplate_FullSpec exercises every spec feature together: all self-hosted
+// and cloud model providers, all knowledge providers, all ingestion trigger
+// types, a custom provider, inputs at every level, interfaces, and a managed
+// store binding.
+// The primary assertion is that every ${...} reference in the generated
+// template resolves correctly against the spec — this catches wiring bugs
+// that individual provider tests would miss.
 func TestTemplate_FullSpec(t *testing.T) {
 	input := TemplateInput{
 		Spec: &spec.AstroSpec{
-			Name:  "engineering-assistant",
-			Agent: spec.Container{Image: "registry.example.com/acme/engineering-assistant:build42"},
-			Models: map[string]spec.Model{
-				"local_llm": {Provider: "ollama"},
-				"anthropic": {Provider: "anthropic"},
-			},
-			Knowledge: map[string]spec.Knowledge{
-				"docs":  {Provider: "qdrant", Persistent: true},
-				"cache": {Provider: "redis"},
-			},
-			Integrations: map[string]spec.Integration{
-				"websearch": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
-				"github":    {Provider: "github"},
-			},
-			Ingestion: map[string]spec.Ingestion{
-				"docs_sync": {
-					Container: spec.ContainerConfig{
-						Image:       "ingest:latest",
-						Environment: map[string]string{"SOURCE_REPO": "company/docs"},
-					},
-					Trigger: spec.IngestionTrigger{Type: "schedule"},
+			Name: "research-assistant",
+			Agent: spec.Container{
+				Image:      "registry.example.com/acme/research-assistant:build1",
+				Interfaces: &spec.Interfaces{Messaging: true},
+				Inputs: []spec.Input{
+					{Name: "LOG_LEVEL", Datatype: "string", Default: "info", Optional: true},
 				},
 			},
+			Models: map[string]spec.Model{
+				"local":   {Provider: "ollama", Models: []string{"llama3.2"}},
+				"claude":  {Provider: "anthropic"},
+				"gpt":     {Provider: "openai"},
+				"gemini":  {Provider: "google"},
+				"command": {Provider: "cohere"},
+				"managed": {Provider: "anthropic-managed"},
+			},
+			Knowledge: map[string]spec.Knowledge{
+				"db":      {Provider: "postgres", Persistent: true},
+				"cache":   {Provider: "redis"},
+				"vectors": {Provider: "qdrant", Persistent: true},
+				"graph":   {Provider: "neo4j"},
+				"index":   {Provider: "pinecone"},
+			},
+			Providers: map[string]spec.CustomProvider{
+				"acme": {
+					Scope: []string{"integrations"},
+					Variables: []spec.Input{
+						{Name: "API_KEY", Datatype: "string", Secret: true, Description: "ACME API key"},
+					},
+				},
+			},
+			Integrations: map[string]spec.Integration{
+				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
+				"acme":   {Provider: "acme"},
+			},
+			Ingestion: map[string]spec.Ingestion{
+				"nightly": {
+					Container: spec.ContainerConfig{Image: "sync:latest"},
+					Trigger:   spec.IngestionTrigger{Type: "schedule"},
+				},
+				"hook": {
+					Container: spec.ContainerConfig{Image: "hook:latest", Port: 8090},
+					Trigger:   spec.IngestionTrigger{Type: "webhook"},
+				},
+				"boot": {
+					Container: spec.ContainerConfig{Image: "seed:latest"},
+					Trigger:   spec.IngestionTrigger{Type: "startup"},
+				},
+			},
+			Inputs: map[string]spec.Input{
+				"debug": {Name: "DEBUG", Datatype: "boolean", Default: "false", Optional: true},
+			},
 		},
-		AgentName:   "engineering-assistant",
+		AgentName:   "research-assistant",
 		Account:     "acme",
-		BuildID:     "build42",
+		BuildID:     "build1",
 		RegistryURL: "registry.example.com",
 	}
 
 	ds := mustGenerate(t, input)
 
-	// Models — only self-hosted (ollama), not cloud (anthropic)
+	// --- Models ---
+	// Self-hosted: ollama only; all cloud providers produce no container.
 	if len(ds.Models) != 1 {
-		t.Errorf("models: expected 1 (ollama only), got %d", len(ds.Models))
+		t.Errorf("models: expected 1 container (ollama), got %d", len(ds.Models))
 	}
-	if ds.Models["local_llm"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
-		t.Errorf("models.local_llm.image: got %s", ds.Models["local_llm"].Image)
+	if _, ok := ds.Models["local"]; !ok {
+		t.Error("models.local: ollama container missing")
 	}
-
-	// Knowledge
-	if len(ds.Knowledge) != 2 {
-		t.Errorf("knowledge: expected 2, got %d", len(ds.Knowledge))
-	}
-	if !ds.Knowledge["docs"].Persistent {
-		t.Error("knowledge.docs.persistent: expected true")
-	}
-	if ds.Knowledge["cache"].Persistent {
-		t.Error("knowledge.cache.persistent: expected false")
+	for _, cloud := range []string{"claude", "gpt", "gemini", "command", "managed"} {
+		if _, ok := ds.Models[cloud]; ok {
+			t.Errorf("models.%s: cloud provider must not produce a container", cloud)
+		}
 	}
 
-	// Integrations — only self-hosted (websearch), not cloud (github)
-	if len(ds.Integrations) != 1 {
-		t.Errorf("tools: expected 1 (websearch only), got %d", len(ds.Integrations))
+	// Cloud credentials — all except managed.
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY"} {
+		if _, ok := ds.Variables[key]; !ok {
+			t.Errorf("variables: %s not found", key)
+		}
+	}
+	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
+		t.Error("variables: managed provider must not produce a credential variable")
 	}
 
-	// Ingestion
-	if len(ds.Ingestion) != 1 {
-		t.Errorf("ingestion: expected 1, got %d", len(ds.Ingestion))
+	// --- Knowledge ---
+	// Self-hosted stores present; cloud (pinecone) absent.
+	for _, name := range []string{"db", "cache", "vectors", "graph"} {
+		if _, ok := ds.Knowledge[name]; !ok {
+			t.Errorf("knowledge.%s: expected container entry", name)
+		}
 	}
-	if ds.Ingestion["docs_sync"].Environment["SOURCE_REPO"] != "company/docs" {
-		t.Error("ingestion environment not preserved")
+	if _, ok := ds.Knowledge["index"]; ok {
+		t.Error("knowledge.index: cloud provider (pinecone) must not produce a container")
+	}
+	if _, ok := ds.Variables["PINECONE_API_KEY"]; !ok {
+		t.Error("variables: PINECONE_API_KEY not found for cloud knowledge provider")
+	}
+	if !ds.Knowledge["db"].Persistent {
+		t.Error("knowledge.db: expected persistent=true")
+	}
+	if !ds.Knowledge["vectors"].Persistent {
+		t.Error("knowledge.vectors: expected persistent=true")
 	}
 
-	// Variables from cloud providers
-	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; !ok {
-		t.Error("missing ANTHROPIC_API_KEY variable")
+	// --- Integrations ---
+	// Self-hosted: search only; cloud (acme) absent.
+	if _, ok := ds.Integrations["search"]; !ok {
+		t.Error("integrations.search: expected container entry")
 	}
-	if _, ok := ds.Variables["GITHUB_TOKEN"]; !ok {
-		t.Error("missing GITHUB_TOKEN variable")
+	if _, ok := ds.Integrations["acme"]; ok {
+		t.Error("integrations.acme: custom cloud provider must not produce a container")
+	}
+	if _, ok := ds.Variables["ACME_API_KEY"]; !ok {
+		t.Error("variables: ACME_API_KEY not found for custom provider")
 	}
 
-	// Agent environment — check all component refs exist
+	// --- Ingestion ---
+	if len(ds.Ingestion) != 3 {
+		t.Errorf("ingestion: expected 3, got %d", len(ds.Ingestion))
+	}
+	if ds.Ingestion["nightly"].Trigger.Type != "schedule" {
+		t.Error("ingestion.nightly: expected schedule trigger")
+	}
+	if ds.Ingestion["hook"].Trigger.Type != "webhook" {
+		t.Error("ingestion.hook: expected webhook trigger")
+	}
+	if ds.Ingestion["boot"].Trigger.Type != "startup" {
+		t.Error("ingestion.boot: expected startup trigger")
+	}
+
+	// --- Inputs ---
+	// Top-level DEBUG and agent-level LOG_LEVEL both in variables.
+	if _, ok := ds.Variables["DEBUG"]; !ok {
+		t.Error("variables: DEBUG (top-level input) not found")
+	}
+	if _, ok := ds.Variables["LOG_LEVEL"]; !ok {
+		t.Error("variables: LOG_LEVEL (agent input) not found")
+	}
+
+	// --- Agent environment ---
 	env := ds.Agent.Environment
-	assertEnvExists(t, env, "OLLAMA_HOST")
-	assertEnvExists(t, env, "QDRANT_HOST")
-	assertEnvExists(t, env, "REDIS_HOST")
-	assertEnvExists(t, env, "INTEGRATION_WEBSEARCH_HOST")
-	assertEnvExists(t, env, "ANTHROPIC_API_KEY")
-	assertEnvExists(t, env, "GITHUB_TOKEN")
-	assertEnvExists(t, env, "ASTRO_AGENT_NAME")
-	assertEnvExists(t, env, "ASTRO_AGENT_BUILD")
+	for _, key := range []string{
+		"OLLAMA_HOST", "OLLAMA_BASE_URL",
+		"POSTGRES_HOST", "REDIS_HOST", "QDRANT_HOST", "NEO4J_HOST",
+		"INTEGRATION_SEARCH_HOST",
+		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY",
+		"PINECONE_API_KEY", "ACME_API_KEY",
+		"DEBUG", "LOG_LEVEL",
+		"ASTRO_AGENT_NAME", "ASTRO_AGENT_BUILD",
+	} {
+		assertEnvExists(t, env, key)
+	}
 
-	// All env values that start with ${ should be valid references
+	// --- Reference integrity ---
+	// Every ${...} value in the agent environment must parse and resolve.
 	for key, val := range env {
-		if strings.HasPrefix(val, "${") {
-			refs := spec.ParseReferences(val)
-			if len(refs) == 0 {
-				t.Errorf("env %s: value %q looks like a reference but failed to parse", key, val)
-			}
-			// Validate the reference resolves against the deployment spec
-			errs := spec.ValidateReferences(refs, ds)
-			if len(errs) > 0 {
-				t.Errorf("env %s: reference %q does not resolve: %v", key, val, errs)
+		if !strings.HasPrefix(val, "${") {
+			continue
+		}
+		refs := spec.ParseReferences(val)
+		if len(refs) == 0 {
+			t.Errorf("env %s: %q looks like a reference but failed to parse", key, val)
+			continue
+		}
+		if errs := spec.ValidateReferences(refs, ds); len(errs) > 0 {
+			t.Errorf("env %s: reference %q does not resolve: %v", key, val, errs)
+		}
+	}
+
+	// --- Bindings ---
+	// Bind the postgres store to a managed store. The container fields should be
+	// zeroed, credential variables removed, and editable fields for that entry gone.
+	bindingARN := "arn:knowledge-store:acme:pg-managed"
+	submitted := &spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"db": {Binding: bindingARN, Provider: "postgres"},
+		},
+	}
+	ApplyBindingShaping(ds, submitted)
+
+	bound := ds.Knowledge["db"]
+	if bound.Binding != bindingARN {
+		t.Errorf("knowledge.db.binding: expected %q, got %q", bindingARN, bound.Binding)
+	}
+	if bound.Image != "" {
+		t.Errorf("knowledge.db.image: expected empty after binding, got %q", bound.Image)
+	}
+	if len(bound.Endpoints) != 0 {
+		t.Errorf("knowledge.db.endpoints: expected empty after binding, got %v", bound.Endpoints)
+	}
+	// Credential variables scoped to the bound entry should be removed.
+	for _, cred := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} {
+		if v, ok := ds.Variables[cred]; ok {
+			for _, target := range v.Targets {
+				if target == "knowledge.db" {
+					t.Errorf("variables.%s: should have been removed after binding knowledge.db", cred)
+				}
 			}
 		}
+	}
+	// Unbound entries must be untouched.
+	if ds.Knowledge["cache"].Image == "" {
+		t.Error("knowledge.cache: unbound entry should still have its image")
 	}
 }
 
@@ -1919,6 +2253,9 @@ func TestTemplate_ECRNamespace_MixedTenantAndPublic(t *testing.T) {
 
 // ===== Regression: Slack input defaults preserved through interfaces merge =====
 
+// When a user defines SLACK_BOT_TOKEN/SLACK_APP_TOKEN in spec inputs and the
+// user then selects the slack adapter, ApplyAdapterShaping wires the platform
+// metadata (Targets, Secret, etc.) while preserving their Default and Value.
 func TestGenerateDeploymentTemplate_SlackInputDefaultsPreserved(t *testing.T) {
 	input := TemplateInput{
 		Spec: &spec.AstroSpec{
@@ -1938,6 +2275,14 @@ func TestGenerateDeploymentTemplate_SlackInputDefaultsPreserved(t *testing.T) {
 		RegistryURL: "registry.example.com",
 	}
 	ds := mustGenerate(t, input)
+
+	// User inputs appear with user-defined targets in the raw template.
+	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
+		t.Fatal("SLACK_BOT_TOKEN: expected in raw template from user inputs")
+	}
+
+	// After slack adapter is selected, platform wires Targets while preserving Default/Value.
+	ApplyAdapterShaping(ds, []string{"slack"})
 
 	botVar := ds.Variables["SLACK_BOT_TOKEN"]
 	if botVar.Default != "xoxb-default" {
@@ -2147,17 +2492,12 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 	base := mustGenerate(t, input)
 
-	// Simulate user inputs: select slack adapter, fill all required variables.
+	// Simulate user inputs: select slack+web, fill token values.
 	adapterSelection := []string{"slack", "web"}
-	varInputs := map[string]spec.VariableInput{}
-	for key, v := range base.Variables {
-		if !v.Optional {
-			varInputs[key] = spec.VariableInput{Value: "test-value-" + key}
-		}
+	varInputs := map[string]spec.VariableInput{
+		"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
+		"SLACK_APP_TOKEN": {Value: "xapp-test"},
 	}
-	// Also fill slack tokens (they become required when slack is selected).
-	varInputs["SLACK_BOT_TOKEN"] = spec.VariableInput{Value: "xoxb-test"}
-	varInputs["SLACK_APP_TOKEN"] = spec.VariableInput{Value: "xapp-test"}
 
 	// --- POST path: ShapeTemplate does the fulfillment ---
 	postResp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
@@ -2171,43 +2511,26 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 	getSpec.Spec = "deployment/v1"
 	getSpec.Editable = nil
 
-	// Set adapters
-	slackSelected := false
-	webSelected := false
+	// Apply adapter shaping on the GET copy — same operation ShapeTemplate performs.
+	// This injects slack vars, wires interfaces.environment, flips optionality, and
+	// exposes the HTTP endpoint for the web adapter.
+	ApplyAdapterShaping(getSpec, adapterSelection)
 	if getSpec.Interfaces != nil {
 		getSpec.Interfaces.Adapters = adapterSelection
-		for _, a := range adapterSelection {
-			if a == "slack" {
-				slackSelected = true
+		if ep, ok := getSpec.Interfaces.Endpoints["http"]; ok {
+			if ep.Expose == nil {
+				ep.Expose = &spec.EndpointExpose{}
 			}
-			if a == "web" {
-				webSelected = true
-			}
-		}
-		// When web is selected, expose HTTP endpoint (the POST path does this via adapter shaping;
-		// the GET path relied on client-side buildInterfacesPayload).
-		if webSelected {
-			if ep, ok := getSpec.Interfaces.Endpoints["http"]; ok {
-				if ep.Expose == nil {
-					ep.Expose = &spec.EndpointExpose{}
-				}
-				ep.Expose.Enabled = true
-				getSpec.Interfaces.Endpoints["http"] = ep
-			}
+			ep.Expose.Enabled = true
+			getSpec.Interfaces.Endpoints["http"] = ep
 		}
 	}
 
 	// Fill variable values + strip template-only fields (mimics client fulfillTemplate)
 	for key, v := range getSpec.Variables {
-		if input, ok := varInputs[key]; ok {
-			v.Value = input.Value
-			v.Ref = input.Ref
-		}
-		// Flip slack var optionality (the POST path does this via adapter shaping;
-		// the GET path relied on the deploy handler to validate, which is the gap
-		// the POST endpoint closes).
-		if slackSelected && (key == "SLACK_BOT_TOKEN" || key == "SLACK_APP_TOKEN") {
-			v.Optional = false
+		if inp, ok := varInputs[key]; ok {
+			v.Value = inp.Value
+			v.Ref = inp.Ref
 		}
 		// Strip template-only fields
 		v.Description = ""
@@ -2682,13 +3005,11 @@ func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 
-	// 1. Generate the canonical template (has all variables including Slack).
+	// 1. Simulate a template that was previously shaped with slack (slack vars present).
 	canonical := mustGenerate(t, input)
+	ApplyAdapterShaping(canonical, []string{"slack"})
 	if _, ok := canonical.Variables["SLACK_BOT_TOKEN"]; !ok {
-		t.Fatal("precondition: canonical template must include SLACK_BOT_TOKEN")
-	}
-	if _, ok := canonical.Variables["SLACK_APP_TOKEN"]; !ok {
-		t.Fatal("precondition: canonical template must include SLACK_APP_TOKEN")
+		t.Fatal("precondition: canonical template must include SLACK_BOT_TOKEN after slack shaping")
 	}
 
 	// 2. Shape with only "web" selected — mimics the POST template response.
@@ -2738,26 +3059,18 @@ func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 func TestApplyAdapterShaping_CleansEnvironmentRefs(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
-	input.Spec.Dev = &spec.Dev{
-		Interfaces: &spec.DevInterfaces{
-			Messaging: &spec.DevMessaging{
-				Adapters: []string{"slack"},
-				Slack:    &spec.SlackAdapterConfig{ActionableReactions: []string{"ticket"}},
-			},
-		},
-	}
-
 	ds := mustGenerate(t, input)
 
-	// Precondition: SLACK_CONFIG should be in both variables and environment.
+	// Inject slack vars first (simulates user having selected slack previously).
+	ApplyAdapterShaping(ds, []string{"slack"})
 	if _, ok := ds.Variables["SLACK_CONFIG"]; !ok {
-		t.Fatal("precondition: SLACK_CONFIG variable should exist")
+		t.Fatal("precondition: SLACK_CONFIG variable should exist after slack shaping")
 	}
 	if ds.Interfaces == nil || ds.Interfaces.Environment["SLACK_CONFIG"] == "" {
-		t.Fatal("precondition: interfaces.environment should reference SLACK_CONFIG")
+		t.Fatal("precondition: interfaces.environment should reference SLACK_CONFIG after slack shaping")
 	}
 
-	// Strip with web-only — slack vars should be removed.
+	// Now strip with web-only — slack vars and their env refs should be removed.
 	ApplyAdapterShaping(ds, []string{"web"})
 
 	if _, ok := ds.Variables["SLACK_CONFIG"]; ok {
@@ -2778,11 +3091,12 @@ func TestApplyAdapterShaping_CleansEnvironmentRefs(t *testing.T) {
 func TestShapeTemplate_NoRequestInterfaces_StripsNonSelectedAdapterRefs(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
-
-	// Canonical template has all adapter variables and env refs.
 	canonical := mustGenerate(t, input)
+
+	// Inject slack vars to simulate a template that was previously shaped with slack.
+	ApplyAdapterShaping(canonical, []string{"slack"})
 	if _, ok := canonical.Variables["SLACK_CONFIG"]; !ok {
-		t.Fatal("precondition: canonical template should include SLACK_CONFIG")
+		t.Fatal("precondition: canonical template should include SLACK_CONFIG after slack shaping")
 	}
 	if _, ok := canonical.Interfaces.Environment["SLACK_CONFIG"]; !ok {
 		t.Fatal("precondition: canonical template should reference SLACK_CONFIG in interfaces.environment")
@@ -2838,11 +3152,7 @@ func TestApplyAdapterShaping_SlackOptionalityFlipped(t *testing.T) {
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 	ds := mustGenerate(t, input)
 
-	// Precondition: tokens are optional by default (slack not selected).
-	if !ds.Variables["SLACK_BOT_TOKEN"].Optional {
-		t.Fatal("precondition: SLACK_BOT_TOKEN should be optional by default")
-	}
-
+	// Raw template has no slack vars. Selecting slack injects them as required.
 	ApplyAdapterShaping(ds, []string{"slack"})
 
 	if ds.Variables["SLACK_BOT_TOKEN"].Optional {
@@ -3115,31 +3425,29 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 		}
 	}
 
-	// --- Agent environment (credential refs for per-name keys) ---
-
-	// Primary entry "postgres" (name == provider) gets bare keys only —
-	// the redundant qualified form (POSTGRES_POSTGRES_*) is suppressed per
-	// RFC §8.2.
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USER", "${knowledge.postgres.credentials.user}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_PASSWORD", "${knowledge.postgres.credentials.password}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_DB", "${knowledge.postgres.credentials.database}")
-	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_USER"]; exists {
-		t.Error("POSTGRES_POSTGRES_USER must not exist (entry name matches provider)")
+	// --- Agent environment ---
+	//
+	// Credential env vars (POSTGRES_USER / _PASSWORD / _DB and the
+	// per-store renamed POSTGRES_USERS_* set, plus REDIS_PASSWORD) are
+	// NOT in ds.Agent.Environment. They flow via knowledgeCredEnvVars
+	// at apply time as direct secretKeyRef entries on the agent
+	// container, avoiding the duplicate-with-Secret pattern that
+	// previously left the same name on the pod twice.
+	for _, key := range []string{
+		"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB",
+		"POSTGRES_USERS_USER", "POSTGRES_USERS_PASSWORD", "POSTGRES_USERS_DB",
+		"REDIS_PASSWORD",
+	} {
+		if _, exists := ds.Agent.Environment[key]; exists {
+			t.Errorf("%s should not be in agent.Environment — credential env vars flow via knowledgeCredEnvVars at apply time, not through the spec resolver path", key)
+		}
 	}
-	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_PASSWORD"]; exists {
-		t.Error("POSTGRES_POSTGRES_PASSWORD must not exist (entry name matches provider)")
+	// The redundant qualified forms must also stay absent (RFC §8.2).
+	for _, key := range []string{"POSTGRES_POSTGRES_USER", "POSTGRES_POSTGRES_PASSWORD", "POSTGRES_POSTGRES_DB"} {
+		if _, exists := ds.Agent.Environment[key]; exists {
+			t.Errorf("%s must not exist (entry name matches provider)", key)
+		}
 	}
-	if _, exists := ds.Agent.Environment["POSTGRES_POSTGRES_DB"]; exists {
-		t.Error("POSTGRES_POSTGRES_DB must not exist (entry name matches provider)")
-	}
-
-	// Per-name keys for "users" entry (non-primary, qualified only)
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_USER", "${knowledge.users.credentials.user}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_PASSWORD", "${knowledge.users.credentials.password}")
-	assertEnvRef(t, ds.Agent.Environment, "POSTGRES_USERS_DB", "${knowledge.users.credentials.database}")
-
-	// Redis credentials also get agent env refs
-	assertEnvRef(t, ds.Agent.Environment, "REDIS_PASSWORD", "${knowledge.cache.credentials.password}")
 }
 
 // Test that RestoreBindingsFromSpec extracts bound entries from a stored
@@ -3200,5 +3508,227 @@ func TestRestoreBindingsFromSpec_InvalidJSON(t *testing.T) {
 	bindings := RestoreBindingsFromSpec(nil, "{invalid")
 	if bindings != nil {
 		t.Errorf("expected nil for invalid JSON, got %v", bindings)
+	}
+}
+
+// ===== YAML-driven interface / adapter tests (A1–A5) =====
+//
+// Each test parses an inline astropods.yml string and asserts the generated
+// template has the correct interfaces and slack-variable shape.
+
+func mustGenerateFromYAML(t *testing.T, yaml string) *spec.AstroDeploymentSpec {
+	t.Helper()
+	s, err := spec.ParseString(yaml)
+	if err != nil {
+		t.Fatalf("spec.ParseString: %v", err)
+	}
+	return mustGenerate(t, TemplateInput{
+		Spec:        s,
+		AgentName:   s.Name,
+		Account:     "acme",
+		BuildID:     "build1",
+		RegistryURL: "registry.example.com",
+	})
+}
+
+// A1: no interfaces key → messaging enabled by default; no slack variables.
+func TestYAML_Interfaces_A1_DefaultNoSlackVars(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+`)
+
+	if ds.Interfaces == nil {
+		t.Fatal("interfaces: expected non-nil (messaging on by default)")
+	}
+
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CONFIG"} {
+		if _, ok := ds.Variables[key]; ok {
+			t.Errorf("variables.%s: must not be present when no adapter configured", key)
+		}
+	}
+}
+
+// A2: interfaces.messaging: true is equivalent to the default; no slack variables.
+func TestYAML_Interfaces_A2_MessagingExplicitTrueNoSlackVars(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    messaging: true
+`)
+
+	if ds.Interfaces == nil {
+		t.Fatal("interfaces: expected non-nil")
+	}
+
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CONFIG"} {
+		if _, ok := ds.Variables[key]; ok {
+			t.Errorf("variables.%s: must not be present when no adapter configured", key)
+		}
+	}
+}
+
+// A3: interfaces.messaging: false → interfaces block nil, no slack variables.
+func TestYAML_Interfaces_A3_MessagingDisabled(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    messaging: false
+`)
+
+	if ds.Interfaces != nil {
+		t.Error("interfaces: expected nil when messaging: false")
+	}
+
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CONFIG"} {
+		if _, ok := ds.Variables[key]; ok {
+			t.Errorf("variables.%s: must not be present when messaging disabled", key)
+		}
+	}
+}
+
+// A6: interfaces.frontend: false + messaging: false explicitly → same result as A3;
+// no interfaces block, no slack vars, agent stays on default port 8080.
+func TestYAML_Interfaces_A6_BothExplicitlyFalse(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    frontend: false
+    messaging: false
+`)
+
+	if ds.Interfaces != nil {
+		t.Error("interfaces: expected nil when both frontend and messaging are false")
+	}
+
+	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	if httpEp == nil {
+		t.Fatal("agent.endpoints.http: expected non-nil")
+	}
+	if httpEp.Port != 8080 {
+		t.Errorf("agent.endpoints.http.port: expected 8080, got %d", httpEp.Port)
+	}
+	if httpEp.Expose != nil && httpEp.Expose.Enabled {
+		t.Error("agent.endpoints.http.expose.enabled: expected false")
+	}
+
+	for _, key := range []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CONFIG"} {
+		if _, ok := ds.Variables[key]; ok {
+			t.Errorf("variables.%s: must not be present", key)
+		}
+	}
+}
+
+// A4: interfaces.frontend: true (messaging omitted → false) → agent on port 80
+// with expose enabled; no messaging block.
+func TestYAML_Interfaces_A4_FrontendOnly(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    frontend: true
+`)
+
+	if ds.Interfaces != nil {
+		t.Error("interfaces: expected nil (messaging omitted → false)")
+	}
+
+	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	if httpEp == nil {
+		t.Fatal("agent.endpoints.http: expected non-nil for frontend agent")
+	}
+	if httpEp.Port != 80 {
+		t.Errorf("agent.endpoints.http.port: expected 80, got %d", httpEp.Port)
+	}
+	if httpEp.Expose == nil || !httpEp.Expose.Enabled {
+		t.Error("agent.endpoints.http.expose.enabled: expected true for frontend agent")
+	}
+}
+
+// A5: interfaces.frontend: true + messaging: true → agent on port 80 with expose
+// AND messaging block present.
+func TestYAML_Interfaces_A5_FrontendAndMessaging(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    frontend: true
+    messaging: true
+`)
+
+	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	if httpEp == nil {
+		t.Fatal("agent.endpoints.http: expected non-nil")
+	}
+	if httpEp.Port != 80 {
+		t.Errorf("agent.endpoints.http.port: expected 80, got %d", httpEp.Port)
+	}
+	if httpEp.Expose == nil || !httpEp.Expose.Enabled {
+		t.Error("agent.endpoints.http.expose.enabled: expected true")
+	}
+
+	if ds.Interfaces == nil {
+		t.Error("interfaces: expected non-nil (messaging: true)")
+	}
+}
+
+// A8: frontend + messaging both enabled → interfaces block has all correct fields
+// (same as A7) independent of the agent being a frontend.
+func TestYAML_Interfaces_A8_FrontendAndMessagingInterfacesBlock(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    frontend: true
+    messaging: true
+`)
+
+	if ds.Interfaces == nil {
+		t.Fatal("interfaces: expected non-nil")
+	}
+
+	if len(ds.Interfaces.Adapters) != 0 {
+		t.Errorf("interfaces.adapters: expected empty, got %v", ds.Interfaces.Adapters)
+	}
+
+	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
+		t.Errorf("interfaces.image: got %s", ds.Interfaces.Image)
+	}
+
+	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
+	if grpcEp == nil || grpcEp.Port != 9090 {
+		t.Errorf("interfaces.endpoints.grpc.port: expected 9090, got %v", grpcEp)
+	}
+
+	httpEp := spec.EndpointByName(ds.Interfaces.Endpoints, "http")
+	if httpEp == nil || httpEp.Port != 8080 {
+		t.Errorf("interfaces.endpoints.http.port: expected 8080, got %v", httpEp)
+	}
+	if httpEp != nil && httpEp.Expose != nil && httpEp.Expose.Enabled {
+		t.Error("interfaces.endpoints.http.expose.enabled: expected false")
+	}
+
+	if ds.Interfaces.Resources != spec.MessagingResources {
+		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
+	}
+
+	if ds.Interfaces.Auth == nil || ds.Interfaces.Auth.Web == nil {
+		t.Fatal("interfaces.auth.web: expected non-nil")
+	}
+	if ds.Interfaces.Auth.Web.Type != "oidc" {
+		t.Errorf("interfaces.auth.web.type: expected oidc, got %q", ds.Interfaces.Auth.Web.Type)
+	}
+	if ds.Interfaces.Auth.Slack != nil {
+		t.Errorf("interfaces.auth.slack: expected nil, got %+v", ds.Interfaces.Auth.Slack)
 	}
 }

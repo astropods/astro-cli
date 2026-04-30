@@ -22,10 +22,18 @@ type JobConfig struct {
 	ConfigMapName   string
 	Ingestion       spec.Ingestion
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
+	// ExtraEnv carries platform-emitted env entries the ingestion
+	// container needs but isn't picking up via envFrom — primarily the
+	// per-store knowledge credential `secretKeyRef` entries that
+	// knowledgeCredEnvVars produces. Was previously folded into the
+	// agent's full Secret via template.go's auto-injection; with that
+	// auto-injection removed, ingestion containers carry the same
+	// secretKeyRef entries the agent does.
+	ExtraEnv []corev1.EnvVar
 }
 
 // buildIngestionContainer creates the container spec shared by CronJob, Job, and ingestion Deployment
-func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName string, pullPolicy corev1.PullPolicy) corev1.Container {
+func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName string, pullPolicy corev1.PullPolicy, extraEnv []corev1.EnvVar) corev1.Container {
 	if pullPolicy == "" {
 		pullPolicy = corev1.PullAlways
 	}
@@ -37,6 +45,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 			Value: val,
 		})
 	}
+	envVars = append(envVars, extraEnv...)
 
 	container := corev1.Container{
 		Name:            "ingestion-worker",
@@ -83,7 +92,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 // BuildJob creates a one-shot Kubernetes Job manifest for ingestion (startup/manual triggers)
 func BuildJob(cfg JobConfig) *batchv1.Job {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
-	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy, cfg.ExtraEnv)
 
 	backoffLimit := int32(3)
 	ttl := int32(86400) // 1 day
@@ -124,7 +133,7 @@ func BuildJob(cfg JobConfig) *batchv1.Job {
 func BuildIngestionDeployment(cfg JobConfig, port int32) *appsv1.Deployment {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
-	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy, cfg.ExtraEnv)
 
 	container.Ports = []corev1.ContainerPort{
 		{

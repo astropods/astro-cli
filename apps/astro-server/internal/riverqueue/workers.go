@@ -99,12 +99,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "BlueprintAvatarBackfillWorker", "period", "24h")
 
-	river.AddWorker(workers, &BuildEnvBackfillWorker{
-		db:  cfg.DB,
-		log: log,
-	})
-	log.Info("river: registered worker", "worker", "BuildEnvBackfillWorker", "period", "24h")
-
 	var omDefaultPlan string
 	if cfg.ServerConfig != nil {
 		omDefaultPlan = cfg.ServerConfig.OpenMeterDefaultPlan

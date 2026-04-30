@@ -21,13 +21,16 @@ type CronJobConfig struct {
 	ConfigMapName   string
 	Ingestion       spec.Ingestion
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
+	// ExtraEnv: see JobConfig.ExtraEnv. Same role for cron-triggered
+	// ingestion containers.
+	ExtraEnv []corev1.EnvVar
 }
 
 // BuildCronJob creates a Kubernetes CronJob manifest for ingestion jobs
 func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
-	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy, cfg.ExtraEnv)
 
 	podSpec := corev1.PodSpec{
 		Containers:    []corev1.Container{container},

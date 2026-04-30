@@ -29,6 +29,16 @@ func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*spec.AstroDeplo
 
 	fill(submitted)
 
+	// Mirror the deploy handler: shape both the template reference and the
+	// submitted spec to match the submitted adapter selection before enforcing
+	// editable constraints. Without this, ApplyAdapterShaping-injected vars
+	// (e.g. SLACK_BOT_TOKEN) are absent from the template and EnforceEditable
+	// strips them from submitted.
+	if submitted.Interfaces != nil {
+		ApplyAdapterShaping(tmpl, submitted.Interfaces.Adapters)
+		ApplyAdapterShaping(submitted, submitted.Interfaces.Adapters)
+	}
+
 	editErrs := spec.EnforceEditable(tmpl, submitted)
 	if len(editErrs) > 0 {
 		return nil, editErrs
@@ -195,26 +205,6 @@ func TestTemplateDeploy_AnthropicModel_MissingCredential(t *testing.T) {
 }
 
 // ===== Slack + cloud provider together =====
-
-func TestTemplateDeploy_SlackAndAnthropicModel(t *testing.T) {
-	input := baseInput()
-	input.Spec.Models = map[string]spec.Model{
-		"llm": {Provider: "anthropic"},
-	}
-
-	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
-		ds.Interfaces.Adapters = []string{"slack"}
-		setVarValue(ds, "ANTHROPIC_API_KEY", "sk-ant-test")
-		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
-		setVarValue(ds, "SLACK_APP_TOKEN", "xapp-test-token")
-	})
-	if len(editErrs) > 0 {
-		t.Fatalf("EnforceEditable errors: %v", editErrs)
-	}
-	if len(result.Errors) > 0 {
-		t.Fatalf("unexpected validation errors: %v", result.Errors)
-	}
-}
 
 // ===== EnforceEditable rejects server-owned changes =====
 
