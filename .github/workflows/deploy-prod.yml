@@ -142,6 +142,7 @@ jobs:
             BUILD_DATE=${{ github.event.repository.updated_at }}
             VITE_AMPLITUDE_API_KEY=${{ vars.AMPLITUDE_API_KEY }}
             VITE_ASSETS_URL=https://assets.astropods.ai
+            VITE_FRONTEND_URL=https://astropods.com
 
       - name: Export digest
         run: |

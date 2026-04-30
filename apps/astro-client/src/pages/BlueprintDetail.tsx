@@ -79,7 +79,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const account = params.account ?? "";
   const agentSlug = params.agentSlug ?? "";
-  const origin = process.env.PUBLIC_ORIGIN || new URL(request.url).origin;
+  const origin = import.meta.env.VITE_FRONTEND_URL || new URL(request.url).origin;
 
   const [blueprint, blueprintsData, accountData] = await Promise.all([
     account && agentSlug ? api.getBlueprint(account, agentSlug).catch(() => null) : null,

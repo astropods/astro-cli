@@ -4,6 +4,28 @@ import tailwindcss from "@tailwindcss/vite";
 import { astroThemeColors } from "@astropods/theme/plugin";
 import fs from "fs";
 import path from "path";
+
+// Vite plugin: copies blueprint-jellybean font files into the SSR output directory
+// so that import.meta.url-relative font resolution works at runtime.
+function copyBlueprintFonts(): import("vite").Plugin {
+  let outDir: string;
+  return {
+    name: "copy-blueprint-fonts",
+    apply: "build",
+    configResolved(config) {
+      outDir = config.build.outDir;
+    },
+    closeBundle() {
+      const src  = path.resolve(__dirname, "../../packages/blueprint-jellybean/fonts");
+      const dest = path.resolve(outDir, "server/assets/fonts");
+      if (!fs.existsSync(src)) return;
+      fs.mkdirSync(dest, { recursive: true });
+      for (const f of fs.readdirSync(src)) {
+        fs.copyFileSync(path.join(src, f), path.join(dest, f));
+      }
+    },
+  };
+}
 // Local development domain (must match what's in /etc/hosts)
 const LOCAL_DOMAIN = "local.astropods.ai";
 
@@ -36,6 +58,7 @@ export default defineConfig(({ mode }) => {
       astroThemeColors(),
       tailwindcss(),
       !process.env.STORYBOOK && reactRouter(),
+      copyBlueprintFonts(),
     ].filter(Boolean),
     // Workspace package `astro-trading-card` imports `uqr`; SSR must bundle them so
     // Node resolves from the Vite graph (avoids "Cannot find module 'uqr'" in dev).
