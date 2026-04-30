@@ -35,6 +35,16 @@ func pushBaseURL() string {
 	return strings.TrimSuffix(auth.DefaultServerURL, "/")
 }
 
+func pushRegistryURL() string {
+	if pushServerURLOverride != "" {
+		return auth.RegistryURLFromServerURL(pushServerURLOverride)
+	}
+	if auth.DefaultRegistryURL != "" {
+		return strings.TrimSuffix(auth.DefaultRegistryURL, "/")
+	}
+	return auth.RegistryURLFromServerURL(auth.DefaultServerURL)
+}
+
 // pushConfig holds all parameters for a push operation.
 type pushConfig struct {
 	specPath   string
@@ -52,7 +62,7 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 	workingDir := filepath.Dir(cfg.specPath)
 
 	effectiveServerURL := pushBaseURL()
-	effectiveRegistryURL := auth.RegistryURLFromServerURL(effectiveServerURL)
+	effectiveRegistryURL := pushRegistryURL()
 
 	if cfg.verbose {
 		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, effectiveServerURL, colorReset)

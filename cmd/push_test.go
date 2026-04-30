@@ -21,6 +21,57 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 )
 
+func TestPushRegistryURL(t *testing.T) {
+	origDefaultRegistryURL := auth.DefaultRegistryURL
+	origDefaultServerURL := auth.DefaultServerURL
+	t.Cleanup(func() {
+		pushServerURLOverride = ""
+		auth.DefaultRegistryURL = origDefaultRegistryURL
+		auth.DefaultServerURL = origDefaultServerURL
+	})
+
+	tests := []struct {
+		name               string
+		serverOverride     string
+		defaultRegistryURL string
+		defaultServerURL   string
+		want               string
+	}{
+		{
+			name:               "production build uses DefaultRegistryURL ldflag",
+			serverOverride:     "",
+			defaultRegistryURL: "https://registry.astropods.ai",
+			defaultServerURL:   "https://astropods.com",
+			want:               "https://registry.astropods.ai",
+		},
+		{
+			name:               "test mode derives registry from server override, ignores DefaultRegistryURL",
+			serverOverride:     "http://localhost:9999",
+			defaultRegistryURL: "https://registry.astropods.ai",
+			defaultServerURL:   "https://astropods.com",
+			want:               "http://registry.localhost",
+		},
+		{
+			name:               "local dev derives registry from DefaultServerURL when no ldflag set",
+			serverOverride:     "",
+			defaultRegistryURL: "",
+			defaultServerURL:   "http://localhost:8080",
+			want:               "http://registry.localhost",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pushServerURLOverride = tt.serverOverride
+			auth.DefaultRegistryURL = tt.defaultRegistryURL
+			auth.DefaultServerURL = tt.defaultServerURL
+
+			got := pushRegistryURL()
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestGenerateBuildID(t *testing.T) {
 	id := generateBuildID()
 
