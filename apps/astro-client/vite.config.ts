@@ -7,17 +7,23 @@ import path from "path";
 
 // Vite plugin: copies blueprint-jellybean font files into the SSR output directory
 // so that import.meta.url-relative font resolution works at runtime.
+//
+// React Router v7 runs two Vite build passes: client (outDir=build/client) and
+// server (outDir=build/server). We only want to run during the server pass, and
+// the dest is outDir/assets/fonts (NOT outDir/server/assets/fonts — outDir already
+// IS build/server). config.build.ssr is truthy only during the server pass.
 function copyBlueprintFonts(): import("vite").Plugin {
-  let outDir: string;
+  let resolvedConfig: import("vite").ResolvedConfig;
   return {
     name: "copy-blueprint-fonts",
     apply: "build",
     configResolved(config) {
-      outDir = config.build.outDir;
+      resolvedConfig = config;
     },
     closeBundle() {
+if (!resolvedConfig.build.ssr) return;
       const src  = path.resolve(__dirname, "../../packages/blueprint-jellybean/fonts");
-      const dest = path.resolve(outDir, "server/assets/fonts");
+      const dest = path.resolve(resolvedConfig.build.outDir, "assets/fonts");
       if (!fs.existsSync(src)) return;
       fs.mkdirSync(dest, { recursive: true });
       for (const f of fs.readdirSync(src)) {
