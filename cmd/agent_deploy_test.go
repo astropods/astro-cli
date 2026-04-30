@@ -612,3 +612,80 @@ func TestRunBlueprintDeployTemplateSourcePreserved(t *testing.T) {
 	assert.Equal(t, "abc12345", capturedDeployBody["source"].(map[string]any)["build"])
 	assert.Equal(t, "my-agent", capturedDeployBody["target"].(map[string]any)["display_name"])
 }
+
+func TestNotFoundFromTemplateErr(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		account string
+		blue    string
+		build   string
+		want    []string
+	}{
+		// Typed error_code path (current servers).
+		{
+			name:  "typed: build_not_found with explicit build id",
+			body:  `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			blue:  "my-agent",
+			build: "deadbeef",
+			want:  []string{`build "deadbeef" not found`, `blueprint "my-agent"`, "ast push my-agent"},
+		},
+		{
+			name: "typed: build_not_found without --build",
+			body: `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			blue: "my-agent",
+			want: []string{`blueprint "my-agent" has no builds yet`, "ast push my-agent"},
+		},
+		{
+			name:    "typed: account_not_found",
+			body:    `{"error":"account not found","error_code":"account_not_found"}`,
+			account: "ghost", blue: "my-agent",
+			want: []string{`account "ghost" not found`},
+		},
+		{
+			name:    "typed: blueprint_not_found",
+			body:    `{"error":"agent not found","error_code":"blueprint_not_found"}`,
+			account: "team", blue: "missing",
+			want: []string{`blueprint "missing" not found`, `account "team"`},
+		},
+		// Legacy text-fallback path (old servers without error_code).
+		{
+			name:  "legacy: build text with --build",
+			body:  `{"error":"no builds found for agent","details":"sql: no rows in result set"}`,
+			blue:  "my-agent",
+			build: "deadbeef",
+			want:  []string{`build "deadbeef" not found`, `blueprint "my-agent"`, "ast push my-agent"},
+		},
+		{
+			name: "legacy: account not found text",
+			body: `{"error":"account not found"}`,
+			account: "ghost", blue: "my-agent",
+			want: []string{`account "ghost" not found`},
+		},
+		{
+			name: "unknown 404 body falls back to generic legacy message",
+			body: `{"error":"something else"}`,
+			blue: "my-agent",
+			want: []string{`blueprint "my-agent" not found`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := errFromAPI(http.StatusNotFound, tc.body)
+			out := notFoundFromTemplateErr(err, tc.account, tc.blue, tc.build)
+			require.Error(t, out)
+			for _, sub := range tc.want {
+				assert.Contains(t, out.Error(), sub)
+			}
+		})
+	}
+}
+
+func errFromAPI(status int, body string) error {
+	return &apiCallTestError{msg: "server returned status " + http.StatusText(status) + ": " + body}
+}
+
+type apiCallTestError struct{ msg string }
+
+func (e *apiCallTestError) Error() string { return e.msg }
+
