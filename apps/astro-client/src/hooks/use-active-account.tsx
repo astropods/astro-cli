@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 
 interface ActiveAccountContextValue {
@@ -19,7 +19,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     storedDefault && accounts.some((a) => a.name === storedDefault) ? storedDefault : null;
   const activeAccount = validStoredDefault || personalAccount?.name || "";
 
-  const setActiveAccount = (accountName: string) => {
+  const setActiveAccount = useCallback((accountName: string) => {
     if (accountName === personalAccount?.name) {
       localStorage.removeItem("astro:default-account");
       setStoredDefault(null);
@@ -27,7 +27,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("astro:default-account", accountName);
       setStoredDefault(accountName);
     }
-  };
+  }, [personalAccount?.name]);
 
   return (
     <ActiveAccountContext.Provider value={{ activeAccount, setActiveAccount }}>
