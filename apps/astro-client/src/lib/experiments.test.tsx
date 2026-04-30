@@ -6,7 +6,6 @@ function resetExperiments() {
   // Reset the module-level snapshot to defaults; localStorage.clear alone
   // doesn't suffice because the snapshot is captured at module init.
   setExperiment("theming", false);
-  setExperiment("knowledgeStore", false);
   localStorage.clear();
 }
 

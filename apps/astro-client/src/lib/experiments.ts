@@ -2,14 +2,12 @@ import { useSyncExternalStore } from "react";
 
 export interface Experiments {
   theming: boolean;
-  knowledgeStore: boolean;
 }
 
 const STORAGE_KEY = "astro:experiments";
 
 const DEFAULTS: Experiments = {
   theming: false,
-  knowledgeStore: false,
 };
 
 function load(): Experiments {
