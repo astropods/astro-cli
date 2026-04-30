@@ -3,10 +3,13 @@ package handlers
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
@@ -537,6 +541,78 @@ func TestEnrichDeployment_CacheHitPreservesSourceAccount(t *testing.T) {
 	}
 	if dep.SourceAccount != "publisher" {
 		t.Errorf("cached deployment source_account = %q, want publisher", dep.SourceAccount)
+	}
+}
+
+// TestEnrichDeployment_FailedDBOverridesK8sStatus is the regression for the
+// 35-minute "Deploying" bug: when the DB knows a deployment is failed (set by
+// the preflight 422 path or the reconcile pod-failure escalation), the
+// enriched payload returned to the API must report status=error and the
+// error_message — even when K8s replica scanning would otherwise return
+// "Pending" because the failing pods can't reach Ready.
+func TestEnrichDeployment_FailedDBOverridesK8sStatus(t *testing.T) {
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	log := logger.New("error", "json")
+
+	now := time.Now()
+	sourceID := "src-acct"
+	errMsg := "ImagePullBackOff on pod agent-abc (image=img:missing)"
+	dbDep := &deploymentstore.Deployment{
+		ID:                 "dep-failed",
+		AccountID:          "target-acct",
+		SourceAccountID:    &sourceID,
+		AgentName:          "agent-stuck",
+		BuildID:            "build-1",
+		Namespace:          "astro-failed-0",
+		DisplayName:        "Stuck",
+		DeploymentSpecJSON: `{"spec":"deployment/v1","source":{"account":"publisher","name":"agent-stuck","build":"build-1"}}`,
+		Status:             deploymentstore.StatusFailed,
+		ErrorMessage:       &errMsg,
+		DeployedAt:         now,
+	}
+	// K8s scan would have returned Pending (ready<replicas) — proving the
+	// fix overrides whatever K8s saw.
+	cached, err := json.Marshal([]AgentDeployment{{
+		Name:      "agent-stuck",
+		BuildID:   "build-1",
+		Namespace: dbDep.Namespace,
+		Status:    "Pending",
+		Replicas:  1,
+		Ready:     0,
+	}})
+	if err != nil {
+		t.Fatalf("marshal cache payload: %v", err)
+	}
+
+	accountMock.ExpectQuery(`SELECT`).
+		WithArgs(sourceID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
+		}).AddRow(sourceID, "publisher", "organization", nil, nil, now, now, "", nil))
+
+	deps := enrichDeployment(
+		context.Background(),
+		log,
+		accountStore,
+		nil,
+		nil,
+		dbDep,
+		nil,
+		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
+		"list:",
+		time.Minute,
+	)
+
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+	d := deps[0]
+	if d.Status != "error" {
+		t.Errorf("status = %q, want error (failed DB row must override K8s Pending)", d.Status)
+	}
+	if d.ErrorMessage != errMsg {
+		t.Errorf("error_message = %q, want %q", d.ErrorMessage, errMsg)
 	}
 }
 
@@ -1819,6 +1895,13 @@ func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
 // setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
 // Returns (router, indexMock, accountMock, deployMock).
 func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	router, im, am, dm, _ := setupDeployRouterWithPreflighter(userID, nil)
+	return router, im, am, dm
+}
+
+// setupDeployRouterWithPreflighter is the variant used by image-preflight tests.
+// Returns the cfg too so callers can inspect it if needed.
+func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePreflighter) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, *config.Config) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -1843,9 +1926,9 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
 
-	return router, indexMock, accountMock, deployMock
+	return router, indexMock, accountMock, deployMock, cfg
 }
 
 // expectDeployPrep sets up mocks for the full prepareDeployment flow: account lookup,
@@ -2123,6 +2206,57 @@ func TestDeploy_WithDeploymentID_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestDeploy_ImageNotFound_Returns422 verifies that when the configured
+// preflighter detects a missing manifest, the deploy fails fast with a 422
+// containing image+build_id in the body — and never enqueues a deploy job
+// or writes a pending row. This is the entire user-visible fix for the
+// 35-minute ImagePullBackOff loop.
+func TestDeploy_ImageNotFound_Returns422(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	target, _ := url.Parse(srv.URL)
+	preflighter := k8s.NewImagePreflighter(false)
+	preflighter.SetClient(http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 1 * time.Second}).DialContext(ctx, network, target.Host)
+			},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test stub
+		},
+		Timeout: 2 * time.Second,
+	})
+
+	router, indexMock, accountMock, _, _ := setupDeployRouterWithPreflighter("user-1", preflighter)
+	expectDeployPrep(accountMock, indexMock)
+
+	body := deployableSpec("")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp["error"] != "image_not_found" {
+		t.Errorf("error=%v, want image_not_found", resp["error"])
+	}
+	if resp["build_id"] != "build-1" {
+		t.Errorf("build_id=%v, want build-1", resp["build_id"])
+	}
+	if img, _ := resp["image"].(string); !strings.Contains(img, "my-agent") {
+		t.Errorf("image=%v, expected to contain my-agent", img)
 	}
 }
 
@@ -4642,6 +4776,79 @@ func TestPostTemplate_DeploymentNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+// expect404WithErrorCode asserts the response is HTTP 404 and carries the
+// given typed error_code field. The CLI's notFoundFromTemplateErr switches
+// on this code to disambiguate "account/blueprint/build" 404s without
+// parsing free-text error messages.
+func expect404WithErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Error     string `json:"error"`
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v: %s", err, rec.Body.String())
+	}
+	if body.ErrorCode != want {
+		t.Errorf("error_code: want %q, got %q (body=%s)", want, body.ErrorCode, rec.Body.String())
+	}
+}
+
+func TestPostTemplate_AccountNotFound_TaggedErrorCode(t *testing.T) {
+	router, _, accountMock, _ := setupPostTemplateRouter(t)
+
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+
+	rec := postTemplate(t, router, `{}`)
+
+	expect404WithErrorCode(t, rec, "account_not_found")
+}
+
+func TestPostTemplate_BlueprintNotFound_TaggedErrorCode(t *testing.T) {
+	router, indexMock, accountMock, _ := setupPostTemplateRouter(t)
+
+	expectAccountLookup(accountMock)
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name"}))
+
+	rec := postTemplate(t, router, `{}`)
+
+	expect404WithErrorCode(t, rec, "blueprint_not_found")
+}
+
+func TestPostTemplate_BuildNotFound_TaggedErrorCode(t *testing.T) {
+	router, indexMock, accountMock, _ := setupPostTemplateRouter(t)
+	now := time.Now()
+
+	expectAccountLookup(accountMock)
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", "public", nil, false, nil, now, now))
+	// generateTemplate looks up agent_versions twice for visibility flow then
+	// for the build resolution; this one returns no rows for the requested
+	// build id, mirroring `--build deadbeef` against an unknown build.
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "deadbeef").
+		WillReturnRows(sqlmock.NewRows([]string{"build_id"}))
+
+	rec := postTemplate(t, router, `{"build":"deadbeef"}`)
+
+	expect404WithErrorCode(t, rec, "build_not_found")
 }
 
 func TestPostTemplate_Forbidden(t *testing.T) {

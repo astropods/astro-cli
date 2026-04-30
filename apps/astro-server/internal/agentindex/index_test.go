@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 )
 
 func TestCreate_NewAgent(t *testing.T) {
@@ -298,6 +299,113 @@ func TestGet_ReturnsNameReservedFalse(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BatchLatestBuildIDs
+// ---------------------------------------------------------------------------
+
+func TestBatchLatestBuildIDs_ReturnsOneBuildPerAgent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	rows := sqlmock.NewRows([]string{"account_id", "name", "build_id"}).
+		AddRow("acct-1", "agent-a", "build-a-2").
+		AddRow("acct-1", "agent-b", "build-b-1").
+		AddRow("acct-2", "agent-c", "build-c-3")
+
+	mock.ExpectQuery(`WITH wanted`).
+		WithArgs(pq.Array([]string{"acct-1", "acct-1", "acct-2"}), pq.Array([]string{"agent-a", "agent-b", "agent-c"})).
+		WillReturnRows(rows)
+
+	got, err := idx.BatchLatestBuildIDs([]AgentVersionRef{
+		{AccountID: "acct-1", Name: "agent-a"},
+		{AccountID: "acct-1", Name: "agent-b"},
+		{AccountID: "acct-2", Name: "agent-c"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]string{
+		"acct-1/agent-a": "build-a-2",
+		"acct-1/agent-b": "build-b-1",
+		"acct-2/agent-c": "build-c-3",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("got[%q]=%q, want %q", k, got[k], v)
+		}
+	}
+}
+
+func TestBatchLatestBuildIDs_EmptyInputDoesNotQuery(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+	got, err := idx.BatchLatestBuildIDs(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(got))
+	}
+}
+
+func TestBatchLatestBuildIDs_FiltersZeroValueRefs(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+	got, err := idx.BatchLatestBuildIDs([]AgentVersionRef{
+		{AccountID: "", Name: "x"},
+		{AccountID: "acct", Name: ""},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(got))
+	}
+	// No SQL should have been issued — confirms the function bails before
+	// constructing a query with zero pairs.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unexpected DB activity: %v", err)
+	}
+}
+
+func TestBatchLatestBuildIDs_AbsentAgentNotInResult(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	// Agent "agent-z" has no rows in agent_versions — server returns only
+	// agent-a, and the caller treats absence as "no upgrade signal".
+	mock.ExpectQuery(`WITH wanted`).
+		WithArgs(pq.Array([]string{"acct-1", "acct-1"}), pq.Array([]string{"agent-a", "agent-z"})).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "build_id"}).
+			AddRow("acct-1", "agent-a", "build-a-1"))
+
+	got, err := idx.BatchLatestBuildIDs([]AgentVersionRef{
+		{AccountID: "acct-1", Name: "agent-a"},
+		{AccountID: "acct-1", Name: "agent-z"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["acct-1/agent-a"] != "build-a-1" {
+		t.Errorf("got=%v, want build-a-1", got["acct-1/agent-a"])
+	}
+	if _, ok := got["acct-1/agent-z"]; ok {
+		t.Error("expected absent agent to not appear in result map")
 	}
 }
 

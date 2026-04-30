@@ -41,12 +41,13 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	var dep *deployer.Deployer
 	if cfg.K8sClient != nil && cfg.ServerConfig != nil {
 		dep = &deployer.Deployer{
-			K8sClient:      cfg.K8sClient,
-			AccountStore:   cfg.AccountStore,
-			Cfg:            cfg.ServerConfig,
-			Store:          store,
-			Log:            cfg.Logger,
-			KnowledgeStore: knowledgestore.NewStore(cfg.DB),
+			K8sClient:        cfg.K8sClient,
+			AccountStore:     cfg.AccountStore,
+			Cfg:              cfg.ServerConfig,
+			Store:            store,
+			Log:              cfg.Logger,
+			KnowledgeStore:   knowledgestore.NewStore(cfg.DB),
+			ImagePreflighter: cfg.ImagePreflighter,
 		}
 
 		// Initialize Langfuse per-account provisioning if configured

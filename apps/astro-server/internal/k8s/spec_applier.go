@@ -234,7 +234,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		port := primaryPort(knowledge.Endpoints)
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port), Volume: knowledge.Volume, Environment: knowledge.Environment}
-		resolvedContainer, err := a.resolveContainerImage(container)
+		resolvedContainer, err := a.resolveContainerImage(ctx, container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: resourceName, Kind: "StatefulSet",
@@ -305,7 +305,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		container := spec.ContainerConfig{Image: model.Image, Port: int(port), Environment: model.Environment}
-		resolvedContainer, err := a.resolveContainerImage(container)
+		resolvedContainer, err := a.resolveContainerImage(ctx, container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: resourceName, Kind: "StatefulSet",
@@ -394,7 +394,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		container := spec.ContainerConfig{Image: model.Image, Port: int(port), Environment: model.Environment}
-		resolvedContainer, err := a.resolveContainerImage(container)
+		resolvedContainer, err := a.resolveContainerImage(ctx, container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: resourceName, Kind: "Deployment",
@@ -436,7 +436,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		port := primaryPort(knowledge.Endpoints)
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port), Environment: knowledge.Environment}
-		resolvedContainer, err := a.resolveContainerImage(container)
+		resolvedContainer, err := a.resolveContainerImage(ctx, container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: resourceName, Kind: "Deployment",
@@ -484,7 +484,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		container := spec.ContainerConfig{Image: tool.Image, Port: int(port), Environment: tool.Environment}
-		resolvedContainer, err := a.resolveContainerImage(container)
+		resolvedContainer, err := a.resolveContainerImage(ctx, container)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: resourceName, Kind: "Deployment",
@@ -816,7 +816,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Main agent deployment — messaging is colocated as a sidecar container
 	agentContainer := spec.ContainerConfig{Image: ds.Agent.Image}
-	resolvedAgentContainer, err := a.resolveContainerImage(agentContainer)
+	resolvedAgentContainer, err := a.resolveContainerImage(ctx, agentContainer)
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: agentResourceName, Kind: "Deployment",

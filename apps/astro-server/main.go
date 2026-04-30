@@ -174,7 +174,7 @@ func main() {
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, k8sCache)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, k8sCache, newImagePreflighter(cfg))
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -401,8 +401,14 @@ func runAPI(
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
 
+	// Image preflighter: HEAD-checks tenant images before a deploy is enqueued
+	// (handler) and again before K8s apply (worker via Deployer/Applier). One
+	// instance is shared so the 60s positive-result cache absorbs duplicate
+	// checks across both call sites.
+	imagePreflighter := newImagePreflighter(cfg)
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, ksStore, promClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, ksStore, promClient, imagePreflighter)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -456,6 +462,15 @@ func runAPI(
 	return srv, grpcServer, fleetServer, probeHandler, adminSrv, rq
 }
 
+// newImagePreflighter constructs the registry-HEAD preflighter used by both
+// the deploy handler (synchronous 422 response) and the deploy worker
+// (Applier defense-in-depth). Local mode treats 5xx responses as missing
+// because the local astro-registry returns 500 for missing tags.
+func newImagePreflighter(cfg *config.Config) *k8s.ImagePreflighter {
+	localMode := cfg.Deployment.K8sClientMode == "local"
+	return k8s.NewImagePreflighter(localMode)
+}
+
 // runWorker starts the River queue for all background job processing and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
@@ -467,6 +482,7 @@ func runWorker(
 	orgClient *org.Client,
 	avatarStore *avatar.Store,
 	k8sCache k8scache.Cache,
+	imagePreflighter *k8s.ImagePreflighter,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -507,21 +523,22 @@ func runWorker(
 
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:           db,
-		OMClient:     omClient,
-		AccountStore: accountStore,
-		AgentIndex:   agentIndex,
-		AvatarStore:  avatarStore,
-		K8sClient:    k8sClient,
-		K8sCache:     k8sCache,
-		ServerConfig: cfg,
-		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
-		WorkOSClient: workosClient,
-		OrgClient:    orgClient,
-		PromClient:   promClient,
-		Logger:       log,
-		PipesClient:  pipesClient,
-		GitHubStore:  ghStore,
+		DB:               db,
+		OMClient:         omClient,
+		AccountStore:     accountStore,
+		AgentIndex:       agentIndex,
+		AvatarStore:      avatarStore,
+		K8sClient:        k8sClient,
+		K8sCache:         k8sCache,
+		ServerConfig:     cfg,
+		WorkOSAPIKey:     cfg.Auth.WorkOSAPIKey,
+		WorkOSClient:     workosClient,
+		OrgClient:        orgClient,
+		PromClient:       promClient,
+		Logger:           log,
+		PipesClient:      pipesClient,
+		GitHubStore:      ghStore,
+		ImagePreflighter: imagePreflighter,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -543,7 +560,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -1075,7 +1092,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,9 +63,157 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs])
 	run(w.reconcileActive)
 	run(w.reconcileOIDCIssuer)
 	run(w.detectStaleJobs)
+	run(w.escalatePodFailures)
 	run(w.maintainNamespaceOwnership)
 
 	return nil
+}
+
+// Pod-failure escalation thresholds. We use pod creation time as a proxy for
+// "long enough that a normal image pull would have completed" — there's no
+// per-state timestamp on container statuses, so the pod's age is the cheapest
+// stable signal. Tuned to be conservative: fast networks pull cold images in
+// <30s, so a 2 minute wait is well past "transient pull retry" territory.
+const (
+	podFailureWaitGrace   = 2 * time.Minute
+	crashLoopRestartLimit = 5
+)
+
+// permanentWaitReasons are container waiting reasons we treat as a hard
+// failure once the pod has been around longer than podFailureWaitGrace. These
+// are all states that do not self-recover without operator action (a fresh
+// build, a fixed image reference, etc.).
+var permanentWaitReasons = map[string]bool{
+	"ImagePullBackOff":     true,
+	"ErrImagePull":         true,
+	"InvalidImageName":     true,
+	"CreateContainerError": true,
+}
+
+// escalatePodFailures inspects pods belonging to active/provisioning/pending
+// deployments and flips them to failed when a container has been wedged on a
+// permanent failure reason long enough to count as a real failure. This is the
+// reconciliation companion to the deploy-time image preflight: anything the
+// preflight misses (image deleted post-deploy, init failure, OOM crash loop)
+// gets escalated here instead of silently sitting in "deploying" forever.
+//
+// Performance: a single cluster-wide pod List filtered by the
+// app.kubernetes.io/managed-by=astro-server label is one round-trip
+// regardless of how many deployments are active. Pods are then grouped by
+// namespace in memory so each deployment is matched O(1).
+//
+// Idempotent: deployments already in status=failed are filtered out at the
+// query layer.
+func (w *ReconcileWorker) escalatePodFailures(ctx context.Context) {
+	deps, err := w.store.GetDeploymentsInStatus(
+		deploymentstore.StatusActive,
+		deploymentstore.StatusProvisioning,
+		deploymentstore.StatusPending,
+	)
+	if err != nil {
+		w.log.Error("Reconcile: failed to list deployments for pod escalation", "error", err)
+		return
+	}
+	if len(deps) == 0 {
+		return
+	}
+
+	pods, err := w.k8s.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: managedByAstroLabelSelector,
+	})
+	if err != nil {
+		w.log.Warn("Reconcile: failed to list managed pods for escalation", "error", err)
+		return
+	}
+	byNamespace := groupPodsByNamespace(pods.Items)
+
+	for _, dep := range deps {
+		reason, image, podName := findEscalatablePodFailure(byNamespace[dep.Namespace])
+		if reason == "" {
+			continue
+		}
+		msg := formatPodFailureMessage(reason, image, podName)
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, msg, nil); err != nil {
+			w.log.Warn("Reconcile: failed to escalate deployment to failed",
+				"error", err, "deployment_id", dep.ID)
+			continue
+		}
+		w.log.Warn("Reconcile: escalated deployment to failed (pod failure)",
+			"deployment_id", dep.ID,
+			"namespace", dep.Namespace,
+			"pod", podName,
+			"reason", reason,
+			"image", image,
+		)
+	}
+}
+
+// managedByAstroLabelSelector matches every workload pod the Applier renders
+// (k8s.ManagedByLabel constant). Knowledge-store pods provisioned by us also
+// carry this label so they participate in escalation.
+const managedByAstroLabelSelector = "app.kubernetes.io/managed-by=astro-server"
+
+// groupPodsByNamespace bins a flat pod slice by metadata.namespace. Pods that
+// are mid-deletion (DeletionTimestamp set) or have already finished
+// successfully (PodSucceeded; e.g. ingestion-startup Jobs) are dropped so
+// stale waiting-state on a terminating pod cannot trigger an escalation.
+func groupPodsByNamespace(pods []corev1.Pod) map[string][]corev1.Pod {
+	out := make(map[string][]corev1.Pod, len(pods))
+	for i := range pods {
+		p := &pods[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		if p.Status.Phase == corev1.PodSucceeded {
+			continue
+		}
+		out[p.Namespace] = append(out[p.Namespace], *p)
+	}
+	return out
+}
+
+// findEscalatablePodFailure returns (reason, image, pod_name) for the first
+// pod in the slice whose containers indicate a permanent failure, or
+// ("", "", "") when nothing in the slice is escalatable yet.
+func findEscalatablePodFailure(pods []corev1.Pod) (reason, image, podName string) {
+	for i := range pods {
+		if r, img := classifyPodFailure(pods[i]); r != "" {
+			return r, img, pods[i].Name
+		}
+	}
+	return "", "", ""
+}
+
+// classifyPodFailure inspects a single pod's container statuses and returns
+// (reason, image) for the first permanent failure detected, or ("", "") when
+// the pod is healthy or still in transient-failure territory.
+func classifyPodFailure(pod corev1.Pod) (reason, image string) {
+	age := time.Since(pod.CreationTimestamp.Time)
+	all := append([]corev1.ContainerStatus{}, pod.Status.InitContainerStatuses...)
+	all = append(all, pod.Status.ContainerStatuses...)
+	for _, cs := range all {
+		if cs.State.Waiting == nil {
+			continue
+		}
+		r := cs.State.Waiting.Reason
+		switch {
+		case permanentWaitReasons[r]:
+			if age >= podFailureWaitGrace {
+				return r, cs.Image
+			}
+		case r == "CrashLoopBackOff":
+			if cs.RestartCount > crashLoopRestartLimit {
+				return r, cs.Image
+			}
+		}
+	}
+	return "", ""
+}
+
+// formatPodFailureMessage renders a short human-readable error for the
+// deployments.error_message column. UI surfaces this verbatim in tooltips.
+func formatPodFailureMessage(reason, image, podName string) string {
+	return fmt.Sprintf("%s on pod %s (image=%s)", reason, podName, image)
 }
 
 // reconcileActive checks active deployments for KEDA scale-down and drift.

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -39,6 +40,10 @@ type Deployer struct {
 	LangfuseProvisioner *langfuse.Provisioner
 	// KnowledgeStore for resolving bound knowledge entries (optional)
 	KnowledgeStore *knowledgestore.Store
+	// ImagePreflighter, when set, is plumbed into the Applier so the worker
+	// re-checks tenant images against the registry. Defense-in-depth against
+	// stale specs the handler couldn't catch.
+	ImagePreflighter *k8s.ImagePreflighter
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -107,6 +112,8 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		ProxyRegistryHost:      d.Cfg.Deployment.ProxyRegistryHost,
 		Environment:            d.Cfg.Deployment.Environment,
 		ImagePullPolicy:        imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
+		ImagePreflighter:       d.ImagePreflighter,
+		TenantImageHosts:       tenantImageHostsFromConfig(d.Cfg),
 		IngressDomain:          d.Cfg.Deployment.IngressDomain,
 		ACMCertificateARN:      d.Cfg.Deployment.ACMCertificateARN,
 		ALBGroupName:           d.Cfg.Deployment.ALBGroupName,
@@ -427,6 +434,47 @@ func imagePullPolicyForMode(mode string) corev1.PullPolicy {
 		return corev1.PullIfNotPresent
 	}
 	return corev1.PullAlways
+}
+
+// tenantImageHostsFromConfig returns the registry hostnames whose images are
+// "ours" — i.e. images we should HEAD-preflight before deploy. Skipping
+// non-tenant hosts (docker.io, quay.io, gcr.io, ...) avoids issuing wasted
+// HEAD requests + spurious 401/403s for every public sidecar image.
+//
+// In local mode the convention is "registry.<server-host>" (see astro-cli
+// auth.RegistryURLFromServerURL), which after a typical local setup ends up
+// at "registry.localhost". We hardcode that fallback rather than reading
+// from a non-existent config field.
+func tenantImageHostsFromConfig(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	hosts := make([]string, 0, 3)
+	if h := stripScheme(cfg.Deployment.ProxyRegistryHost); h != "" {
+		hosts = append(hosts, h)
+	}
+	if h := stripScheme(cfg.Deployment.RegistryURL); h != "" {
+		hosts = append(hosts, h)
+	}
+	if cfg.Deployment.K8sClientMode == "local" {
+		hosts = append(hosts, "registry.localhost")
+	}
+	return hosts
+}
+
+// stripScheme returns the host portion of "scheme://host[/path]" inputs;
+// inputs without a scheme pass through (after trimming any trailing path).
+func stripScheme(s string) string {
+	if s == "" {
+		return ""
+	}
+	if i := strings.Index(s, "://"); i > 0 {
+		s = s[i+3:]
+	}
+	if i := strings.Index(s, "/"); i > 0 {
+		s = s[:i]
+	}
+	return s
 }
 
 // messagingOIDCAuthFromConfig builds an OIDCAuthConfig from server config.

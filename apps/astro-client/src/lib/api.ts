@@ -1297,8 +1297,20 @@ export interface AgentDeployment {
   // URL/owning account in that case. Use this to look up blueprint
   // upgrade signals against the correct lineage on cross-account deploys.
   source_account?: string;
+  // Most-recent published build_id for the agent's lineage. Populated by the
+  // server in the deployments list response. Empty when there are no
+  // published builds, when the lineage agent is private to another account,
+  // or when the lookup fails. UI compares against build_id to decide whether
+  // to render the upgrade affordance — saves N blueprint queries on the
+  // dashboard.
+  latest_build_id?: string;
   namespace: string;
   status: string;
+  // Server-populated reason a deployment is in error/failed. Set by the deploy
+  // preflight 422 path, the reconcile pod-failure escalation, or any other
+  // status writer that recorded a message on deployments.error_message.
+  // Surfaced as a tooltip on the status badge.
+  error_message?: string;
   replicas: number;
   ready: number;
   created_at: string;

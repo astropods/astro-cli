@@ -243,7 +243,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if status == http.StatusNotFound {
-			return fmt.Errorf("blueprint %q not found", name)
+			return notFoundFromTemplateErr(err, at.Account, name, req.Build)
 		}
 		return err
 	}
@@ -297,6 +297,73 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 		fmt.Fprintln(w) //nolint:errcheck,gosec
 	}
 	return nil
+}
+
+// Server-side error_code values returned by /deployment-template on 404.
+// Kept in sync with apps/astro-server/handlers/deploy.go.
+const (
+	errCodeAccountNotFound   = "account_not_found"
+	errCodeBlueprintNotFound = "blueprint_not_found"
+	errCodeBuildNotFound     = "build_not_found"
+)
+
+// notFoundFromTemplateErr maps the deployment-template 404 body to a more
+// actionable CLI error. The endpoint returns 404 for three distinct reasons
+// (unknown account, unknown blueprint or private+non-member, blueprint exists
+// but the requested build is missing), each tagged with a typed error_code on
+// the response. The legacy text-based fallback runs only if the server is too
+// old to populate error_code so older deploy clients still get a useful
+// message.
+func notFoundFromTemplateErr(err error, account, name, buildID string) error {
+	code, body := apiErrorCodeAndBody(err)
+	switch code {
+	case errCodeBuildNotFound:
+		if buildID != "" {
+			return fmt.Errorf("build %q not found for blueprint %q (run `ast push %s` or pick an existing build with `ast blueprint builds %s`)", buildID, name, name, name)
+		}
+		return fmt.Errorf("blueprint %q has no builds yet (run `ast push %s` first)", name, name)
+	case errCodeAccountNotFound:
+		return fmt.Errorf("account %q not found", account)
+	case errCodeBlueprintNotFound:
+		return fmt.Errorf("blueprint %q not found in account %q", name, account)
+	}
+	switch {
+	case strings.Contains(body, "no builds found for agent"):
+		if buildID != "" {
+			return fmt.Errorf("build %q not found for blueprint %q (run `ast push %s` or pick an existing build with `ast blueprint builds %s`)", buildID, name, name, name)
+		}
+		return fmt.Errorf("blueprint %q has no builds yet (run `ast push %s` first)", name, name)
+	case strings.Contains(body, "account not found"):
+		return fmt.Errorf("account %q not found", account)
+	case strings.Contains(body, "agent not found"):
+		return fmt.Errorf("blueprint %q not found in account %q", name, account)
+	default:
+		return fmt.Errorf("blueprint %q not found", name)
+	}
+}
+
+// apiErrorCodeAndBody parses the embedded JSON body in an apiCall error
+// (format "server returned status N: <body>") and returns its error_code
+// field plus the raw body. Empty error_code means the server response is too
+// old to carry a typed code so callers should fall back to message inspection.
+func apiErrorCodeAndBody(err error) (code, body string) {
+	if err == nil {
+		return "", ""
+	}
+	msg := err.Error()
+	idx := strings.Index(msg, ": ")
+	if idx == -1 {
+		body = msg
+	} else {
+		body = msg[idx+2:]
+	}
+	var parsed struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if jerr := json.Unmarshal([]byte(body), &parsed); jerr == nil {
+		code = parsed.ErrorCode
+	}
+	return code, body
 }
 
 // patchTemplateDisplayName sets target.display_name in the deployment template JSON.

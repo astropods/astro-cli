@@ -491,7 +491,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -506,6 +506,32 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
 		if !ok {
 			return
+		}
+
+		// Image preflight: HEAD the agent image's manifest before we write
+		// any deployment rows or enqueue any work. Catches the redeploy-
+		// against-vanished-tag case fast (sub-second 422) instead of leaving
+		// kubelet to surface ImagePullBackOff 35 minutes later. ErrImageNotFound
+		// is the only typed result that blocks; transport errors fail open.
+		agentImage := dctx.resolveResult.Spec.Agent.Image
+		if perr := imagePreflighter.PreflightWithBuildID(c.Request.Context(), agentImage, dctx.buildID); perr != nil {
+			if nf, isNF := k8s.AsImageNotFound(perr); isNF {
+				log.Warn("Deploy rejected: agent image not found in registry",
+					"agent", dctx.agentName,
+					"build", dctx.buildID,
+					"image", nf.Image,
+					"reason", nf.Reason,
+				)
+				c.JSON(http.StatusUnprocessableEntity, gin.H{
+					"error":    "image_not_found",
+					"image":    nf.Image,
+					"build_id": dctx.buildID,
+					"details":  nf.Reason,
+					"hint":     "the build's image is no longer in the registry — push a new build or deploy a different existing one",
+				})
+				return
+			}
+			log.Warn("Image preflight returned unexpected error (failing open)", "error", perr)
 		}
 
 		// Validate knowledge store bindings authoritatively.
@@ -945,6 +971,14 @@ type AgentDeployment struct {
 	AvatarURL    string          `json:"avatar_url,omitempty"`
 	AvatarColors json.RawMessage `json:"avatar_colors,omitempty"`
 	BuildID      string          `json:"build_id"`
+	// LatestBuildID is the most-recent published build for the agent the
+	// deployment was sourced from (lineage = source_account_id || account_id +
+	// agent_name). Empty when there are no published builds, when the lookup
+	// fails, or when the lineage agent is private and not owned by the viewer.
+	// The UI compares against BuildID to render the "new build available"
+	// upgrade affordance — the server doing the join saves N blueprint
+	// fetches on the dashboard.
+	LatestBuildID string `json:"latest_build_id,omitempty"`
 	// SourceAccount is the publishing account name the deployment was built from.
 	// Resolved from deployments.source_account_id (post-migration always
 	// populated, falls back to deployment_spec_json's source.account for legacy
@@ -953,9 +987,15 @@ type AgentDeployment struct {
 	// look up blueprint upgrade signals against the right account, since the
 	// owning account may have a same-named blueprint with no shared lineage
 	// (cross-account deploys).
-	SourceAccount      string                `json:"source_account,omitempty"`
-	Namespace          string                `json:"namespace"`
-	Status             string                `json:"status"`
+	SourceAccount string `json:"source_account,omitempty"`
+	Namespace     string `json:"namespace"`
+	Status        string `json:"status"`
+	// ErrorMessage mirrors deployments.error_message. Populated whenever the DB
+	// row has a non-empty error (failed status from preflight/escalation, or
+	// any other status that recorded an error). The UI surfaces this verbatim
+	// on the deployment status badge so operators see WHY a deployment is
+	// failed/error without opening admin tools.
+	ErrorMessage       string                `json:"error_message,omitempty"`
 	Replicas           int32                 `json:"replicas"`
 	Ready              int32                 `json:"ready"`
 	CreatedAt          string                `json:"created_at"`
@@ -1136,11 +1176,117 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			}
 		}
 
+		populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
+
 		c.JSON(http.StatusOK, gin.H{
 			"deployments": allDeployments,
 			"count":       len(allDeployments),
 		})
 	}
+}
+
+// populateLatestBuildIDs fills LatestBuildID on each deployment in `deps` from
+// a single batch query against agent_versions. Looks up the lineage agent —
+// which is the source account when set, falling back to the owning account —
+// so cross-account deploys still see upgrade signals from the publisher.
+//
+// Cross-account refs whose source blueprint is private are suppressed: the
+// deploy endpoint refuses to honor a private blueprint across an account
+// boundary (canDeploySourceAgent), so advertising an upgrade the user can't
+// act on would be a false positive.
+//
+// Quietly leaves LatestBuildID empty on lookup failure rather than failing the
+// whole list response: this is a UX hint, not load-bearing data.
+func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, dbDeps []*deploymentstore.Deployment, deps []AgentDeployment) {
+	if index == nil || len(dbDeps) == 0 || len(deps) == 0 {
+		return
+	}
+
+	type lineageInfo struct {
+		ref          agentindex.AgentVersionRef
+		crossAccount bool
+	}
+	lineageByDepID := make(map[string]lineageInfo, len(dbDeps))
+	refSet := make(map[agentindex.AgentVersionRef]struct{})
+	crossAccountRefs := make(map[agentindex.AgentVersionRef]struct{})
+	for _, dbDep := range dbDeps {
+		acctID := lineageAccountID(log, accountStore, dbDep)
+		if acctID == "" || dbDep.AgentName == "" {
+			continue
+		}
+		ref := agentindex.AgentVersionRef{AccountID: acctID, Name: dbDep.AgentName}
+		crossAccount := acctID != dbDep.AccountID
+		lineageByDepID[dbDep.ID] = lineageInfo{ref: ref, crossAccount: crossAccount}
+		refSet[ref] = struct{}{}
+		if crossAccount {
+			crossAccountRefs[ref] = struct{}{}
+		}
+	}
+
+	if len(refSet) == 0 {
+		return
+	}
+	refs := make([]agentindex.AgentVersionRef, 0, len(refSet))
+	for r := range refSet {
+		refs = append(refs, r)
+	}
+	latest, err := index.BatchLatestBuildIDs(refs)
+	if err != nil {
+		log.Warn("Failed to load latest build IDs for deployments", "error", err)
+		return
+	}
+
+	// Private cross-account blueprints aren't deployable across the boundary,
+	// so an upgrade signal would advertise an action the deploy endpoint
+	// would reject. Resolve visibility for each unique cross-account ref
+	// (typically 0 — the steady-state dashboard is single-account) and
+	// suppress those refs from the result map.
+	blockedRefs := make(map[agentindex.AgentVersionRef]struct{})
+	for ref := range crossAccountRefs {
+		agent, err := index.Get(ref.AccountID, ref.Name)
+		if err != nil || agent == nil {
+			continue
+		}
+		if agent.Visibility == "private" {
+			blockedRefs[ref] = struct{}{}
+		}
+	}
+
+	for i, d := range deps {
+		info, ok := lineageByDepID[d.ID]
+		if !ok {
+			continue
+		}
+		if _, blocked := blockedRefs[info.ref]; blocked {
+			continue
+		}
+		if buildID, ok := latest[info.ref.AccountID+"/"+info.ref.Name]; ok && buildID != "" {
+			deps[i].LatestBuildID = buildID
+		}
+	}
+}
+
+// lineageAccountID returns the account_id whose agent_versions table holds
+// the upgrade signal for a deployment. Source account wins when populated
+// (cross-account deploys), otherwise the owning account is the publisher too.
+func lineageAccountID(log *logger.Logger, accountStore *account.AccountStore, dep *deploymentstore.Deployment) string {
+	if dep.SourceAccountID != nil && *dep.SourceAccountID != "" {
+		return *dep.SourceAccountID
+	}
+	if dep.AccountID != "" {
+		return dep.AccountID
+	}
+	// Pre-migration legacy: source account name lives in spec JSON; resolve
+	// it via the AccountStore so we have the ID for the join. Best-effort.
+	name := resolveSourceAccountName(log, accountStore, dep)
+	if name == "" || accountStore == nil {
+		return ""
+	}
+	acct, err := accountStore.GetByName(name)
+	if err != nil || acct == nil {
+		return ""
+	}
+	return acct.ID
 }
 
 // GetDeployment returns live K8s status for a single deployment.
@@ -1259,6 +1405,12 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 	}
 
 	if dep.ErrorMessage != nil && *dep.ErrorMessage != "" {
+		ad.ErrorMessage = *dep.ErrorMessage
+	}
+	// status=failed is the canonical truth-from-DB signal (preflight,
+	// pod-failure escalation, stale-job sweep). Surface it as "error" so
+	// the UI's error badge fires even on the lightweight DB-only path.
+	if dep.Status == deploymentstore.StatusFailed || (dep.ErrorMessage != nil && *dep.ErrorMessage != "") {
 		ad.Status = "error"
 	}
 
@@ -1289,11 +1441,20 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *acc
 			if dbDep.AvatarColors != nil {
 				deps[i].AvatarColors = *dbDep.AvatarColors
 			}
+			if dbDep.ErrorMessage != nil && *dbDep.ErrorMessage != "" {
+				deps[i].ErrorMessage = *dbDep.ErrorMessage
+			}
+			// DB status overrides whatever the K8s replica scan inferred.
+			// failed/undeploying/pending are authoritative — without this, a
+			// failed deployment with 0/N ready replicas reads as "deploying"
+			// indefinitely (the original 35-minute stuck bug).
 			switch dbDep.Status {
 			case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
 				deps[i].Status = "pending"
 			case deploymentstore.StatusUndeploying:
 				deps[i].Status = "undeploying"
+			case deploymentstore.StatusFailed:
+				deps[i].Status = "error"
 			}
 		}
 	}
@@ -2617,12 +2778,12 @@ func resolveAgentForTemplate(
 ) (*account.Account, *agentindex.Agent, bool) {
 	acct, err := accountStore.GetByName(accountName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found", "error_code": "account_not_found"})
 		return nil, nil, false
 	}
 	agent, err := agentIndex.Get(acct.ID, agentName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found", "error_code": "blueprint_not_found"})
 		return nil, nil, false
 	}
 	return acct, agent, true
@@ -2646,7 +2807,7 @@ func enforcePrivateAgentMembership(
 		return false
 	}
 	if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found", "error_code": "blueprint_not_found"})
 		return false
 	}
 	return true
@@ -2684,8 +2845,9 @@ func generateTemplate(
 	if err != nil {
 		log.Error("Failed to get agent build", "error", err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "no builds found for agent",
-			"details": err.Error(),
+			"error":      "no builds found for agent",
+			"error_code": "build_not_found",
+			"details":    err.Error(),
 		})
 		return nil, false
 	}

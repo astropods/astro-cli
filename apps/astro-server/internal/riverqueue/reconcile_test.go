@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -941,6 +943,336 @@ func TestBuildDriftReport_StatefulSetMissing(t *testing.T) {
 	item := findItem(report.Workloads, "my-db")
 	if item == nil || item.Status != "missing" {
 		t.Errorf("expected StatefulSet missing, got %v", item)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pod-failure escalation tests
+// ---------------------------------------------------------------------------
+
+func makeWaitingPod(name string, age time.Duration, reason string, restartCount int32, image string) corev1.Pod {
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+		},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:         "main",
+				Image:        image,
+				RestartCount: restartCount,
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+					Reason: reason,
+				}},
+			}},
+		},
+	}
+}
+
+func TestClassifyPodFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		pod        corev1.Pod
+		wantReason string
+	}{
+		{
+			name:       "ImagePullBackOff after grace → escalate",
+			pod:        makeWaitingPod("p1", 5*time.Minute, "ImagePullBackOff", 0, "img:bad"),
+			wantReason: "ImagePullBackOff",
+		},
+		{
+			name:       "ImagePullBackOff inside grace → wait",
+			pod:        makeWaitingPod("p1", 30*time.Second, "ImagePullBackOff", 0, "img:bad"),
+			wantReason: "",
+		},
+		{
+			name:       "ErrImagePull after grace → escalate",
+			pod:        makeWaitingPod("p1", 3*time.Minute, "ErrImagePull", 0, "img:bad"),
+			wantReason: "ErrImagePull",
+		},
+		{
+			name:       "InvalidImageName after grace → escalate",
+			pod:        makeWaitingPod("p1", 3*time.Minute, "InvalidImageName", 0, "img:bad"),
+			wantReason: "InvalidImageName",
+		},
+		{
+			name:       "CrashLoopBackOff with 3 restarts → wait",
+			pod:        makeWaitingPod("p1", 10*time.Minute, "CrashLoopBackOff", 3, "img:ok"),
+			wantReason: "",
+		},
+		{
+			name:       "CrashLoopBackOff with 6 restarts → escalate",
+			pod:        makeWaitingPod("p1", 10*time.Minute, "CrashLoopBackOff", 6, "img:ok"),
+			wantReason: "CrashLoopBackOff",
+		},
+		{
+			name:       "PodInitializing is transient → no escalation",
+			pod:        makeWaitingPod("p1", 10*time.Minute, "PodInitializing", 0, "img:ok"),
+			wantReason: "",
+		},
+		{
+			name:       "no waiting state → no escalation",
+			pod:        corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}},
+			wantReason: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, _ := classifyPodFailure(tt.pod)
+			if r != tt.wantReason {
+				t.Errorf("reason=%q, want %q", r, tt.wantReason)
+			}
+		})
+	}
+}
+
+// expectedManagedByLabelSelector mirrors managedByAstroLabelSelector in
+// reconcile.go. Hard-coded here so a refactor that drops the selector breaks
+// the test instead of silently regressing the cluster-wide list cost.
+const expectedManagedByLabelSelector = "app.kubernetes.io/managed-by=astro-server"
+
+// k8sPodListHandler returns an http.Handler that serves a single
+// cluster-wide pod list (matching the LabelSelector the production code uses
+// to fan out across all astro-managed pods in one round-trip). It also
+// asserts that the request actually carries that selector so any future
+// regression that drops it fails this test instead of silently fanning out
+// across every pod in the cluster. The namespace argument is preserved in
+// the API to keep call sites readable but is only used for asserting test
+// intent.
+func k8sPodListHandler(t *testing.T, _ string, podJSON string) http.Handler {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/pods", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("labelSelector"); got != expectedManagedByLabelSelector {
+			t.Errorf("labelSelector: want %q, got %q", expectedManagedByLabelSelector, got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"apiVersion":"v1","kind":"PodList","items":[%s]}`, podJSON)
+	})
+	return mux
+}
+
+func imagePullBackOffPodJSON(name, image string, ageSeconds int) string {
+	created := time.Now().Add(-time.Duration(ageSeconds) * time.Second).UTC().Format(time.RFC3339)
+	return fmt.Sprintf(`{
+		"metadata": {"name": %q, "namespace": "astro-stuck-0", "creationTimestamp": %q},
+		"status": {
+			"containerStatuses": [{
+				"name": "main",
+				"image": %q,
+				"restartCount": 0,
+				"state": {"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image"}}
+			}]
+		}
+	}`, name, created, image)
+}
+
+func TestEscalatePodFailures_StuckOnImagePull_MarksFailed(t *testing.T) {
+	const ns = "astro-stuck-0"
+	podJSON := imagePullBackOffPodJSON("agent-abc", "img:missing", 600)
+	k8sClient := newTestK8sClient(k8sPodListHandler(t, ns, podJSON))
+
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	rows := sqlmock.NewRows(testDeployColumns)
+	addDeployRow(rows, "dep-stuck", ns, "active")
+	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE deployments").
+		WithArgs("dep-stuck", "failed", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").
+		WithArgs("dep-stuck", "failed", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := &ReconcileWorker{
+		store: store,
+		k8s:   k8sClient,
+		log:   logger.New("error", "json"),
+	}
+
+	w.escalatePodFailures(t.Context())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+func TestEscalatePodFailures_FreshPod_NoEscalation(t *testing.T) {
+	const ns = "astro-stuck-0"
+	podJSON := imagePullBackOffPodJSON("agent-abc", "img:slow", 30)
+	k8sClient := newTestK8sClient(k8sPodListHandler(t, ns, podJSON))
+
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	rows := sqlmock.NewRows(testDeployColumns)
+	addDeployRow(rows, "dep-fresh", ns, "active")
+	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
+	// No UPDATE expected — pod isn't old enough.
+
+	w := &ReconcileWorker{
+		store: store,
+		k8s:   k8sClient,
+		log:   logger.New("error", "json"),
+	}
+
+	w.escalatePodFailures(t.Context())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+func TestEscalatePodFailures_OnlyScansLiveDeployments(t *testing.T) {
+	mux := http.NewServeMux()
+	called := false
+	mux.HandleFunc("/api/v1/pods", func(_ http.ResponseWriter, _ *http.Request) {
+		called = true
+	})
+	k8sClient := newTestK8sClient(mux)
+
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	// Returning zero rows simulates the SQL filter
+	// (GetDeploymentsInStatus(active, prov, pending)) excluding everything;
+	// the worker should skip the pod list entirely when there are no live
+	// deployments to escalate.
+	mock.ExpectQuery("SELECT .+ FROM deployments WHERE status").
+		WillReturnRows(sqlmock.NewRows(testDeployColumns))
+
+	w := &ReconcileWorker{
+		store: store,
+		k8s:   k8sClient,
+		log:   logger.New("error", "json"),
+	}
+
+	w.escalatePodFailures(t.Context())
+
+	if called {
+		t.Error("pod list called when no live deployments; expected early return")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+// Multi-namespace fan-in: a single cluster-wide pod list returns pods from
+// two distinct namespaces. Only the deployment whose namespace contains the
+// failing pod should be escalated; the healthy-namespace deployment must be
+// left alone. This is the load-bearing behavior of the cluster-wide list
+// optimization (one round-trip across N namespaces).
+func TestEscalatePodFailures_MultiNamespaceFanIn(t *testing.T) {
+	const stuckNS = "astro-stuck-0"
+	const healthyNS = "astro-healthy-0"
+
+	stuckPod := imagePullBackOffPodJSONWithNamespace("agent-stuck", "img:missing", 600, stuckNS)
+	healthyPod := fmt.Sprintf(`{
+		"metadata": {"name": "agent-healthy", "namespace": %q},
+		"status": {
+			"phase": "Running",
+			"containerStatuses": [{
+				"name": "main",
+				"image": "img:ok",
+				"state": {"running": {"startedAt": %q}}
+			}]
+		}
+	}`, healthyNS, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))
+	bothPods := stuckPod + "," + healthyPod
+
+	k8sClient := newTestK8sClient(k8sPodListHandler(t, "", bothPods))
+
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	rows := sqlmock.NewRows(testDeployColumns)
+	addDeployRow(rows, "dep-stuck", stuckNS, "active")
+	addDeployRow(rows, "dep-healthy", healthyNS, "active")
+	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
+
+	// Only the stuck deployment should be flipped to failed; the healthy one
+	// must not generate any DB writes.
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE deployments").
+		WithArgs("dep-stuck", "failed", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").
+		WithArgs("dep-stuck", "failed", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := &ReconcileWorker{
+		store: store,
+		k8s:   k8sClient,
+		log:   logger.New("error", "json"),
+	}
+
+	w.escalatePodFailures(t.Context())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+// imagePullBackOffPodJSONWithNamespace is a small generalization of
+// imagePullBackOffPodJSON that lets the caller place the pod in an arbitrary
+// namespace, used by the multi-namespace fan-in test.
+func imagePullBackOffPodJSONWithNamespace(name, image string, ageSeconds int, namespace string) string {
+	created := time.Now().Add(-time.Duration(ageSeconds) * time.Second).UTC().Format(time.RFC3339)
+	return fmt.Sprintf(`{
+		"metadata": {"name": %q, "namespace": %q, "creationTimestamp": %q},
+		"status": {
+			"containerStatuses": [{
+				"name": "main",
+				"image": %q,
+				"restartCount": 0,
+				"state": {"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image"}}
+			}]
+		}
+	}`, name, namespace, created, image)
+}
+
+// groupPodsByNamespace must drop pods that are mid-deletion or have
+// already finished successfully so a terminating-but-still-CrashLooping pod
+// from a previous rollout does not cause the next rollout to escalate.
+func TestGroupPodsByNamespace_FiltersTerminatingAndSucceeded(t *testing.T) {
+	now := metav1.NewTime(time.Now().Add(-time.Hour))
+	deletionTime := metav1.Now()
+
+	terminating := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "terminating",
+			Namespace:         "ns-a",
+			CreationTimestamp: now,
+			DeletionTimestamp: &deletionTime,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+			}},
+		},
+	}
+	succeeded := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "succeeded", Namespace: "ns-a"},
+		Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+	}
+	live := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "ns-b"},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	got := groupPodsByNamespace([]corev1.Pod{terminating, succeeded, live})
+
+	if pods := got["ns-a"]; len(pods) != 0 {
+		t.Errorf("ns-a should be empty after filtering terminating+Succeeded, got %d pods", len(pods))
+	}
+	if pods := got["ns-b"]; len(pods) != 1 || pods[0].Name != "live" {
+		t.Errorf("ns-b should contain only the live pod, got %+v", pods)
 	}
 }
 

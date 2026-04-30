@@ -48,6 +48,11 @@ type Config struct {
 	// GitHub build worker deps (optional — worker skipped if PipesClient is nil)
 	PipesClient *pipes.Client
 	GitHubStore *githubconnection.Store
+	// ImagePreflighter is plumbed into the Deployer/Applier so the worker
+	// validates tenant images against the registry alongside the handler-side
+	// preflight in DeployAgent. Sharing the same instance across both call
+	// sites keeps the 60s positive-result cache warm.
+	ImagePreflighter *k8s.ImagePreflighter
 }
 
 // Queue wraps a River client and its pgxpool connection.

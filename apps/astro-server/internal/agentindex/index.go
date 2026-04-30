@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 // AgentVersion represents a specific published build of an agent
@@ -553,6 +553,75 @@ func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error
 	v.ValidationWarnings = parseValidationWarnings(warningsJSON)
 
 	return &v, nil
+}
+
+// AgentVersionRef identifies a single agent across an account boundary; used
+// for batch latest-build lookups.
+type AgentVersionRef struct {
+	AccountID string
+	Name      string
+}
+
+// batchLatestBuildIDsQuery expands parallel account ID and name arrays via
+// unnest; corresponding pg arguments are bound as pq.Array in BatchLatestBuildIDs.
+const batchLatestBuildIDsQuery = `
+WITH wanted AS (
+	SELECT q.account_id::uuid AS account_id, q.name
+	FROM unnest($1::text[], $2::text[]) AS q(account_id, name)
+),
+ranked AS (
+	SELECT v.account_id, v.name, v.build_id,
+		ROW_NUMBER() OVER (PARTITION BY v.account_id, v.name ORDER BY v.published_at DESC) AS rn
+	FROM agent_versions v
+	INNER JOIN wanted w ON w.account_id = v.account_id AND w.name = v.name
+)
+SELECT account_id::text, name, build_id FROM ranked WHERE rn = 1
+`
+
+// BatchLatestBuildIDs returns the latest build_id per (account_id, name) pair,
+// keyed by accountID + "/" + name. Refs whose agent has no published versions
+// are simply absent from the map (callers should treat absence as "no upgrade
+// signal available", not as an error). Single SQL round-trip; safe to call
+// with empty input.
+//
+// Implemented via a window-function CTE so a single index lookup per
+// (account_id, name) returns just the newest row, instead of N round trips.
+func (idx *Index) BatchLatestBuildIDs(refs []AgentVersionRef) (map[string]string, error) {
+	out := make(map[string]string, len(refs))
+	if len(refs) == 0 {
+		return out, nil
+	}
+
+	accountIDs := make([]string, 0, len(refs))
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.AccountID == "" || ref.Name == "" {
+			continue
+		}
+		accountIDs = append(accountIDs, ref.AccountID)
+		names = append(names, ref.Name)
+	}
+	if len(accountIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := idx.db.Query(batchLatestBuildIDsQuery, pq.Array(accountIDs), pq.Array(names))
+	if err != nil {
+		return nil, fmt.Errorf("batch latest builds: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var accountID, name, buildID string
+		if err := rows.Scan(&accountID, &name, &buildID); err != nil {
+			return nil, fmt.Errorf("scan batch latest build: %w", err)
+		}
+		out[accountID+"/"+name] = buildID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	return out, nil
 }
 
 // Transfer moves an agent and all its versions from one account to another.

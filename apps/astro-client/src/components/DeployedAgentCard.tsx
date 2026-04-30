@@ -1,10 +1,19 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon, ArrowUpCircleIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { DeploymentStatusBadge } from "@/components/deployed-agent/DeploymentStatusBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tag } from "@/components/Tag";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatRelativeTime, formatDaysActive } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
@@ -49,6 +58,24 @@ export interface DeployedAgentCardProps {
   installedAt: string;
   updatedAt: string;
   hasNewBuildAvailable?: boolean;
+  /**
+   * Latest build_id available for the agent's lineage. Combined with
+   * hasNewBuildAvailable to render the click-to-upgrade affordance.
+   */
+  latestBuildId?: string;
+  currentBuildId?: string;
+  /**
+   * Path to the deployment's detail page; used by the upgrade affordance to
+   * navigate the user there in "configure with new build" mode after
+   * confirming. When omitted the upgrade UI is hidden.
+   */
+  deploymentDetailHref?: string;
+  /**
+   * Server-supplied reason a deployment is in error/failed. Surfaced as a
+   * tooltip on the status badge so dashboard viewers see why a deployment is
+   * unhealthy without drilling in.
+   */
+  errorMessage?: string;
   avatarColors?: AvatarColors;
   className?: string;
   linkState?: Record<string, unknown>;
@@ -75,13 +102,19 @@ export function DeployedAgentCard({
   installedAt,
   updatedAt,
   hasNewBuildAvailable = false,
+  latestBuildId,
+  currentBuildId,
+  deploymentDetailHref,
+  errorMessage,
   avatarColors,
   className,
   linkState,
 }: DeployedAgentCardProps) {
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
 
   const copyId = () => {
@@ -113,6 +146,16 @@ export function DeployedAgentCard({
     href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-700" : "cursor-default opacity-70",
     className,
   );
+
+  const upgradeTarget = deploymentDetailHref ?? href ?? null;
+  const upgradeEnabled = hasNewBuildAvailable && !!upgradeTarget && !!latestBuildId;
+  const handleUpgradeConfirm = () => {
+    if (!upgradeTarget) return;
+    setUpgradeOpen(false);
+    navigate(upgradeTarget, {
+      state: { ...(linkState ?? {}), autoConfigureNewBuild: true },
+    });
+  };
 
   const cardContent = (
     <>
@@ -168,12 +211,26 @@ export function DeployedAgentCard({
             {displayName || name}
           </p>
           <div className="mt-1 flex items-center gap-2">
-            <DeploymentStatusBadge status={status} />
+            <DeploymentStatusBadge status={status} errorMessage={errorMessage} />
             {hasNewBuildAvailable && (
-              <Tag color="yellow" className="gap-1">
-                <ArrowUpCircleIcon className="size-3 shrink-0" />
-                Update available
-              </Tag>
+              upgradeEnabled ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setUpgradeOpen(true); }}
+                  className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="Upgrade to newest build"
+                >
+                  <Tag color="yellow" className="gap-1 cursor-pointer hover:brightness-105">
+                    <ArrowUpCircleIcon className="size-3 shrink-0" />
+                    Update available
+                  </Tag>
+                </button>
+              ) : (
+                <Tag color="yellow" className="gap-1">
+                  <ArrowUpCircleIcon className="size-3 shrink-0" />
+                  Update available
+                </Tag>
+              )
             )}
           </div>
         </div>
@@ -213,6 +270,32 @@ export function DeployedAgentCard({
         avatarColors={avatarColors}
         integrations={integrations}
       />
+
+      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upgrade to newest build?</DialogTitle>
+            <DialogDescription>
+              {currentBuildId && latestBuildId ? (
+                <>
+                  This deployment will be configured with build{' '}
+                  <span className="font-mono">{latestBuildId.slice(0, 8)}</span>{' '}(currently on{' '}
+                  <span className="font-mono">{currentBuildId.slice(0, 8)}</span>). You&apos;ll have a
+                  chance to review variables before the deploy starts.
+                </>
+              ) : (
+                <>You&apos;ll have a chance to review variables before the deploy starts.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpgradeOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpgradeConfirm}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

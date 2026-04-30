@@ -38,6 +38,12 @@ interface ActiveDetailViewProps {
   monitorLockReason?: string;
   backPathOverride?: string;
   onRedeploy?: () => void;
+  /**
+   * When true, opens the configure panel in "new build" mode automatically
+   * once a newer build is detected. Passed via router state from the
+   * dashboard's "Update available" affordance so a single click upgrades.
+   */
+  autoConfigureNewBuild?: boolean;
 }
 
 export function ActiveDetailView({
@@ -47,6 +53,7 @@ export function ActiveDetailView({
   monitorLockReason = "Available once deployment is live.",
   backPathOverride,
   onRedeploy,
+  autoConfigureNewBuild = false,
 }: ActiveDetailViewProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -121,6 +128,21 @@ export function ActiveDetailView({
   const latestBuildId = latestVersion?.build_id;
   const canShowUpgradeSignal = sourceAccount === account || blueprintAgent?.visibility !== "private";
   const hasNewBuildAvailable = canShowUpgradeSignal && !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
+
+  // Honor the dashboard's one-click upgrade affordance: when a newer build is
+  // available and the caller asked us to, auto-open the configure panel in
+  // new-build mode. Single-shot via ref so re-renders or state changes don't
+  // re-open the panel after the user closes it.
+  const autoConfigureFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoConfigureFiredRef.current) return;
+    if (!autoConfigureNewBuild) return;
+    if (!hasNewBuildAvailable) return;
+    autoConfigureFiredRef.current = true;
+    setConfigOpen(true);
+    setConfigIsNewBuild(true);
+    setConfigRevision(null);
+  }, [autoConfigureNewBuild, hasNewBuildAvailable]);
 
   useEffect(() => {
     if (!pausing) return;
@@ -198,7 +220,10 @@ export function ActiveDetailView({
               onRestart={!isPaused && !isDeploying ? () => { setIsGloballyRestarting(true); restartAllMutation.mutate({ deploymentId: renderedDeployment.id }); } : undefined}
             />
           </div>
-          <DeploymentStatusBadge status={isRestarting ? 'restarting' : isPausing ? 'pausing' : isResuming ? 'resuming' : mapDeploymentStatus(renderedDeployment)} />
+          <DeploymentStatusBadge
+            status={isRestarting ? 'restarting' : isPausing ? 'pausing' : isResuming ? 'resuming' : mapDeploymentStatus(renderedDeployment)}
+            errorMessage={renderedDeployment.error_message}
+          />
         </div>
         <div
           className={cn(

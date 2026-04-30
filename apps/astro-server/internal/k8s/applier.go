@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"log"
 
@@ -24,6 +25,17 @@ type ApplierConfig struct {
 	ProxyRegistryHost string
 	Environment       string
 	ImagePullPolicy   corev1.PullPolicy // Defaults to PullAlways; set PullNever for local dev
+	// ImagePreflighter, when set, performs a registry HEAD on tenant images
+	// in resolveContainerImage and returns *ErrImageNotFound on missing tags.
+	// Defense in depth — the deploy handler should already have preflighted
+	// the agent image synchronously before enqueueing, but this catches
+	// stale specs and bypassed code paths.
+	ImagePreflighter *ImagePreflighter
+	// TenantImageHosts is the allowlist of registry hosts whose images we
+	// preflight. Empty disables preflight in the Applier (handler-only mode).
+	// Typical values: the proxy registry host (registry.localhost) and the
+	// resolved registry URL host (123.dkr.ecr....amazonaws.com).
+	TenantImageHosts []string
 	// Ingress configuration for agent workloads
 	IngressDomain     string
 	ACMCertificateARN string
@@ -84,11 +96,13 @@ type ApplierConfig struct {
 
 // Applier applies Kubernetes manifests to a cluster
 type Applier struct {
-	clientset       kubernetes.Interface
-	namespace       string
-	registryURL     string
-	imageResolver   *ImageResolver
-	imagePullPolicy corev1.PullPolicy
+	clientset        kubernetes.Interface
+	namespace        string
+	registryURL      string
+	imageResolver    *ImageResolver
+	imagePullPolicy  corev1.PullPolicy
+	imagePreflighter *ImagePreflighter
+	tenantImageHosts []string
 	// Ingress configuration for agent workloads
 	ingressDomain     string
 	acmCertificateARN string
@@ -130,6 +144,8 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		registryURL:            cfg.RegistryURL,
 		imageResolver:          NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
 		imagePullPolicy:        pullPolicy,
+		imagePreflighter:       cfg.ImagePreflighter,
+		tenantImageHosts:       cfg.TenantImageHosts,
 		ingressDomain:          cfg.IngressDomain,
 		acmCertificateARN:      cfg.ACMCertificateARN,
 		albGroupName:           cfg.ALBGroupName,
@@ -154,8 +170,12 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 	}
 }
 
-// resolveContainerImage resolves a container image reference to its ECR path
-func (a *Applier) resolveContainerImage(container spec.ContainerConfig) (spec.ContainerConfig, error) {
+// resolveContainerImage resolves a container image reference to its registry
+// path and (when an ImagePreflighter is configured for a tenant host) verifies
+// the manifest exists. Returns *ErrImageNotFound when preflight detects a
+// vanished tag — callers should propagate this so the deploy fails fast
+// instead of waiting for kubelet to surface ImagePullBackOff minutes later.
+func (a *Applier) resolveContainerImage(ctx context.Context, container spec.ContainerConfig) (spec.ContainerConfig, error) {
 	if container.Image == "" {
 		return container, nil
 	}
@@ -165,10 +185,40 @@ func (a *Applier) resolveContainerImage(container spec.ContainerConfig) (spec.Co
 		return container, err
 	}
 
-	// Create a copy with resolved image
+	if a.imagePreflighter != nil && a.shouldPreflight(resolvedImage) {
+		if perr := a.imagePreflighter.Preflight(ctx, resolvedImage); perr != nil {
+			return container, perr
+		}
+	}
+
 	resolved := container
 	resolved.Image = resolvedImage
 	return resolved, nil
+}
+
+// shouldPreflight returns true when image's host matches one of the tenant
+// registry hosts configured on the Applier. Restricting preflight to tenant
+// images keeps us from issuing HEAD requests to docker.io / quay.io / etc.
+// for every public sidecar (postgres, qdrant, ...), which would be wasted
+// network and noisy logs.
+func (a *Applier) shouldPreflight(image string) bool {
+	if len(a.tenantImageHosts) == 0 {
+		return false
+	}
+	host, _, _, ok := parseImageRef(image)
+	if !ok {
+		return false
+	}
+	target := stripPort(host)
+	for _, h := range a.tenantImageHosts {
+		if h == "" {
+			continue
+		}
+		if strings.EqualFold(stripPort(h), target) {
+			return true
+		}
+	}
+	return false
 }
 
 // ApplyResult holds the result of applying manifests

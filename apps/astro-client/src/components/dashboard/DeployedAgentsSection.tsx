@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
@@ -7,8 +6,6 @@ import { useAgentFilters } from "./useAgentFilters";
 import { useObservabilitySummaries, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
-import { blueprintKeys } from "@/api/queries/keys";
-import { api, type BlueprintsListResponse } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 
 function AgentCardSkeleton() {
@@ -37,11 +34,13 @@ function AgentCard({
   deployment,
   account,
   hasNewBuildAvailable,
+  latestBuildId,
   requests: requestsProp,
 }: {
   deployment: AgentDeployment;
   account: string;
   hasNewBuildAvailable: boolean;
+  latestBuildId?: string;
   requests?: number;
 }) {
   const { data: summaryData } = useObservabilitySummary(deployment.id, undefined, {
@@ -52,6 +51,7 @@ function AgentCard({
   const latestTrace = tracesData?.traces[0];
   const lastActive = latestTrace ? formatRelativeTime(latestTrace.timestamp) : "—";
   const status = mapDeploymentStatus(deployment);
+  const detailHref = `${deploymentPath(account, deployment.id)}?tab=${status === "active" ? "monitor" : "deployments"}`;
 
   return (
     <DeployedAgentCard
@@ -59,13 +59,17 @@ function AgentCard({
       displayName={deployment.display_name}
       deploymentId={deployment.id}
       account={account}
-      href={`${deploymentPath(account, deployment.id)}?tab=${status === "active" ? "monitor" : "deployments"}`}
+      href={detailHref}
+      deploymentDetailHref={detailHref}
       status={status}
       requests={requests}
       lastActive={lastActive}
       installedAt={deployment.created_at}
       updatedAt={deployment.updated_at || deployment.created_at}
       hasNewBuildAvailable={hasNewBuildAvailable}
+      latestBuildId={latestBuildId}
+      currentBuildId={deployment.build_id}
+      errorMessage={deployment.error_message}
       avatarColors={deployment.avatar_colors}
     />
   );
@@ -99,53 +103,18 @@ export function DeployedAgentsSection({
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
 
-  // Cross-account deploys (deployment.source_account != viewer account)
-  // need their upgrade signal computed against the source account's
-  // blueprint, not the viewer's. We fan out blueprint queries for every
-  // unique source account in the visible deployments, usually 1 (the
-  // viewer's), occasionally 2-3 when an org's blueprint was deployed
-  // into the personal account. useQueries keeps each query independently
-  // cached and shared with detail-view fetches.
-  const sourceAccounts = useMemo(() => {
-    const seen = new Set<string>();
-    for (const d of deployments) seen.add(d.source_account || account);
-    return Array.from(seen);
-  }, [deployments, account]);
-
-  const blueprintQueries = useQueries({
-    queries: sourceAccounts.map((acct) => ({
-      queryKey: blueprintKeys.byAccount(acct),
-      queryFn: () => api.listAccountBlueprints(acct),
-      enabled: !!acct,
-    })),
-  });
-
-  const blueprintsByAccount = useMemo(() => {
-    const byAccount = new Map<string, Map<string, BlueprintsListResponse["agents"][number]>>();
-    blueprintQueries.forEach((result, i) => {
-      const acct = sourceAccounts[i];
-      if (!acct || !result.data?.agents) return;
-      const byName = new Map<string, BlueprintsListResponse["agents"][number]>();
-      for (const agent of result.data.agents) byName.set(agent.name, agent);
-      byAccount.set(acct, byName);
-    });
-    return byAccount;
-  }, [blueprintQueries, sourceAccounts]);
-
+  // The list endpoint computes latest_build_id at request time via a single
+  // batch query against agent_versions (see populateLatestBuildIDs in
+  // apps/astro-server/handlers/deploy.go). The server is the single source of
+  // truth for the upgrade signal — the dashboard never needs to fan out
+  // per-account blueprint queries to derive it.
   const deploymentsWithNewBuild = useMemo(() => {
     return new Set(
-      deployments.flatMap((deployment) => {
-        const lineageAccount = deployment.source_account || account;
-        const agent = blueprintsByAccount.get(lineageAccount)?.get(deployment.name);
-        if (!agent?.versions?.length) return [];
-        if (lineageAccount !== account && agent.visibility === "private") return [];
-        const latest = agent.versions.reduce((a, b) =>
-          new Date(b.published_at) > new Date(a.published_at) ? b : a,
-        );
-        return latest.build_id && deployment.build_id !== latest.build_id ? [deployment.id] : [];
-      }),
+      deployments.flatMap((d) =>
+        d.latest_build_id && d.latest_build_id !== d.build_id ? [d.id] : [],
+      ),
     );
-  }, [blueprintsByAccount, deployments, account]);
+  }, [deployments]);
 
   if (isLoading) {
     return (
@@ -191,6 +160,7 @@ export function DeployedAgentsSection({
                 deployment={deployment}
                 account={account}
                 hasNewBuildAvailable={deploymentsWithNewBuild.has(deployment.id)}
+                latestBuildId={deployment.latest_build_id}
                 requests={requestCounts.get(deployment.id)}
               />
             );

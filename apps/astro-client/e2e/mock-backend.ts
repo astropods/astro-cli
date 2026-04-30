@@ -441,12 +441,20 @@ const prefilledTemplatesByDeployment = {
   },
 } satisfies Record<string, unknown>;
 
+// Mirrors the server's populateLatestBuildIDs contract: latest_build_id
+// is the newest published build in the deployment's lineage account
+// (source_account when set, owning account otherwise), with the
+// cross-account private blueprint suppressed because the deploy endpoint
+// won't honor it. The dashboard reads this field directly to render the
+// upgrade badge — keep these values aligned with what the real server
+// would compute or the dashboard tests will silently drift.
 const makeInitialDeployments = () => [
   {
     id: DEPLOYMENT_SLACK_FULL_ID,
     name: AGENT_SLACK_FULL,
     display_name: "Slack Full Bot",
     build_id: "build-123",
+    latest_build_id: "build-124",
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
@@ -470,6 +478,7 @@ const makeInitialDeployments = () => [
     name: AGENT_SLACK_OVERLAP,
     display_name: "Slack Overlap Bot",
     build_id: "build-123",
+    latest_build_id: "build-123",
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
@@ -485,6 +494,7 @@ const makeInitialDeployments = () => [
     name: AGENT_CROSS_ACCOUNT,
     display_name: "Cross Account Agent",
     build_id: "build-cross-1",
+    latest_build_id: "build-cross-1",
     namespace: "astro-cross-namespace",
     status: "healthy",
     replicas: 1,
@@ -500,6 +510,7 @@ const makeInitialDeployments = () => [
     name: AGENT_INGESTION_SCHEDULE,
     display_name: "Scheduled Ingestor",
     build_id: "build-125",
+    latest_build_id: "build-125",
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
@@ -518,9 +529,10 @@ const makeInitialDeployments = () => [
     build_id: XACCT_UPGRADE_DEPLOYED_BUILD,
     // source_account points at the publisher (otheraccount). The
     // personal account does NOT have a blueprint by this name, so the
-    // upgrade signal is observable only when the client honors
-    // source_account.
+    // upgrade signal is observable only when the server's lineage
+    // join honors source_account.
     source_account: CROSS_ACCOUNT_PUBLISHER,
+    latest_build_id: XACCT_UPGRADE_LATEST_BUILD,
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
@@ -537,6 +549,11 @@ const makeInitialDeployments = () => [
     display_name: "Cross-Account Collision Bot",
     build_id: XACCT_COLLISION_PUBLISHER_BUILD,
     source_account: CROSS_ACCOUNT_PUBLISHER,
+    // Source-account lineage has only the deployed build, so the server
+    // reports no upgrade. The personal account's same-named blueprint
+    // (with a newer build) must NOT influence this — proven by the
+    // dashboard staying silent on this card.
+    latest_build_id: XACCT_COLLISION_PUBLISHER_BUILD,
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
@@ -553,6 +570,10 @@ const makeInitialDeployments = () => [
     display_name: "Cross-Account Private Bot",
     build_id: XACCT_PRIVATE_DEPLOYED_BUILD,
     source_account: CROSS_ACCOUNT_PUBLISHER,
+    // Cross-account + private source blueprint: the deploy endpoint
+    // refuses to honor a redeploy here (canDeploySourceAgent), so the
+    // server suppresses latest_build_id rather than advertise a
+    // doomed upgrade. Field intentionally omitted.
     namespace: "astro-namespace",
     status: "healthy",
     replicas: 1,
