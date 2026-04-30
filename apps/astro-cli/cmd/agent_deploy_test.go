@@ -657,8 +657,8 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 			want:  []string{`build "deadbeef" not found`, `blueprint "my-agent"`, "ast push my-agent"},
 		},
 		{
-			name: "legacy: account not found text",
-			body: `{"error":"account not found"}`,
+			name:    "legacy: account not found text",
+			body:    `{"error":"account not found"}`,
 			account: "ghost", blue: "my-agent",
 			want: []string{`account "ghost" not found`},
 		},
@@ -688,4 +688,3 @@ func errFromAPI(status int, body string) error {
 type apiCallTestError struct{ msg string }
 
 func (e *apiCallTestError) Error() string { return e.msg }
-

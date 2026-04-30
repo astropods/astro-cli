@@ -8,6 +8,9 @@ import { BlueprintDetailHeader } from "./BlueprintDetailHeader";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
+
+export { getLinkedInShareHref, getXShareHref };
 
 // ─── Shared setup components ─────────────────────────────────────────────────
 
@@ -61,6 +64,7 @@ export interface BlueprintDetailContentProps {
   categories: string[];
   canEdit?: boolean;
   readme?: string;
+
   mobileSidebar?: ReactNode;
   isDraft?: boolean;
   onArchive?: () => void;
@@ -74,6 +78,7 @@ export function BlueprintDetailContent({
   categories,
   canEdit,
   readme,
+
   mobileSidebar,
   isDraft = false,
   onArchive,

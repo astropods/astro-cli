@@ -291,7 +291,6 @@ function BlueprintDetailInner({
   const readme = getBlueprintReadme(effectiveBlueprint);
   const authors = getBlueprintAuthors(effectiveBlueprint);
   const capabilities = getBlueprintCapabilities(effectiveBlueprint);
-
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
       {showBuildSuccess && (
@@ -301,7 +300,7 @@ function BlueprintDetailInner({
           onDismiss={() => setShowBuildSuccess(false)}
         />
       )}
-      <BlueprintDetailBreadcrumb account={blueprint.account} blueprintName={blueprint.name} hearted={blueprint.hearted} heartCount={blueprint.heart_count} />
+      <BlueprintDetailBreadcrumb account={blueprint.account} blueprintName={blueprint.name} hearted={blueprint.hearted} heartCount={blueprint.heart_count} shareUrl={loaderData?.canonicalUrl} />
 
       <div className="relative flex flex-1 overflow-y-auto">
         <GradientGridWash colors={effectiveBlueprint.avatar_colors} />
@@ -313,6 +312,7 @@ function BlueprintDetailInner({
           categories={categories}
           canEdit={canEdit}
           readme={readme}
+
           isDraft={isDraft}
           onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}
           hasBuild={hasBuild}
