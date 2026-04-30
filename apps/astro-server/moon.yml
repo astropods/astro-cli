@@ -62,6 +62,23 @@ tasks:
       - "/sql/**"
       - "/scripts/e2e.sh"
 
+  # Postgres-only integration tests (//go:build integration). Mirrors the
+  # CI `test-go-integration` job. Skips the kind/vcluster setup that
+  # `e2e` needs, so it's the right command for the lineage / store /
+  # backfill tests under apps/astro-server/e2e/ that don't touch K8s.
+  test-integration:
+    command: "bash $MOON_WORKSPACE_ROOT/scripts/e2e.sh integration"
+    options:
+      persistent: false
+      runInCI: false
+    inputs:
+      - "e2e/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "/sql/**"
+      - "/scripts/e2e.sh"
+
   e2e.setup:
     command: "bash $MOON_WORKSPACE_ROOT/scripts/e2e.sh setup"
     options:

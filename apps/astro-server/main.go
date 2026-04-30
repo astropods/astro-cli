@@ -312,15 +312,28 @@ func runAPI(
 				"from_self", res.FromSelf,
 				"spec_misses", res.SpecMisses,
 			)
-			return
-		}
-		if res.Scanned > 0 {
+			// Continue to the rebind pass anyway — it touches a disjoint
+			// set of rows (non-NULL source_account_id) and a partial
+			// failure of the NULL-fill pass should not block repair of
+			// transferred-agent deployments.
+		} else if res.Scanned > 0 {
 			log.Info("source_account_id backfill complete",
 				"scanned", res.Scanned,
 				"from_spec", res.FromSpec,
 				"from_self", res.FromSelf,
 				"spec_misses", res.SpecMisses,
 			)
+		}
+
+		// Repair non-NULL but stale source_account_id values left behind
+		// by pre-fix agentindex.Transfer calls. Idempotent — exits as a
+		// no-op once every deployment's lineage tuple is consistent with
+		// agent_versions.
+		rebind, err := deploymentStore.RebindStaleSourceAccountIDs(ctx)
+		if err != nil {
+			log.Warn("source_account_id stale rebind failed", "error", err)
+		} else if rebind.Rebound > 0 {
+			log.Info("source_account_id stale rebind complete", "rebound", rebind.Rebound)
 		}
 	}()
 

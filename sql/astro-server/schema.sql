@@ -73,7 +73,7 @@ CREATE TABLE public.agent_versions (
     published_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
     CONSTRAINT agent_versions_pkey PRIMARY KEY (account_id, name, build_id),
-    CONSTRAINT agent_versions_account_id_name_fkey FOREIGN KEY (account_id, name) REFERENCES public.agents(account_id, name) ON DELETE CASCADE
+    CONSTRAINT agent_versions_account_id_name_fkey FOREIGN KEY (account_id, name) REFERENCES public.agents(account_id, name) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
@@ -328,7 +328,7 @@ CREATE TABLE public.agent_hearts (
     user_id text NOT NULL,
     created_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT agent_hearts_pkey PRIMARY KEY (account_id, agent_name, user_id),
-    CONSTRAINT agent_hearts_agent_fkey FOREIGN KEY (account_id, agent_name) REFERENCES public.agents(account_id, name) ON DELETE CASCADE
+    CONSTRAINT agent_hearts_agent_fkey FOREIGN KEY (account_id, agent_name) REFERENCES public.agents(account_id, name) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE INDEX idx_agent_hearts_agent ON public.agent_hearts(account_id, agent_name);

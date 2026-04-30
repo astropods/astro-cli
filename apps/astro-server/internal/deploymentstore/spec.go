@@ -104,3 +104,64 @@ func (s *Store) BackfillSourceAccountIDs(ctx context.Context) (BackfillResult, e
 
 	return res, nil
 }
+
+// StaleRebindResult summarizes the outcome of RebindStaleSourceAccountIDs.
+type StaleRebindResult struct {
+	Rebound int // rows whose source_account_id was repointed to the unique current owner
+}
+
+// RebindStaleSourceAccountIDs repairs deployments whose source_account_id
+// references an account that no longer owns the (agent_name, build_id)
+// tuple in agent_versions, when there is exactly one other account that
+// does. This is the data sweep for the historical bug where
+// agentindex.Transfer moved the agents and agent_versions rows between
+// accounts but left deployments.source_account_id pointing at the old
+// publisher — every cross-account deployment of a transferred agent
+// silently lost its upgrade signal until this runs.
+//
+// Single statement, idempotent: rows whose current source_account_id
+// already matches agent_versions are excluded by the `<>` predicate, and
+// rows with multiple candidate accounts (n > 1, e.g. an unrelated agent
+// in another account that happens to share the same name + build_id) are
+// excluded by `c.n = 1` and left for a human to triage.
+//
+// Excluded by design:
+//   - source_account_id IS NULL (publisher-deleted rows; FK SET NULL path)
+//   - (name, build_id) absent from agent_versions (build was deleted)
+//   - (name, build_id) present in >1 accounts (ambiguous)
+func (s *Store) RebindStaleSourceAccountIDs(ctx context.Context) (StaleRebindResult, error) {
+	var res StaleRebindResult
+
+	rows, err := s.db.QueryContext(ctx, `
+		WITH candidates AS (
+			SELECT av.name, av.build_id, av.account_id,
+			       COUNT(*) OVER (PARTITION BY av.name, av.build_id) AS n
+			FROM agent_versions av
+		)
+		UPDATE deployments d
+		SET source_account_id = c.account_id
+		FROM candidates c
+		WHERE c.name = d.agent_name
+		  AND c.build_id = d.build_id
+		  AND c.n = 1
+		  AND d.source_account_id IS NOT NULL
+		  AND d.source_account_id <> c.account_id
+		RETURNING d.id
+	`)
+	if err != nil {
+		return res, fmt.Errorf("rebind stale source_account_id: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return res, fmt.Errorf("scan rebound deployment id: %w", err)
+		}
+		res.Rebound++
+	}
+	if err := rows.Err(); err != nil {
+		return res, fmt.Errorf("iterate rebound deployments: %w", err)
+	}
+	return res, nil
+}

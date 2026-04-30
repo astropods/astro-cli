@@ -409,6 +409,111 @@ func TestBatchLatestBuildIDs_AbsentAgentNotInResult(t *testing.T) {
 	}
 }
 
+// ── Transfer ──────────────────────────────────────────────────────────────────
+
+// Transfer rewrites agents.account_id (cascading to agent_versions and
+// agent_hearts via ON UPDATE CASCADE FKs), bumps agent_versions.updated_at
+// for audit, and repoints deployments.source_account_id — all in a single
+// transaction. The deployments update is the lineage fix: without it,
+// resolveSourceAccountName falls through to the spec-JSON fallback against
+// the old account name, breaking upgrade signals.
+func TestTransfer_UpdatesAgentsVersionsAndDeployments(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE agents SET account_id`).
+		WithArgs("target", sqlmock.AnyArg(), "source", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Audit-bump on the version rows that the FK cascade has already
+	// moved to the target account. Args are (now, targetAccountID, name).
+	mock.ExpectExec(`UPDATE agent_versions SET updated_at`).
+		WithArgs(sqlmock.AnyArg(), "target", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(`UPDATE deployments SET source_account_id`).
+		WithArgs("target", "source", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	if err := idx.Transfer("source", "target", "my-agent"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+// The deployments UPDATE is keyed on (source_account_id, agent_name); rows
+// for a different agent name on the same source account must not be
+// touched. RowsAffected of 0 is fine — same-account deploys (where
+// source_account_id == target account before the move) and unrelated
+// agents fall outside the WHERE clause.
+func TestTransfer_NoMatchingDeploymentsStillCommits(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE agents SET account_id`).
+		WithArgs("target", sqlmock.AnyArg(), "source", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE agent_versions SET updated_at`).
+		WithArgs(sqlmock.AnyArg(), "target", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE deployments SET source_account_id`).
+		WithArgs("target", "source", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	if err := idx.Transfer("source", "target", "my-agent"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+// A failure on the deployments UPDATE must roll back the entire transfer
+// (agents and agent_versions stay on the source account). Without this,
+// a partial transfer leaves lineage permanently inconsistent.
+func TestTransfer_DeploymentsUpdateFailureRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE agents SET account_id`).
+		WithArgs("target", sqlmock.AnyArg(), "source", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE agent_versions SET updated_at`).
+		WithArgs(sqlmock.AnyArg(), "target", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE deployments SET source_account_id`).
+		WithArgs("target", "source", "my-agent").
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+
+	if err := idx.Transfer("source", "target", "my-agent"); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
 // Get returns NameReserved=true for an archived agent whose name is reserved
 // (e.g. was previously deployed or made public before archival).
 func TestGet_ArchivedButReservedNameReturnsNameReservedTrue(t *testing.T) {

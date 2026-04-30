@@ -636,6 +636,12 @@ func (idx *Index) Transfer(sourceAccountID, targetAccountID, agentName string) e
 
 	now := time.Now()
 
+	// Re-key the agent. The agent_versions.(account_id, name) and
+	// agent_hearts.(account_id, agent_name) FKs are declared
+	// ON UPDATE CASCADE, so child rows move atomically with the
+	// parent. Without that cascade this UPDATE would orphan
+	// agent_versions for the duration of the statement and trip the
+	// immediate FK check, aborting the whole transfer.
 	result, err := tx.Exec(`
 		UPDATE agents SET account_id = $1, updated_at = $2
 		WHERE account_id = $3 AND name = $4
@@ -651,12 +657,30 @@ func (idx *Index) Transfer(sourceAccountID, targetAccountID, agentName string) e
 		return fmt.Errorf("agent not found: %s", agentName)
 	}
 
+	// Audit-bump the now-cascaded version rows. The FK cascade above
+	// only touches the FK columns (account_id, name), not updated_at,
+	// so we record the transfer event explicitly. WHERE filters on the
+	// target account because the rows have already moved.
 	_, err = tx.Exec(`
-		UPDATE agent_versions SET account_id = $1, updated_at = $2
-		WHERE account_id = $3 AND name = $4
-	`, targetAccountID, now, sourceAccountID, agentName)
+		UPDATE agent_versions SET updated_at = $1
+		WHERE account_id = $2 AND name = $3
+	`, now, targetAccountID, agentName)
 	if err != nil {
-		return fmt.Errorf("failed to transfer versions: %w", err)
+		return fmt.Errorf("failed to bump version timestamps: %w", err)
+	}
+
+	// Repoint cross-account deployments at the new owner. Without this,
+	// resolveSourceAccountName falls through to the spec-JSON fallback under
+	// the old account name, breaking upgrade signals and leaving lineage
+	// stale (the old account may even be deleted/reclaimed). The FK on
+	// deployments.source_account_id is single-column to accounts.id, so
+	// it doesn't ride the agents cascade — this UPDATE is what moves it.
+	_, err = tx.Exec(`
+		UPDATE deployments SET source_account_id = $1
+		WHERE source_account_id = $2 AND agent_name = $3
+	`, targetAccountID, sourceAccountID, agentName)
+	if err != nil {
+		return fmt.Errorf("failed to transfer deployments source_account_id: %w", err)
 	}
 
 	return tx.Commit()

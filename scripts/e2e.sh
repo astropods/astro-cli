@@ -2,12 +2,13 @@
 # Run e2e integration tests locally.
 #
 # Usage:
-#   ./scripts/e2e.sh          # setup infra + run all e2e tests
-#   ./scripts/e2e.sh setup    # just create the cluster, don't run tests
-#   ./scripts/e2e.sh teardown # destroy the cluster and Postgres container
+#   ./scripts/e2e.sh             # setup infra + run all e2e tests (-tags k8s)
+#   ./scripts/e2e.sh setup       # just create the cluster, don't run tests
+#   ./scripts/e2e.sh teardown    # destroy the cluster and Postgres container
+#   ./scripts/e2e.sh integration # setup Postgres only + run -tags integration tests
 #
 # Prerequisites: docker, kubectl, go
-# The script installs kind and vcluster if missing.
+# The script installs kind and vcluster if missing (not needed for `integration`).
 
 set -euo pipefail
 
@@ -166,6 +167,16 @@ run_tests() {
     go test -tags k8s -race -timeout 5m -v ./e2e/...
 }
 
+# Postgres-only integration tests (//go:build integration).
+# Skips the kind/vcluster setup that the k8s tier needs.
+run_integration_tests() {
+  info "Running Postgres-only integration tests..."
+  cd "$ROOT/apps/astro-server"
+
+  DATABASE_URL="$DATABASE_URL" \
+    go test -tags integration -race -timeout 5m -v ./e2e/...
+}
+
 # --- main ---
 
 case "${1:-all}" in
@@ -184,8 +195,13 @@ case "${1:-all}" in
     setup_cluster
     run_tests
     ;;
+  integration)
+    setup_postgres
+    migrate_postgres
+    run_integration_tests
+    ;;
   *)
-    echo "Usage: $0 {all|setup|teardown}"
+    echo "Usage: $0 {all|setup|teardown|integration}"
     exit 1
     ;;
 esac
