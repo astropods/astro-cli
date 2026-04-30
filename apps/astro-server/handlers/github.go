@@ -963,11 +963,17 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 			return
 		}
 
+		if err := ghStore.CancelOlderBuilds(c.Request.Context(), conn.ID, buildRecordID); err != nil {
+			log.Warn("rebuild: cancel older builds", "error", err, "connection_id", conn.ID)
+		}
+		queue.CancelGitHubBuildsForConnection(c.Request.Context(), conn.ID)
+
 		if err := queue.EnqueueGitHubBuild(c.Request.Context(), riverqueue.GitHubBuildArgs{
 			ConnectionID:  conn.ID,
 			CommitSHA:     sha,
 			BuildID:       buildID,
 			BuildRecordID: buildRecordID,
+			Force:         true, // bypass subpath filter — manual rebuild always runs
 		}); err != nil {
 			_ = ghStore.UpdateBuildStatus(c.Request.Context(), buildRecordID, "failed", "failed to enqueue build job")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue build"})

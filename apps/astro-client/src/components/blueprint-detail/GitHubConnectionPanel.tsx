@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { repoHref, repoLabel } from "@/lib/github-utils";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, MinusCircle, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -53,7 +53,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
     if (githubConnected) {
       setSearchParams((p) => { p.delete("github_connected"); return p; }, { replace: true });
     }
-  }, [githubConnected]);
+  }, [githubConnected, setSearchParams]);
 
   function handleConnect() {
     connect.mutate(`/${account}/${name}?github_connected=true`, {
@@ -263,13 +263,6 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
   );
 }
 
-// Build pipeline steps in order.
-const BUILD_STEPS = [
-  { key: "fetching-spec", label: "Fetching spec" },
-  { key: "building",      label: "Building" },
-  { key: "registering",   label: "Registering" },
-] as const;
-
 function BuildRow({ build, account, name }: { build: GitHubBuild; account: string; name: string }) {
   const [logsOpen, setLogsOpen] = useState(false);
   const isActive = build.status === "pending" || build.status === "building";
@@ -285,10 +278,12 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
         onClick={() => setLogsOpen(true)}
       >
         {/* Row 1: title */}
-        <span className={cn(
-          "block leading-snug font-medium truncate",
-          build.status === "failed" && "text-destructive",
-        )}>
+        <span
+          className={cn(
+            "block leading-snug font-medium truncate",
+            build.status === "failed" && "text-destructive",
+          )}
+        >
           {title}
         </span>
 
@@ -296,35 +291,8 @@ function BuildRow({ build, account, name }: { build: GitHubBuild; account: strin
         {isActive ? (
           <StepPipeline currentStep={build.step} />
         ) : (
-          <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            <BuildStatusIcon status={build.status} className="shrink-0" />
-            {build.status === "registered" && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="font-medium text-green-600 dark:text-green-400 cursor-default">{build.build_id} successful</span>
-                  </TooltipTrigger>
-                  {build.completed_at && (
-                    <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {build.status === "failed" && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="font-medium text-destructive cursor-default">Error: see logs for more</span>
-                  </TooltipTrigger>
-                  {build.completed_at && (
-                    <TooltipContent>{new Date(build.completed_at).toLocaleString()}</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
+          <BuildStatusRow build={build} />
         )}
-
       </div>
       <BuildLogsDialog
         account={account}
@@ -345,6 +313,13 @@ function parseBuildProgress(step?: string): string | null {
   const match = step.match(/\((.+)\)$/);
   return match ? match[1] : null;
 }
+
+// Build pipeline steps in order.
+const BUILD_STEPS = [
+  { key: "fetching-spec", label: "Fetching spec" },
+  { key: "building",      label: "Building" },
+  { key: "registering",   label: "Registering" },
+] as const;
 
 function StepPipeline({ currentStep }: { currentStep?: string }) {
   const currentIdx = BUILD_STEPS.findIndex((s) => currentStep?.startsWith(s.key));
@@ -402,7 +377,7 @@ function BuildLogsDialog({
   });
 
   const totalDuration = build.enqueued_at
-    ? elapsedLabel(build.enqueued_at, (build as any).completed_at)
+    ? elapsedLabel(build.enqueued_at, build.completed_at)
     : undefined;
 
   return (
@@ -423,6 +398,54 @@ function BuildLogsDialog({
   );
 }
 
+function buildStatusLabel(status: GitHubBuild["status"]): {
+  text: string;
+  className: string;
+} {
+  switch (status) {
+    case "registered":
+      return {
+        text: "successful",
+        className: "font-medium text-green-600 dark:text-green-400",
+      };
+    case "failed":
+      return {
+        text: "error. See logs for more",
+        className: "font-medium text-destructive",
+      };
+    case "skipped":
+      return {
+        text: "skipped. No changes detected",
+        className: "text-muted-foreground",
+      };
+    default:
+      return { text: status, className: "text-muted-foreground" };
+  }
+}
+
+function BuildStatusRow({ build }: { build: GitHubBuild }) {
+  const label = buildStatusLabel(build.status);
+  return (
+    <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+      <BuildStatusIcon status={build.status} className="shrink-0" />
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={cn("cursor-default", label.className)}>
+              {build.build_id} {label.text}
+            </span>
+          </TooltipTrigger>
+          {build.completed_at && (
+            <TooltipContent>
+              {new Date(build.completed_at).toLocaleString()}
+            </TooltipContent>
+          )}
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+}
+
 function BuildStatusIcon({ status, className }: { status: GitHubBuild["status"]; className?: string }) {
   switch (status) {
     case "registered":
@@ -431,6 +454,8 @@ function BuildStatusIcon({ status, className }: { status: GitHubBuild["status"];
       return <XCircle className={cn("h-3.5 w-3.5 text-destructive", className)} />;
     case "building":
       return <Loader2 className={cn("h-3.5 w-3.5 text-blue-500 animate-spin", className)} />;
+    case "skipped":
+      return <MinusCircle className={cn("h-3.5 w-3.5 text-muted-foreground", className)} />;
     default:
       return <Clock className={cn("h-3.5 w-3.5 text-muted-foreground", className)} />;
   }

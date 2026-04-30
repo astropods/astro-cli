@@ -12,6 +12,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -27,6 +28,7 @@ type GitHubBuildArgs struct {
 	CommitSHA     string `json:"commit_sha"`
 	BuildID       string `json:"build_id"`
 	BuildRecordID string `json:"build_record_id"`
+	Force         bool   `json:"force,omitempty"` // skip subpath-change filtering (manual rebuild)
 }
 
 func (GitHubBuildArgs) Kind() string { return "github_build" }
@@ -127,6 +129,31 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 			"needs_reauth", errors.Is(err, pipes.ErrNeedsReauthorization),
 		)
 		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("get github token: %w", err))
+	}
+
+	// Subpath filtering: skip the build if nothing under the subpath changed
+	// since the last registered build. Two GitHub Contents API calls compare
+	// the tree SHA for the subpath directory at both commits — equal SHA means
+	// identical contents. On any error, proceed with the build (conservative).
+	subPath := githubconnection.RepoSubPath(conn.RepoFullName)
+	if subPath != "" && !args.Force {
+		if lastSHA, err := w.ghStore.GetLastRegisteredCommitSHA(ctx, conn.ID); err == nil {
+			repoBase := githubconnection.RepoBase(conn.RepoFullName)
+			ghClient := github.New(token.AccessToken)
+			oldTree, err1 := ghClient.GetSubtreeSHA(ctx, repoBase, lastSHA, subPath)
+			newTree, err2 := ghClient.GetSubtreeSHA(ctx, repoBase, args.CommitSHA, subPath)
+			if err1 != nil || err2 != nil {
+				log.Warn("could not check subpath changes — proceeding with build",
+					"subpath", subPath, "err1", err1, "err2", err2)
+				// Both guards are load-bearing: "" means the subpath didn't exist at
+				// that commit, so "" == "" would incorrectly skip a build where the
+				// subpath is absent from both refs.
+			} else if oldTree != "" && newTree != "" && oldTree == newTree {
+				_ = w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "skipped",
+					fmt.Sprintf("no changes under %s/", subPath))
+				return river.JobCancel(fmt.Errorf("no changes under %s/", subPath))
+			}
+		}
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "fetching-spec")

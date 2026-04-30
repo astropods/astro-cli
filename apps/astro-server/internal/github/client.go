@@ -203,6 +203,57 @@ func (c *Client) PathExists(ctx context.Context, repoFullName, ref, path string)
 	return true, nil
 }
 
+// GetSubtreeSHA returns the git tree SHA for subPath at the given ref.
+// subPath is relative to the repo root, e.g. "svc" or "services/my-agent".
+// Returns "", nil if the path doesn't exist at that ref.
+func (c *Client) GetSubtreeSHA(ctx context.Context, repoBase, ref, subPath string) (string, error) {
+	lastSlash := strings.LastIndex(subPath, "/")
+	var parent, name string
+	if lastSlash < 0 {
+		parent = ""
+		name = subPath
+	} else {
+		parent = subPath[:lastSlash]
+		name = subPath[lastSlash+1:]
+	}
+
+	u := &url.URL{
+		Path:     fmt.Sprintf("/repos/%s/contents/%s", repoBase, parent),
+		RawQuery: url.Values{"ref": {ref}}.Encode(),
+	}
+	req, err := c.newRequest(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github: get subtree sha: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("github: get subtree sha returned %d", resp.StatusCode)
+	}
+	var entries []struct {
+		Name string `json:"name"`
+		SHA  string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return "", fmt.Errorf("github: decode contents: %w", err)
+	}
+	for _, e := range entries {
+		if e.Name == name {
+			return e.SHA, nil
+		}
+	}
+	return "", nil
+}
+
 // DeleteWebhook removes a webhook from a repository.
 func (c *Client) DeleteWebhook(ctx context.Context, repoFullName string, webhookID int64) error {
 	path := fmt.Sprintf("/repos/%s/hooks/%d", repoFullName, webhookID)

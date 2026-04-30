@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { renderWithProviders } from '@/test/test-utils';
 import { server } from '@/test/msw/server';
 import { GitHubConnectionPanel } from './GitHubConnectionPanel';
-import type { GitHubRepo, GitHubStatusResponse } from '@/lib/api';
+import type { GitHubBuild, GitHubRepo, GitHubStatusResponse } from '@/lib/api';
 
 afterEach(cleanup);
 
@@ -131,6 +131,49 @@ describe('GitHubConnectionPanel – connected account, no repo linked', () => {
 
     expect(screen.queryByText('Connect GitHub repository')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/search repositories/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('GitHubConnectionPanel – build rows', () => {
+  function makeBuild(overrides: Partial<GitHubBuild>): GitHubBuild {
+    return {
+      id: '1',
+      build_id: 'bld-abc',
+      commit_sha: 'abc1234',
+      branch: 'main',
+      status: 'registered',
+      enqueued_at: '2024-01-01T00:00:00Z',
+      completed_at: '2024-01-01T00:01:00Z',
+      ...overrides,
+    };
+  }
+
+  function renderWithBuild(build: GitHubBuild) {
+    const connected: GitHubStatusResponse = {
+      connected: true,
+      repo_full_name: 'testuser/my-agent',
+      branch: 'main',
+      builds: [build],
+    };
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => HttpResponse.json(connected)),
+    );
+    return renderWithProviders(
+      <GitHubConnectionPanel account="testuser" name="my-agent" />,
+      { initialEntries: ['/'] },
+    );
+  }
+
+  it.each([
+    { status: 'skipped'    as const, expectedText: /skipped.*no changes detected/i },
+    { status: 'registered' as const, expectedText: /successful/i },
+    { status: 'failed'     as const, expectedText: /error.*see logs for more/i },
+  ])('shows correct label for $status build', async ({ status, expectedText }) => {
+    renderWithBuild(makeBuild({ status, commit_message: 'test commit' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
+    });
   });
 });
 

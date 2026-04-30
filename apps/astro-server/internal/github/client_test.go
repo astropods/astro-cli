@@ -268,6 +268,113 @@ func TestClient_DeleteWebhook_ServerError(t *testing.T) {
 	}
 }
 
+func TestClient_GetSubtreeSHA_TopLevel(t *testing.T) {
+	// subPath with no slash: parent dir is repo root, looked up by name in listing.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/contents/" {
+			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		if r.URL.Query().Get("ref") != "abc123" {
+			http.Error(w, "unexpected ref", http.StatusBadRequest)
+			return
+		}
+		entries := []map[string]string{
+			{"name": "README.md", "sha": "aaaa"},
+			{"name": "svc", "sha": "deadbeef"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(entries)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	sha, err := c.GetSubtreeSHA(context.Background(), "owner/repo", "abc123", "svc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sha != "deadbeef" {
+		t.Errorf("SHA = %q, want %q", sha, "deadbeef")
+	}
+}
+
+func TestClient_GetSubtreeSHA_Nested(t *testing.T) {
+	// subPath with a slash: parent dir is listed, leaf name found within.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/contents/services" {
+			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		entries := []map[string]string{
+			{"name": "other", "sha": "1111"},
+			{"name": "my-agent", "sha": "cafebabe"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(entries)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	sha, err := c.GetSubtreeSHA(context.Background(), "owner/repo", "abc123", "services/my-agent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sha != "cafebabe" {
+		t.Errorf("SHA = %q, want %q", sha, "cafebabe")
+	}
+}
+
+func TestClient_GetSubtreeSHA_NotInListing(t *testing.T) {
+	// Path not present in directory listing: returns "", nil.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entries := []map[string]string{
+			{"name": "other", "sha": "1111"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(entries)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	sha, err := c.GetSubtreeSHA(context.Background(), "owner/repo", "abc123", "missing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sha != "" {
+		t.Errorf("SHA = %q, want empty string", sha)
+	}
+}
+
+func TestClient_GetSubtreeSHA_NotFound(t *testing.T) {
+	// 404 from the API: returns "", nil (path doesn't exist at that ref).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	sha, err := c.GetSubtreeSHA(context.Background(), "owner/repo", "abc123", "svc")
+	if err != nil {
+		t.Fatalf("unexpected error for 404: %v", err)
+	}
+	if sha != "" {
+		t.Errorf("SHA = %q, want empty string", sha)
+	}
+}
+
+func TestClient_GetSubtreeSHA_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.GetSubtreeSHA(context.Background(), "owner/repo", "abc123", "svc")
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
 func TestClient_AuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

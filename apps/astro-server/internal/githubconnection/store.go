@@ -32,7 +32,7 @@ type Build struct {
 	BuildID       string           `json:"build_id"`
 	CommitSHA     string           `json:"commit_sha"`
 	Branch        string           `json:"branch"`
-	Status        string           `json:"status"`         // pending | building | registering | registered | failed | cancelled
+	Status        string           `json:"status"`         // pending | building | registering | registered | failed | cancelled | skipped
 	Step          string           `json:"step,omitempty"` // fetching-spec | building | registering
 	CommitMessage string           `json:"commit_message,omitempty"`
 	CommitAuthor  string           `json:"commit_author,omitempty"`
@@ -269,7 +269,7 @@ func (s *Store) CancelOlderBuilds(ctx context.Context, connectionID, keepID stri
 		SET status = 'cancelled', completed_at = now()
 		WHERE connection_id = $1
 		  AND id != $2
-		  AND status NOT IN ('registered', 'failed', 'cancelled')
+		  AND status NOT IN ('registered', 'failed', 'cancelled', 'skipped')
 	`, connectionID, keepID)
 	return err
 }
@@ -400,6 +400,19 @@ func (s *Store) ListBuildComponents(ctx context.Context, buildID string) ([]Buil
 		components = append(components, c)
 	}
 	return components, rows.Err()
+}
+
+// GetLastRegisteredCommitSHA returns the commit SHA of the most recent successfully
+// registered build for a connection. Returns sql.ErrNoRows if none exists.
+func (s *Store) GetLastRegisteredCommitSHA(ctx context.Context, connectionID string) (string, error) {
+	var sha string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT commit_sha FROM github_builds
+		WHERE connection_id = $1 AND status = 'registered'
+		ORDER BY enqueued_at DESC
+		LIMIT 1
+	`, connectionID).Scan(&sha)
+	return sha, err
 }
 
 // FailPendingBuildComponents marks all non-terminal components for a build as failed.

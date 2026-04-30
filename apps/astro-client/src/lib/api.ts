@@ -1611,7 +1611,7 @@ export interface GitHubBuild {
   build_id: string;
   commit_sha: string;
   branch: string;
-  status: 'pending' | 'building' | 'registered' | 'failed';
+  status: 'pending' | 'building' | 'registered' | 'failed' | 'skipped';
   step?: string;
   commit_message?: string;
   commit_author?: string;

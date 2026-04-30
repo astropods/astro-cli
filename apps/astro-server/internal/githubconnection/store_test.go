@@ -293,6 +293,73 @@ func TestStore_ListBuilds(t *testing.T) {
 	}
 }
 
+func TestStore_GetLastRegisteredCommitSHA_Success(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectQuery("SELECT commit_sha FROM github_builds").
+		WithArgs("conn-1").
+		WillReturnRows(sqlmock.NewRows([]string{"commit_sha"}).AddRow("deadbeef"))
+
+	sha, err := store.GetLastRegisteredCommitSHA(context.Background(), "conn-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sha != "deadbeef" {
+		t.Errorf("SHA = %q, want %q", sha, "deadbeef")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestStore_GetLastRegisteredCommitSHA_NoRows(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectQuery("SELECT commit_sha FROM github_builds").
+		WithArgs("conn-1").
+		WillReturnRows(sqlmock.NewRows([]string{"commit_sha"}))
+
+	_, err := store.GetLastRegisteredCommitSHA(context.Background(), "conn-1")
+	if err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows, got: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestStore_CancelOlderBuilds(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectExec("UPDATE github_builds").
+		WithArgs("conn-1", "bld-new").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	if err := store.CancelOlderBuilds(context.Background(), "conn-1", "bld-new"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestStore_CancelOlderBuilds_PreservesTerminalStatuses(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	// The query must exclude registered, failed, cancelled, and skipped from the UPDATE.
+	// sqlmock validates the exact SQL matches the pattern — the NOT IN list is part of the query.
+	mock.ExpectExec(`NOT IN \('registered', 'failed', 'cancelled', 'skipped'\)`).
+		WithArgs("conn-1", "bld-new").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := store.CancelOlderBuilds(context.Background(), "conn-1", "bld-new"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestStore_ListBuilds_DefaultLimit(t *testing.T) {
 	store, mock := newTestStore(t)
 

@@ -68,9 +68,6 @@
     }
   },
   "src/components/blueprint-detail/GitHubConnectionPanel.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "local-theme/no-raw-theme-colors": {
       "count": 1
     }
