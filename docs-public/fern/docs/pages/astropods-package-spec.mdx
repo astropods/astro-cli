@@ -9,14 +9,14 @@ slug: astropods-package-spec
 
 ## Abstract
 
-The Astropods Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
+The Astropods Spec defines a declarative YAML format for describing the topology of an AI agent: its container, model dependencies, knowledge stores, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
 
 ## Changelog
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
 | v1.5    | 2026-04-24 | Deprecated `meta.visibility`. Visibility is managed via the platform UI and API, not the spec. |
-| v1.4    | 2026-04-08 | Removed `dev.overrides.playgroundImage` — playground UI is now bundled into the messaging container and served automatically when the `web` adapter is enabled. |
+| v1.4    | 2026-04-08 | Removed `dev.overrides.playgroundImage`; playground UI is now bundled into the messaging container and served automatically when the `web` adapter is enabled. |
 | v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. Component `inputs` now injected into knowledge, tool, and ingestion containers during `ast dev`. |
 | v1.2    | 2026-03-13 | Deprecated `meta.description` and `meta.tags` in favor of [Agent Card](/agent-card-spec) frontmatter. |
 | v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. |
@@ -33,17 +33,17 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 An AstroAI Spec file (`astropods.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
-- How users reach the agent — its own web frontend, messaging adapters (Slack, web chat), or both.
-- Components the agent depends on — models, knowledge stores, and integrations — each supplied by either a platform-managed provider or a user-managed container.
+- How users reach the agent: its own web frontend, messaging adapters (Slack, web chat), or both.
+- Components the agent depends on (models, knowledge stores, and integrations), each supplied by either a platform-managed provider or a user-managed container.
 - Custom providers for external API services that require credential injection.
 - Data ingestion pipelines with trigger semantics.
 - Local development overrides.
 
-A central concept is **provider binding**. Components that an agent depends on — models, knowledge stores, and integrations — are each declared as either a **provider** reference or a **container** definition:
+A central concept is **provider binding**. Components that an agent depends on (models, knowledge stores, and integrations) are each declared as either a **provider** reference or a **container** definition:
 
 - A **provider** is a named, platform-known service (e.g. `ollama`, `anthropic`, `qdrant`). The platform resolves each provider to one of two kinds:
-  - **Self-hosted** — the platform deploys and manages a container on the agent's behalf.
-  - **Cloud** — the platform injects credentials for an external API.
+  - **Self-hosted**: the platform deploys and manages a container on the agent's behalf.
+  - **Cloud**: the platform injects credentials for an external API.
 - A **container** gives the user full control over the image, port, and configuration.
 
 This design lets authors mix managed and custom components freely within a single spec.
@@ -86,14 +86,14 @@ Map keys serve as entry names and are used in credential injection (see [Section
 
 ## 3. Agent
 
-The `agent` object defines the agent's primary service — its container image or build configuration.
+The `agent` object defines the agent's primary service: its container image or build configuration.
 
 | Field         | Type        | Required    | Description                                                            |
 | ------------- | ----------- | ----------- | ---------------------------------------------------------------------- |
 | `image`       | string      | Conditional | Pre-built container image reference.                                   |
 | `build`       | BuildConfig | Conditional | Build-from-source configuration.                                       |
 | `distributed` | boolean     | OPTIONAL    | Whether the agent supports multi-replica deployment. Default: `false`. |
-| `interfaces`  | Interfaces  | OPTIONAL    | Agent capabilities — frontend, messaging, or both (Section 3.3). |
+| `interfaces`  | Interfaces  | OPTIONAL    | Agent capabilities: frontend, messaging, or both (Section 3.3). |
 | `healthcheck` | Healthcheck | OPTIONAL    | Health check configuration.                                            |
 | `inputs`      | Input[]     | OPTIONAL    | User-supplied inputs injected into the agent container.                |
 
@@ -132,9 +132,9 @@ Implementations SHOULD support both `test` (exec-based) and `path` (HTTP-based) 
 
 ### 3.3 Interfaces
 
-The `interfaces` object declares how users reach the agent. Both fields are booleans — the agent either has the capability or it doesn't. Deployment-time configuration (which messaging adapters to enable, domain routing, etc.) belongs in the deployment spec or `dev.interfaces`.
+The `interfaces` object declares how users reach the agent. Both fields are booleans indicating whether the agent has the capability. Deployment-time configuration (which messaging adapters to enable, domain routing, etc.) belongs in the deployment spec or `dev.interfaces`.
 
-Omitting `interfaces` entirely preserves backward compatibility — the platform defaults to messaging enabled.
+Omitting `interfaces` entirely preserves backward compatibility; the platform defaults to messaging enabled.
 
 | Field       | Type    | Required | Description                                                                       |
 | ----------- | ------- | -------- | --------------------------------------------------------------------------------- |
@@ -163,14 +163,14 @@ interfaces:
 
 Models, knowledge stores, and integrations share a unified provider binding scheme. Each entry operates in exactly one of two modes:
 
-- **Provider mode** — the entry specifies a `provider` string. The platform resolves this to either a self-hosted provider (deploys a container from its registry) or a cloud provider (injects credentials).
-- **Container mode** — the entry specifies a `container` object. The user manages the image, port, and configuration.
+- **Provider mode**: the entry specifies a `provider` string. The platform resolves this to either a self-hosted provider (deploys a container from its registry) or a cloud provider (injects credentials).
+- **Container mode**: the entry specifies a `container` object. The user manages the image, port, and configuration.
 
 These modes are **mutually exclusive**: an entry MUST specify exactly one of `provider` or `container`. Providing both or neither is invalid.
 
 ### 4.1 Models
 
-The `models` section declares AI models the agent consumes — LLMs (e.g. Claude, GPT, Llama), embedding models, or any model served behind an inference API. Each entry in the `models` map:
+The `models` section declares AI models the agent consumes: LLMs (e.g. Claude, GPT, Llama), embedding models, or any model served behind an inference API. Each entry in the `models` map:
 
 | Field       | Type            | Required    | Description                                                                             |
 | ----------- | --------------- | ----------- | --------------------------------------------------------------------------------------- |
@@ -267,7 +267,7 @@ An `Input` declares a user-supplied value that the platform prompts for at deplo
 | `default`     | string   | OPTIONAL     | Default value pre-filled in the UI.                                                                        |
 | `optional`    | boolean  | OPTIONAL     | If `true`, the input MAY be omitted at deploy time. Default: `false`.                                      |
 
-The `datatype` field controls validation and type coercion applied before injection. `secret` is orthogonal to datatype — it controls storage and logging: when `true`, the platform stores the value securely and never logs it. The `display-as` field controls UI rendering: `short-text` renders a single-line field, `long-text` a multi-line field, and `select` a dropdown using `options`.
+The `datatype` field controls validation and type coercion applied before injection. `secret` is orthogonal to datatype and controls storage and logging: when `true`, the platform stores the value securely and never logs it. The `display-as` field controls UI rendering: `short-text` renders a single-line field, `long-text` a multi-line field, and `select` a dropdown using `options`.
 
 ---
 
@@ -277,7 +277,7 @@ The `providers` section extends the platform's built-in provider registry with u
 
 Each variable's `name` is a **suffix**. The full env var key is formed as `{UPPER(provider)}_{varName}`, following the same rule as §8.1. Duplicate-entry handling also mirrors §8.1: when multiple entries reference the same custom provider, each entry gets a qualified key; the primary entry also gets the bare key.
 
-Custom providers can be referenced by name from the `models`, `knowledge`, and `integrations` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
+Custom providers can be referenced by name from the `models`, `knowledge`, and `integrations` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider; the platform MUST reject references from sections not listed in `scope`.
 
 | Field       | Type               | Required     | Description                                                                                             |
 | ----------- | ------------------ | ------------ | ------------------------------------------------------------------------------------------------------- |
@@ -305,10 +305,10 @@ The `ingestion` section declares data ingestion pipelines. Each entry is a conta
 
 Trigger type semantics:
 
-- **`schedule`** — runs on a cron schedule. The cron expression is supplied at deploy time.
-- **`startup`** — runs once automatically at deploy time.
-- **`manual`** — runs on demand via API invocation.
-- **`webhook`** — deploys as a long-running service that receives incoming HTTP requests. The container SHOULD declare a `port` when using this trigger type.
+- **`schedule`**: runs on a cron schedule. The cron expression is supplied at deploy time.
+- **`startup`**: runs once automatically at deploy time.
+- **`manual`**: runs on demand via API invocation.
+- **`webhook`**: deploys as a long-running service that receives incoming HTTP requests. The container SHOULD declare a `port` when using this trigger type.
 
 ---
 
@@ -384,7 +384,7 @@ Each entry gets a name-qualified key:
 
 Additionally, a "primary" entry also receives the bare `{UPPER(provider)}_{suffix}` key for convenience. The primary entry is the one whose name matches the provider (e.g. an entry named `anthropic` using `provider: anthropic`); if no entry name matches, the first alphabetically is primary.
 
-When the entry name equals the provider name, the redundant qualified form (e.g. `ANTHROPIC_ANTHROPIC_API_KEY`) is omitted — only the bare key is produced.
+When the entry name equals the provider name, the redundant qualified form (e.g. `ANTHROPIC_ANTHROPIC_API_KEY`) is omitted and only the bare key is produced.
 
 Examples (single entry):
 - `models.primary` with `provider: anthropic` → `ANTHROPIC_API_KEY`
@@ -441,7 +441,7 @@ Inputs are user-supplied values prompted at deploy time. Each input's `name` is 
 | `integrations[].inputs` | Integration container |
 | `ingestion[].inputs` | Ingestion container |
 
-`providers[].variables` is a template only — it declares what variables a provider requires so the platform can prompt for them at deploy time.
+`providers[].variables` is a template only; it declares what variables a provider requires so the platform can prompt for them at deploy time.
 
 Example: `inputs: [{name: OPENAI_API_KEY, datatype: secret}]` → `OPENAI_API_KEY` in the target container.
 

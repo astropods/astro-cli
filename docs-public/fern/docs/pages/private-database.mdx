@@ -15,7 +15,7 @@ Both options below satisfy step 1. Choose based on your infrastructure.
 
 ## Option 1: IP allowlisting
 
-Agents egress through a fixed set of NAT Gateway Elastic IPs. Allowlisting these IPs in your firewall or VPN policy is the fastest path — no AWS account or infrastructure changes required on your side.
+Agents egress through a fixed set of NAT Gateway Elastic IPs. Allowlisting these IPs in your firewall or VPN policy is the fastest path, requiring no AWS account or infrastructure changes on your side.
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,7 @@ flowchart LR
 
 <Steps>
   <Step title="Get Astro's egress IPs">
-    All agent workloads egress through the following static Elastic IPs. These are fixed — they do not change unless we announce it:
+    All agent workloads egress through the following static Elastic IPs. These are fixed and do not change unless we announce it:
 
     | IP | CIDR |
     |---|---|
@@ -43,16 +43,16 @@ flowchart LR
 
     | Setup | Where to add the rule |
     |---|---|
-    | AWS RDS / Aurora | Security group inbound rule — TCP on your DB port from each IP (`/32`) |
-    | GCP Cloud SQL | Authorized networks — add each IP with `/32` mask |
-    | Azure Database | Firewall rules — one rule per IP |
-    | Self-hosted (on-prem) | Firewall / VPN policy — allow TCP from each IP to your DB host and port |
+    | AWS RDS / Aurora | Security group inbound rule: TCP on your DB port from each IP (`/32`) |
+    | GCP Cloud SQL | Authorized networks: add each IP with `/32` mask |
+    | Azure Database | Firewall rules: one rule per IP |
+    | Self-hosted (on-prem) | Firewall / VPN policy: allow TCP from each IP to your DB host and port |
     | Corporate VPN with split tunneling | Add Astro's IPs to your VPN's allowed-source list for the DB subnet |
 
     Use the port your database listens on. Common defaults: PostgreSQL `5432`, MySQL `3306`, MSSQL `1433`, MongoDB `27017`, Redis `6379`. Check your database's documentation if you're unsure.
   </Step>
   <Step title="Declare the connection string in astropods.yml">
-    Use `inputs` with `secret: true` so credentials are stored encrypted and never logged. The example below uses PostgreSQL — adjust the variable names and connection logic to match your database:
+    Use `inputs` with `secret: true` so credentials are stored encrypted and never logged. The example below uses PostgreSQL; adjust the variable names and connection logic to match your database:
 
     ```yaml
     spec: package/v1
@@ -78,7 +78,7 @@ flowchart LR
     postgresql://user:password@your-db-host.internal:5432/mydb?sslmode=require
     ```
 
-    The format and client library will differ for other databases — refer to your database driver's documentation. In your agent code, read the value from the environment:
+    The format and client library will differ for other databases; refer to your database driver's documentation. In your agent code, read the value from the environment:
 
     ```python
     import os
@@ -99,7 +99,7 @@ flowchart LR
 
 ## Option 2: AWS PrivateLink
 
-If your database (or a proxy in front of it) runs in an AWS VPC and your security policy does not allow inbound connections from public IPs, you can establish an AWS PrivateLink connection. Traffic flows entirely within the AWS backbone — it never touches the public internet.
+If your database (or a proxy in front of it) runs in an AWS VPC and your security policy does not allow inbound connections from public IPs, you can establish an AWS PrivateLink connection. Traffic flows entirely within the AWS backbone and never touches the public internet.
 
 **How it works:**
 
@@ -123,7 +123,7 @@ flowchart LR
     In your AWS VPC, create an internal Network Load Balancer (NLB) that targets your database instance on its port. If your database is already behind a load balancer, you can skip this step.
   </Step>
   <Step title="Create a VPC Endpoint Service">
-    Create a VPC Endpoint Service pointing to the NLB. In the AWS Console go to **VPC → Endpoint Services → Create endpoint service**, select your NLB, and note the generated service name — it looks like:
+    Create a VPC Endpoint Service pointing to the NLB. In the AWS Console go to **VPC → Endpoint Services → Create endpoint service**, select your NLB, and note the generated service name, which looks like:
 
     ```
     com.amazonaws.vpce.us-east-1.vpce-svc-xxxxxxxxxxxxxxxxx
@@ -143,16 +143,16 @@ flowchart LR
     We'll authorize your account and create an Interface VPC Endpoint on our side.
   </Step>
   <Step title="Use the endpoint hostname in your connection string">
-    Once Astro confirms the connection is live, we'll send you a private DNS hostname for the endpoint. Use that as your database host in `DATABASE_URL` — then follow step 3 from Option 1 above to declare it in `astropods.yml`.
+    Once Astro confirms the connection is live, we'll send you a private DNS hostname for the endpoint. Use that as your database host in `DATABASE_URL`, then follow step 3 from Option 1 above to declare it in `astropods.yml`.
   </Step>
 </Steps>
 
 <Note>
-PrivateLink requires the same `astropods.yml` input configuration as IP allowlisting (step 3 above) — only the network path differs.
+PrivateLink requires the same `astropods.yml` input configuration as IP allowlisting (step 3 above). Only the network path differs.
 </Note>
 
 ---
 
 ## Verifying the connection
 
-The fastest way to confirm connectivity is to have your agent attempt a connection on startup and log the result before doing any real work. The exact approach depends on your database driver. If the agent starts successfully after deploy, the network path is clear. If it times out, the IPs are not yet allowlisted or the PrivateLink endpoint is not routing correctly — double-check the firewall rules and reach out to [support@astropods.com](mailto:support@astropods.com).
+The fastest way to confirm connectivity is to have your agent attempt a connection on startup and log the result before doing any real work. The exact approach depends on your database driver. If the agent starts successfully after deploy, the network path is clear. If it times out, the IPs are not yet allowlisted or the PrivateLink endpoint is not routing correctly; double-check the firewall rules and reach out to [support@astropods.com](mailto:support@astropods.com).

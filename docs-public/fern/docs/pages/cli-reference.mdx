@@ -8,55 +8,232 @@ Full reference for the `ast` CLI. See [CLI overview](/cli) for global flags and 
 
 ---
 
-## create
+## account
 
-Scaffold a new Astropods agent project.
+Manage accounts. All platform resources are scoped to the active account.
 
 ```bash
-ast create <name> [flags]
+ast account <subcommand>
+```
+
+### account list
+
+List all accounts you belong to. The active account is marked with a check.
+
+```bash
+ast account list
+```
+
+### account switch
+
+Set the active account. Omit the name for an interactive selector. Use `-` to switch back to the previously active account.
+
+```bash
+ast account switch [name]
+ast account switch -
+```
+
+---
+
+## agent
+
+Manage deployed agents in the active account.
+
+```bash
+ast agent <subcommand>
+```
+
+### agent list
+
+```bash
+ast agent list [--json]
+```
+
+### agent get
+
+```bash
+ast agent get <name> [--json]
+```
+
+### agent pause / resume
+
+```bash
+ast agent pause <name> [--id <deployment-id>]
+ast agent resume <name> [--id <deployment-id>]
+```
+
+### agent redeploy
+
+Re-deploy an existing agent in-place. Accepts the same `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, and `--json` flags as `blueprint deploy`. If `--adapter` is omitted, the adapter defaults to `web`; pass `--adapter` explicitly to preserve or change a non-web setup.
+
+```bash
+ast agent redeploy <name> [flags]
+```
+
+### agent restart
+
+```bash
+ast agent restart <name> --component agent [--id <deployment-id>]
+```
+
+### agent logs
+
+```bash
+ast agent logs <name> --container app|messaging [--tail] [--id <deployment-id>]
+```
+
+`--tail` streams logs continuously after fetching the last 15 minutes.
+
+### agent delete
+
+```bash
+ast agent delete <name> [--confirm <name>]
+```
+
+Prompts for confirmation. Pass `--confirm <name>` to skip the prompt.
+
+### agent history
+
+```bash
+ast agent history <name> [--json]
+```
+
+---
+
+## blueprint
+
+Manage blueprints in the active account.
+
+```bash
+ast blueprint <subcommand>
+```
+
+### blueprint list
+
+```bash
+ast blueprint list [--json]
+```
+
+### blueprint get
+
+```bash
+ast blueprint get <name> [--json] [--card]
+```
+
+`--card` shows the agent description.
+
+### blueprint deploy
+
+Deploy a blueprint as a new agent. Alias: `ast deploy <name>`.
+
+```bash
+ast blueprint deploy <name> [flags]
+ast deploy <name> [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-n, --name <display-name>` | Display name for the deployment |
+| `--adapter web\|insecure-web\|slack` | Adapter to enable (repeatable); defaults to `web` with auth |
+| `--var KEY=VALUE` | Inline variable; `KEY=@SECRET_NAME` resolves from the vault; `KEY=@` uses the key name as the secret name |
+| `--vars-file <file>` | Load variables from a `.env` file |
+| `--build <id>` | Pin to a specific build ID |
+| `--dry-run` | Validate inputs without deploying |
+| `--json` | Print JSON output on success |
+
+### blueprint build
+
+Build the container image for a blueprint. Alias: `ast build`.
+
+```bash
+ast blueprint build [name] [flags]
+ast build [name] [flags]
+```
+
+If `[name]` is omitted, the name is read from `astropods.yml`.
+
+| Flag | Description |
+|------|-------------|
+| `-f, --file <path>` | Path to spec file (default: `astropods.yml`) |
+
+### blueprint push
+
+Build and push to the registry. Alias: `ast push`.
+
+```bash
+ast blueprint push [name] [flags]
+ast push [name] [flags]
+```
+
+The `[name]` argument sets the blueprint name in the registry and overrides the `name` field in `astropods.yml`. If omitted, the name is read from `astropods.yml`.
+
+| Flag | Description |
+|------|-------------|
+| `--visibility public\|private` | Set blueprint visibility (default: private) |
+| `--no-build` | Skip building the container image before pushing |
+| `--allow-account-override` | Push under the active account even if the spec name has a different account prefix |
+| `-f, --file <path>` | Path to spec file (default: `astropods.yml`) |
+
+### blueprint archive
+
+Archive a blueprint so it no longer appears in listings.
+
+```bash
+ast blueprint archive <name>
+```
+
+---
+
+## project
+
+Manage the local agent project development environment. Alias: `ast dev`.
+
+```bash
+ast project <subcommand>
+ast dev <subcommand>
+```
+
+### project create
+
+Create a new agent harness. Alias: `ast create`.
+
+```bash
+ast project create [name] [flags]
+ast create [name] [flags]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `-y, --yes` | Accept all defaults, skip prompts |
 | `-p, --path <dir>` | Parent directory for the project |
-| `-l, --lang <lang>` | Language template (default: `ts`) |
+| `-t, --template <name>` | Agent template: `mastra` (default) or `langchain` |
+| `-m, --model <provider>` | LLM provider: `anthropic`, `openai`, or `ollama[/<model>]` |
 | `--force` | Overwrite existing directory |
 
-Creates a new directory named `<name>` with a scaffolded agent project including `astropods.yml`, `Dockerfile`, and starter source code.
+### project configure
 
----
-
-## configure
-
-Set API keys and credentials for the current project.
+Set credentials and variables for the current project. Alias: `ast configure`.
 
 ```bash
+ast project configure [flags]
 ast configure [flags]
 ```
 
-Interactive wizard to add or update credentials (LLM keys, Slack tokens, etc.) required by `astropods.yml`. Use this instead of editing `.env` directly.
+Run without flags for an interactive form. Reads `astropods.yml` to determine required variables and stores values in `~/.ast/project-configs.json`, which is loaded automatically by `project start`.
 
----
+| Flag | Description |
+|------|-------------|
+| `--var KEY=VALUE` | Set a variable (repeatable) |
+| `--rm-var KEY` | Remove a stored variable (repeatable) |
+| `--vars-file <file>` | Import variables from a `.env` file |
+| `--out env\|json` | Print stored variables instead of prompting |
 
-## dev
+### project start
 
-Manage the local development environment.
-
-```bash
-ast dev [subcommand] [flags]
-```
-
-Running `ast dev` with no subcommand starts the dev environment.
-
-### Subcommands
-
-#### start
-
-Start local dev containers with hot-reload.
+Start local dev containers. Alias: `ast dev start`.
 
 ```bash
-ast dev start [flags]
+ast project start [flags]
 ```
 
 | Flag | Description |
@@ -65,24 +242,131 @@ ast dev start [flags]
 | `--rebuild` | Force rebuild all containers without cache |
 | `--no-pull` | Use only local images; skip pulling |
 
-Edit your agent source and it restarts automatically. Run `ast configure` to set API keys (e.g. `ANTHROPIC_API_KEY`).
+### project logs
 
-#### logs
-
-Tail container logs.
+Tail container logs. Alias: `ast dev logs`.
 
 ```bash
-ast dev logs [service]
+ast project logs [service]
 ```
 
-`service` defaults to `agent`. Pass a service name (e.g. `astro-messaging`) to tail a specific container.
+Defaults to the agent container. Pass a service name (e.g. `astro-messaging`) to tail a specific container. Use `--all` to tail all services.
 
-#### stop
+### project stop
 
-Stop and remove dev containers.
+Stop and remove dev containers. Alias: `ast dev stop`.
 
 ```bash
-ast dev stop
+ast project stop
+```
+
+---
+
+## secrets
+
+Manage account secrets and plain variables. Alias: `ast secret`.
+
+```bash
+ast secrets <subcommand>
+```
+
+### secrets list
+
+```bash
+ast secrets list [--values] [--json]
+```
+
+`--values` shows values for plain (non-secret) variables.
+
+### secrets create
+
+```bash
+ast secrets create <name> [--value <val>] [--plain] [--description <text>] [--overwrite]
+```
+
+Prompts for value when `--value` is omitted. Use `--plain` to store as a readable variable instead of an encrypted secret.
+
+### secrets update
+
+```bash
+ast secrets update <name> [--value <val>] [--plain] [--description <text>]
+```
+
+### secrets get
+
+```bash
+ast secrets get <name> [--json]
+```
+
+### secrets delete
+
+```bash
+ast secrets delete <name>
+```
+
+### secrets import
+
+Import variables from a file (e.g., `.env`). Blank values are skipped. Existing variables are skipped unless `--overwrite` is set.
+
+```bash
+ast secrets import --file <path> [--plain] [--plain-keys KEY1,KEY2] [--overwrite]
+```
+
+---
+
+## settings
+
+Control CLI settings.
+
+```bash
+ast settings <subcommand>
+```
+
+### settings update
+
+Enable or disable anonymous telemetry.
+
+```bash
+ast settings update --telemetry on|off
+```
+
+### settings bash / zsh / fish / powershell
+
+Write a shell completion script to `~/.ast/<binary>-completion.<shell>` and print sourcing instructions.
+
+```bash
+ast settings bash
+ast settings zsh
+ast settings fish
+ast settings powershell
+```
+
+---
+
+## spec
+
+Validate and explain `astropods.yml` spec files. The `--file/-f` flag is available on all `spec` subcommands.
+
+```bash
+ast spec <subcommand> [-f path/to/astropods.yml]
+```
+
+### spec validate
+
+Validate `astropods.yml` against the spec schema.
+
+```bash
+ast spec validate [-f <file>]
+```
+
+Checks YAML syntax, JSON schema conformance, and semantic rules. Exit code `0` on success, making it suitable for CI.
+
+### spec explain
+
+Print a human-readable explanation of the agent defined in `astropods.yml`.
+
+```bash
+ast spec explain [-f <file>]
 ```
 
 ---
@@ -98,21 +382,9 @@ ast docs [category]
 | Category | Content |
 |----------|---------|
 | `agent` (default) | Agent development guide |
-| `help` | CLI help — installation, quick start, commands, spec |
+| `help` | CLI help: installation, quick start, commands, spec |
 
 Alias: `ast doc`
-
----
-
-## explain
-
-Print a human-readable explanation of the agent defined in `astropods.yml`.
-
-```bash
-ast explain [flags]
-```
-
-Uses the global `--file` flag to locate the spec. Useful for quickly understanding what an agent does and how it is configured.
 
 ---
 
@@ -121,14 +393,10 @@ Uses the global `--file` flag to locate the spec. Useful for quickly understandi
 Authenticate with the Astro AI platform.
 
 ```bash
-ast login [flags]
+ast login [--no-browser]
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--no-browser` | Print the verification URL instead of opening it |
-
-Initiates Authorization Flow. After completing the browser flow, credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication) for details.
+`--no-browser` prints the verification URL instead of opening it. Credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication).
 
 ---
 
@@ -137,38 +405,10 @@ Initiates Authorization Flow. After completing the browser flow, credentials are
 Clear stored credentials.
 
 ```bash
-ast logout [flags]
+ast logout [--all]
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--all` | Log out from all profiles |
-
-Without `--all`, clears credentials for the current profile only.
-
----
-
-## push
-
-Build and push the agent to the Astropods registry.
-
-```bash
-ast push [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--public` | Make the blueprint publicly visible to everyone |
-| `--private` | Keep the blueprint private (default) |
-| `--skip-build` | Skip building containers before pushing |
-| `--skip-push` | Skip pushing images to the registry |
-| `--skip-register` | Skip registering the spec with the server |
-| `--server <url>` | Override the Astro AI server URL |
-| `--registry <url>` | Override the registry URL |
-| `--no-auth` | Skip authentication (not recommended) |
-| `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64`) |
-
-By default, `push` builds containers, pushes images to the Astropods registry, and registers the agent spec with the server. Blueprints default to private. Pass `--public` to make a blueprint visible to everyone; you will be prompted to confirm. If a blueprint is already public and no visibility flag is given, it remains public. Requires an account and [`ast login`](/authentication) first.
+`--all` clears credentials for all profiles.
 
 ---
 
@@ -177,37 +417,17 @@ By default, `push` builds containers, pushes images to the Astropods registry, a
 Upgrade the CLI to the latest version.
 
 ```bash
-ast upgrade [flags]
+ast upgrade [--force]
 ```
 
-| Flag | Description |
-|------|-------------|
-| `--force` | Skip version check and always download |
-
-Downloads the latest binary from the Astro AI server and replaces the current installation.
-
----
-
-## validate
-
-Validate `astropods.yml` against the spec schema.
-
-```bash
-ast validate [flags]
-```
-
-Checks YAML syntax, JSON schema conformance, and semantic rules (required fields, mutual exclusions, etc.). Uses the global `--file` flag to locate the spec.
-
-Exit code `0` on success, non-zero on validation failure — suitable for use in CI.
+`--force` skips the version check and always downloads.
 
 ---
 
 ## whoami
 
-Display the currently authenticated user.
+Display the currently authenticated user and active account.
 
 ```bash
 ast whoami
 ```
-
-Prints the user name, email, account, user ID, and token expiration.

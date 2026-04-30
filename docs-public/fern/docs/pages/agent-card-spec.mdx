@@ -9,7 +9,7 @@ slug: agent-card-spec
 
 ## Abstract
 
-An agent card is a UTF-8 encoded Markdown file with YAML frontmatter that serves as the public-facing documentation for an agent. It is purely descriptive — it communicates what an agent is and what it can do but does not drive any functional behavior (deployment, visibility, etc.), which remains the responsibility of `astropods.yml`.
+An agent card is a UTF-8 encoded Markdown file with YAML frontmatter that serves as the public-facing documentation for an agent. It is purely descriptive and communicates what an agent is and what it can do, but does not drive any functional behavior (deployment, visibility, etc.), which remains the responsibility of `astropods.yml`.
 
 The file is named `AGENT.md` and lives at the root of the agent's project directory, alongside `astropods.yml`. It is submitted to the registry during `ast push`.
 
@@ -29,8 +29,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 An agent card is a UTF-8 encoded Markdown file consisting of two parts:
 
-1. **Frontmatter** — A YAML block delimited by `---` lines at the top of the file. Contains structured metadata for discovery and attribution.
-2. **Body** — Free-form GitHub-Flavored Markdown (GFM) following the frontmatter. Contains human-readable documentation.
+1. **Frontmatter**: A YAML block delimited by `---` lines at the top of the file. Contains structured metadata for discovery and attribution.
+2. **Body**: Free-form GitHub-Flavored Markdown (GFM) following the frontmatter. Contains human-readable documentation.
 
 Both parts are OPTIONAL. A valid agent card MAY be an empty file, a file with only frontmatter, or a file with only a Markdown body (no `---` delimiters).
 
@@ -218,10 +218,10 @@ The platform maintains a registry of known integrations, each with an `id`, `nam
 
 The body is free-form GitHub-Flavored Markdown (GFM). There is no required structure, but authors SHOULD cover:
 
-- **Overview** — What the agent does and why it exists.
-- **Usage** — How to interact with the agent (APIs, protocols, chat, etc.).
-- **Limitations** — Known constraints, failure modes, or scope boundaries.
-- **Examples** — Sample interactions or outputs.
+- **Overview**: What the agent does and why it exists.
+- **Usage**: How to interact with the agent (APIs, protocols, chat, etc.).
+- **Limitations**: Known constraints, failure modes, or scope boundaries.
+- **Examples**: Sample interactions or outputs.
 
 ---
 

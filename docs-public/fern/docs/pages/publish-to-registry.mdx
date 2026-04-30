@@ -1,43 +1,34 @@
 ---
 title: Push to registry
-subtitle: Log in and push your agent to the Astro AI registry
+subtitle: Log in and push your agent to the Astropods registry
 slug: publish-to-registry
 ---
 
-Pushing your agent to the Astro AI registry requires an account and authentication. If you don't have an account, [sign up](https://astropods.com/signup).
+See [Your first blueprint](/blueprints) for the full push walkthrough.
+
+Pushing your agent to the Astropods registry requires an account and authentication. If you don't have one, [sign up](https://astropods.com/signup).
 
 ## 1. Log in
-
-Authenticate with your Astro AI account:
 
 ```bash
 ast login
 ```
 
-Complete the browser flow to link the CLI to your account. See [Authentication](/authentication) for details.
-
 ## 2. Push
 
-From your agent project directory, push to the registry:
+From your agent project directory, push the blueprint under a name:
 
 ```bash
-ast push
+ast blueprint push <name>
 ```
 
-Your agent is then available in your account. By default, blueprints are **private**, visible only to you.
+The name sets how the blueprint appears in the registry and does not need to match the `name` in `astropods.yml`. Blueprints are **private** by default.
 
 ### Visibility
 
-To make your blueprint publicly visible to everyone on the Astro AI catalog, pass `--public`:
-
 ```bash
-ast push --public
+ast blueprint push <name> --visibility public   # publish to the catalog
+ast blueprint push <name> --visibility private  # keep private
 ```
 
-You will be prompted to confirm before the blueprint is made public. To explicitly keep it private:
-
-```bash
-ast push --private
-```
-
-If a blueprint is already public and you push without a visibility flag, the public visibility is preserved automatically. Changing visibility in either direction always prompts for confirmation.
+You will be prompted to confirm when changing visibility.

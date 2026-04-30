@@ -45,21 +45,28 @@ hide-nav-links: true
     icon="duotone rocket"
     href="/get-started"
   >
-    Install the CLI, create an agent, and run locally in three steps
+    Create an agent, configure it, and run it locally in three steps
   </Card>
   <Card
-    title="Make your agent discoverable"
-    icon="duotone id-card"
-    href="/agent-card"
+    title="Your first blueprint"
+    icon="duotone cube"
+    href="/blueprints"
   >
-    Describe your agent with an AGENT.md file for discovery and display
+    Build and push your agent to the registry with `ast blueprint push`
   </Card>
   <Card
-    title="Publish to registry"
-    icon="duotone cloud-arrow-up"
-    href="/publish-to-registry"
+    title="Deploy your first agent"
+    icon="duotone bolt"
+    href="/deploy-agent"
   >
-    Log in and push your agent to the Astro AI registry (requires account)
+    Run a blueprint as a live hosted agent with `ast blueprint deploy`
+  </Card>
+  <Card
+    title="Managing secrets"
+    icon="duotone lock"
+    href="/secrets"
+  >
+    Store API keys in the account vault and reference them at deploy time
   </Card>
   <Card
     title="Authentication"
@@ -72,18 +79,27 @@ hide-nav-links: true
 
 ## Concepts
 
-- **Astropods Spec** — Declarative YAML format (<code>astropods.yml</code>) that describes an agent's topology: container, models, knowledge stores, tools, and ingestion. See [Astropods Spec](/astropods-package-spec).
-- **Agent Card** — A Markdown file with YAML frontmatter (<code>AGENT.md</code>) that describes what an agent does, who built it, and what it connects to. See [Make your agent discoverable](/agent-card).
-- **Agent** — A deployable unit defined by an <code>astropods.yml</code> spec: container image, models, knowledge stores, tools, and integrations.
-- **Registry** — Astro AI registry where agent images and spec artifacts are published.
+- **Project**: A local agent codebase with an `astropods.yml` spec. Use `ast project create` to create an agent harness, `ast project configure` to set credentials, and `ast project start` to run it locally.
+- **Astropods Spec**: Declarative YAML format (`astropods.yml`) that describes an agent's topology: container image, models, knowledge stores, tools, and ingestion pipelines. See [Astropods Spec](/astropods-package-spec).
+- **Blueprint**: A versioned snapshot of a project pushed to the Astropods registry. Created with `ast blueprint push <name>`. The same project can produce multiple blueprints under different names (e.g. staging vs. production).
+- **Agent**: A live, running instance of a blueprint deployed on the platform. Created with `ast blueprint deploy <name>`. Managed with `ast agent` commands.
+- **Account**: The scope for all platform resources. Blueprints, agents, and secrets belong to an account. Use `ast account switch` to work across personal and org accounts.
+- **Secrets**: Encrypted credentials stored in the account vault with `ast secrets`. Referenced at deploy time as `KEY=@SECRET_NAME`.
+- **Agent Card**: A Markdown file with YAML frontmatter (`AGENT.md`) that controls how a blueprint appears in the catalog: description, tags, authors, and integrations. See [Make your agent discoverable](/agent-card).
 
 ## Next steps
 
 <Steps>
   <Step title="Install the CLI">
-    Run <code>curl -fsSL https://astropods.com/install | sh</code> or see [Install the CLI](/install-cli).
+    [Install the CLI](/install-cli) for your platform.
   </Step>
-  <Step title="Create and run an agent">
-    Follow [Your first project](/get-started): <code>ast create hello-astro</code>, then <code>cd hello-astro && ast dev</code>.
+  <Step title="Run an agent locally">
+    [Your first project](/get-started): create an agent harness, configure it, and run it locally.
+  </Step>
+  <Step title="Publish a blueprint">
+    [Your first blueprint](/blueprints): push your project to the registry.
+  </Step>
+  <Step title="Deploy a live agent">
+    [Deploy your first agent](/deploy-agent): run a blueprint as a hosted agent.
   </Step>
 </Steps>

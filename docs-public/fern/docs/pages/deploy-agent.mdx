@@ -1,0 +1,75 @@
+---
+title: Deploy your first agent
+subtitle: Run a blueprint as a live hosted agent
+slug: deploy-agent
+---
+
+**Deploying** takes a blueprint from the registry and runs it as a live agent on the Astropods platform. The agent gets a web endpoint and optional integrations (Slack, etc.) based on the adapter you choose.
+
+Requires a blueprint in your account. See [Your first blueprint](/blueprints) to push one.
+
+<Steps>
+  <Step title="Deploy a blueprint">
+    ```bash
+    ast blueprint deploy <name>
+    ```
+
+    `<name>` is the blueprint name (as shown in `ast blueprint list`). By default the agent is accessible via a web interface with authentication enabled.
+
+    Give the deployment a custom display name:
+
+    ```bash
+    ast blueprint deploy my-agent --name "My Production Agent"
+    ```
+  </Step>
+  <Step title="Supply required variables">
+    Most agents require API keys or credentials at deploy time. Pass them inline:
+
+    ```bash
+    ast blueprint deploy my-agent --var ANTHROPIC_API_KEY=@ANTHROPIC_API_KEY
+    ```
+
+    The `@SECRET_NAME` syntax references a value from your [account vault](/secrets). You can also pass a literal value:
+
+    ```bash
+    ast blueprint deploy my-agent --var REGION=us-east-1
+    ```
+
+    Or load from a file:
+
+    ```bash
+    ast blueprint deploy my-agent --vars-file .env.prod
+    ```
+
+    Use `--dry-run` to validate inputs without actually deploying:
+
+    ```bash
+    ast blueprint deploy my-agent --var ANTHROPIC_API_KEY=@ANTHROPIC_API_KEY --dry-run
+    ```
+  </Step>
+  <Step title="View your deployed agents">
+    ```bash
+    ast agent list
+    ```
+
+    Shows all running agents in the active account with their status and deployment ID.
+  </Step>
+</Steps>
+
+---
+
+## Adapters
+
+An **adapter** controls how your agent is exposed to the world. Each adapter adds an interface (a web endpoint, a Slack bot, or both). You choose adapters at deploy time with `--adapter`; the default is `web` with authentication.
+
+| Adapter | Description |
+|---------|-------------|
+| `web` | Web interface with OIDC authentication (default) |
+| `insecure-web` | Web interface with no authentication; use only in trusted environments |
+| `slack` | Slack bot integration |
+
+`web` and `insecure-web` are mutually exclusive. `slack` can be combined with either.
+
+---
+
+Once your agent is running, see [Managing your agents](/managing-agents) for how to inspect, update, and control it.

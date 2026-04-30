@@ -1,49 +1,80 @@
 ---
-title: Your first Astropods project
+title: Your first project
 subtitle: Create and run your first agent locally
 slug: get-started
 ---
 
-Go from zero to a running agent in three steps. Have the [CLI installed](/install-cli) and Docker ready. You can also [try a pre-built agent](#try-a-pre-built-agent).
+Go from zero to a running agent in four steps. Have the [CLI installed](/install-cli) and Docker ready.
 
 <Steps>
   <Step title="Create an agent">
-    Scaffold a new project:
+    Create a new agent harness:
 
     ```bash
-    ast create
+    ast project create
+    ```
+
+    The wizard asks for a name, LLM provider, and agent interface. Pass `--yes` to accept defaults, or `--model` to skip the provider step:
+
+    ```bash
+    ast project create my-agent --yes --model anthropic
     ```
   </Step>
-  <Step title="Configure your agent">
-    Set all the inputs needed for your agent (e.g. `ANTHROPIC_API_KEY`):
+  <Step title="Build your agent logic">
+    The agent harness includes starter source code, `astropods.yml`, and two files that describe the project to coding agents:
+
+    - **`AGENTS.md`**: explains the project structure, the spec format, and the conventions for writing a proper Astropods agent. Any coding agent (Claude Code, Copilot, Cursor, etc.) can read this to understand how to implement and extend your agent correctly.
+    - **`CLAUDE.md`**: Claude Code-specific instructions for working in this project.
+
+    You can write your agent logic manually, or open the project in a coding agent and let it do the heavy lifting:
 
     ```bash
-    ast configure
+    cd my-agent
+    claude   # Claude Code reads CLAUDE.md and AGENTS.md automatically
+    ```
+
+    Tell it what your agent should do and it will implement the logic, update the spec, and add any required inputs.
+  </Step>
+  <Step title="Configure your agent">
+    Set credentials and API keys required by your agent (e.g. `ANTHROPIC_API_KEY`):
+
+    ```bash
+    ast project configure
+    ```
+
+    The interactive form reads `astropods.yml` and prompts for each required variable. Values are stored locally and loaded automatically when you start the project. To set a variable non-interactively:
+
+    ```bash
+    ast project configure --var ANTHROPIC_API_KEY=sk-...
     ```
   </Step>
   <Step title="Run your agent locally">
-    To enable hot reload, add the following to your spec:
+    Start the local development environment:
+
+    ```bash
+    ast project start
+    ```
+
+    Containers start in the background. Tail logs with `ast project logs` and stop with `ast project stop`.
+
+    To enable hot reload, add a `dev` block to `astropods.yml`:
 
     ```yaml
     dev:
       command: bun --watch agent/index.ts
     ```
 
-    Then start your agent:
-
-    ```bash
-    ast dev
-    ```
-  </Step>
-  <Step title="Publish your agent">
-    When you're ready to publish to the Astropods registry:
-
-    ```bash
-    ast login
-    ast push
-    ```
+    Your agent restarts automatically whenever you save a source file.
   </Step>
 </Steps>
+
+---
+
+## Next steps
+
+- [Your first blueprint](/blueprints): build and push your agent to the registry
+- [Deploy your first agent](/deploy-agent): run a blueprint as a live hosted agent
+- [Managing secrets](/secrets): store API keys in the account vault
 
 ---
 
@@ -51,19 +82,18 @@ Go from zero to a running agent in three steps. Have the [CLI installed](/instal
 
 ## Try a pre-built agent
 
-We have built and shared several agents in the [astropods/agents](https://github.com/astropods/agents) open-source repo. You can try any of them with <code>ast dev</code>. Here's an example:
-
-**GitHub Issue Analyzer** — Ingests GitHub issues from a repo into a Neo4j knowledge graph, enriches them with OpenAI analysis (categories, solutions, workarounds), and answers questions via Cypher queries and comment summarization. Requires `GITHUB_TOKEN` and `OPENAI_API_KEY`.
+**hello-astro** is the simplest possible Astropods agent (no configuration required). Use it to verify your local setup and as a starting point for understanding the project structure.
 
 ```bash
 git clone https://github.com/astropods/agents.git
-cd agents/github-issue-analyzer
-ast configure   # set required API keys
-ast dev
+cd agents/hello-astro
+ast project start
 ```
 
----
+Once it's running locally you can push it to the registry and deploy it as a live agent:
 
-## More commands
-
-Run `ast --help` to see all available commands.
+```bash
+ast login
+ast blueprint push hello-astro
+ast blueprint deploy hello-astro
+```

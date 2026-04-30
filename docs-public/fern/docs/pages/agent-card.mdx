@@ -4,9 +4,9 @@ subtitle: Find and deploy your agent with an AGENT.md file
 slug: agent-card
 ---
 
-When you publish an agent to the registry, other users see it on browse pages, search results, and detail pages. An **agent card** (`AGENT.md`) controls what they see — a description, tags for filtering, author attribution, capability badges, and integration icons.
+When you publish an agent to the registry, other users see it on browse pages, search results, and detail pages. An **agent card** (`AGENT.md`) controls what they see: a description, tags for filtering, author attribution, capability badges, and integration icons.
 
-Create an `AGENT.md` file at the root of your project (next to `astropods.yml`). It's published automatically when you run `ast push`.
+Create an `AGENT.md` file at the root of your project (next to `astropods.yml`). It's published automatically when you run `ast blueprint push`.
 
 ## Quick example
 
@@ -52,10 +52,10 @@ natural-language querying over the resulting data.
 
 An agent card has two parts:
 
-1. **Frontmatter** — A YAML block between `---` delimiters at the top of the file. Powers structured UI elements like tags, author links, and integration icons.
-2. **Body** — Free-form Markdown after the frontmatter. Rendered as the main content on your agent's detail page.
+1. **Frontmatter**: A YAML block between `---` delimiters at the top of the file. Powers structured UI elements like tags, author links, and integration icons.
+2. **Body**: Free-form Markdown after the frontmatter. Rendered as the main content on your agent's detail page.
 
-Both parts are optional — even a file with just a description in the frontmatter improves discoverability. For the full format specification, see the [Agent Card Spec](/agent-card-spec).
+Both parts are optional; even a file with just a description in the frontmatter improves discoverability. For the full format specification, see the [Agent Card Spec](/agent-card-spec).
 
 ---
 
@@ -156,9 +156,9 @@ integrations:
 ---
 ```
 
-Matching is case-insensitive — `slack`, `Slack`, and `SLACK` all resolve the same way.
+Matching is case-insensitive: `slack`, `Slack`, and `SLACK` all resolve the same way.
 
-Integrations declared in your `astropods.yml` (via the `integrations` section with a `provider` field) are automatically derived and displayed on your agent's detail page. Use the agent card to declare additional integrations that aren't in the spec — for example, services your agent calls directly using user-supplied credentials.
+Integrations declared in your `astropods.yml` (via the `integrations` section with a `provider` field) are automatically derived and displayed on your agent's detail page. Use the agent card to declare additional integrations that aren't in the spec, such as services your agent calls directly using user-supplied credentials.
 
 Each integration string is matched against a list of known integrations (Slack, GitHub, Jira, Notion, Linear, Google Drive, Discord, Microsoft Teams, and many more). Known integrations are displayed with brand icons. Any string that doesn't match a known integration is displayed with a generic icon and the original text as a label.
 
@@ -170,10 +170,10 @@ For the full list, see [Known Integrations](/known-integrations).
 
 The Markdown body below the frontmatter is rendered as the main content on your agent's detail page. There's no required structure, but consider covering:
 
-- **Overview** — What the agent does and why it exists.
-- **Usage** — How to interact with the agent (APIs, chat, scheduled tasks, etc.).
-- **Limitations** — Known constraints or scope boundaries.
-- **Examples** — Sample interactions or outputs.
+- **Overview**: What the agent does and why it exists.
+- **Usage**: How to interact with the agent (APIs, chat, scheduled tasks, etc.).
+- **Limitations**: Known constraints or scope boundaries.
+- **Examples**: Sample interactions or outputs.
 
 A well-written body helps users evaluate whether your agent fits their needs before they deploy it.
 
@@ -181,13 +181,23 @@ A well-written body helps users evaluate whether your agent fits their needs bef
 
 ## Publishing your agent card
 
-Your agent card is published automatically with `ast push` — no extra flags needed. The CLI reads `AGENT.md` from your project root and includes it in the registration payload.
+Your agent card is published automatically with `ast blueprint push` with no extra flags needed. The CLI reads `AGENT.md` from your project root and includes it in the registration payload.
 
 ```bash
-ast push
+ast blueprint push <name>
 ```
 
 If you update your `AGENT.md`, push again and the changes appear immediately on your agent's detail page.
+
+## Previewing your agent card
+
+After pushing, view the rendered card from the CLI:
+
+```bash
+ast blueprint get <name> --card
+```
+
+This prints the agent description, tags, authors, capabilities, and integrations as they appear on the catalog page.
 
 ---
 
@@ -225,4 +235,4 @@ meta:
   visibility: public
 ```
 
-Existing agents without an `AGENT.md` continue to work — the `meta.description` and `meta.tags` fields are still read as a fallback. This may change in the future. See the [Agent Card Spec](/agent-card-spec) for full details on field behavior and normalization.
+Existing agents without an `AGENT.md` continue to work; the `meta.description` and `meta.tags` fields are still read as a fallback. This may change in the future. See the [Agent Card Spec](/agent-card-spec) for full details on field behavior and normalization.

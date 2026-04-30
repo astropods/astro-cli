@@ -4,7 +4,7 @@ subtitle: Log in and manage credentials for the Astro AI CLI and API
 slug: authentication
 ---
 
-Authentication links the CLI and API to your Astro AI account. You need it to push agents to the registry, access private deployments, and call protected endpoints. Sign in with <code>ast login</code> — an account is required. If you don't have one, [sign up](https://astropods.com/signup).
+Authentication links the CLI and API to your Astro AI account. You need it to push agents to the registry, access private deployments, and call protected endpoints. Sign in with <code>ast login</code> (an account is required). If you don't have one, [sign up](https://astropods.com/signup).
 
 ## How it works
 
@@ -25,25 +25,13 @@ Tokens are stored in the system keyring when available (macOS Keychain, Linux Se
 | `ast logout --all` | Clear all stored credentials |
 | `ast whoami` | Show current user and account info |
 
-## Credential storage
-
-- **Directory:** `~/.astro/`
-- **File:** `credentials.json` holds profile metadata. Tokens are in the keyring when available, or in this file as fallback.
-- **Profile:** Default profile is `default`. Use the `--server` flag on commands (e.g. `ast push`) to override the API server URL.
-
 ## Token lifecycle
 
-- **Access token** — Short-lived (~1 hour), used for API requests.
-- **Refresh token** — Long-lived; used to obtain new access tokens.
+- **Access token**: Short-lived (~1 hour), used for API requests.
+- **Refresh token**: Long-lived; used to obtain new access tokens.
 
 The CLI refreshes the access token automatically when it is close to expiry.
 
-## API authentication
+## Next steps
 
-Authenticated API requests use a Bearer token in the `Authorization` header:
-
-```
-Authorization: Bearer <access_token>
-```
-
-Obtain the token via the CLI login flow or from your credential store.
+After logging in you can switch between accounts. See [Working with accounts](/accounts).

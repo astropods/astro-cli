@@ -1,0 +1,65 @@
+---
+title: Working with accounts
+subtitle: Understand account scoping and switch between accounts
+slug: accounts
+---
+
+Every platform resource (blueprints, deployed agents, and secrets) belongs to an **account**. When you log in, you get a personal account. If you are a member of one or more organizations, those appear as additional accounts.
+
+All CLI commands that interact with the platform operate on the **active account**. Switch accounts to work with a different set of resources.
+
+## List accounts
+
+Show all accounts you belong to:
+
+```bash
+ast account list
+```
+
+The active account is marked with a check. For example:
+
+```
+✓ alice (personal)
+  my-org
+  another-org
+```
+
+## Switch accounts
+
+Switch interactively by running the command with no arguments:
+
+```bash
+ast account switch
+```
+
+Or switch directly by name:
+
+```bash
+ast account switch my-org
+```
+
+Use `-` to go back to the previously active account:
+
+```bash
+ast account switch -
+```
+
+## Check the active account
+
+```bash
+ast whoami
+```
+
+Prints the current user, email, active account, and token expiration.
+
+## Account scoping
+
+The following resources are scoped per account:
+
+| Resource | Command |
+|----------|---------|
+| Blueprints | `ast blueprint` |
+| Deployed agents | `ast agent` |
+| Secrets and variables | `ast secrets` |
+
+Switching accounts with `ast account switch` takes effect immediately; the next command you run will use the new account.

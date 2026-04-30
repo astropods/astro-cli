@@ -1,10 +1,10 @@
 ---
 title: CLI overview
-subtitle: The ast CLI — create, develop, and deploy agents from your terminal
+subtitle: Create, develop, and deploy agents from your terminal with the ast CLI
 slug: cli
 ---
 
-The Astro AI CLI (`ast`) is the primary tool for working with agents locally and pushing them to the Astro AI platform. It handles project scaffolding, local development, building containers, and deploying to the registry.
+The Astro AI CLI (`ast`) is the primary tool for working with agents locally and publishing them to the Astro AI platform. It handles creating agent harnesses, local development, building containers, deploying to the registry, and managing running agents.
 
 ## Installation
 
@@ -18,19 +18,7 @@ ast --version
 
 ## Configuration file
 
-Most commands read `astropods.yml` in the current directory. This file defines your agent's spec — its name, interface, models, tools, knowledge bases, and other configuration.
-
-Override the file path with the global `--file` flag:
-
-```bash
-ast --file path/to/astropods.yml <command>
-```
-
-Generate a JSON Schema for editor autocompletion:
-
-```bash
-ast schema > .ast/schema.json
-```
+Most commands read `astropods.yml` in the current directory. This file defines your agent's spec: its name, interface, models, tools, knowledge bases, and other configuration.
 
 ## Global flags
 
@@ -38,7 +26,6 @@ These flags are available on all commands:
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--file <path>` | `-f` | Path to spec file (default: `astropods.yml`) |
 | `--verbose` | `-v` | Verbose output |
 | `--quiet` | `-q` | Minimal output |
 | `--version` | | Print the CLI version |
@@ -46,18 +33,32 @@ These flags are available on all commands:
 
 ## Workflow overview
 
-A typical development workflow uses these commands in sequence:
+A typical workflow from zero to a deployed agent:
 
-1. **[`ast create`](/cli-reference#create)** — scaffold a new agent project
-2. **[`ast dev`](/cli-reference#dev)** — run the agent locally with hot-reload
-3. **[`ast validate`](/cli-reference#validate)** — check `astropods.yml` for errors
-4. **[`ast push`](/cli-reference#push)** — build and push to the Astro AI platform
+1. **[`ast project create`](/cli-reference#project-create)**: create a new agent harness
+2. **[`ast project configure`](/cli-reference#project-configure)**: set required credentials and variables
+3. **[`ast project start`](/cli-reference#project-start)**: run the agent locally with hot-reload
+4. **[`ast spec validate`](/cli-reference#spec-validate)**: check `astropods.yml` for errors
+5. **[`ast push`](/cli-reference#blueprint-push)**: build and push a blueprint to the registry
+6. **[`ast blueprint deploy`](/cli-reference#blueprint-deploy)**: deploy the blueprint as a live hosted agent
 
 Authentication is handled separately with [`ast login`](/authentication).
 
+## Command groups
+
+| Group | Description |
+|-------|-------------|
+| `ast project` | Local development: create, configure, start, stop, logs |
+| `ast blueprint` | Registry: push, deploy, list, get |
+| `ast agent` | Running agents: list, pause, resume, logs, redeploy, delete |
+| `ast secrets` | Account vault: create, list, update, delete, import |
+| `ast account` | Account management: list, switch |
+| `ast spec` | Spec tools: validate, explain |
+| `ast settings` | CLI settings: telemetry, shell completions |
+
 ## Next steps
 
-- [CLI reference](/cli-reference) — full command and flag documentation
-- [Your first project](/get-started) — step-by-step guide
-- [Publish to registry](/publish-to-registry) — log in and push (requires account)
-- [Authentication](/authentication) — manage credentials
+- [CLI reference](/cli-reference): full command and flag documentation
+- [Your first project](/get-started): step-by-step local development guide
+- [Your first blueprint](/blueprints): build and push to the registry
+- [Deploy your first agent](/deploy-agent): run a blueprint as a live agent
