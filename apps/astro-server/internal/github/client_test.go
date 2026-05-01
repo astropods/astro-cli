@@ -128,7 +128,7 @@ func TestClient_GetBranchHead_HTTPError(t *testing.T) {
 func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
-		if q != "user:testuser" {
+		if q != "user:testuser fork:true" {
 			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
 			return
 		}
@@ -160,7 +160,7 @@ func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 func TestClient_SearchRepos_WithQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
-		if q != "user:testuser agent in:name" {
+		if q != "user:testuser fork:true agent in:name" {
 			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
 			return
 		}

@@ -100,6 +100,7 @@ func (c *Client) GetLogin(ctx context.Context) (string, error) {
 // login scopes results to user:{login}; if empty, GetLogin is called first.
 // With an empty query it returns all repos sorted by push date; with a query it
 // filters by name using the in:name qualifier.
+// fork:true is included so forked repos (which the user owns) are not excluded by default.
 // Note: the Search API does not return permissions objects reliably, so admin
 // filtering is skipped — non-admin repos will fail at webhook installation time.
 func (c *Client) SearchRepos(ctx context.Context, query, login string) ([]Repo, error) {
@@ -113,10 +114,10 @@ func (c *Client) SearchRepos(ctx context.Context, query, login string) ([]Repo, 
 
 	var q, sort string
 	if query == "" {
-		q = fmt.Sprintf("user:%s", login)
+		q = fmt.Sprintf("user:%s fork:true", login)
 		sort = "pushed"
 	} else {
-		q = fmt.Sprintf("user:%s %s in:name", login, query)
+		q = fmt.Sprintf("user:%s fork:true %s in:name", login, query)
 		sort = "updated"
 	}
 
