@@ -42,7 +42,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const ownerAccounts = new Set(accounts.map((a) => a.name));
 
   return (
-    <PageContainer outerClassName="bg-stone-100 dark:bg-muted">
+    <PageContainer outerClassName="bg-background">
       <PageHeader
         title="Blueprints"
         description="Agent configurations available to deploy in your account."

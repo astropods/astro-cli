@@ -7,7 +7,7 @@ const C = {
   bgDeep: "var(--muted)",
   border: "var(--border)",
   teal: "var(--primary)",
-  tealMid: "var(--color-teal-600)",
+  tealMid: "var(--primary)",
   muted: "var(--muted-foreground)",
   text: "var(--foreground)",
   faint: "var(--faint-foreground)",

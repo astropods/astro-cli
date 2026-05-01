@@ -55,7 +55,7 @@ function AccountProfileContent() {
   const deployments = deploymentsData?.deployments ?? [];
 
   return (
-    <div className="flex flex-1 flex-col p-6 md:p-8">
+    <div className="flex flex-1 flex-col bg-background p-6 md:p-8">
       <div className="flex items-center gap-4">
         <UserAvatar handle={data.name} name={data.display_name || data.name} className="size-16" />
         <div>

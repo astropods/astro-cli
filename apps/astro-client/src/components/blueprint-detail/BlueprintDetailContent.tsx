@@ -19,14 +19,14 @@ function CodeBlock({ command, label }: { command: string; label?: string }) {
   return (
     <div>
       {label && <p className="text-muted-foreground mb-1.5 text-xs">{label}</p>}
-      <div className="flex items-center justify-between gap-3 rounded-[4px] border border-stone-200 bg-white px-4 py-3 font-mono text-mono-md text-foreground">
+      <div className="flex items-center justify-between gap-3 rounded-[4px] border border-border bg-card px-4 py-3 font-mono text-mono-md text-foreground">
         <code className="overflow-x-auto whitespace-nowrap text-foreground">
           <span className="mr-2">$</span>
           {command}
         </code>
         <CopyButton
           copyText={command}
-          className="shrink-0 border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-100 hover:text-stone-700"
+          className="shrink-0 border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
         />
       </div>
     </div>
@@ -49,9 +49,9 @@ function StepNumber({ n, isLast = false }: { n: number; isLast?: boolean }) {
 function YmlBlock({ content }: { content: string }) {
   return (
     <div className="overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-      <div className="flex items-center justify-between border-b border-border-strong bg-stone-200 px-4 py-2 dark:bg-muted/30">
+      <div className="flex items-center justify-between border-b border-border-strong bg-muted px-4 py-2">
         <span className="text-[11px] leading-4 font-mono text-muted-foreground">astropods.yml</span>
-        <CopyButton copyText={content} className="border-stone-300/60 bg-transparent text-stone-500 hover:border-stone-400/60 hover:bg-stone-300/40 hover:text-stone-700" />
+        <CopyButton copyText={content} className="border-border/60 bg-transparent text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground" />
       </div>
       <pre className="overflow-x-auto px-4 py-3 font-mono text-xs leading-relaxed text-foreground">{content}</pre>
     </div>
@@ -105,7 +105,7 @@ export function BlueprintDetailContent({
       {/* Draft: FINISH SETTING UP — hidden when a build exists or readme is available */}
       {isDraft && !readme && !hasBuild && (
         <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-          <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
+          <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-muted px-4 py-2.5">
             <div className="flex items-center gap-2">
               {githubRepoName
                 ? <GitHubIcon className="h-3.5 w-3.5 text-muted-foreground" />
@@ -187,7 +187,7 @@ export function BlueprintDetailContent({
                     </div>
                     <p className="text-muted-foreground mt-2 text-xs">
                       This creates your project locally. Fill in your{" "}
-                      <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-teal-600 transition-colors">
+                      <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-primary transition-colors">
                         agent.md<ArrowUpRight className="size-3" />
                       </Link>{" "}and configure your agent before pushing.
                     </p>
@@ -212,7 +212,7 @@ export function BlueprintDetailContent({
           </div>
 
           {/* Need more support? */}
-          <div className="flex items-center justify-between gap-6 border-t border-border-strong bg-stone-50 px-6 py-4 dark:bg-muted/20">
+          <div className="flex items-center justify-between gap-6 border-t border-border-strong bg-card px-6 py-4">
             <div>
               <p className="text-sm font-semibold">Need more support?</p>
               <p className="text-muted-foreground text-xs">Resources to help you build and deploy your agent.</p>
@@ -238,7 +238,7 @@ export function BlueprintDetailContent({
       {/* README — shown even while draft when AGENT.md content is available */}
       {readme && (
         <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-          <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
+          <div className="flex items-center gap-2 border-b border-border-strong bg-muted px-4 py-2.5">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
               ReadMe

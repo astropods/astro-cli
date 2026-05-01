@@ -81,6 +81,7 @@ export default function Onboarding() {
   );
 
   return (
+    <div className="flex flex-col flex-1 bg-background">
     <div className="mx-auto max-w-[480px] px-6 pt-20">
       <h1 className="text-heading-1 mb-2">Set up your account</h1>
       <p className="text-muted-foreground mb-8 leading-relaxed">
@@ -146,6 +147,7 @@ export default function Onboarding() {
           {createAccount.isPending ? 'Creating...' : 'Get started'}
         </Button>
       </form>
+    </div>
     </div>
   );
 }

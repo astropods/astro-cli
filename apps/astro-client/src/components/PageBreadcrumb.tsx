@@ -44,7 +44,7 @@ export function PageBreadcrumb({ items, mobileItems, actions, mobileActions }: P
   const resolvedMobileItems = mobileItems ?? items;
 
   return (
-    <div className="sticky top-0 z-10 flex min-h-[52px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-stone-300 bg-surface px-6 py-2 dark:border-border">
+    <div className="sticky top-0 z-10 flex min-h-[52px] flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-background px-6 py-2">
       <div className="hidden sm:flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-mono-sm tracking-normal text-muted-foreground">
         <BreadcrumbTrail items={items} />
       </div>

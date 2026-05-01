@@ -219,7 +219,7 @@ describe('stats', () => {
 });
 
 describe('reveal overlay after deploy', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   function renderDashboardWithReveal(revealState: Record<string, string | null>) {
     return renderRoute(
       [

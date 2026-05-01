@@ -312,7 +312,7 @@ export function ActiveDetailView({
                     isLockedMonitor
                       ? "cursor-not-allowed opacity-65 text-faint-foreground border-b-transparent"
                       : tab === id
-                        ? "cursor-pointer font-medium text-foreground border-b-[var(--color-teal-600)]"
+                        ? "cursor-pointer font-medium text-foreground border-b-[var(--primary)]"
                         : "cursor-pointer font-normal text-faint-foreground border-b-transparent",
                   )}
                 >

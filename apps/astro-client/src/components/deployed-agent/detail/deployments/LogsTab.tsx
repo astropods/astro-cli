@@ -171,7 +171,7 @@ export function LogsTab({ deployment, isCompact, isVisible = true }: LogsTabProp
               className={cn(
                 "group flex items-center gap-1.5 font-sans text-heading-4 py-[11px] px-2.5 border-b transition-colors duration-150 cursor-pointer whitespace-nowrap",
                 isActive
-                  ? "font-medium text-foreground border-b-[var(--color-teal-600)]"
+                  ? "font-medium text-foreground border-b-[var(--primary)]"
                   : "font-normal text-faint-foreground border-b-transparent hover:text-foreground",
               )}
             >

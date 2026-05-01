@@ -44,7 +44,7 @@ export function DeployFormActionBar({
                 latestBuildId={latestBuildId}
                 stacked
                 availableLabel
-                className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
+                className="text-slate-700 bg-slate-50 border-slate-200 dark:text-slate-200 dark:bg-slate-800/40 dark:border-slate-600/30"
               />
             ) : (
               <span>{changeCount} pending {changeCount === 1 ? "update" : "updates"}</span>

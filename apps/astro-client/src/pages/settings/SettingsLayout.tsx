@@ -10,7 +10,7 @@ import {
 
 function SettingsContent() {
   return (
-    <div className="flex-1 overflow-y-auto bg-surface">
+    <div className="flex-1 overflow-y-auto bg-background">
       <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
         <SidebarLayout>
         <SidebarNav label="Settings" className="md:w-48">

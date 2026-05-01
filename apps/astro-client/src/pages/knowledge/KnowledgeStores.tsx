@@ -66,7 +66,7 @@ function KnowledgeStoresContent() {
   const tableHeaders = ["Name", "Status", "Provider", "Mode", "Storage", "Created"];
 
   return (
-    <PageContainer outerClassName="bg-stone-100 dark:bg-muted">
+    <PageContainer outerClassName="bg-background">
       <PageHeader
         title="Knowledge Stores"
         description="Account-level databases shared across agent deployments."

@@ -158,7 +158,7 @@ function GitHubSection() {
 
   return (
     <>
-      <div className="border border-border rounded-md">
+      <div className="border border-border rounded-md bg-card overflow-hidden">
         <div className="flex items-center justify-between gap-4 px-3 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <GitHubIcon className="size-5 shrink-0 text-foreground" aria-hidden />
@@ -195,7 +195,7 @@ function GitHubSection() {
         {connected && connections.length > 0 && (
           <div className="border-t border-border divide-y divide-border">
             {connections.map((c) => (
-              <div key={`${c.agent_name}:${c.repo_full_name}`} className="flex items-center gap-2.5 px-3 py-2.5 text-[12px]">
+              <div key={`${c.agent_name}:${c.repo_full_name}`} className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] bg-background">
                 <a
                   href={repoHref(c.repo_full_name)}
                   target="_blank"

@@ -19,7 +19,7 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
 
   return (
     <>
-      <Card className={cn("p-[12px_14px] relative", className)}>
+      <Card className={cn("p-[12px_14px] relative dark:bg-surface", className)}>
         <span className="mb-4 block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
           {label}
         </span>

@@ -63,7 +63,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, bestMatchName
           title="Insert vault reference"
           className={cn(
             'shrink-0 text-foreground border border-border transition-colors',
-            open && 'border-teal-600 text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40'
+            open && 'border-indigo-500 text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40'
           )}
         >
           <KeyIcon className="size-3.5" />
@@ -139,7 +139,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, bestMatchName
                         onClick={() => handleSelect(entry)}
                         className={cn(
                           "w-full flex items-center pl-2.5 pr-3 py-2 text-left hover:bg-muted/60 transition-colors border-l-2",
-                          isSelected ? "border-teal-500" : "border-transparent"
+                          isSelected ? "border-indigo-500" : "border-transparent"
                         )}
                       >
                         <div className="flex-1 min-w-0">
@@ -149,7 +149,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, bestMatchName
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="shrink-0 cursor-default" aria-label="Exact match">
-                                    <CaseSensitive className="size-3.5 text-teal-500 dark:text-teal-400" />
+                                    <CaseSensitive className="size-3.5 text-indigo-500 dark:text-indigo-400" />
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="top" sideOffset={4}>Exact match</TooltipContent>
@@ -204,15 +204,15 @@ export function VaultRefChip({ token, onClear, invalid, autoFillLabel, onAutoFil
     "group flex items-center rounded px-2 py-0.5 border transition-colors",
     invalid
       ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 hover:border-red-400"
-      : "border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 hover:border-teal-300"
+      : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:border-slate-300"
   )
   const textClass = cn(
     "font-mono text-xs font-medium",
-    invalid ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"
+    invalid ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-slate-300"
   )
   const iconClass = cn(
     "size-3 shrink-0",
-    invalid ? "text-red-500 dark:text-red-400" : "text-teal-500 dark:text-teal-400"
+    invalid ? "text-red-500 dark:text-red-400" : "text-slate-500 dark:text-slate-400"
   )
 
   return (

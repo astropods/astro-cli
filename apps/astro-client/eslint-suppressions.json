@@ -16,16 +16,6 @@
   },
   "src/components/BlueprintCard.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 8
-    }
-  },
-  "src/components/DeployedAgentCard.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/components/FilterInput.tsx": {
-    "local-theme/no-raw-theme-colors": {
       "count": 1
     }
   },
@@ -41,7 +31,7 @@
   },
   "src/components/OrgSwitcher.tsx": {
     "local-theme/no-raw-theme-colors": {
-      "count": 2
+      "count": 1
     }
   },
   "src/components/StyledMarkdown.tsx": {
@@ -52,11 +42,6 @@
   "src/components/blueprint-detail/BlueprintDetailBreadcrumb.tsx": {
     "local-theme/no-raw-theme-colors": {
       "count": 1
-    }
-  },
-  "src/components/blueprint-detail/BlueprintDetailContent.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 14
     }
   },
   "src/components/blueprint-detail/BuildLogViewer.tsx": {
@@ -77,11 +62,6 @@
       "count": 1
     }
   },
-  "src/components/dashboard/DashboardToolbar.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
   "src/components/deploy/InterfacesPicker.tsx": {
     "local-theme/no-raw-theme-colors": {
       "count": 2
@@ -97,11 +77,6 @@
       "count": 2
     },
     "react-hooks/rules-of-hooks": {
-      "count": 2
-    }
-  },
-  "src/components/deploy/VaultPicker.tsx": {
-    "local-theme/no-raw-theme-colors": {
       "count": 2
     }
   },
@@ -165,36 +140,6 @@
       "count": 5
     }
   },
-  "src/components/ui/button.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 10
-    }
-  },
-  "src/components/ui/copy-button.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/ui/input.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 4
-    }
-  },
-  "src/components/ui/multi-select.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/components/ui/sidebar-layout.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/ui/timezone-select.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
   "src/lib/blueprint-utils.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
@@ -235,39 +180,14 @@
       "count": 1
     }
   },
-  "src/pages/knowledge/KnowledgeStoreDetail/CredentialsCard.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/KnowledgeStoreDetail/EventTimeline.tsx": {
     "local-theme/no-raw-theme-colors": {
       "count": 2
     }
   },
-  "src/pages/knowledge/KnowledgeStoreDetail/KnowledgeStoreDetail.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/KnowledgeStoreDetail/OverviewTab.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/KnowledgeStoreDetail/SettingsPanel.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/NewKnowledgeStore/ConfigureForm.tsx": {
     "local-theme/no-raw-theme-colors": {
       "count": 3
-    }
-  },
-  "src/pages/knowledge/NewKnowledgeStore/ProviderList.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
     }
   },
   "src/pages/knowledge/NewKnowledgeStore/SuccessStage.tsx": {

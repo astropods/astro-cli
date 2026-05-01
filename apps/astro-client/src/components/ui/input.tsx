@@ -8,11 +8,11 @@ export const inputBase =
 
 /** Focus ring for native focusable elements (input, textarea, select). */
 export const inputFocusVisible =
-  "focus-visible:border-teal-600 focus-visible:ring-[3px] focus-visible:ring-[var(--input-focus-ring)] dark:focus-visible:border-teal-400"
+  "focus-visible:border-slate-600 focus-visible:ring-[3px] focus-visible:ring-[var(--input-focus-ring)] dark:focus-visible:border-slate-400"
 
 /** Focus ring for container elements that wrap a bare <input>. */
 export const inputFocusWithin =
-  "focus-within:border-teal-600 focus-within:ring-[3px] focus-within:ring-[var(--input-focus-ring)] dark:focus-within:border-teal-400"
+  "focus-within:border-slate-600 focus-within:ring-[3px] focus-within:ring-[var(--input-focus-ring)] dark:focus-within:border-slate-400"
 
 /** Validation ring for aria-invalid elements. */
 export const inputInvalid =

@@ -137,7 +137,7 @@ export function AppHeader() {
 
   if (isMobile) {
     return (
-      <header className="border-b border-border bg-surface">
+      <header className="border-b border-border bg-background">
         {/* Row 1: logo | explore | hamburger */}
         <div className="flex h-14 items-center gap-2 px-4">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -163,14 +163,13 @@ export function AppHeader() {
                     {item.label}
                   </ExternalOrNavLink>
                 ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="hidden min-[700px]:inline-flex px-0 text-[13px] font-normal text-muted-foreground hover:text-foreground"
+                <button
+                  type="button"
+                  className="hidden min-[700px]:block cursor-pointer whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
                   onClick={() => setFeedbackOpen(true)}
                 >
                   Feedback
-                </Button>
+                </button>
                 <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
               </>
             )}
@@ -307,7 +306,7 @@ export function AppHeader() {
                 cn(
                   "flex shrink-0 items-center whitespace-nowrap border-b-2 px-3 py-[11px] text-heading-4 transition-colors",
                   !item.external && isActive
-                    ? "border-[var(--color-teal-600)] font-medium text-foreground"
+                    ? "border-[var(--primary)] font-medium text-foreground"
                     : "border-transparent font-normal text-faint-foreground hover:text-foreground",
                 )
               }
@@ -321,7 +320,7 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-14 items-center border-b border-border bg-surface px-6">
+    <header className="flex h-14 items-center border-b border-border bg-background px-6">
       {/* Left: logo + nav links */}
       <div className="flex items-center gap-6">
         <Link to="/" className="flex shrink-0 items-center">
@@ -366,15 +365,14 @@ export function AppHeader() {
         ))}
         {(isAuthenticated || isLoading) && (
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="px-0 text-[13px] font-normal text-muted-foreground hover:text-foreground"
+            <button
+              type="button"
+              className="cursor-pointer whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
               onClick={() => setFeedbackOpen(true)}
               disabled={isLoading}
             >
               Feedback
-            </Button>
+            </button>
             <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           </>
         )}

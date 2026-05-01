@@ -31,7 +31,7 @@ export function CredentialsCard({ account, storeName }: { account: string; store
     return Object.entries(data).map(([key, value]) => (
       <SettingRow key={key} label={key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")} description={CREDENTIAL_DESCRIPTIONS[key]}>
         <div className="relative flex items-center">
-          <Input value={revealed[key] ? value : "••••••••••••"} readOnly className="pr-16 font-mono cursor-default bg-stone-100 focus-visible:ring-0 focus-visible:border-border" />
+          <Input value={revealed[key] ? value : "••••••••••••"} readOnly className="pr-16 font-mono cursor-default bg-slate-100 focus-visible:ring-0 focus-visible:border-border" />
           <div className="absolute right-2 flex items-center gap-1">
             <Button type="button" variant="ghost" size="icon" className="size-6 text-muted-foreground hover:text-foreground" onClick={() => setRevealed((r) => ({ ...r, [key]: !r[key] }))}>
               {revealed[key] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -45,7 +45,7 @@ export function CredentialsCard({ account, storeName }: { account: string; store
 
   return (
     <div className="rounded-md border border-border overflow-hidden divide-y divide-border">
-      <div className="flex items-center justify-between px-5 py-3 bg-stone-200 dark:bg-muted">
+      <div className="flex items-center justify-between px-5 py-3 bg-surface">
         <div>
           <h3 className="text-heading-4 text-foreground">Credentials</h3>
           <p className="mt-0.5 text-body-sm text-muted-foreground">Fetched securely on demand and not stored in your browser.</p>

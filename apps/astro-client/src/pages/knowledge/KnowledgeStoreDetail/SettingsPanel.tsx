@@ -16,9 +16,9 @@ export function SettingsPanel({ store, account }: { store: KnowledgeStore; accou
     <div className="max-w-2xl space-y-6">
       {store.mode === "managed" && (
         <div className="rounded-md border border-border overflow-hidden divide-y divide-border">
-          <div className="px-5 py-3 bg-stone-200 dark:bg-muted">
+          <div className="px-5 py-3 bg-surface">
             <h3 className="text-heading-4 text-foreground">Configuration</h3>
-            <p className="mt-0.5 text-body-sm text-muted-foreground">These settings can't be changed after creation. <a href="mailto:support@astropods.com" className="text-teal-700 underline">Contact us</a> if you need to make changes.</p>
+            <p className="mt-0.5 text-body-sm text-muted-foreground">These settings can't be changed after creation. <a href="mailto:support@astropods.com" className="text-primary dark:text-indigo-300 underline">Contact us</a> if you need to make changes.</p>
           </div>
           <SettingRow label="Storage">
             <span className="font-mono text-mono-sm text-foreground">{store.storage ?? "—"}</span>

@@ -52,7 +52,7 @@ function KnowledgeStoreDetailContent() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 bg-surface">
+      <div className="flex-1 bg-background">
         <div className="px-8 py-6 space-y-4">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-64 w-full rounded-md" />
@@ -63,7 +63,7 @@ function KnowledgeStoreDetailContent() {
 
   if (!store) {
     return (
-      <div className="flex-1 bg-surface">
+      <div className="flex-1 bg-background">
         <div className="px-8 py-6">
           <p className="text-body-sm text-muted-foreground">Knowledge store not found.</p>
           <Button asChild variant="outline" className="mt-4">
@@ -75,7 +75,7 @@ function KnowledgeStoreDetailContent() {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden relative bg-surface">
+    <div className="flex flex-1 min-h-0 overflow-hidden relative bg-background">
       <div className="flex flex-1 flex-col min-w-0 min-h-0">
 
         <PageBreadcrumb
@@ -97,7 +97,7 @@ function KnowledgeStoreDetailContent() {
           ]}
         />
 
-        <div className="bg-surface border-b border-border shrink-0 pt-6">
+        <div className="bg-background border-b border-border shrink-0 pt-6">
           <div className="mb-4 px-8">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mb-2.5">
@@ -125,7 +125,7 @@ function KnowledgeStoreDetailContent() {
                 {(store.public_host || store.arn) && (
                   <Chip>
                     <span className="font-mono text-mono-sm">{store.public_host || store.arn}</span>
-                    <CopyButton copyText={store.public_host || store.arn} className="size-4 p-0 shrink-0 border-0 bg-transparent shadow-none hover:bg-stone-200" iconClassName="size-3" />
+                    <CopyButton copyText={store.public_host || store.arn} className="size-4 p-0 shrink-0 border-0 bg-transparent shadow-none hover:bg-slate-200" iconClassName="size-3" />
                   </Chip>
                 )}
               </div>
@@ -142,7 +142,7 @@ function KnowledgeStoreDetailContent() {
                   "flex items-center gap-1.5 bg-transparent border-0 font-sans text-heading-4 py-[11px] px-4 border-b-2 transition-colors duration-150",
                   t.key === tabs.filter((x) => !x.hidden)[0]?.key && "pl-0",
                   tab === t.key
-                    ? "cursor-pointer font-medium text-foreground border-b-[var(--color-teal-600)]"
+                    ? "cursor-pointer font-medium text-foreground border-b-[var(--primary)]"
                     : "cursor-pointer font-normal text-faint-foreground border-b-transparent",
                 )}
               >

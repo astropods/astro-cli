@@ -127,7 +127,7 @@ function MobileNavDropdown({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           navItemBase,
-          "flex w-full items-center justify-between gap-2 bg-stone-200 text-foreground",
+          "flex w-full items-center justify-between gap-2 bg-slate-200 text-foreground",
         )}
       >
         <span className="truncate">{activeLabel ?? label ?? "Menu"}</span>
@@ -175,7 +175,7 @@ function getActiveLabel(
 
 const navItemBase =
   "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer";
-const navItemActive = "bg-stone-300 dark:bg-teal-900 text-foreground font-medium";
+const navItemActive = "bg-slate-200 dark:bg-slate-700 text-foreground font-medium";
 const navItemInactive = "text-muted-foreground font-normal hover:bg-muted/50 hover:text-foreground";
 
 type SidebarNavLinkProps = {

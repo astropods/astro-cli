@@ -12,8 +12,8 @@ function Switch({
       data-slot="switch"
       className={cn(
         "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-xs transition-colors outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        "bg-input data-[state=checked]:bg-teal-700",
-        "focus-visible:border-teal-700 focus-visible:ring-teal-700 focus-visible:ring-[2px] focus-visible:ring-offset-2",
+        "bg-input data-[state=checked]:bg-primary",
+        "focus-visible:border-ring focus-visible:ring-ring focus-visible:ring-[2px] focus-visible:ring-offset-2",
         className
       )}
       {...props}

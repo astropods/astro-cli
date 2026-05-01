@@ -94,7 +94,7 @@ function OrgSettingsContent() {
   const isAdmin = role === 'admin' || role === 'owner'
 
   return (
-    <div className="flex-1 overflow-y-auto bg-surface">
+    <div className="flex-1 overflow-y-auto bg-background">
       <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
         <SidebarLayout>
         <div className="flex w-full flex-col md:w-48 md:shrink-0">

@@ -32,7 +32,7 @@ export function DangerZoneItem({
     <Button
       variant="outline"
       size="sm"
-      className="shrink-0 border-destructive/40 bg-surface text-destructive hover:bg-destructive/[0.08] hover:text-destructive active:bg-destructive/15 active:text-destructive"
+      className="shrink-0 !border-destructive/40 bg-surface text-destructive hover:bg-destructive/[0.08] hover:text-destructive active:bg-destructive/15 active:text-destructive"
       onClick={onAction}
       disabled={disabled}
     >

@@ -32,17 +32,17 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
       {store.status !== "pending-acceptance" && <>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
-          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
-          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card" />
-          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} className="bg-white dark:bg-card"
-            description={metrics?.uptime_seconds != null ? <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground"><CheckCircleIcon className="size-3.5 shrink-0 text-teal-600" />No restarts detected</span> : undefined}
+          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} className="bg-card" />
+          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} className="bg-card" />
+          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} className="bg-card" />
+          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} className="bg-card"
+            description={metrics?.uptime_seconds != null ? <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground"><CheckCircleIcon className="size-3.5 shrink-0 text-success" />No restarts detected</span> : undefined}
           />
         </div>
 
-        <div className={cn("grid gap-8", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
-          <div className="rounded-md border border-border bg-white dark:bg-card overflow-hidden">
-            <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-stone-200 dark:bg-muted">
+        <div className={cn("grid gap-3", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
+          <div className="rounded-md border border-border bg-card overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface">
               <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
               <Tag>{store.bound_agents?.length ?? 0}</Tag>
             </div>
@@ -63,8 +63,8 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
           {store.mode === "managed" && (
             <div className="flex flex-col">
-              <div className="rounded-md border border-border bg-surface overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-stone-200 dark:bg-muted">
+              <div className="rounded-md border border-border bg-card overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-surface">
                   <h3 className="text-heading-4 text-foreground">Event log</h3>
                   <Button variant="ghost" size="sm" onClick={onViewLogs}>View logs</Button>
                 </div>

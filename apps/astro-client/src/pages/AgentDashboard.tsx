@@ -63,15 +63,7 @@ function AgentDashboardInner({ skeletonCount }: { skeletonCount: number }) {
   return (
     <>
       <PageContainer
-        outerClassName="bg-stone-100 dark:bg-muted"
-        style={
-          isAgentsEmpty
-            ? {
-                backgroundImage:
-                  "radial-gradient(ellipse 100% 55% at 50% 0%, color-mix(in oklch, var(--muted) 65%, transparent) 0%, transparent 50%)",
-              }
-            : undefined
-        }
+        outerClassName="bg-background"
       >
         <PageHeader
           title="Agents"

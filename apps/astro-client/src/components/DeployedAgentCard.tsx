@@ -142,8 +142,8 @@ export function DeployedAgentCard({
   }), [name, displayName, account, deploymentAvatarUrl, installedAt, deploymentId]);
 
   const cardClassName = cn(
-    "group relative flex flex-col gap-3 rounded-md border border-stone-400 dark:border-teal-800 bg-white dark:bg-teal-900/30 px-4 py-3 transition-all duration-150",
-    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-700" : "cursor-default opacity-70",
+    "group relative flex flex-col gap-3 rounded-md border border-border bg-card dark:bg-surface px-4 py-3 transition-all duration-150",
+    href ? "hover:border-primary/40 hover:shadow-md dark:hover:border-primary/50" : "cursor-default opacity-70",
     className,
   );
 
@@ -207,7 +207,7 @@ export function DeployedAgentCard({
           className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="min-w-0 flex-1 pr-6">
-          <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
+          <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-300">
             {displayName || name}
           </p>
           <div className="mt-1 flex items-center gap-2">

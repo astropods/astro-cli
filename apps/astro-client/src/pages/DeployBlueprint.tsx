@@ -84,7 +84,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
 
   if (isError || !agent) {
     return (
-      <div className="flex flex-col flex-1 bg-surface">
+      <div className="flex flex-col flex-1 bg-background">
         <div className="flex flex-col items-center justify-center py-16 px-6">
           <h1 className="text-xl font-semibold mb-3">Agent not found</h1>
           <p className="text-stone-500 text-sm mb-4">
@@ -100,7 +100,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
 
   if (agent.versions.length === 0) {
     return (
-      <div className="flex flex-col flex-1 bg-surface">
+      <div className="flex flex-col flex-1 bg-background">
         <div className="flex flex-col items-center justify-center py-16 px-6">
           <h1 className="text-xl font-semibold mb-3">Blueprint not ready</h1>
           <p className="text-stone-500 text-sm mb-4">
@@ -158,8 +158,8 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   };
 
   return (
-      <div className="flex flex-col flex-1 bg-surface">
-        <header className="sticky top-0 z-10 flex items-center justify-between px-6 min-h-[52px] bg-stone-200 border-b border-stone-300 dark:bg-background dark:border-border">
+      <div className="flex flex-col flex-1 bg-background">
+        <header className="sticky top-0 z-10 flex items-center justify-between px-6 min-h-[52px] bg-background border-b border-border">
           <div className="flex items-center gap-3">
             <Link
               to={`/${agent.account}/${agent.name}`}

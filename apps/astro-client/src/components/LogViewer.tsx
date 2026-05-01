@@ -177,7 +177,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
     <div className="flex flex-col h-full bg-surface border border-border rounded-[10px] overflow-hidden">
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-[9px] border-b border-border flex-shrink-0 flex-wrap bg-stone-200 dark:bg-muted">
+      <div className="flex items-center gap-2 px-4 py-[9px] border-b border-border flex-shrink-0 flex-wrap bg-surface">
         <div className="flex items-center gap-2">
           {leading}
           {FILTER_CONFIGS.map((f) => {

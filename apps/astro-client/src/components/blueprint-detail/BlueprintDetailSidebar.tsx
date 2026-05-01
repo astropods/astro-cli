@@ -67,7 +67,7 @@ export function SidebarCard({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-[4px] border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
+      <div className="rounded-[4px] border border-border-strong bg-slate-200 p-4 dark:bg-muted/30">
         {isDraft ? (
           <Button size="default" className="h-11 w-full" disabled>
             Deploy this agent

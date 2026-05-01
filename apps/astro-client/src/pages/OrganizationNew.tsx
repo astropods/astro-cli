@@ -82,6 +82,7 @@ function OrganizationNewContent() {
   );
 
   return (
+    <div className="flex flex-col flex-1 bg-background">
     <div className="mx-auto max-w-[480px] px-6 pt-20">
       <h1 className="text-heading-1 mb-2">Create an organization</h1>
       <p className="text-muted-foreground mb-8 leading-relaxed">
@@ -134,6 +135,7 @@ function OrganizationNewContent() {
             : "Create organization"}
         </Button>
       </form>
+    </div>
     </div>
   );
 }

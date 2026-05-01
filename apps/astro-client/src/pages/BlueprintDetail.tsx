@@ -44,9 +44,9 @@ function BuildSuccessOverlay({ account, name, onDismiss }: { account: string; na
           <div
             className="absolute left-0 right-0 h-[2px] opacity-80"
             style={{
-              background: "linear-gradient(90deg, transparent, var(--color-teal-500), transparent)",
+              background: "linear-gradient(90deg, transparent, var(--color-slate-500), transparent)",
               animation: "scanLine 2.5s ease-in-out infinite",
-              boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-teal-500) 30%, transparent)",
+              boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-slate-500) 30%, transparent)",
             }}
           />
         </div>
@@ -292,7 +292,7 @@ function BlueprintDetailInner({
   const authors = getBlueprintAuthors(effectiveBlueprint);
   const capabilities = getBlueprintCapabilities(effectiveBlueprint);
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-surface">
+    <div className="flex flex-col flex-1 min-h-0 bg-background">
       {showBuildSuccess && (
         <BuildSuccessOverlay
           account={blueprint.account}

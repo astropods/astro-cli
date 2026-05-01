@@ -20,7 +20,7 @@ function NewKnowledgeStoreContent() {
   const account = validStoredDefault || personalAccount?.name || "";
 
   return (
-    <div className="flex-1 bg-surface">
+    <div className="flex-1 bg-background">
       <PageBreadcrumb
         items={[
           { label: "Knowledge Stores", to: knowledgePath },

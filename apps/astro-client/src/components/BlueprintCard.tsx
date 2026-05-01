@@ -80,14 +80,14 @@ function generateFoldLines(slug: string): { position: number; rotation: number }
 }
 
 // className fragments shared by both draft and non-draft card treatments
-const cardVars = "[--card-neutral:oklch(97.76%_0.0106_194.137)] dark:[--card-neutral:#0a1614] [--card-contrast:black] dark:[--card-contrast:white] [--card-grid:rgb(255_255_255/0.5)] dark:[--card-grid:rgb(255_255_255/0.07)]";
+const cardVars = "[--card-neutral:oklch(98.42%_0.0034_247.858)] dark:[--card-neutral:oklch(18%_0.02_258)] [--card-contrast:black] dark:[--card-contrast:white] [--card-grid:rgb(255_255_255/0.5)] dark:[--card-grid:rgb(255_255_255/0.07)]";
 const cardAccentVars = "[--mix:var(--mix-base)] hover:[--mix:var(--mix-hover)] dark:[--mix:18%] dark:hover:[--mix:14%]";
-const cardBorder = "border-[0.5px] border-teal-25 dark:border-white/10";
+const cardBorder = "border-[0.5px] border-slate-100 dark:border-white/10";
 const gridOverlay = "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:bg-[length:8px_8px] before:bg-[linear-gradient(to_right,var(--card-grid)_0.5px,transparent_0.5px),linear-gradient(to_bottom,var(--card-grid)_0.5px,transparent_0.5px)]";
-const innerBorderBase = "after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-teal-25 dark:after:border-white/10";
-const innerBorderDashed = "after:pointer-events-none after:absolute after:inset-0 after:border after:border-dashed after:border-stone-300 dark:after:border-white/10";
+const innerBorderBase = "after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-slate-100 dark:after:border-white/10";
+const innerBorderDashed = "after:pointer-events-none after:absolute after:inset-0 after:border after:border-dashed after:border-slate-300 dark:after:border-white/10";
 const draftBorder = "";
-const draftVars = "[--card-neutral:rgb(255_255_255/0.25)] dark:[--card-neutral:rgb(0_0_0/0.25)]";
+const draftVars = "[--card-neutral:#fff] dark:[--card-neutral:oklch(22%_0.015_258)]";
 const fadeOverlayStyle = { background: "linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--card-neutral) 75%, transparent) 100%)" } as const;
 const contentShadowStyle = { textShadow: "0 0 5px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 10px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 16px color-mix(in srgb, var(--card-neutral) 80%, transparent)" } as const;
 
@@ -195,12 +195,12 @@ export function BlueprintCard({
           name={name}
           size={36}
           url={avatarUrl}
-          className="relative z-[1] size-9 shrink-0 overflow-hidden border-[0.5px] border-teal-25 dark:border-white/20 rounded-[3px]"
+          className="relative z-[1] size-9 shrink-0 overflow-hidden border-[0.5px] border-slate-100 dark:border-white/20 rounded-[3px]"
         />
         <div className="relative z-[1] flex min-w-0 flex-1 flex-col gap-1" style={contentShadowStyle}>
           <h3 className={cn(
             "truncate text-heading-4 text-foreground transition-colors",
-            hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-teal-500 dark:group-hover:text-teal-400"
+            hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-primary dark:group-hover:text-indigo-400"
           )}>
             {name}
           </h3>
@@ -230,7 +230,7 @@ export function BlueprintCard({
                 name={name}
                 size={36}
                 url={avatarUrl}
-                className="relative z-[1] size-9 shrink-0 overflow-hidden border-[0.5px] border-teal-25 dark:border-white/20 rounded-[3px]"
+                className="relative z-[1] size-9 shrink-0 overflow-hidden border-[0.5px] border-slate-100 dark:border-white/20 rounded-[3px]"
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -354,12 +354,12 @@ export function BlueprintCard({
             name={name}
             size={36}
             url={avatarUrl}
-            className="size-9 shrink-0 overflow-hidden border-[0.5px] border-teal-25 dark:border-white/20 rounded-[3px]"
+            className="size-9 shrink-0 overflow-hidden border-[0.5px] border-slate-100 dark:border-white/20 rounded-[3px]"
           />
           <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
             <h3 className={cn(
               "flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors",
-              hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-teal-500 dark:group-hover:text-teal-400"
+              hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-primary dark:group-hover:text-indigo-400"
             )}>
               <span className="truncate">{name}</span>
               {isDraft
@@ -372,7 +372,7 @@ export function BlueprintCard({
             </p>
           </div>
         </div>
-        <div className={cn("relative z-[1] mx-[5px] border-t dark:border-white/10", isDraft ? "border-dashed border-stone-300" : "border-teal-25")} />
+        <div className={cn("relative z-[1] mx-[5px] border-t dark:border-white/10", isDraft ? "border-dashed border-stone-300" : "border-slate-100")} />
         <div
           className={cn("relative z-[1] flex items-center justify-between px-4 py-2.5 pb-3.5")}
           style={hasAccent ? { color: `color-mix(in srgb, ${darkenedAccent} 70%, var(--card-contrast))` } : undefined}

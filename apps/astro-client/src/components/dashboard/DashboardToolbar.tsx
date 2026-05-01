@@ -64,11 +64,11 @@ export function DashboardToolbar({
         placeholder="Search agents..."
         value={filter}
         onChange={(e) => onFilterChange(e.target.value)}
-        containerClassName="w-full @[480px]:flex-1 @[480px]:max-w-lg h-8 !bg-white dark:!bg-background"
+        containerClassName="w-full @[480px]:flex-1 @[480px]:max-w-lg h-8 bg-card dark:bg-background"
       />
 
       <MultiSelect value={statusFilter} onValueChange={onStatusFilterChange}>
-        <MultiSelectTrigger className="h-8 w-full @[480px]:w-36 text-sm">
+        <MultiSelectTrigger className="h-8 w-full @[480px]:w-36 text-sm bg-card dark:bg-background">
           <MultiSelectValue
             options={STATUS_OPTIONS}
             placeholder="All statuses"
@@ -88,7 +88,7 @@ export function DashboardToolbar({
         value={sortBy}
         onValueChange={(v) => onSortChange(v as SortOption)}
       >
-        <SelectTrigger className="h-8 w-full @[480px]:w-36 px-3 text-sm !bg-white dark:!bg-background">
+        <SelectTrigger className="h-8 w-full @[480px]:w-36 px-3 text-sm bg-card dark:bg-background">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

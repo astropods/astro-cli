@@ -166,7 +166,7 @@ export function LiveRevealOverlay({
           <Button
             variant="default"
             onClick={onViewDeployment}
-            className="w-full gap-2 border-0 bg-teal-700 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
+            className="w-full gap-2 border-0"
           >
             View deployment <ArrowRight className="size-4" />
           </Button>

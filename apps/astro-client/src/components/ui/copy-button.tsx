@@ -26,7 +26,7 @@ export function CopyButton({ copyText, title = "Copy", resetMs, iconClassName = 
       }}
       className={className}
     >
-      {copied ? <CheckIcon className={cn("text-teal-600", iconClassName)} /> : <Square2StackIcon className={iconClassName} />}
+      {copied ? <CheckIcon className={cn("text-success", iconClassName)} /> : <Square2StackIcon className={iconClassName} />}
     </Button>
   );
 }

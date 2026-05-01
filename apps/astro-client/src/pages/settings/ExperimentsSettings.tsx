@@ -39,7 +39,7 @@ export default function ExperimentsSettings() {
         </p>
       </div>
 
-      <div className="rounded-md border border-border-strong bg-surface px-4">
+      <div className="rounded-md border border-border bg-surface px-4">
         <ExperimentRow
           title="Theming"
           description="Enable light, dark, and auto theme switching from the user menu."
