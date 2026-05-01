@@ -39,7 +39,14 @@ Everything the CLI needs to build and run the agent is driven by `astropods.yml`
 
 ### The `astropods.yml` file
 
-`astropods.yml` is the single source of truth for your agent. It declares:
+`astropods.yml` is the single source of truth for your agent. The `spec` field MUST be `blueprint/v1`:
+
+```yaml
+spec: blueprint/v1
+name: my-agent
+```
+
+It declares:
 
 - **agent** — Agent runtime: build (e.g. `context: .`, `dockerfile: Dockerfile`) or a pre-built `image`.
 - **models** (optional) — Self-hosted models.
@@ -100,7 +107,7 @@ ast project trigger <name>         # manually trigger an ingestion job
 
 The push command requires an Astropods account. Use `ast login` to get the required credentials.
 
-**Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. You can also set `meta.visibility` in `astropods.yml` to skip the prompt. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. If you change `meta.visibility` in the spec after the first push, the CLI will ask you to confirm the change.
+**Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. Visibility is managed via the platform UI or API — `meta.visibility` in the spec is deprecated and no longer used.
 
 After pushing, **navigate to the Astropods platform** to see your agent and deploy it. As an agent builder/operator, you’ll see it in your **operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack or call as an API.
 
