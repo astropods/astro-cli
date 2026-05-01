@@ -840,4 +840,54 @@ describe('useDeployForm knowledge binding wire format', () => {
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
     expect(captured[0].bindings).toEqual({ knowledge: {} });
   });
+
+  it('setSelectedAdapters preserves bindings seeded from the initial template response', async () => {
+    // Configure-flow contract: the first template response can already carry
+    // bindings.knowledge from the stored spec. The seeding effect hydrates
+    // knowledgeBindings, and the user's first interaction (e.g. toggling an
+    // adapter before touching bindings) must echo those ARNs back. If the
+    // seeding/ShapeTemplate/ApplyStoredBindingsToRequest contract drifts so
+    // that this reshape sends `bindings.knowledge: {}`, the server will wipe
+    // the user's stored bindings on first interaction.
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, deployment_id: 'dep-123' },
+    };
+    const seededResp = wrapTemplateResponse(tpl);
+    seededResp.bindings = {
+      knowledge: {
+        users: { arn: 'arn:knowledge:acct:users-store', name: 'users', provider: 'pg', status: 'ready' },
+        docs: { arn: 'arn:knowledge:acct:docs-store', name: 'docs', provider: 'pg', status: 'ready' },
+      },
+    };
+    const captured = captureTemplateRequests();
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', { initialTemplateResponse: seededResp }),
+      { wrapper },
+    );
+
+    // Wait for the seeding effect to hydrate knowledgeBindings before
+    // exercising setSelectedAdapters — otherwise the captured request would
+    // reflect the empty initial state, not the seeded one.
+    await waitFor(() => {
+      expect(result.current.knowledgeBindings).toEqual({
+        users: 'arn:knowledge:acct:users-store',
+        docs: 'arn:knowledge:acct:docs-store',
+      });
+    });
+
+    await act(async () => {
+      result.current.setSelectedAdapters(['web', 'slack']);
+    });
+
+    await waitFor(() => expect(captured.length).toBeGreaterThan(0));
+    expect(captured[0].bindings).toEqual({
+      knowledge: {
+        users: 'arn:knowledge:acct:users-store',
+        docs: 'arn:knowledge:acct:docs-store',
+      },
+    });
+  });
 });

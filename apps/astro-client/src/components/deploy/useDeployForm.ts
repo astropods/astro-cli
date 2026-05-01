@@ -350,6 +350,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
+  // bindings.knowledge is always emitted (even when empty) — see setKnowledgeBindings for why.
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
     reshapeTemplate({
@@ -587,6 +588,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     // POST template with all inputs to get the server-fulfilled spec.
+    // bindings.knowledge is always emitted (even when empty) — see setKnowledgeBindings for why.
     const req: TemplateRequest = {
       interfaces: buildInterfaces(),
       variables: variableInputs,
