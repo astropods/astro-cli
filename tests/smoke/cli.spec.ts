@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { CLI_STATE_FILE } from "./cli-state";
+import { envConfig } from "./env";
 
 // Tests must run serially: install before login.
 test.describe.configure({ mode: "serial" });
@@ -11,15 +12,14 @@ test.describe.configure({ mode: "serial" });
 // The install script hardcodes INSTALL_DIR="${HOME}/.ast/bin" with no override.
 // Shadow HOME with a temp dir so the binary lands there, never touching ~/.ast.
 const fakeHome = mkdtempSync(join(tmpdir(), "ast-home-"));
-const binaryName = process.env.ASTRO_ENV === "preview" ? "ast-preview" : "ast";
-const astBin = join(fakeHome, ".ast", "bin", binaryName);
+const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
 
 test.describe("CLI", () => {
 
   test("install — downloads ast to a sandboxed directory", async () => {
     console.log("fakeHome:", fakeHome);
 
-    const installHost = process.env.ASTRO_TEST_HOST ?? "https://astropods.com";
+    const installHost = process.env.ASTRO_TEST_HOST ?? envConfig.appBaseUrl;
     execSync(`curl -fsSL ${installHost}/install | sh`, {
       env: { ...process.env, HOME: fakeHome },
       stdio: "pipe",
@@ -35,12 +35,12 @@ test.describe("CLI", () => {
     const cli = spawn(astBin, ["login"], { env: { ...process.env, HOME: fakeHome } });
 
     // Parse the device URL from CLI output, e.g.:
-    // → Opening browser to: https://login.astropods.com/device?user_code=KZFS-NGLR
+    // → Opening browser to: https://<auth-host>/device?user_code=KZFS-NGLR
     const deviceUrl = await new Promise<string>((resolve, reject) => {
       const onData = (data: Buffer) => {
         const match = data
           .toString()
-          .match(/https:\/\/login\.astropods\.com\/device\?user_code=[A-Z0-9-]+/);
+          .match(envConfig.deviceUrlPattern);
         if (match) resolve(match[0]);
       };
       cli.stdout.on("data", onData);
@@ -49,8 +49,7 @@ test.describe("CLI", () => {
     });
 
     // Navigate to the device confirmation page.
-    // The storageState already holds a valid WorkOS session for login.astropods.com
-    // so this should land directly on the Confirm screen.
+    // The storageState already holds a valid session so this should land directly on the Confirm screen.
     await page.goto(deviceUrl, { waitUntil: "load" });
 
     // If the session has expired and a login form appears, handle it.
@@ -61,7 +60,7 @@ test.describe("CLI", () => {
       await page.getByLabel(/password/i).waitFor({ state: "visible", timeout: 10000 });
       await page.getByLabel(/password/i).fill(process.env.ASTRO_TEST_PASSWORD!);
       await page.getByRole("button", { name: /continue|sign in/i }).click();
-      await page.waitForURL((url) => !url.toString().includes("login.astropods.com"), {
+      await page.waitForURL((url) => envConfig.loginUrlExclude(url.toString()), {
         timeout: 30000,
       });
       await page.goto(deviceUrl, { waitUntil: "load" });
@@ -124,7 +123,7 @@ test.describe("CLI", () => {
     console.log(result);
     expect(result).toContain("✓ Pushed successfully!");
     expect(result).toContain("hello-astro");
-    expect(result).toContain("https://astropods.com/astro-testbot/hello-astro");
+    expect(result).toContain(`${envConfig.appBaseUrl}/astro-testbot/hello-astro`);
     writeFileSync(CLI_STATE_FILE, JSON.stringify({ fakeHome, pushSucceeded: true }));
   });
 });

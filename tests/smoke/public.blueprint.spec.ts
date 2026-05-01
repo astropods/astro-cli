@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { envConfig } from "./env";
 
 test.describe("weather-poet detail page", () => {
   test.beforeEach(async ({ page }) => {
@@ -43,7 +44,7 @@ test.describe("weather-poet detail page", () => {
 
   test("shows author", async ({ page }) => {
     // .last() targets the desktop sidebar — the first copy is inside min-[900px]:hidden (mobile)
-    await expect(page.getByText("Rodric Rabbah").last()).toBeVisible();
+    await expect(page.getByText(envConfig.authorDisplayName).last()).toBeVisible();
     await expect(page.getByText("@rabbah", { exact: true }).last()).toBeVisible();
   });
 });
@@ -56,15 +57,15 @@ test.describe("weather-poet deploy flow", () => {
       const url = res.url();
       if (url.endsWith("/auth/me")) {
         authMeStatuses.push(res.status());
-      } else if (url.includes("astropods.com") && res.status() >= 400) {
+      } else if (url.includes(envConfig.apiDomain) && res.status() >= 400) {
         apiErrors.push(`${res.status()} ${url}`);
       }
     });
 
     await page.goto("/rabbah/weather-poet", { waitUntil: "load" });
     await page.getByRole("link", { name: /deploy this agent/i }).last().click();
-    await page.waitForURL(/login\.astropods\.com/, { timeout: 15000 });
-    await expect(page).toHaveURL(/login\.astropods\.com/);
+    await page.waitForURL(envConfig.loginUrlPattern, { timeout: 15000 });
+    await expect(page).toHaveURL(envConfig.loginUrlPattern);
     expect(authMeStatuses[0], "/auth/me should return 401 for unauthenticated users").toBe(401);
     expect(apiErrors, `Unexpected API errors on deploy redirect: ${apiErrors.join(", ")}`).toHaveLength(0);
   });

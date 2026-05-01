@@ -1,6 +1,10 @@
 name: Smoke tests
 
 on:
+  pull_request:
+    paths:
+      - "tests/smoke/**"
+      - "playwright.prod.config.ts"
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:

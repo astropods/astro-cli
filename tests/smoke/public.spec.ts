@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { envConfig } from "./env";
 
 test.describe("Homepage (/)", () => {
   test.beforeEach(async ({ page }) => {
@@ -41,7 +42,7 @@ test.describe("Explore page (/explore)", () => {
     const apiErrors: string[] = [];
     page.on("response", (res) => {
       const url = res.url();
-      if (!url.endsWith("/auth/me") && url.includes("astropods.com") && res.status() >= 400) {
+      if (!url.endsWith("/auth/me") && url.includes(envConfig.apiDomain) && res.status() >= 400) {
         apiErrors.push(`${res.status()} ${url}`);
       }
     });
@@ -52,7 +53,7 @@ test.describe("Explore page (/explore)", () => {
   test("shows at least 7 agent cards", async ({ page }) => {
     await page.goto("/explore", { waitUntil: "load" });
     const cards = page.locator("[class*='card'], article").filter({ hasText: /deploy/i });
-    expect(await cards.count()).toBeGreaterThanOrEqual(7);
+    expect(await cards.count()).toBeGreaterThanOrEqual(envConfig.minExploreCards);
   });
 
   test("weather-poet card shows name, description, author and deploy count", async ({ page }) => {
@@ -66,7 +67,7 @@ test.describe("Explore page (/explore)", () => {
 
     const deployText = await card.locator("*").filter({ hasText: /^\d+ deploys?$/ }).first().textContent();
     const deployCount = parseInt(deployText?.match(/(\d+)/)?.[1] ?? "0");
-    expect(deployCount, "deploy count should be at least 1").toBeGreaterThanOrEqual(1);
+    expect(deployCount, `deploy count should be at least ${envConfig.minWeatherPoetDeploys}`).toBeGreaterThanOrEqual(envConfig.minWeatherPoetDeploys);
   });
 });
 
