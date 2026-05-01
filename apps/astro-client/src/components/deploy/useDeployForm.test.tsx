@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { slugToTitle, computeInitialValues, useDeployForm } from './useDeployForm';
 import { mockAuthContext } from '@/test/test-utils';
 import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
+import { server } from '@/test/msw/server';
 import type { DeploymentTemplate } from '@/lib/api';
 import { AuthContext } from '@/lib/auth-context';
 import { type ReactNode } from 'react';
@@ -736,3 +738,106 @@ describe('useDeployForm reset', () => {
   });
 });
 
+// --- useDeployForm: knowledge binding wire format ---
+//
+// The server treats `bindings: undefined` as "no input from client → restore
+// from stored spec" and any non-nil `bindings.knowledge` (even {}) as
+// "explicit intent". After the user has interacted with the form, the hook
+// must always send a (possibly empty) knowledge map so the server preserves
+// clears. These tests pin that wire format.
+
+describe('useDeployForm knowledge binding wire format', () => {
+  // Returns the request bodies sent to the deployment-template endpoint, in
+  // order. The caller registers this before triggering reshape so the
+  // handler is in place when the mutation fires.
+  function captureTemplateRequests() {
+    const captured: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        captured.push(body);
+        return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as Parameters<typeof wrapTemplateResponse>[1]));
+      }),
+    );
+    return captured;
+  }
+
+  it('setKnowledgeBindings({}) sends bindings: { knowledge: {} } so the server clears stored bindings', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, deployment_id: 'dep-123' },
+    };
+    const captured = captureTemplateRequests();
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(tpl),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      result.current.setKnowledgeBindings({});
+    });
+
+    await waitFor(() => expect(captured.length).toBeGreaterThan(0));
+    expect(captured[0].bindings).toEqual({ knowledge: {} });
+  });
+
+  it('setKnowledgeBindings strips empty-string ARNs but still sends a knowledge map', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, deployment_id: 'dep-123' },
+    };
+    const captured = captureTemplateRequests();
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(tpl),
+      }),
+      { wrapper },
+    );
+
+    // postgres set to "" means "unbind"; users left bound.
+    await act(async () => {
+      result.current.setKnowledgeBindings({
+        postgres: '',
+        users: 'arn:knowledge:acct:users-store',
+      });
+    });
+
+    await waitFor(() => expect(captured.length).toBeGreaterThan(0));
+    expect(captured[0].bindings).toEqual({
+      knowledge: { users: 'arn:knowledge:acct:users-store' },
+    });
+  });
+
+  it('setSelectedAdapters with empty bindings state still sends bindings: { knowledge: {} }', async () => {
+    // This guards the case where the user's first interaction is to change
+    // adapters before binding anything. The hook must not collapse "no
+    // bindings yet" into `bindings: undefined`, which would let the server
+    // restore stored bindings on top.
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, deployment_id: 'dep-123' },
+    };
+    const captured = captureTemplateRequests();
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(tpl),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      result.current.setSelectedAdapters(['web', 'slack']);
+    });
+
+    await waitFor(() => expect(captured.length).toBeGreaterThan(0));
+    expect(captured[0].bindings).toEqual({ knowledge: {} });
+  });
+});

@@ -352,10 +352,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
-    const cleaned = nonEmptyBindings(knowledgeBindings);
     reshapeTemplate({
       interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined },
-      bindings: Object.keys(cleaned).length > 0 ? { knowledge: cleaned } : undefined,
+      bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     });
   }, [reshapeTemplate, webAuthEnabled, knowledgeBindings]);
 
@@ -370,12 +369,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Exposed binding setter: updates state and re-POSTs to reshape the template.
   // Binding selection is a structural change (removes/adds knowledge entries, variables, editable fields).
+  // Always send a (possibly empty) knowledge map so the server preserves
+  // explicit clears — sending `bindings: undefined` would let the server
+  // restore stored bindings on top of a user who cleared all of them.
   const setKnowledgeBindings = useCallback((bindings: Record<string, string>) => {
     const cleaned = nonEmptyBindings(bindings);
     setKnowledgeBindingsRaw(cleaned);
     reshapeTemplate({
       interfaces: buildInterfaces(),
-      bindings: Object.keys(cleaned).length > 0 ? { knowledge: cleaned } : undefined,
+      bindings: { knowledge: cleaned },
     });
   }, [reshapeTemplate, buildInterfaces]);
 
@@ -589,7 +591,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       interfaces: buildInterfaces(),
       variables: variableInputs,
       schedules: ingestionSchedules,
-      bindings: (() => { const c = nonEmptyBindings(knowledgeBindings); return Object.keys(c).length > 0 ? { knowledge: c } : undefined; })(),
+      bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;

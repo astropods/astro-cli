@@ -618,13 +618,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			params.KMSKeyARN = enc.KMSKeyARN
 		}
 
-		// Collect binding store IDs for persistence from already-resolved bindings.
-		var bindingStoreIDs map[string]string
-		if len(resolvedBindings) > 0 {
-			bindingStoreIDs = make(map[string]string, len(resolvedBindings))
-			for name, rb := range resolvedBindings {
-				bindingStoreIDs[name] = rb.Store.ID
-			}
+		// Collect binding store IDs for persistence from already-resolved
+		// bindings. The map may be empty — a deploy that submits no bindings
+		// must still clear any rows from a prior revision.
+		bindingStoreIDs := make(map[string]string, len(resolvedBindings))
+		for name, rb := range resolvedBindings {
+			bindingStoreIDs[name] = rb.Store.ID
 		}
 
 		// Save deployment as pending with normalized spec AND authorization
@@ -647,7 +646,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg); err != nil {
 				return err
 			}
-			if len(bindingStoreIDs) > 0 {
+			if ksStore != nil {
 				if err := ksStore.SaveBindings(c.Request.Context(), tx, deploymentID, bindingStoreIDs); err != nil {
 					return err
 				}
@@ -2979,21 +2978,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// Restore knowledge bindings from the stored spec so that the
 			// initial template load (before the user sends explicit bindings)
 			// correctly shapes bound entries and populates the binding picker.
-			// Count only non-empty ARNs — the client may send {key: ""} for unbound entries.
-			hasExplicitBindings := false
-			if req.Bindings != nil {
-				for _, arn := range req.Bindings.Knowledge {
-					if arn != "" {
-						hasExplicitBindings = true
-						break
-					}
-				}
-			}
-			if !hasExplicitBindings {
-				if restored := deployment.RestoreBindingsFromSpec(log, prefillExisting.DeploymentSpecJSON); restored != nil {
-					req.Bindings = restored
-				}
-			}
+			deployment.ApplyStoredBindingsToRequest(log, &req, prefillExisting.DeploymentSpecJSON)
 
 			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)

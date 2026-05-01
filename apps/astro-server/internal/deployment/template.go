@@ -810,6 +810,20 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 	}
 }
 
+// ApplyStoredBindingsToRequest seeds req.Bindings from a stored deployment
+// spec when the client did not send explicit binding intent. A non-nil
+// req.Bindings — even an empty Knowledge map, or one whose ARNs are all
+// empty strings — is treated as explicit intent and left untouched, so the
+// client can clear bindings on a deployment that already has them.
+func ApplyStoredBindingsToRequest(log *logger.Logger, req *spec.TemplateRequest, storedSpecJSON string) {
+	if req.Bindings != nil {
+		return
+	}
+	if restored := RestoreBindingsFromSpec(log, storedSpecJSON); restored != nil {
+		req.Bindings = restored
+	}
+}
+
 // RestoreBindingsFromSpec extracts knowledge binding ARNs from a stored
 // deployment spec JSON. Returns nil if no bound entries are found (or on
 // parse error). Used by the template handler to seed the TemplateRequest

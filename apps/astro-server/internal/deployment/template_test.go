@@ -3732,3 +3732,114 @@ agent:
 		t.Errorf("interfaces.auth.slack: expected nil, got %+v", ds.Interfaces.Auth.Slack)
 	}
 }
+
+// storedSpecWithBindings returns a marshaled spec that has two bound knowledge
+// entries — used as the "deployment already has bindings" fixture.
+func storedSpecWithBindings(t *testing.T) string {
+	t.Helper()
+	stored := spec.AstroDeploymentSpec{
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"postgres": {Binding: "arn:knowledge:acct:pg-store", Provider: "postgres"},
+			"users":    {Binding: "arn:knowledge:acct:users-store", Provider: "postgres"},
+		},
+	}
+	b, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// When the client sends no Bindings field at all, the stored bindings should
+// be restored — that's the "open the configure panel for an existing
+// deployment" case the function was designed for.
+func TestApplyStoredBindingsToRequest_NilBindings_Restores(t *testing.T) {
+	req := &spec.TemplateRequest{}
+	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
+
+	if req.Bindings == nil {
+		t.Fatal("expected stored bindings to be restored, got nil")
+	}
+	if got := req.Bindings.Knowledge["postgres"]; got != "arn:knowledge:acct:pg-store" {
+		t.Errorf("postgres: got %q", got)
+	}
+}
+
+// When the client sends explicit non-empty ARNs, the request must win over
+// the stored bindings.
+func TestApplyStoredBindingsToRequest_ExplicitNonEmpty_Wins(t *testing.T) {
+	req := &spec.TemplateRequest{
+		Bindings: &spec.TemplateBindings{
+			Knowledge: map[string]string{"postgres": "arn:knowledge:acct:other-store"},
+		},
+	}
+	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
+
+	if got := req.Bindings.Knowledge["postgres"]; got != "arn:knowledge:acct:other-store" {
+		t.Errorf("postgres: got %q, want client-supplied ARN", got)
+	}
+	if _, ok := req.Bindings.Knowledge["users"]; ok {
+		t.Errorf("users should not be present — client only sent postgres")
+	}
+}
+
+// FAILING: client sends an empty Knowledge map to clear all bindings on a
+// deployment that already has some. The request must be honored: the
+// resulting bindings should be empty, not silently restored from the stored
+// spec.
+func TestApplyStoredBindingsToRequest_EmptyMap_ClearsAll(t *testing.T) {
+	req := &spec.TemplateRequest{
+		Bindings: &spec.TemplateBindings{Knowledge: map[string]string{}},
+	}
+	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
+
+	if req.Bindings == nil {
+		t.Fatal("expected non-nil Bindings (client sent an empty map)")
+	}
+	if len(req.Bindings.Knowledge) != 0 {
+		t.Errorf("expected empty bindings (client cleared all), got %v", req.Bindings.Knowledge)
+	}
+}
+
+// FAILING: client sends explicit empty-string ARNs to unbind specific entries.
+// Each "" must be preserved as an explicit unbind, not restored from the
+// stored spec.
+func TestApplyStoredBindingsToRequest_AllEmptyARNs_Unbinds(t *testing.T) {
+	req := &spec.TemplateRequest{
+		Bindings: &spec.TemplateBindings{
+			Knowledge: map[string]string{"postgres": "", "users": ""},
+		},
+	}
+	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
+
+	if req.Bindings == nil {
+		t.Fatal("expected non-nil Bindings")
+	}
+	if got := req.Bindings.Knowledge["postgres"]; got != "" {
+		t.Errorf("postgres: got %q, want empty (unbind)", got)
+	}
+	if got := req.Bindings.Knowledge["users"]; got != "" {
+		t.Errorf("users: got %q, want empty (unbind)", got)
+	}
+}
+
+// Mixed case: client unbinds one entry while leaving another bound. The
+// unbind must stick.
+func TestApplyStoredBindingsToRequest_MixedExplicit_Unbind(t *testing.T) {
+	req := &spec.TemplateRequest{
+		Bindings: &spec.TemplateBindings{
+			Knowledge: map[string]string{
+				"postgres": "arn:knowledge:acct:pg-store",
+				"users":    "",
+			},
+		},
+	}
+	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
+
+	if got := req.Bindings.Knowledge["postgres"]; got != "arn:knowledge:acct:pg-store" {
+		t.Errorf("postgres: got %q", got)
+	}
+	if got := req.Bindings.Knowledge["users"]; got != "" {
+		t.Errorf("users: got %q, want empty (unbind)", got)
+	}
+}
