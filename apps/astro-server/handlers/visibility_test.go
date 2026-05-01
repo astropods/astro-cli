@@ -495,7 +495,7 @@ func TestListAgents_OnlyPublic(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store, hearts, nil, nil, nil))
+	router.GET("/agents", ListAgents(log, index, store, hearts, nil, nil, nil, nil, nil))
 
 	now := time.Now()
 
@@ -552,7 +552,7 @@ func TestListAgents_Empty(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store, hearts, nil, nil, nil))
+	router.GET("/agents", ListAgents(log, index, store, hearts, nil, nil, nil, nil, nil))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents a.+WHERE a.visibility = 'public'").
 		WillReturnRows(sqlmock.NewRows([]string{

@@ -59,7 +59,6 @@ export function SidebarCard({
     : agent.account;
   const ownerHandle = agent.account;
 
-  // Audit log publishers take precedence over agent card authors as the source of truth.
   const displayAuthors = publishers.length > 0 ? publishers : authors;
 
   const repository = getBlueprintRepository(agent);

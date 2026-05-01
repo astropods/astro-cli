@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { AvatarColors } from "@/lib/api";
+import type { AvatarColors, BlueprintAuthor } from "@/lib/api";
 
 interface CardAccent {
   base: string;
@@ -110,6 +110,8 @@ export interface BlueprintCardProps {
   isDraft?: boolean;
   /** When provided, shows a three-dot menu with an archive option. */
   onArchive?: () => void;
+  /** When provided, displays this author in the card footer instead of the owner account. */
+  author?: BlueprintAuthor;
 }
 
 export function BlueprintCard({
@@ -125,6 +127,7 @@ export function BlueprintCard({
   heartCount,
   isDraft = false,
   onArchive,
+  author,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -381,8 +384,8 @@ export function BlueprintCard({
             {formattedDeploys} {deployLabel}
           </span>
           <span className={cn("flex items-center gap-1.5 text-mono-sm font-mono", hasAccent ? "text-[inherit]" : "text-faint-foreground")}>
-            <UserAvatar handle={account} name={account} className="!size-4" />
-            {account}
+            <UserAvatar handle={author ? (author.account ?? author.name) : account} name={author ? author.name : account} className="!size-4" />
+            {author ? (author.account ?? author.name) : account}
           </span>
         </div>
       </Link>

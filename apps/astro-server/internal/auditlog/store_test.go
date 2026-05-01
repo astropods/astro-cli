@@ -1,8 +1,11 @@
 package auditlog
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestParseCursor_Empty(t *testing.T) {
@@ -72,6 +75,88 @@ func TestFormatCursor_RoundTrip(t *testing.T) {
 	}
 	if id != 123 {
 		t.Errorf("id = %d, want 123", id)
+	}
+}
+
+func TestBulkDistinctActorsFor_WithResourceIDs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT resource_id, actor_id FROM audit_logs").
+		WithArgs("acct-1", AgentRegister, "agent", "agent-a", "agent-b").
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "actor_id"}).
+			AddRow("agent-a", "user-1").
+			AddRow("agent-a", "user-2").
+			AddRow("agent-b", "user-1"))
+
+	s := NewStore(db)
+	result, err := s.BulkDistinctActorsFor(context.Background(), "acct-1", AgentRegister, "agent", []string{"agent-a", "agent-b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result["agent-a"]) != 2 {
+		t.Errorf("expected 2 actors for agent-a, got %d", len(result["agent-a"]))
+	}
+	if result["agent-a"][0] != "user-1" || result["agent-a"][1] != "user-2" {
+		t.Errorf("unexpected actors for agent-a: %v", result["agent-a"])
+	}
+	if len(result["agent-b"]) != 1 || result["agent-b"][0] != "user-1" {
+		t.Errorf("unexpected actors for agent-b: %v", result["agent-b"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestBulkDistinctActorsFor_NoResourceIDs_ReturnsAll(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT resource_id, actor_id FROM audit_logs").
+		WithArgs("acct-1", AgentRegister, "agent").
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "actor_id"}).
+			AddRow("agent-x", "user-1"))
+
+	s := NewStore(db)
+	result, err := s.BulkDistinctActorsFor(context.Background(), "acct-1", AgentRegister, "agent", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result["agent-x"]) != 1 || result["agent-x"][0] != "user-1" {
+		t.Errorf("unexpected result: %v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestBulkDistinctActorsFor_EmptyResult(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT resource_id, actor_id FROM audit_logs").
+		WithArgs("acct-1", AgentRegister, "agent").
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "actor_id"}))
+
+	s := NewStore(db)
+	result, err := s.BulkDistinctActorsFor(context.Background(), "acct-1", AgentRegister, "agent", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty result, got %v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
 	}
 }
 

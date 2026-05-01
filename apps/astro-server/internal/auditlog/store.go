@@ -256,6 +256,40 @@ func (s *Store) LatestPerResource(ctx context.Context, accountID, resourceType s
 	return result, rows.Err()
 }
 
+// BulkDistinctActorsFor returns distinct actor IDs per resource. When resourceIDs is nil, all resources for the account are included.
+func (s *Store) BulkDistinctActorsFor(ctx context.Context, accountID, action, resourceType string, resourceIDs []string) (map[string][]string, error) {
+	args := []any{accountID, action, resourceType}
+	query := `SELECT resource_id, actor_id FROM audit_logs
+		 WHERE account_id = $1 AND action = $2 AND resource_type = $3`
+
+	if len(resourceIDs) > 0 {
+		parts := make([]string, len(resourceIDs))
+		for i, id := range resourceIDs {
+			parts[i] = fmt.Sprintf("$%d", i+4)
+			args = append(args, id)
+		}
+		query += " AND resource_id IN (" + strings.Join(parts, ", ") + ")" //nolint:gosec
+	}
+
+	query += " GROUP BY resource_id, actor_id ORDER BY MIN(created_at) ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query bulk distinct actors: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string][]string)
+	for rows.Next() {
+		var resourceID, actorID string
+		if err := rows.Scan(&resourceID, &actorID); err != nil {
+			return nil, fmt.Errorf("failed to scan bulk distinct actors: %w", err)
+		}
+		result[resourceID] = append(result[resourceID], actorID)
+	}
+	return result, rows.Err()
+}
+
 // DistinctActorsFor returns the unique actor IDs that performed the given action
 // on a specific resource, ordered by their first occurrence ascending.
 func (s *Store) DistinctActorsFor(ctx context.Context, accountID, action, resourceType, resourceID string) ([]string, error) {

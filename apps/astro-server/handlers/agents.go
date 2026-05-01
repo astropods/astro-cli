@@ -201,7 +201,7 @@ func agentMetrics(lifetimeMessages, deployCount int64) *AgentMetrics {
 
 // ListAgents handles GET /api/v1/agents
 // Lists agents with visibility='public' (public catalog)
-func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos userGetter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Info("Listing public agents from index")
 
@@ -226,6 +226,9 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 		// Bulk-fetch deploy counts per account
 		deployCounts := make(map[string]map[string]int64) // accountID -> agentName -> count
+
+		publisherActors := make(map[string]map[string][]string) // accountID -> agentName -> actorIDs
+		userCache := make(map[string]*auth.User)
 
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
@@ -297,6 +300,18 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 					},
 				)
 			}
+			if auditStore != nil && workos != nil {
+				if _, ok := publisherActors[agent.AccountID]; !ok {
+					bulk, err := auditStore.BulkDistinctActorsFor(c.Request.Context(), agent.AccountID, auditlog.AgentRegister, "agent", nil)
+					if err != nil {
+						bulk = map[string][]string{}
+					}
+					publisherActors[agent.AccountID] = bulk
+				}
+				if actorIDs := publisherActors[agent.AccountID][agent.Name]; len(actorIDs) > 0 {
+					resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore, userCache)
+				}
+			}
 			responses = append(responses, resp)
 		}
 
@@ -309,7 +324,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 // ListAccountAgents handles GET /api/v1/agents/:account
 // Lists all public agents for an account. Members also see private agents.
-func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos userGetter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -354,6 +369,14 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			dc = map[string]int64{}
 		}
 
+		publisherActors := make(map[string][]string)
+		if auditStore != nil && workos != nil {
+			if bulk, err := auditStore.BulkDistinctActorsFor(c.Request.Context(), acct.ID, auditlog.AgentRegister, "agent", nil); err == nil {
+				publisherActors = bulk
+			}
+		}
+		userCache := make(map[string]*auth.User)
+
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
 			if agent.Visibility == "private" && !isMember {
@@ -389,6 +412,9 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 					},
 				)
 			}
+			if actorIDs := publisherActors[agent.Name]; len(actorIDs) > 0 {
+				resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore, userCache)
+			}
 			responses = append(responses, resp)
 		}
 
@@ -409,12 +435,23 @@ type accountLister interface {
 
 // resolvePublishers maps a list of WorkOS actor IDs to AgentPublishers.
 // Actors that cannot be resolved (missing name and handle) are silently skipped.
-func resolvePublishers(ctx context.Context, actorIDs []string, users userGetter, accounts accountLister) []AgentPublisher {
+// userCache, if non-nil, is used to avoid redundant WorkOS lookups across many calls.
+func resolvePublishers(ctx context.Context, actorIDs []string, users userGetter, accounts accountLister, userCache map[string]*auth.User) []AgentPublisher {
 	var publishers []AgentPublisher
 	for _, actorID := range actorIDs {
-		user, err := users.GetUser(ctx, actorID)
-		if err != nil {
-			continue
+		var user *auth.User
+		if userCache != nil {
+			user = userCache[actorID]
+		}
+		if user == nil {
+			u, err := users.GetUser(ctx, actorID)
+			if err != nil {
+				continue
+			}
+			user = u
+			if userCache != nil {
+				userCache[actorID] = user
+			}
 		}
 		pub := AgentPublisher{}
 		if accts, err := accounts.GetAccountsForUser(actorID); err == nil {
@@ -536,7 +573,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 
 		if auditStore != nil && workos != nil {
 			if actorIDs, err := auditStore.DistinctActorsFor(c.Request.Context(), acct.ID, auditlog.AgentRegister, "agent", name); err == nil {
-				resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore)
+				resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore, nil)
 			}
 		}
 

@@ -35,6 +35,7 @@ export interface BlueprintListViewProps {
   ownerAccounts?: Set<string>;
   variant?: "grid" | "list";
   skeletonCount?: number;
+  showAuthor?: boolean;
 }
 
 export function BlueprintListView({
@@ -49,6 +50,7 @@ export function BlueprintListView({
   ownerAccounts,
   variant = "grid",
   skeletonCount = 6,
+  showAuthor = false,
 }: BlueprintListViewProps) {
   if (isLoading) {
     return (
@@ -127,6 +129,7 @@ export function BlueprintListView({
             heartCount={blueprint.heart_count}
             isDraft={blueprint.versions.length === 0}
             onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
+            author={showAuthor ? blueprint.publishers?.[0] : undefined}
           />
         ))}
       </div>
@@ -147,6 +150,7 @@ export function BlueprintListView({
           deployCount={blueprint.metrics?.deploy_count}
           isDraft={blueprint.versions.length === 0}
           onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
+          author={showAuthor ? blueprint.publishers?.[0] : undefined}
         />
       ))}
     </div>

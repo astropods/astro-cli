@@ -9,12 +9,17 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/gin-gonic/gin"
 )
 
@@ -44,7 +49,7 @@ func TestResolvePublishers_EmptyActors(t *testing.T) {
 	users := &stubUserGetter{users: map[string]*auth.User{}}
 	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
 
-	result := resolvePublishers(context.Background(), nil, users, accts)
+	result := resolvePublishers(context.Background(), nil, users, accts, nil)
 	if len(result) != 0 {
 		t.Errorf("expected empty slice, got %v", result)
 	}
@@ -58,7 +63,7 @@ func TestResolvePublishers_FullNameAndHandle(t *testing.T) {
 		"u1": {{Name: "janesmith", Type: "personal"}},
 	}}
 
-	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 publisher, got %d", len(result))
 	}
@@ -78,7 +83,7 @@ func TestResolvePublishers_NoWorkOSName_FallsBackToHandle(t *testing.T) {
 		"u1": {{Name: "ghostuser", Type: "personal"}},
 	}}
 
-	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 publisher, got %d", len(result))
 	}
@@ -93,7 +98,7 @@ func TestResolvePublishers_NoNameNoHandle_Skipped(t *testing.T) {
 	}}
 	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
 
-	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts, nil)
 	if len(result) != 0 {
 		t.Errorf("expected actor with no name/handle to be skipped, got %v", result)
 	}
@@ -103,7 +108,7 @@ func TestResolvePublishers_WorkOSError_Skipped(t *testing.T) {
 	users := &stubUserGetter{users: map[string]*auth.User{}}
 	accts := &stubAccountLister{accounts: map[string][]account.AccountWithRole{}}
 
-	result := resolvePublishers(context.Background(), []string{"missing-user"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"missing-user"}, users, accts, nil)
 	if len(result) != 0 {
 		t.Errorf("expected unresolvable actor to be skipped, got %v", result)
 	}
@@ -121,7 +126,7 @@ func TestResolvePublishers_MultipleActors_OrderPreserved(t *testing.T) {
 		"u3": {{Name: "carol", Type: "personal"}},
 	}}
 
-	result := resolvePublishers(context.Background(), []string{"u1", "u2", "u3"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"u1", "u2", "u3"}, users, accts, nil)
 	if len(result) != 3 {
 		t.Fatalf("expected 3 publishers, got %d", len(result))
 	}
@@ -143,7 +148,7 @@ func TestResolvePublishers_NonPersonalAccountIgnored(t *testing.T) {
 		},
 	}}
 
-	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts)
+	result := resolvePublishers(context.Background(), []string{"u1"}, users, accts, nil)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 publisher, got %d", len(result))
 	}
@@ -757,5 +762,105 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestListAccountAgents_PublishersPopulated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	now := time.Now()
+
+	// agentindex: returns one public agent with no versions
+	indexDB, indexMock, _ := sqlmock.New()
+	defer indexDB.Close()
+	index := agentindex.NewIndexWithDB(indexDB)
+	indexMock.ExpectQuery("SELECT account_id, name, registry, visibility").
+		WithArgs("test-account-id").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at"}).
+			AddRow("test-account-id", "test-agent", "registry.example.com", "public", nil, now, now))
+	indexMock.ExpectQuery("SELECT build_id, ecr_namespace, spec_json").
+		WithArgs("test-account-id", "test-agent").
+		WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}))
+
+	// accountStore: GetByName returns the account; GetAccountsForUser returns a personal account for resolvePublishers
+	accountDB, accountMock, _ := sqlmock.New()
+	defer accountDB.Close()
+	accountStore := account.NewAccountStore(accountDB)
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("testaccount").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil))
+	accountMock.ExpectQuery("SELECT.*WHERE am.user_id").
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name"}).
+			AddRow("user-account-id", "janesmith", "personal", "", now, now, ""))
+
+	// auditStore: returns "user-1" as the publisher of "test-agent"
+	auditDB, auditMock, _ := sqlmock.New()
+	defer auditDB.Close()
+	auditStore := auditlog.NewStore(auditDB)
+	auditMock.ExpectQuery("SELECT resource_id, actor_id FROM audit_logs").
+		WithArgs("test-account-id", "agent.register", "agent").
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "actor_id"}).
+			AddRow("test-agent", "user-1"))
+
+	// workos stub: resolves "user-1" to Jane Smith
+	workos := &stubUserGetter{users: map[string]*auth.User{
+		"user-1": {FirstName: "Jane", LastName: "Smith"},
+	}}
+
+	// helper stores — errors are ignored by the handler when they occur
+	heartsDB, _, _ := sqlmock.New()
+	defer heartsDB.Close()
+	metricsDB, _, _ := sqlmock.New()
+	defer metricsDB.Close()
+	deploysDB, _, _ := sqlmock.New()
+	defer deploysDB.Close()
+
+	router := gin.New()
+	router.GET("/api/v1/agents/:account", ListAccountAgents(log, index, accountStore,
+		heartstore.New(heartsDB), metricsstore.New(metricsDB), deploymentstore.NewStore(deploysDB),
+		nil, auditStore, workos))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/testaccount", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	agents, ok := body["agents"].([]any)
+	if !ok || len(agents) == 0 {
+		t.Fatal("expected at least one agent in response")
+	}
+
+	agentResp, _ := agents[0].(map[string]any)
+	publishers, ok := agentResp["publishers"].([]any)
+	if !ok || len(publishers) == 0 {
+		t.Fatalf("expected publishers on agent, got: %v", agentResp["publishers"])
+	}
+
+	pub, _ := publishers[0].(map[string]any)
+	if pub["name"] != "Jane Smith" {
+		t.Errorf("expected publisher name 'Jane Smith', got %v", pub["name"])
+	}
+	if pub["account"] != "janesmith" {
+		t.Errorf("expected publisher account 'janesmith', got %v", pub["account"])
+	}
+
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("index mock: %v", err)
+	}
+	if err := auditMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("audit mock: %v", err)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("account mock: %v", err)
 	}
 }

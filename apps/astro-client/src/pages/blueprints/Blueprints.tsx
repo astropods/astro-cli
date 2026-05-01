@@ -69,6 +69,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
         skeletonCount={loaderData?.count}
+        showAuthor
       />
     </PageContainer>
   );

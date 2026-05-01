@@ -649,14 +649,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
-		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
+		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
 			oapispec.Tags("Agents"),
 			oapispec.Response(200, &handlers.ListAgentsResponse{}),
 		)
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
-			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
+			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
