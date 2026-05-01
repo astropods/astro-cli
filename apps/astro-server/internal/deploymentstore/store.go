@@ -10,14 +10,60 @@ import (
 	"github.com/lib/pq"
 )
 
+// LineageValidator verifies that a deployment's source-lineage tuple
+// (sourceAccountID, agentName, buildID) refers to a real published version.
+//
+// The interface is satisfied by *agentindex.Index via its ValidateLineage
+// method (a thin wrapper over GetVersion). Returning only error keeps this
+// package free of an agentindex import: the Store only needs to know
+// whether the tuple exists, not what the version contains.
+type LineageValidator interface {
+	ValidateLineage(accountID, name, buildID string) error
+}
+
 // Store manages deployment record persistence in PostgreSQL.
+//
+// validator is optional. When non-nil, SaveDeploymentPending and
+// UpdateDeploymentPending reject writes whose SourceAccountID is set but
+// does not match a published agent_versions row. Tests construct Store
+// without a validator and the gate becomes a no-op; production wires
+// agentindex.Index via WithLineageValidator in main.go.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	validator LineageValidator
 }
 
 // NewStore creates a new deployment store with the given database connection.
+//
+// The returned Store has no lineage validator; callers that want write-time
+// lineage enforcement should chain WithLineageValidator. This shape preserves
+// every existing test call site (which would otherwise need to construct a
+// no-op validator) while letting production opt in with a single line.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// WithLineageValidator installs a LineageValidator on the Store and returns
+// the Store for chaining. Calling it with nil disables validation.
+func (s *Store) WithLineageValidator(v LineageValidator) *Store {
+	s.validator = v
+	return s
+}
+
+// validateLineage runs the optional LineageValidator gate. It is a no-op when
+// the validator is unset or when SourceAccountID is empty (legacy/ancient
+// rows that predate the column resolve via the spec-JSON fallback on read,
+// not via the validator). Callers wrap the returned error with their own
+// context.
+func (s *Store) validateLineage(p SaveDeploymentParams) error {
+	if s.validator == nil || p.SourceAccountID == "" {
+		return nil
+	}
+	if err := s.validator.ValidateLineage(p.SourceAccountID, p.AgentName, p.BuildID); err != nil {
+		return fmt.Errorf("lineage validation failed for %s/%s@%s: %w",
+			p.SourceAccountID, p.AgentName, p.BuildID, err)
+	}
+	return nil
 }
 
 // Deployment represents a single deployment record.
@@ -477,6 +523,10 @@ func (s *Store) UpdateStatus(id, status, errorMsg string, errorDetails json.RawM
 // The txFn callback runs in the same transaction, allowing the caller to enqueue a River
 // job and save normalized spec data atomically.
 func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.Tx, deploymentID string) error) (*Deployment, error) {
+	if err := s.validateLineage(p); err != nil {
+		return nil, err
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -589,6 +639,10 @@ func (s *Store) UpdateDeploymentSpecJSON(deploymentID, specJSON string) error {
 // UpdateDeploymentPending updates an existing deployment for a redeploy, creating a new revision.
 // Sets status='pending'. The txFn callback runs in the same transaction.
 func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.Tx, deploymentID string) error) (*Deployment, error) {
+	if err := s.validateLineage(p); err != nil {
+		return nil, err
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)

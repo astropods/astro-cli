@@ -243,6 +243,32 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 	return &v, nil
 }
 
+// ValidateLineage reports whether (accountID, name, buildID) refers to a real
+// published agent version. Returns nil when the row exists, otherwise the same
+// error GetVersion would produce ("build not found: …" for the missing case,
+// "failed to query version: …" for operational DB failures).
+//
+// This lets *Index implicitly satisfy deploymentstore.LineageValidator without
+// the deploymentstore package having to import this one. The error-only
+// signature is deliberate: the Store only needs to know whether the tuple
+// resolves, not what the version contains, so the method discards the
+// loaded *AgentVersion. If validation ever shows up on a hot path, swap the
+// body for a dedicated `SELECT 1 ... LIMIT 1` query that skips the spec
+// unmarshal — semantics are unchanged.
+//
+// Note on lifecycle: this check is about row existence, not lifecycle state.
+// It does NOT filter on agents.archived_at, so a version published before the
+// agent was archived still passes — by design. Existing deployments must
+// remain redeployable after their source agent is archived; the Store would
+// otherwise reject every redeploy of a legacy deployment as a side effect of
+// archive. Tightening this to exclude archived agents would break that path
+// and should only be done with an explicit policy decision (and a migration
+// for already-deployed rows).
+func (idx *Index) ValidateLineage(accountID, name, buildID string) error {
+	_, err := idx.GetVersion(accountID, name, buildID)
+	return err
+}
+
 // List returns all agents in the index (global browse), excluding archived
 func (idx *Index) List() ([]*Agent, error) {
 	rows, err := idx.db.Query(`

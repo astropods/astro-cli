@@ -283,8 +283,13 @@ func runAPI(
 		}
 	}
 
-	// Initialize stores
-	deploymentStore := deploymentstore.NewStore(db)
+	// Initialize stores. The deployment store is wired with agentIndex as
+	// its LineageValidator so SaveDeploymentPending / UpdateDeploymentPending
+	// reject any write whose (source_account_id, agent_name, build_id) tuple
+	// does not match a published agent_versions row. Tests construct
+	// deploymentstore.NewStore(db) without this wire and the gate becomes a
+	// no-op, which preserves existing test fixtures.
+	deploymentStore := deploymentstore.NewStore(db).WithLineageValidator(agentIndex)
 	accountVarsStore := accountvars.NewStore(db)
 	heartStore := heartstore.New(db)
 	agentMetricsStore := metricsstore.New(db)
