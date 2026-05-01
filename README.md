@@ -121,6 +121,65 @@ cd example-agent
 ast-dev dev --local
 ```
 
+## Smoke Tests
+
+End-to-end tests that run against `astropods.com` (prod) and `astropod.ai` (preview). They cover unauthenticated public pages, the authenticated app, CLI install and push, the full deploy flow, and chat.
+
+### Setup
+
+Add credentials to `.env.local` at the repo root:
+
+```
+ASTRO_TEST_EMAIL=your@email.com
+ASTRO_TEST_PASSWORD=yourpassword
+ASTRO_TEST_HOST=https://astropods.com   # or https://astropod.ai for preview
+ASTRO_ENV=prod                          # or preview
+```
+
+### Running
+
+```bash
+bun install
+bunx playwright test --config=playwright.prod.config.ts
+```
+
+Run a specific project:
+
+```bash
+# Blueprint pages — no login needed, runs on all envs
+bunx playwright test --config=playwright.prod.config.ts --project=blueprints
+
+# Marketing site — prod only
+bunx playwright test --config=playwright.prod.config.ts --project=marketing-site
+
+# CLI + deploy flow — requires credentials
+bunx playwright test --config=playwright.prod.config.ts --project=cli
+
+# Skip upstream dependencies
+bunx playwright test --config=playwright.prod.config.ts --project=app.chat --no-deps
+
+# Watch with UI
+bunx playwright test --config=playwright.prod.config.ts --ui
+```
+
+### Test suites
+
+| Project | Tests | Auth | Envs |
+|---|---|---|---|
+| `marketing-site` | Public marketing pages | None | prod only |
+| `blueprints` | Blueprint detail page, deploy redirect | None | all |
+| `auth` | Authenticated app loads at root | Session from setup | all |
+| `cli` | Install `ast`/`ast-preview`, device-flow login, `bp list`, `push` | Session from setup | all |
+| `app.deploy` | Deploy flow, captures deployment slug | Session from setup | all |
+| `cli.post-deploy` | `ast agent list` confirms deployment slug | None | all |
+| `app.post-deploy` | Polls `/agents` until Hello Astro is Active (14 min) | Session from setup | all |
+| `app.chat` | Opens chat popup, sends message, asserts echo | Session from setup | all |
+| `app.secrets` | Variables & secrets, verifies auto-fill on deploy page | Session from setup | all |
+
+If login fails, all projects that depend on `setup` are skipped automatically.
+
+Tests run automatically every 15 minutes via the **"Smoke tests"** GitHub Actions workflow. They also run against preview after every deploy to `main`.
+
 ## Deployments
 
 | Environment       | URL                   | Notes                                                  |

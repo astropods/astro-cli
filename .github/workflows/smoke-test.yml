@@ -1,0 +1,87 @@
+name: Smoke tests
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      astro_test_host:
+        description: "Target host to run tests against"
+        required: false
+        default: "https://astropods.com"
+      astro_env:
+        description: "Environment (prod or preview)"
+        required: false
+        default: "prod"
+  workflow_call:
+    inputs:
+      astro_test_host:
+        description: "Target host to run tests against"
+        required: false
+        type: string
+        default: "https://astropods.com"
+      astro_env:
+        description: "Environment (prod or preview)"
+        required: false
+        type: string
+        default: "prod"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    environment: smoke-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium --with-deps
+
+      - name: Run production tests
+        env:
+          ASTRO_TEST_EMAIL: ${{ secrets.ASTRO_TEST_EMAIL }}
+          ASTRO_TEST_PASSWORD: ${{ secrets.ASTRO_TEST_PASSWORD }}
+          ASTRO_TEST_HOST: ${{ inputs.astro_test_host || 'https://astropods.com' }}
+          ASTRO_ENV: ${{ inputs.astro_env || 'prod' }}
+        run: bunx playwright test --config=playwright.prod.config.ts
+
+      - name: Upload traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+
+      - name: Notify Slack on failure
+        if: failure() && github.event_name != 'pull_request'
+        uses: slackapi/slack-github-action@v3
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ vars.SLACK_ASTRO_OPS_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            text: ":red_circle: ${{ (inputs.astro_env == 'preview') && 'Preview' || 'Production' }} smoke tests failed"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: |
+                    :red_circle: *${{ (inputs.astro_env == 'preview') && 'Preview' || 'Production' }} smoke tests failed*
+                    *Site:* `${{ inputs.astro_test_host || 'https://astropods.com' }}`
+                    *Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>

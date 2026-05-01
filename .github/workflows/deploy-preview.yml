@@ -264,3 +264,15 @@ jobs:
           else
             echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
           fi
+
+  # ---------------------------------------------------------------------------
+  # Smoke test: run against preview after a successful deploy
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    needs: [deploy]
+    if: needs.deploy.result == 'success'
+    uses: ./.github/workflows/smoke-test.yml
+    with:
+      astro_test_host: https://astropod.ai
+      astro_env: preview
+    secrets: inherit
