@@ -25,4 +25,4 @@ echo
 echo "🎉 All submodules updated successfully!"
 echo
 echo "💡 To commit these changes to the parent repository, run:"
-echo "   git add -A && git commit -m \"Update all submodules to latest main\""
+echo "   git add modules && git commit -m \"chore: update all submodules to latest main\""
