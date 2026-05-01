@@ -121,9 +121,23 @@ knowledge:
     persistent: true
 ```
 
-Available providers: `qdrant` (vector search), `redis` (key-value), `postgres` (relational + vector via pgvector), `neo4j` (graph).
+Available providers: `qdrant` (vector search), `redis` (key-value), `postgres` (relational + pgvector), `neo4j` (graph).
 
-Each provider injects connection env vars into the agent: `{PROVIDER}_HOST`, `{PROVIDER}_PORT`, `{PROVIDER}_URL`.
+Each provider injects connection env vars into the agent: `{PROVIDER}_HOST`, `{PROVIDER}_PORT`, `{PROVIDER}_URL` (e.g. `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_URL`).
+
+**Connecting from your agent:** the platform generates a random password and a platform-managed user for each postgres deployment, then injects all five credentials into the agent container via secrets: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`. Always read all five from env vars — never hardcode user or password:
+
+```typescript
+const pool = new Pool({
+  host: process.env.POSTGRES_HOST ?? 'localhost',
+  port: parseInt(process.env.POSTGRES_PORT ?? '5432'),
+  database: process.env.POSTGRES_DB ?? 'postgres',
+  user: process.env.POSTGRES_USER ?? 'postgres',
+  password: process.env.POSTGRES_PASSWORD ?? 'postgres',
+});
+```
+
+> **Note:** `POSTGRES_URL` is also injected but may not work reliably with all client libraries. Prefer the individual env vars above.
 
 ### Custom containers
 
@@ -152,9 +166,79 @@ knowledge:
 ```
 
 - `volume` — where to mount persistent data inside the container. Required with `persistent: true`.
-- `inputs` — values injected into the container at runtime. Set via `ast project configure` or defaults. Use `secret: true` for passwords and keys.
+- `inputs` — values injected into the container at runtime. Set via `ast project configure` or defaults. Use `secret: true` for passwords and keys (requires `ast project configure` before starting).
 
 Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
+
+## Frontend Agents
+
+Some agents serve their own web UI rather than (or in addition to) the messaging protocol. Declare this in `astropods.yml` and ensure your container handles port 80.
+
+### `astropods.yml`
+
+```yaml
+spec: blueprint/v1
+name: my-frontend-agent
+
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    frontend: true    # agent serves its own UI
+    messaging: false  # no messaging sidecar
+
+dev:
+  interfaces:
+    frontend:
+      port: 80        # port the container listens on locally (default: 80)
+```
+
+**Critical:** `interfaces` MUST be nested under `agent:`. Placing it at the top level of the spec is silently ignored — the frontend will not be routed.
+
+In production the platform always routes to **port 80**. Your container must `EXPOSE 80` and start on that port. Use `dev.interfaces.frontend.port` only when your local dev server runs on a different port.
+
+### Production container requirements
+
+The production container filesystem is **read-only**. Any file or directory your process writes to at startup must be pre-created during the Docker build:
+
+```dockerfile
+# Pre-create writable paths before the read-only filesystem is applied
+RUN touch ./backend/.env && mkdir -p ./backend/.langgraph_api
+```
+
+### Running multiple processes (e.g. Next.js + LangGraph backend)
+
+When your agent packages a frontend and a backend in the same container, use a `start.sh` script to launch both:
+
+```bash
+#!/bin/bash
+set -e
+
+# Start backend in the background
+(cd /app/backend && node_modules/.bin/langgraphjs dev --no-browser --host 0.0.0.0) &
+
+# Start frontend in the foreground (keeps the container alive)
+cd /app/frontend && exec node node_modules/.bin/next start
+```
+
+```dockerfile
+ENV PORT=80
+ENV NODE_ENV=production
+EXPOSE 80
+
+# Pre-create any files the backend writes at startup
+RUN touch ./backend/.env && mkdir -p ./backend/.langgraph_api
+
+COPY start.sh ./
+RUN chmod +x start.sh
+CMD ["./start.sh"]
+```
+
+Key points:
+- The frontend must be the foreground process (`exec`) so the container exits when it does.
+- Bind the backend to `0.0.0.0` (not `localhost`) so the frontend can reach it on IPv4.
+- Server-side code reads `process.env` at runtime so the platform can inject env vars. Next.js `NEXT_PUBLIC_` vars are baked into the client bundle at build time — set them before `npm run build` in the Dockerfile.
 
 ## Packages
 

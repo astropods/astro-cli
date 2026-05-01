@@ -70,6 +70,16 @@ An **adapter** controls how your agent is exposed to the world. Each adapter add
 
 `web` and `insecure-web` are mutually exclusive. `slack` can be combined with either.
 
+## Frontend agents
+
+Agents that declare `agent.interfaces.frontend: true` in their spec serve their own web UI directly on port 80. The platform routes incoming traffic straight to the agent container — no messaging sidecar or adapter is deployed alongside it.
+
+```bash
+ast blueprint deploy my-frontend-agent
+```
+
+The deployed agent receives a dedicated hostname and is immediately accessible via browser. The `--adapter` flag has no effect for frontend agents.
+
 ---
 
 Once your agent is running, see [Managing your agents](/managing-agents) for how to inspect, update, and control it.

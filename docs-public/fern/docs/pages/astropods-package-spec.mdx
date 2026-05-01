@@ -60,7 +60,7 @@ A conforming document MUST contain the following top-level fields:
 
 | Field       | Type                     | Required     | Description                                                        |
 | ----------- | ------------------------ | ------------ | ------------------------------------------------------------------ |
-| `spec`      | string                   | **REQUIRED** | Spec version identifier. MUST be `package/v1`.                     |
+| `spec`      | string                   | **REQUIRED** | Spec version identifier. MUST be `blueprint/v1`.                       |
 | `name`      | string                   | **REQUIRED** | Unique agent name.                                                 |
 | `meta`      | object                   | **DEPRECATED** | Agent metadata. See Section 2.1.                                 |
 | `agent`     | object                   | **REQUIRED** | Agent definition.                                                  |
@@ -136,25 +136,35 @@ The `interfaces` object declares how users reach the agent. Both fields are bool
 
 Omitting `interfaces` entirely preserves backward compatibility; the platform defaults to messaging enabled.
 
+`interfaces` MUST be declared under the `agent` key. A common mistake is placing it at the top level of the spec, which the platform ignores.
+
 | Field       | Type    | Required | Description                                                                       |
 | ----------- | ------- | -------- | --------------------------------------------------------------------------------- |
 | `frontend`  | boolean | OPTIONAL | Agent serves its own web interface. Default: `false`.                             |
 | `messaging` | boolean | OPTIONAL | Agent supports the messaging protocol; eligible for sidecar deployment. Default: `true` when `interfaces` is omitted, `false` when `interfaces` is present. |
 
-```yaml
-# Agent serves its own UI and supports messaging
-interfaces:
-  frontend: true
-  messaging: true
+When `frontend` is `true`, the agent container MUST serve HTTP on **port 80** in production (see Validation Rule 15). Use `dev.interfaces.frontend.port` to specify a different port for local development; the platform proxies that port to port 80.
 
-# Agent serves its own UI, no messaging
-interfaces:
-  frontend: true
-  messaging: false
+```yaml
+# Correct — interfaces nested under agent
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    frontend: true
+    messaging: false
+
+# Agent serves its own UI and supports messaging
+agent:
+  interfaces:
+    frontend: true
+    messaging: true
 
 # Classic conversational agent (equivalent to omitting interfaces)
-interfaces:
-  messaging: true
+agent:
+  interfaces:
+    messaging: true
 ```
 
 ---
@@ -192,6 +202,33 @@ Each entry in the `knowledge` map:
 | `inputs`     | Input[]         | OPTIONAL    | User-supplied inputs injected into the knowledge container.         |
 
 When `persistent` is `true`, the platform SHOULD provision durable storage for the entry. For provider-mode entries, the mount path is resolved from the provider registry. For container-mode entries, the `volume` field on `ContainerConfig` specifies the mount path (e.g. `/var/lib/postgresql/data` for Postgres).
+
+`inputs` applies to both provider-mode and container-mode entries. They are injected into the knowledge container at runtime — not into the agent.
+
+The built-in `postgres` provider manages its own credentials automatically: the platform generates a random password and a platform-managed user, then injects `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` into the agent container via secrets. No `inputs` are needed on the knowledge entry:
+
+```yaml
+knowledge:
+  db:
+    provider: postgres
+    persistent: true
+```
+
+In your agent, always read all five env vars — never hardcode user or password:
+
+```typescript
+const pool = new Pool({
+  host: process.env.POSTGRES_HOST ?? 'localhost',
+  port: parseInt(process.env.POSTGRES_PORT ?? '5432'),
+  database: process.env.POSTGRES_DB ?? 'postgres',
+  user: process.env.POSTGRES_USER ?? 'postgres',
+  password: process.env.POSTGRES_PASSWORD ?? 'postgres',
+});
+```
+
+For custom containers that need configuration, use `inputs` to pass values into the container:
+
+> **`secret: true` and `ast project start`**: Inputs marked `secret: true` are stored securely and never logged. However, because they have no plaintext default, they require `ast project configure` to be run before `ast project start` can start the container. If you need the container to start immediately in local dev without a manual configure step, use a non-secret input with a `default` value instead.
 
 ### 4.3 Integrations
 
@@ -537,7 +574,7 @@ Schema ID: `https://astropods.com/schema/package.json`
 ## Appendix C: Complete Example
 
 ```yaml
-spec: package/v1
+spec: blueprint/v1
 name: engineering-assistant
 
 agent:
