@@ -13,15 +13,12 @@
 [submodule "modules/blog"]
 	path = modules/blog
 	url = git@github.com:postman-eng/astro-website.git
-[submodule "modules/astro-ai-website"]
-	path = modules/astro-ai-website
+[submodule "modules/website"]
+	path = modules/website
 	url = git@github.com:postman-eng/astro-ai-website.git
 [submodule "modules/astro-infra"]
 	path = modules/astro-infra
 	url = git@github.com:astropods/astro-infra.git
-[submodule "modules/website"]
-	path = modules/website
-	url = git@github.com:postman-eng/astro-website.git
 [submodule "modules/playground"]
 	path = modules/playground
 	url = git@github.com:astropods/playground.git
