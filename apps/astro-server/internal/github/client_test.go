@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -184,6 +185,22 @@ func TestClient_SearchRepos_WithQuery(t *testing.T) {
 	}
 }
 
+func TestClient_SearchRepos_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"Validation Failed"}`, http.StatusUnprocessableEntity)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.SearchRepos(context.Background(), "agent", "testuser")
+	if err == nil {
+		t.Fatal("expected error for 422 response")
+	}
+	if !strings.Contains(err.Error(), "Validation Failed") {
+		t.Fatalf("expected error to contain response body, got: %v", err)
+	}
+}
+
 func TestClient_CreateWebhook(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -224,6 +241,9 @@ func TestClient_CreateWebhook_HTTPError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for 422 response")
+	}
+	if !strings.Contains(err.Error(), "unprocessable") {
+		t.Fatalf("expected error to contain response body, got: %v", err)
 	}
 }
 

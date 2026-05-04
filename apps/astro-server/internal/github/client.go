@@ -199,7 +199,8 @@ func (c *Client) PathExists(ctx context.Context, repoFullName, ref, path string)
 		return false, nil
 	}
 	if resp.StatusCode >= 400 {
-		return false, fmt.Errorf("github: check path returned %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("github: check path returned %d: %s", resp.StatusCode, body)
 	}
 	return true, nil
 }
@@ -238,7 +239,8 @@ func (c *Client) GetSubtreeSHA(ctx context.Context, repoBase, ref, subPath strin
 		return "", nil
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("github: get subtree sha returned %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("github: get subtree sha returned %d: %s", resp.StatusCode, body)
 	}
 	var entries []struct {
 		Name string `json:"name"`
@@ -268,7 +270,8 @@ func (c *Client) DeleteWebhook(ctx context.Context, repoFullName string, webhook
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("github: delete webhook returned %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github: delete webhook returned %d: %s", resp.StatusCode, body)
 	}
 	return nil
 }
@@ -284,7 +287,8 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("github: GET %s returned %d", path, resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github: GET %s returned %d: %s", path, resp.StatusCode, body)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -305,7 +309,8 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, out any) e
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("github: POST %s returned %d", path, resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github: POST %s returned %d: %s", path, resp.StatusCode, body)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
