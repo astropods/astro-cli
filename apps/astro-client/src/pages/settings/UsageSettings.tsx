@@ -5,6 +5,14 @@ import { useAuth } from "@/lib/auth";
 import { useAccountUsage, useQuotaIncreaseRequests } from "@/api/queries";
 import type { UsageMeter } from "@/lib/api";
 import { formatNumber, RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export const meta: MetaFunction = () => [{ title: "Usage - Settings | Astro" }];
 
@@ -197,46 +205,44 @@ function QuotaRequestsTable({ account }: { account: string }) {
       <h3 className="text-[13px] font-medium text-foreground">
         Quota Increase Requests
       </h3>
-      <div className="rounded-lg border border-border overflow-hidden">
-        <table className="w-full text-[12px]">
-          <thead>
-            <tr className="border-b border-border bg-surface">
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Feature</th>
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Reason</th>
-              <th className="px-3 py-2 text-right font-medium text-muted-foreground">Requested</th>
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.requests.map((req) => (
-              <tr key={req.id} className="border-b border-border last:border-0">
-                <td className="px-3 py-2 font-medium">
-                  {featureLabels[req.feature_key] ?? req.feature_key}
-                </td>
-                <td className="px-3 py-2 text-muted-foreground max-w-[200px] truncate">
-                  {req.reason}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {req.requested_amount != null
-                    ? formatNumber(req.requested_amount, 0)
-                    : "\u2014"}
-                </td>
-                <td className="px-3 py-2">
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${statusStyles[req.status] ?? "bg-muted text-muted-foreground"}`}
-                  >
-                    {req.status}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">
-                  {new Date(req.created_at).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Feature</TableHead>
+            <TableHead>Reason</TableHead>
+            <TableHead className="text-right">Requested</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Date</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.requests.map((req) => (
+            <TableRow key={req.id}>
+              <TableCell className="font-medium">
+                {featureLabels[req.feature_key] ?? req.feature_key}
+              </TableCell>
+              <TableCell className="text-muted-foreground max-w-[200px] truncate">
+                {req.reason}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {req.requested_amount != null
+                  ? formatNumber(req.requested_amount, 0)
+                  : "\u2014"}
+              </TableCell>
+              <TableCell>
+                <span
+                  className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${statusStyles[req.status] ?? "bg-muted text-muted-foreground"}`}
+                >
+                  {req.status}
+                </span>
+              </TableCell>
+              <TableCell className="text-muted-foreground">
+                {new Date(req.created_at).toLocaleDateString()}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

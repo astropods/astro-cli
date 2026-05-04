@@ -9,6 +9,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { FilterInput } from "@/components/FilterInput";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuditLog, useAuditLogFilters, useAccountMembers } from "@/api/queries";
@@ -17,8 +25,6 @@ import { formatRelativeTime } from "@/lib/deployment-utils";
 import type { AuditLogEntry, AccountMember } from "@/lib/api";
 
 const NO_FILTER = "__all__";
-
-// ── Actor resolution ─────────────────────────────────────────────────
 
 type MemberMap = Map<string, AccountMember>;
 
@@ -34,26 +40,18 @@ function resolveActor(actor: { id: string; type: string }, members: MemberMap) {
   return { name: actor.id, handle: actor.id };
 }
 
-// ── Table row ────────────────────────────────────────────────────────
-
-const GRID_COLS = "grid-cols-[1.5fr_0.5fr_0.6fr_0.7fr]";
-
 function EntryRow({
   entry,
-  isLast,
   members,
 }: {
   entry: AuditLogEntry;
-  isLast: boolean;
   members: MemberMap;
 }) {
   const actor = resolveActor(entry.actor, members);
 
   return (
-    <div
-      className={`grid ${GRID_COLS} gap-x-3 px-4 items-center hover:bg-muted/40 transition-colors ${isLast ? "" : "border-b border-border"}`}
-    >
-      <div className="py-3 min-w-0">
+    <TableRow>
+      <TableCell className="min-w-0">
         {entry.description && (
           <span className="text-body-sm text-foreground truncate block">
             {entry.description}
@@ -62,18 +60,18 @@ function EntryRow({
         <span className="text-mono-sm text-muted-foreground font-mono truncate block">
           {entry.action}
         </span>
-      </div>
+      </TableCell>
 
-      <div className="py-3 min-w-0">
+      <TableCell className="min-w-0">
         <span className="text-body-sm text-foreground truncate block">
           {entry.resource.name || entry.resource.id}
         </span>
         <span className="text-mono-sm text-muted-foreground font-mono truncate block">
           {entry.resource.type}
         </span>
-      </div>
+      </TableCell>
 
-      <div className="py-3 min-w-0">
+      <TableCell className="min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           {entry.actor.type === "user" && (
             <UserAvatar
@@ -86,18 +84,16 @@ function EntryRow({
             {actor.name}
           </span>
         </div>
-      </div>
+      </TableCell>
 
-      <div className="py-3">
+      <TableCell>
         <span className="text-body-sm text-muted-foreground">
           {formatRelativeTime(entry.created_at)}
         </span>
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   );
 }
-
-// ── Main view ────────────────────────────────────────────────────────
 
 export function AuditLogView({
   account,
@@ -185,7 +181,6 @@ export function AuditLogView({
 
       <Separator />
 
-      {/* Filter toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <FilterInput
           placeholder="Search events..."
@@ -255,7 +250,6 @@ export function AuditLogView({
         )}
       </div>
 
-      {/* Content */}
       {isLoading ? (
         <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
           <Loader2 size={14} className="animate-spin" />
@@ -281,38 +275,31 @@ export function AuditLogView({
         </div>
       ) : (
         <>
-          {/* Results summary */}
           <div className="text-[13px] text-muted-foreground">
             Showing {entries.length} {entries.length === 1 ? "entry" : "entries"}
             {hasNextPage && !debouncedSearch ? "+" : ""}
           </div>
 
-          <div className="rounded-[10px] border border-border overflow-hidden">
-            <div
-              className={`grid ${GRID_COLS} gap-x-3 px-4 border-b border-border bg-muted`}
-            >
-              {["Event", "Resource", "Actor", "Time"].map((h) => (
-                <div
-                  key={h}
-                  className="font-mono text-label tracking-wider text-faint-foreground py-2.5 uppercase text-left"
-                >
-                  {h}
-                </div>
-              ))}
-            </div>
-            <div className="bg-surface">
-              {entries.map((entry, i) => (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Event</TableHead>
+                <TableHead>Resource</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Time</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((entry) => (
                 <EntryRow
                   key={entry.id}
                   entry={entry}
-                  isLast={i === entries.length - 1}
                   members={memberMap}
                 />
               ))}
-            </div>
-          </div>
+            </TableBody>
+          </Table>
 
-          {/* Pagination — only show when not searching (search is client-side) */}
           {hasNextPage && !debouncedSearch && (
             <div className="flex justify-center">
               <Button

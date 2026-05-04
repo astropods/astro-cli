@@ -51,10 +51,10 @@ test("admin can remove a member via the action menu", async ({ page }) => {
     (req) => req.method() === "DELETE" && req.url().includes("/members/"),
   );
 
-  // Other User is the third direct child of bg-surface (nth(0) is a separator/header, nth(1) is Test User).
+  // Other User is the second row in the table body (nth(0) is Test User, the current user).
   // That row has two buttons: role dropdown ("Member") and action menu (icon-only MoreHorizontal).
   // Clicking the last button opens the action dropdown.
-  const otherUserRow = page.locator("div.bg-surface > div").nth(1);
+  const otherUserRow = page.locator("tbody tr").nth(1);
   await expect(otherUserRow).toContainText("Other User");
   await otherUserRow.locator("button").last().click();
 
@@ -77,7 +77,7 @@ test("admin can change a member's role", async ({ page }) => {
 
   // The role cell for Other User renders as a dropdown button with label "Member".
   // It is the first (and only) button in that row that has text content.
-  const otherUserRow = page.locator("div.bg-surface > div").nth(1);
+  const otherUserRow = page.locator("tbody tr").nth(1);
   await expect(otherUserRow).toContainText("Other User");
   await otherUserRow.getByRole("button", { name: /member/i }).click();
 

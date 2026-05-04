@@ -16,6 +16,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   useAccountMembers,
@@ -28,8 +36,6 @@ import { InviteMembersDialog } from "@/components/settings/InviteMembersDialog";
 import type { AccountMember } from "@/lib/api";
 
 export const meta: MetaFunction = () => [{ title: "Members - Organization Settings | Astro" }];
-
-const GRID_COLS = "grid-cols-[1.5fr_0.75fr_0.75fr_56px]";
 
 const ROLES = [
   { value: "admin", label: "Admin" },
@@ -84,7 +90,6 @@ function RoleCell({
 
 function MemberRow({
   member,
-  isLast,
   isCurrentUser,
   canManage,
   disabled,
@@ -92,7 +97,6 @@ function MemberRow({
   onRemove,
 }: {
   member: AccountMember;
-  isLast: boolean;
   isCurrentUser: boolean;
   canManage: boolean;
   disabled?: boolean;
@@ -103,31 +107,31 @@ function MemberRow({
   const isPending = member.status === "pending";
 
   return (
-    <div
-      className={`grid ${GRID_COLS} gap-x-3 px-4 items-center hover:bg-muted/40 transition-colors ${isLast ? "" : "border-b border-border"}`}
-    >
-      <div className="flex items-center gap-3 py-3 min-w-0 overflow-hidden">
-        <UserAvatar
-          handle={member.username || member.user_id}
-          name={displayName}
-          className="size-8 shrink-0"
-        />
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-foreground truncate">
-            {displayName}
-            {isCurrentUser && (
-              <span className="text-muted-foreground font-normal"> (you)</span>
+    <TableRow>
+      <TableCell>
+        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+          <UserAvatar
+            handle={member.username || member.user_id}
+            name={displayName}
+            className="size-8 shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-foreground truncate">
+              {displayName}
+              {isCurrentUser && (
+                <span className="text-muted-foreground font-normal"> (you)</span>
+              )}
+            </div>
+            {member.username && (
+              <div className="font-mono text-xs text-muted-foreground truncate">
+                @{member.username}
+              </div>
             )}
           </div>
-          {member.username && (
-            <div className="font-mono text-xs text-muted-foreground truncate">
-              @{member.username}
-            </div>
-          )}
         </div>
-      </div>
+      </TableCell>
 
-      <div className="py-3">
+      <TableCell>
         {isPending ? (
           <span className="text-[13px] text-muted-foreground italic">
             Invited
@@ -140,15 +144,15 @@ function MemberRow({
             onChangeRole={onChangeRole}
           />
         )}
-      </div>
+      </TableCell>
 
-      <div className="py-3">
-        <span className="text-xs text-foreground">
+      <TableCell>
+        <span className="text-body-sm text-foreground">
           {formatRelativeTime(member.created_at)}
         </span>
-      </div>
+      </TableCell>
 
-      <div className="flex justify-end">
+      <TableCell className="w-10 text-right">
         {canManage && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -167,8 +171,8 @@ function MemberRow({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -272,25 +276,20 @@ export default function OrgMembersSettings() {
       ) : members.length === 0 ? (
         <EmptyState isAdmin={isAdmin} onInvite={() => setInviteOpen(true)} />
       ) : (
-        <div className="rounded-[10px] border border-border overflow-hidden">
-          <div
-            className={`grid ${GRID_COLS} gap-x-3 px-4 border-b border-border bg-muted`}
-          >
-            {["User", "Role", "Joined", ""].map((h, i) => (
-              <div
-                key={i}
-                className="font-mono text-label tracking-wider text-faint-foreground py-2.5 uppercase text-left"
-              >
-                {h}
-              </div>
-            ))}
-          </div>
-          <div className="bg-surface">
-            {members.map((member, i) => (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>User</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Joined</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {members.map((member) => (
               <MemberRow
                 key={member.user_id}
                 member={member}
-                isLast={i === members.length - 1}
                 isCurrentUser={member.user_id === user?.id}
                 canManage={canManageMember(member)}
                 disabled={updateRole.isPending || removeMember.isPending}
@@ -298,8 +297,8 @@ export default function OrgMembersSettings() {
                 onRemove={() => handleRemove(member)}
               />
             ))}
-          </div>
-        </div>
+          </TableBody>
+        </Table>
       )}
 
       <InviteMembersDialog

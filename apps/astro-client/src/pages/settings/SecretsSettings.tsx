@@ -13,6 +13,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -36,8 +44,6 @@ import type { VaultEntry } from '@/lib/vault'
 import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
 
 export const meta: MetaFunction = () => [{ title: "Secrets - Settings | Astro" }];
-
-const GRID_COLS = 'grid-cols-[1.5fr_1.5fr_0.75fr_56px]'
 
 function toVaultEntry(v: AccountVariable): VaultEntry {
   return {
@@ -121,29 +127,27 @@ export function VaultSettings({ account: accountName }: { account: string }) {
       ) : entries.length === 0 ? (
         <EmptyState onNew={() => setNewDialogOpen(true)} />
       ) : (
-        <div className="rounded-[10px] border border-border overflow-hidden">
-          {/* Header */}
-          <div className={`grid ${GRID_COLS} gap-x-3 px-4 border-b border-border bg-muted`}>
-            {['Name', 'Value', 'Last updated', 'Actions'].map((h, i) => (
-              <div key={i} className="font-mono text-label tracking-wider text-faint-foreground py-2.5 uppercase text-left">
-                {h}
-              </div>
-            ))}
-          </div>
-          {/* Rows */}
-          <div className="bg-surface">
-            {entries.map((entry, i) => (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Value</TableHead>
+              <TableHead>Last updated</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entries.map((entry) => (
               <EntryRow
                 key={entry.name}
                 entry={entry}
-                isLast={i === entries.length - 1}
                 onOverwrite={() => setOverwriteEntry(entry)}
                 onEditVariable={() => setEditVariableEntry(entry)}
                 onDelete={() => setDeleteEntry(entry)}
               />
             ))}
-          </div>
-        </div>
+          </TableBody>
+        </Table>
       )}
 
       <NewEntryDialog
@@ -207,13 +211,11 @@ export function VaultSettings({ account: accountName }: { account: string }) {
 
 function EntryRow({
   entry,
-  isLast,
   onOverwrite,
   onEditVariable,
   onDelete,
 }: {
   entry: VaultEntry
-  isLast: boolean
   onOverwrite: () => void
   onEditVariable: () => void
   onDelete: () => void
@@ -221,10 +223,8 @@ function EntryRow({
   const isSecret = entry.type === 'secret'
 
   return (
-    <div
-      className={`grid ${GRID_COLS} gap-x-3 px-4 items-center hover:bg-muted/40 transition-colors ${isLast ? '' : 'border-b border-border'}`}
-    >
-      <div className="flex items-center gap-2.5 py-3 min-w-0 overflow-hidden">
+    <TableRow>
+      <TableCell>
         <div className="min-w-0">
           <span className="font-mono text-mono-sm font-medium text-foreground">
             {entry.name}
@@ -235,9 +235,9 @@ function EntryRow({
             </p>
           )}
         </div>
-      </div>
+      </TableCell>
 
-      <div className="flex min-w-0 overflow-hidden py-3">
+      <TableCell>
         {isSecret ? (
           <div className="flex items-center gap-1.5">
             <Lock size={12} className="text-foreground shrink-0" />
@@ -249,7 +249,7 @@ function EntryRow({
           <TooltipProvider delayDuration={400}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="font-mono text-xs text-foreground truncate cursor-default max-w-full">
+                <span className="font-mono text-xs text-foreground truncate cursor-default max-w-full block">
                   {entry.value || '—'}
                 </span>
               </TooltipTrigger>
@@ -261,15 +261,15 @@ function EntryRow({
             </Tooltip>
           </TooltipProvider>
         )}
-      </div>
+      </TableCell>
 
-      <div className="flex">
-        <span className="text-xs text-foreground">
+      <TableCell>
+        <span className="text-body-sm text-foreground">
           {formatRelativeTime(entry.updatedAt)}
         </span>
-      </div>
+      </TableCell>
 
-      <div className="flex justify-end">
+      <TableCell className="w-10 text-right">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-xs">
@@ -298,8 +298,8 @@ function EntryRow({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   )
 }
 
