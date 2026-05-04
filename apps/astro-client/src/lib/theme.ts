@@ -96,3 +96,14 @@ export function useTheme() {
 
   return { theme, setTheme };
 }
+
+function getResolvedTheme(): "light" | "dark" {
+  const stored = loadTheme();
+  return stored === "auto" ? getSystemTheme() : stored;
+}
+
+/** Returns the resolved theme ("light" | "dark"), tracking both user choice and system preference.
+ *  SSR-safe: defaults to "light" on the server, resolves on the client after hydration. */
+export function useResolvedTheme(): "light" | "dark" {
+  return useSyncExternalStore(subscribe, getResolvedTheme, () => "light" as const);
+}

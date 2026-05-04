@@ -12,6 +12,7 @@ import {
 import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { createServerApi } from "./lib/api.server";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
@@ -70,13 +71,27 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function Root() {
+export function shouldRevalidate() {
+  return false;
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  try {
+    const serverAuth = await api.getCurrentUser();
+    return { serverAuth };
+  } catch {
+    return { serverAuth: null };
+  }
+}
+
+export default function Root({ loaderData }: Route.ComponentProps) {
   // Create a new QueryClient per server request (prevents data leakage between
   // users in SSR). useState ensures the client persists across re-renders.
   const [queryClient] = useState(() => new QueryClient(queryClientConfig));
 
   return (
-    <AuthProvider>
+    <AuthProvider serverAuth={loaderData?.serverAuth}>
       <QueryClientProvider client={queryClient}>
         <QueryAuthSync />
         <AmplitudeProvider>

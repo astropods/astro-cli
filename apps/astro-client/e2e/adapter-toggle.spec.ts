@@ -68,7 +68,7 @@ test.describe("adapter toggle UX", () => {
     test.setTimeout(60_000);
     await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
 
-    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure`, {
       waitUntil: "domcontentloaded",
     });
 

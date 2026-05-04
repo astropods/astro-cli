@@ -26,7 +26,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
-import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
+import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 import { RepoPicker, type RepoPickerValue } from "@/components/new-blueprint/RepoPicker";
 import { LinkConfirmDialog } from "@/components/new-blueprint/LinkConfirmDialog";

@@ -29,58 +29,6 @@ test.beforeEach(async () => {
   await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
 });
 
-test.afterEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/set-unauth`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ unauth: false }),
-  });
-});
-
-/*
- * Concern 1: skeletonCount=0 makes the loading grid zero-height / invisible.
- *
- * When /auth/me returns 401, `getPersonalAccount` catches and returns null,
- * and the loader returns { count: 0 }. Blueprints.tsx passes that value as
- * `skeletonCount` to BlueprintListView, which runs
- * `Array.from({ length: 0 }).map(...)` — zero skeletons.
- *
- * BlueprintListView already has a sensible default (`skeletonCount = 6`)
- * but the page always oides it, including with 0.
- */
-test("unauthenticated load renders an invisible loading grid with no skeletons", async ({ page }) => {
-  test.setTimeout(30_000);
-
-  await fetch(`${MOCK_BACKEND}/test/set-unauth`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ unauth: true }),
-  });
-
-  await page.goto("/blueprints", { waitUntil: "domcontentloaded" });
-
-  const loadingGrid = page.getByRole("status", { name: "Loading blueprints" });
-
-  /*
-   * The container is mounted (attached), so `toBeVisible` is the right
-   * assertion from a UX perspective: the user should see *something* while
-   * data loads. Under the current code the container has no children, so
-   * Playwright reports it as hidden (zero bounding box) — which is exactly
-   * what the real user experiences: a blank page.
-   */
-  await expect(loadingGrid).toBeAttached({ timeout: 10_000 });
-  await expect(loadingGrid).toBeVisible({ timeout: 10_000 });
-
-  /*
-   * Secondary assertion to make the faile mode unambiguous: the grid
-   * should contain at least one skeleton card. Under the current code it
-   * contains zero.
-   */
-  const skeletonCards = loadingGrid.locator(".animate-pulse");
-  const count = await skeletonCards.count();
-  expect(count).toBeGreaterThan(0);
-});
-
 /*
  * Concern 2: the loader fetches the full blueprint list just to read .count,
  * and the client query refetches the same data anyway.

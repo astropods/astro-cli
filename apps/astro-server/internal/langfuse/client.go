@@ -144,6 +144,63 @@ func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) (*Dail
 	return &result, nil
 }
 
+// MetricsQuery is the structured query for GET /api/public/metrics.
+type MetricsQuery struct {
+	View          string              `json:"view"`
+	Metrics       []MetricsQueryField `json:"metrics"`
+	Dimensions    []MetricsDimension  `json:"dimensions,omitempty"`
+	TimeDimension *TimeDimension      `json:"timeDimension,omitempty"`
+	Filters       []MetricsFilter     `json:"filters,omitempty"`
+	FromTimestamp string              `json:"fromTimestamp"`
+	ToTimestamp   string              `json:"toTimestamp"`
+}
+
+// MetricsQueryField specifies a measure and aggregation.
+type MetricsQueryField struct {
+	Measure     string `json:"measure"`
+	Aggregation string `json:"aggregation"`
+}
+
+// MetricsDimension specifies a grouping dimension.
+type MetricsDimension struct {
+	Field string `json:"field"`
+}
+
+// TimeDimension specifies the time bucketing granularity.
+type TimeDimension struct {
+	Granularity string `json:"granularity"` // "minute", "hour", "day", "week", "month", "auto"
+}
+
+// MetricsFilter specifies a filter condition.
+type MetricsFilter struct {
+	Type     string `json:"type"`
+	Column   string `json:"column"`
+	Operator string `json:"operator"`
+	Value    any    `json:"value"`
+	Key      string `json:"key,omitempty"`
+}
+
+// MetricsResponse is the response from GET /api/public/metrics.
+type MetricsResponse struct {
+	Data []map[string]any `json:"data"`
+}
+
+// GetMetrics calls the structured metrics API with configurable granularity.
+func (c *Client) GetMetrics(q MetricsQuery) (*MetricsResponse, error) {
+	queryJSON, err := json.Marshal(q)
+	if err != nil {
+		return nil, fmt.Errorf("langfuse: marshal metrics query: %w", err)
+	}
+	params := url.Values{}
+	params.Set("query", string(queryJSON))
+
+	var result MetricsResponse
+	if err := c.doGet("/api/public/metrics", params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) doGet(path string, params url.Values, out any) error {
 	u := c.baseURL + path
 	if len(params) > 0 {

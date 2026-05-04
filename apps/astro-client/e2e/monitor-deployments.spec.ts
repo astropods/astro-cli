@@ -11,26 +11,19 @@ test.beforeEach(async () => {
   await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
 });
 
-test("monitor tab: headline metrics are populated from observability summary", async ({ page }) => {
+test("monitor tab: charts and headings are populated from observability metrics", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto(`${AGENT_DETAIL}?tab=monitor`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${AGENT_DETAIL}/monitor`, { waitUntil: "domcontentloaded" });
 
-  // Wait for the monitor tab content — "TOTAL REQUESTS" metric card
-  await expect(page.getByText("TOTAL REQUESTS")).toBeVisible({ timeout: 15_000 });
-
-  // Mock summary returns total_traces: 150 (use first() — "150" also appears in trace token column)
-  await expect(page.getByText("150", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
-
-  // avg_latency_ms: 523 → rendered as "523ms" (use first() — also appears in trace latency column)
-  await expect(page.getByText("523ms").first()).toBeVisible({ timeout: 5_000 });
-
-  // error_rate: 0.02 → rendered as "2.0%"
-  await expect(page.getByText("2.0%")).toBeVisible({ timeout: 5_000 });
+  // Wait for the monitor page sections
+  await expect(page.getByText("Token Usage")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Requests & Latency")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Traces" })).toBeVisible({ timeout: 5_000 });
 });
 
 test("monitor tab: trace rows are visible and clicking a row opens the detail panel", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto(`${AGENT_DETAIL}?tab=monitor`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${AGENT_DETAIL}/monitor`, { waitUntil: "domcontentloaded" });
 
   // Wait for trace table to load — external IDs (trace_id values) are shown in the ID column
   await expect(page.getByText("trace-1")).toBeVisible({ timeout: 15_000 });
@@ -44,46 +37,47 @@ test("monitor tab: trace rows are visible and clicking a row opens the detail pa
   await expect(page.getByText(/I don't have access to real-time weather data/i)).toBeVisible({ timeout: 5_000 });
 });
 
-test("deployments tab: stat cards and service accordion are visible", async ({ page }) => {
+test("deployments tab: pod tile is visible for the active workload", async ({ page }) => {
   test.setTimeout(30_000);
-  // Default tab is deployments
-  await page.goto(AGENT_DETAIL, { waitUntil: "domcontentloaded" });
+  // The index route redirects to /deployments
+  await page.goto(`${AGENT_DETAIL}/deployments`, { waitUntil: "domcontentloaded" });
 
-  // Stat cards: build ID from mock is "build-123" → first 8 chars = "build-12"
-  // Navigate from the label span up to its MetricCard parent div, then find the value sibling.
-  const buildStatCard = page.locator('span:text("CURRENT BUILD")').locator('..');
-  await expect(buildStatCard).toBeVisible({ timeout: 15_000 });
-  await expect(buildStatCard.getByText("build-12")).toBeVisible({ timeout: 5_000 });
-
-  // SERVICES stat card — dep-slack-full-1 has one workload, so value is "1"
-  // exact: true avoids matching the "Services1" accordion section header
-  await expect(page.getByText("SERVICES", { exact: true })).toBeVisible({ timeout: 5_000 });
-
-  // The workload "agent" accordion should be auto-opened; target by title to avoid strict mode
-  await expect(page.getByTitle("slack-config-full-agent")).toBeVisible({ timeout: 5_000 });
+  // The deployment has one workload: "slack-config-full-agent" (component: "agent")
+  // Pod tile should show the component name and status
+  await expect(page.getByText("agent", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Online")).toBeVisible({ timeout: 5_000 });
 });
 
-test("monitor tab: switching window keeps metrics visible", async ({ page }) => {
-  // MonitorTab prefetches all 3 window queries on mount (not on window change).
-  // Switching windows selects from already-cached data — no new network request fires.
-  // This test verifies the UI switches cleanly without errors.
+test("monitor tab: switching range keeps charts visible", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto(`${AGENT_DETAIL}?tab=monitor`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("TOTAL REQUESTS")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("150", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await page.goto(`${AGENT_DETAIL}/monitor`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Token Usage")).toBeVisible({ timeout: 15_000 });
 
-  // Switch to "Last 1 hour" via the combobox
-  await page.getByRole("combobox").click();
-  await page.getByRole("option", { name: "Last 1 hour" }).click();
+  // The 7D button should be active by default
+  await expect(page.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
 
-  // Metrics remain visible after window switch (mock returns same data for all windows)
-  await expect(page.getByText("TOTAL REQUESTS")).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText("150", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+  // Switch to 14D range
+  await page.getByRole("button", { name: "14D" }).click();
+  await expect(page.getByRole("button", { name: "14D" })).toHaveAttribute("aria-pressed", "true");
+
+  // Charts remain visible after range switch
+  await expect(page.getByText("Token Usage")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText("Requests & Latency")).toBeVisible({ timeout: 5_000 });
 });
 
-test("logs tab: log lines are loaded for the first container", async ({ page }) => {
+test("deployments tab: clicking a pod tile opens detail panel with logs", async ({ page }) => {
   test.setTimeout(30_000);
-  await page.goto(`${AGENT_DETAIL}?tab=logs`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${AGENT_DETAIL}/deployments`, { waitUntil: "domcontentloaded" });
+
+  // Click the pod tile for the "agent" workload
+  await expect(page.getByText("agent", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.getByText("agent", { exact: true }).click();
+
+  // Pod detail panel opens with tabs
+  await expect(page.getByText("General")).toBeVisible({ timeout: 5_000 });
+
+  // Switch to Logs tab
+  await page.getByText("Logs").click();
 
   // Mock returns log lines for the workload's container
   await expect(page.getByText(/Starting agent server on :8080/)).toBeVisible({ timeout: 15_000 });

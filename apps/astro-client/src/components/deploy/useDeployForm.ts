@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useDeferredValue, useRef, useCallback } from "react";
 import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
@@ -227,9 +227,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     [accountVarsData?.variables],
   );
 
-  // Refs used by both the fetch effect and seeding effect — declared before
-  // both so neither relies on a forward reference through the hook body.
-  const initialValuesRef = useRef<DeployFormInitialValues | null>(null);
+  const [initialValues, setInitialValues] = useState<DeployFormInitialValues | null>(null);
   const seededRef = useRef(false);
 
   // Fetch template via interactive POST endpoint.
@@ -327,7 +325,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       webAuthEnabled: iv?.webAuthEnabled ?? extracted.webAuthEnabled ?? false,
     };
 
-    initialValuesRef.current = merged;
+    setInitialValues(merged);
     applyValues(merged);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
   }, [template]);
@@ -650,12 +648,70 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       "Failed to load deployment configuration")
     : null;
 
+  // Dirty detection — compare current state against initial values
+  const { nameChanged, deployChanged, isDirty, changeCount } = useMemo(() => {
+    if (!initialValues) return { nameChanged: false, deployChanged: false, isDirty: false, changeCount: 0 };
+
+    const nameChanged = deployName !== (initialValues.deployName || slugToTitle(name));
+
+    // Count individual field-level changes
+    let deployCount = 0;
+
+    // Variables — count each key that differs
+    const ivVars = initialValues.variableValues ?? {};
+    const allVarKeys = new Set([...Object.keys(variableValues), ...Object.keys(ivVars)]);
+    for (const k of allVarKeys) {
+      if ((variableValues[k] ?? "") !== (ivVars[k] ?? "")) deployCount++;
+    }
+
+    // Adapter credentials — count each key that differs
+    const ivCreds = initialValues.adapterCredentials ?? {};
+    const allCredKeys = new Set([...Object.keys(adapterCredentials), ...Object.keys(ivCreds)]);
+    for (const k of allCredKeys) {
+      if ((adapterCredentials[k] ?? "") !== (ivCreds[k] ?? "")) deployCount++;
+    }
+
+    // Adapters — count each added or removed
+    const ivAdapters = initialValues.selectedAdapters ?? ["web"];
+    const added = selectedAdapters.filter((a) => !ivAdapters.includes(a));
+    const removed = ivAdapters.filter((a) => !selectedAdapters.includes(a));
+    deployCount += added.length + removed.length;
+
+    // Schedules — count each key that differs
+    const ivSchedules = initialValues.ingestionSchedules ?? {};
+    const allSchedKeys = new Set([...Object.keys(ingestionSchedules), ...Object.keys(ivSchedules)]);
+    for (const k of allSchedKeys) {
+      if ((ingestionSchedules[k] ?? "") !== (ivSchedules[k] ?? "")) deployCount++;
+    }
+
+    // Knowledge bindings — count each key that differs
+    const allBindKeys = new Set(Object.keys(knowledgeBindings));
+    for (const k of allBindKeys) {
+      if (knowledgeBindings[k]) deployCount++;
+    }
+
+    // Web auth toggle
+    if (webAuthEnabled !== (initialValues.webAuthEnabled ?? false)) deployCount++;
+
+    const deployChanged = deployCount > 0;
+    const changeCount = (nameChanged ? 1 : 0) + deployCount;
+
+    return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webAuthEnabled, ingestionSchedules, knowledgeBindings]);
+
+  const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
+
   return {
     template,
     templateLoading,
     templateErrorMessage,
     serverValidation: templateResponse?.validation ?? null,
-    initialValues: initialValuesRef.current,
+    initialValues,
+
+    nameChanged: deferredDirty.nameChanged,
+    deployChanged: deferredDirty.deployChanged,
+    isDirty: deferredDirty.isDirty,
+    changeCount: deferredDirty.changeCount,
 
     accounts: selectableAccounts,
     targetAccount,
@@ -758,7 +814,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     },
 
     reset(values?: DeployFormInitialValues) {
-      applyValues(values ?? initialValuesRef.current ?? iv ?? computedDefaults);
+      const resolved = values ?? initialValues ?? iv ?? computedDefaults;
+      if (values) setInitialValues(values);
+      applyValues(resolved);
     },
   };
 }

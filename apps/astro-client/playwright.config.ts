@@ -7,7 +7,8 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: "http://127.0.0.1:44317",
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
+    video: "retain-on-failure",
   },
   webServer: [
     {

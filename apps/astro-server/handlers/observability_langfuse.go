@@ -134,7 +134,20 @@ func GetAccountLangfuseSummary(
 	}
 }
 
-// GetLangfuseMetrics returns daily metrics for a deployment from Langfuse.
+// granularityIntervalMinutes maps Langfuse granularity names to their bucket
+// size in minutes so the client knows the width of each bar.
+var granularityIntervalMinutes = map[string]int{
+	"hour":  60,
+	"day":   1440,
+	"week":  10080,
+	"month": 43200, // approximate
+}
+
+// langfuseTimeDimensionKey is the response field Langfuse uses for time buckets.
+const langfuseTimeDimensionKey = "time_dimension"
+
+// GetLangfuseMetrics returns token usage metrics for a deployment from Langfuse,
+// bucketed at the requested granularity (hour, day, week, month).
 // GET /api/v1/deployments/:id/observability/metrics
 func GetLangfuseMetrics(
 	log *logger.Logger,
@@ -149,24 +162,46 @@ func GetLangfuseMetrics(
 			return
 		}
 
-		metrics, err := lctx.Client.GetDailyMetrics(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"))
+		granularity := c.DefaultQuery("granularity", "day")
+		if _, ok := granularityIntervalMinutes[granularity]; !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid granularity; must be hour, day, week, or month"})
+			return
+		}
+
+		q := langfuse.MetricsQuery{
+			View: "observations",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "inputTokens", Aggregation: "sum"},
+				{Measure: "outputTokens", Aggregation: "sum"},
+				{Measure: "count", Aggregation: "count"},
+			},
+			TimeDimension: &langfuse.TimeDimension{Granularity: granularity},
+			Filters: []langfuse.MetricsFilter{
+				{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + lctx.DeploymentID}},
+			},
+			FromTimestamp: c.Query("start_time"),
+			ToTimestamp:   c.Query("end_time"),
+		}
+
+		resp, err := lctx.Client.GetMetrics(q)
 		if err != nil {
-			log.Error("Failed to get Langfuse metrics", "error", err)
+			log.Error("Failed to get Langfuse metrics", "error", err, "granularity", granularity)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
 			return
 		}
 
-		buckets := make([]gin.H, 0, len(metrics.Data))
-		for _, m := range metrics.Data {
-			if m.CountTraces == 0 {
+		buckets := make([]gin.H, 0, len(resp.Data))
+		for _, row := range resp.Data {
+			ts, _ := row[langfuseTimeDimensionKey].(string)
+			if ts == "" {
 				continue
 			}
 			buckets = append(buckets, gin.H{
-				"timestamp":      m.Date,
-				"trace_count":    m.CountTraces,
-				"avg_latency_ms": 0, // Langfuse daily metrics don't include latency
-				"input_tokens":   m.InputTokens(),
-				"output_tokens":  m.OutputTokens(),
+				"timestamp":      ts,
+				"trace_count":    toInt(row["count_count"]),
+				"avg_latency_ms": 0,
+				"input_tokens":   toInt(row["sum_inputTokens"]),
+				"output_tokens":  toInt(row["sum_outputTokens"]),
 				"error_count":    0,
 			})
 		}
@@ -174,8 +209,21 @@ func GetLangfuseMetrics(
 		c.JSON(http.StatusOK, gin.H{
 			"buckets":          buckets,
 			"time_range":       gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
-			"interval_minutes": 1440, // Langfuse returns daily buckets
+			"interval_minutes": granularityIntervalMinutes[granularity],
 		})
+	}
+}
+
+// toInt converts a metrics response value (may be string or float64 from JSON) to int.
+func toInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	default:
+		return 0
 	}
 }
 
@@ -242,13 +290,14 @@ func GetLangfuseTraces(
 		result := make([]gin.H, 0, len(traces.Data))
 		for _, t := range traces.Data {
 			result = append(result, gin.H{
-				"trace_id":   t.ID,
-				"name":       t.Name,
-				"status":     "ok",
-				"latency_ms": t.Latency * 1000,
-				"input":      t.Input,
-				"output":     t.Output,
-				"timestamp":  t.CreatedAt,
+				"trace_id":    t.ID,
+				"name":        t.Name,
+				"status":      "ok",
+				"latency_ms":  t.Latency * 1000,
+				"total_cost":  t.TotalCost,
+				"input":       t.Input,
+				"output":      t.Output,
+				"timestamp":   t.CreatedAt,
 			})
 		}
 

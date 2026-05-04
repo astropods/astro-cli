@@ -64,7 +64,7 @@ const proseClasses = [
   // tables
   "[&_table]:border-collapse [&_th]:border [&_th]:border-stone-300 [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-stone-200 [&_td]:border [&_td]:border-stone-300 [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-[12px] dark:[&_th]:border-border dark:[&_td]:border-border dark:[&_th]:bg-teal-900/30",
   // code blocks
-  "prose-pre:my-3.5 prose-pre:rounded-md prose-pre:bg-teal-900 prose-pre:text-code-text prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px]",
+  "prose-pre:my-3.5 prose-pre:rounded-md prose-pre:bg-stone-200/60 prose-pre:border prose-pre:border-stone-200 prose-pre:text-foreground prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px] dark:prose-pre:bg-teal-900 dark:prose-pre:border-transparent dark:prose-pre:text-code-text",
   // inline code
   "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-stone-200 [&_:not(pre)>code]:border [&_:not(pre)>code]:border-stone-300",
   "[&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:text-foreground",

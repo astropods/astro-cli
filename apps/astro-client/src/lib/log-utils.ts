@@ -44,3 +44,12 @@ export function formatLogTimestamp(timestamp: string | null): string {
   const millis = ((m[3] ?? "") + "000").slice(0, 3);
   return `${date} ${time}.${millis}`;
 }
+
+/** Compact: `MM-DD HH:MM:SS` — drops year and millis. */
+export function formatLogTimestampCompact(timestamp: string | null): string {
+  if (!timestamp) return "—";
+  const m = timestamp.match(FMT_TS_RE);
+  if (!m) return timestamp;
+  const monthDay = m[1].slice(5); // MM-DD
+  return `${monthDay} ${m[2]}`;
+}

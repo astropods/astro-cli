@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, cloneElement, isValidElement, type ReactNode, type ReactElement, type PointerEvent as ReactPointerEvent, type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
+import { deriveAccentColors } from "@/lib/color-utils";
 import { Button } from "@/components/ui/button";
 
 const borderGlowStyle = {
@@ -35,29 +36,8 @@ const glareStyle = {
 };
 
 function deriveCtaColors(hex: string) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0;
-  let s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-      case g: h = ((b - r) / d + 2) / 6; break;
-      default: h = ((r - g) / d + 4) / 6; break;
-    }
-  }
-  const hDeg = Math.round(h * 360);
-  // Clamp saturation to 35-75% range
-  const ctaSat = Math.round(Math.min(75, Math.max(35, s * 100)));
-  return {
-    base: `hsl(${hDeg} ${ctaSat}% 45%)`,
-    darkBase: `hsl(${hDeg} ${ctaSat}% 32%)`,
-  };
+  const { light, dark } = deriveAccentColors(hex);
+  return { base: light, darkBase: dark };
 }
 
 const holoOverlays = (

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
+import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
 import type { AgentDeployment } from "@/lib/api";
 
 const mockDeployment: AgentDeployment = {

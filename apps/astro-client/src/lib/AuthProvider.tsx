@@ -10,10 +10,32 @@ import { AuthContext, initialAuthState, type AuthState } from './auth-context';
 
 interface AuthProviderProps {
   children: ReactNode;
+  serverAuth?: AuthResponse | null;
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [state, setState] = useState<AuthState>(initialAuthState);
+function deriveAuthState(response: AuthResponse): AuthState {
+  const accounts = response.accounts || [];
+  return {
+    user: response.user,
+    sessionId: response.session_id,
+    organizationId: response.organization_id || null,
+    role: response.role || null,
+    permissions: response.permissions || [],
+    expiresAt: response.expires_at ? new Date(response.expires_at) : null,
+    isLoading: false,
+    isAuthenticated: true,
+    error: null,
+    accounts,
+    needsOnboarding: !accounts.some((a) => a.type === 'personal'),
+    refreshVersion: 0,
+  };
+}
+
+export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
+  const [state, setState] = useState<AuthState>(() =>
+    serverAuth ? deriveAuthState(serverAuth) : initialAuthState,
+  );
+  const hydratedRef = useRef(!!serverAuth);
 
   const updateFromResponse = useCallback(
     (response: AuthResponse, { isRefresh = false } = {}) => {
@@ -125,9 +147,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.location.href = api.getLogoutUrl();
   }, []);
 
-  // Check authentication on mount
+  const hydrateAuth = useCallback((response: AuthResponse) => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    updateFromResponse(response);
+  }, [updateFromResponse]);
+
+  // Check authentication on mount — skip if already hydrated from server.
   useEffect(() => {
-    checkAuth();
+    if (!hydratedRef.current) {
+      checkAuth();
+    }
   }, [checkAuth]);
 
   // Re-validate session when tab becomes visible or window gains focus.
@@ -161,6 +191,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     refresh,
     checkAuth,
     switchOrg,
+    hydrateAuth,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

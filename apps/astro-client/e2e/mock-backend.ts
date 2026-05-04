@@ -70,6 +70,8 @@ const latestBuildByAgent: Record<string, string> = {
 
 // Mutable org role — changed via /test/set-role
 let currentOrgRole = "admin";
+// Mutable unauth flag — changed via /test/set-unauth
+let forceUnauth = false;
 
 const makeAuthResponse = () => ({
   user: {
@@ -715,6 +717,7 @@ Bun.serve({
       deployments = makeInitialDeployments();
       storedPayloads = {};
       currentOrgRole = "admin";
+      forceUnauth = false;
       createdBlueprints = new Set();
       githubAccountConnected = false;
       githubConnections = [];
@@ -729,8 +732,21 @@ Bun.serve({
       return json({ ok: true, role: currentOrgRole });
     }
 
-    if (pathname === "/auth/me") return json(makeAuthResponse());
-    if (pathname === "/auth/refresh") return json(makeAuthResponse());
+    // Toggle unauthenticated mode for subsequent auth requests
+    if (pathname === "/test/set-unauth" && request.method === "POST") {
+      const body = (await request.json()) as { unauth: boolean };
+      forceUnauth = body.unauth;
+      return json({ ok: true, unauth: forceUnauth });
+    }
+
+    if (pathname === "/auth/me") {
+      if (forceUnauth) return json({ error: "unauthorized" }, 401);
+      return json(makeAuthResponse());
+    }
+    if (pathname === "/auth/refresh") {
+      if (forceUnauth) return json({ error: "unauthorized" }, 401);
+      return json(makeAuthResponse());
+    }
     if (pathname === "/auth/switch-org") return json(makeAuthResponse());
     if (pathname === "/auth/login") return new Response("ok");
     if (pathname.startsWith("/auth/logout")) return new Response("ok");

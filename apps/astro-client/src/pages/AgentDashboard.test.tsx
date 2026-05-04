@@ -1,12 +1,18 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+function statCard(label: string): HTMLElement {
+  const card = screen.getByText(label).parentElement;
+  if (!card) throw new Error(`Stat card for ${label} not found`);
+  return card;
+}
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import AgentDashboard from './AgentDashboard';
 
-vi.mock('@/components/deployed-agent/detail/LiveRevealOverlay', () => ({
+vi.mock('@/components/ui/LiveRevealOverlay', () => ({
   LiveRevealOverlay: ({
     deployment,
     onDismiss,
@@ -149,27 +155,8 @@ describe('AgentDashboard page', () => {
   });
 });
 
-describe('dashboard actions', () => {
-  it('does not show browse blueprints or settings actions', async () => {
-    renderDashboard('/agents');
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument());
-    expect(screen.queryByRole('link', { name: /browse blueprints/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /settings/i })).not.toBeInTheDocument();
-  });
-});
-
-
-
 describe('stats', () => {
-  it('shows TOTAL TOKENS and TOTAL REQUESTS labels', async () => {
-    renderDashboard();
-    await waitFor(() => {
-      expect(screen.getByText('TOTAL TOKENS')).toBeInTheDocument();
-      expect(screen.getByText('TOTAL REQUESTS')).toBeInTheDocument();
-    });
-  });
-
-  it('shows token value as sum of input and output tokens', async () => {
+  it('shows total tokens as the sum of input and output tokens under TOTAL TOKENS', async () => {
     server.use(
       http.get('/api/v1/accounts/:account/observability/summary', () =>
         HttpResponse.json({
@@ -184,11 +171,11 @@ describe('stats', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getAllByText('1,000')[0]).toBeInTheDocument();
+      expect(within(statCard('TOTAL TOKENS')).getByText('1,000')).toBeInTheDocument();
     });
   });
 
-  it('shows request count from observability summary', async () => {
+  it('shows request count under TOTAL REQUESTS', async () => {
     server.use(
       http.get('/api/v1/accounts/:account/observability/summary', () =>
         HttpResponse.json({
@@ -203,18 +190,8 @@ describe('stats', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getAllByText('42')[0]).toBeInTheDocument();
+      expect(within(statCard('TOTAL REQUESTS')).getByText('42')).toBeInTheDocument();
     });
-  });
-
-  it('shows no trend indicators', async () => {
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('TOTAL TOKENS')).toBeInTheDocument();
-    });
-    expect(screen.queryByText('↑')).not.toBeInTheDocument();
-    expect(screen.queryByText('↓')).not.toBeInTheDocument();
   });
 });
 

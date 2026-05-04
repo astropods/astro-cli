@@ -38,7 +38,8 @@ type QueryParams struct {
 	Limit     int64  // default 200
 	Start     time.Time
 	End       time.Time
-	Direction string // "forward" (oldest first) or "backward"; default "forward"
+	Direction   string // "forward" (oldest first) or "backward"; default "forward"
+	LevelFilter string // optional — appends `| level = "<value>"` LogQL pipeline filter (e.g. "error")
 }
 
 // LogLine is a single log entry returned from Loki.
@@ -69,7 +70,11 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	}
 
 	params := url.Values{}
-	params.Set("query", buildSelector(p.Namespace, p.Pod, p.Workload, p.Container))
+	query := buildSelector(p.Namespace, p.Pod, p.Workload, p.Container)
+	if p.LevelFilter != "" {
+		query += ` | level = "` + p.LevelFilter + `"`
+	}
+	params.Set("query", query)
 	params.Set("limit", strconv.FormatInt(p.Limit, 10))
 	params.Set("start", strconv.FormatInt(start.UnixNano(), 10))
 	params.Set("end", strconv.FormatInt(end.UnixNano(), 10))

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Tag } from "@/components/Tag";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/ui/copy-button";
-import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
+import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";

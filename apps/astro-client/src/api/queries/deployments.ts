@@ -20,6 +20,15 @@ function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean 
   return workloads.some((wl) => (wl.containers ?? []).some((c) => !c.ready));
 }
 
+export function useDeploymentsSummary() {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.summary,
+    queryFn: () => api.getDeploymentsSummary(),
+    staleTime: 60_000,
+  });
+}
+
 export function useDeployments(account: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
@@ -56,12 +65,17 @@ function deploymentNeedsPolling(dep: AgentDeployment | null | undefined): boolea
   return isTransitional || hasContainerMismatch(dep) || missingWorkloads;
 }
 
-export function useDeployment(id: string, enabled = true) {
+export function useDeployment(
+  id: string,
+  enabled = true,
+  options?: { initialData?: { deployment: AgentDeployment } },
+) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.detail(id),
     queryFn: () => api.getDeployment(id),
     enabled: !!id && enabled,
+    initialData: options?.initialData,
     refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
   });
 }
@@ -106,6 +120,30 @@ export function useDeploymentLogs(
     refetchInterval: options?.refetchInterval,
     staleTime: 0,
     gcTime: 1000 * 30,
+  });
+}
+
+export function useLastErrorLog(
+  deploymentId: string,
+  workloadName: string,
+  container: string,
+  enabled = true,
+) {
+  const api = useApiClient();
+  const baseEnabled = !!deploymentId && !!workloadName && !!container && enabled;
+  return useQuery({
+    queryKey: deploymentKeys.lastError(deploymentId, workloadName, container),
+    queryFn: () =>
+      api.getDeploymentLogs(deploymentId, workloadName, container, undefined, undefined, {
+        level: 'error',
+        direction: 'backward',
+        tailLines: 1,
+      }),
+    enabled: baseEnabled,
+    staleTime: 30_000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: false,
+    retry: 1,
   });
 }
 
@@ -258,6 +296,19 @@ export function useUploadDeploymentAvatar(account: string) {
       api.uploadDeploymentAvatar(id, file),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
+export function useUpdateDeploymentDisplayName(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (displayName: string) =>
+      api.updateDeploymentDisplayName(deploymentId, displayName),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deploymentId) });
     },
   });
 }

@@ -1133,6 +1133,11 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 			)
+			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+			)
 			api.POST(protected, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
@@ -1213,6 +1218,11 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, nil),
+			)
+			api.GET(protected, "/deployments/summary", "List deployment summaries", handlers.ListDeploymentsSummary(log, accountStore, deploymentStore, avatarStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.Response(200, &handlers.DeploymentsSummaryResponse{}),
 			)
 			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),

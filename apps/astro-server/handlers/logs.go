@@ -15,6 +15,26 @@ import (
 )
 
 var k8sTimestampRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$`)
+var errorKeywordRE = regexp.MustCompile(`(?i)\b(error|fatal|panic|exception)\b`)
+
+// logPrefixRE matches a leading ISO timestamp with an optional level word.
+// Handles both T-separated (2026-04-22T00:45:01.368Z) and space-separated
+// (2026-04-22 00:45:01,368) variants.
+var logPrefixRE = regexp.MustCompile(
+	`^` +
+		`\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?` + // timestamp
+		`\s+` +
+		`(?:(?i:trace|debug|info|warn(?:ing)?|error|err|fatal|crit(?:ical)?)\s+)?`, // optional level word
+)
+
+// stripLogPrefix removes a leading timestamp + level prefix from a log message
+// when structured timestamp and level are already available separately.
+func stripLogPrefix(msg string) string {
+	if loc := logPrefixRE.FindStringIndex(msg); loc != nil {
+		return msg[loc[1]:]
+	}
+	return msg
+}
 
 func getTimezoneLocation(c *gin.Context) *time.Location {
 	if tz := c.Query("timezone"); tz != "" {
@@ -32,10 +52,11 @@ type logEntry struct {
 }
 
 func lokiLineToEntry(ll loki.LogLine, loc *time.Location) logEntry {
+	msg := stripLogPrefix(strings.TrimRight(ll.Line, "\n"))
 	return logEntry{
 		Timestamp: ll.Timestamp.In(loc).Format(time.RFC3339Nano),
 		Level:     ll.Level,
-		Message:   strings.TrimRight(ll.Line, "\n"),
+		Message:   msg,
 	}
 }
 
@@ -100,9 +121,30 @@ func streamLogs(
 			} else {
 				entry.Timestamp = m[1]
 			}
-			entry.Message = m[2]
+			entry.Message = stripLogPrefix(m[2])
+		} else {
+			entry.Message = stripLogPrefix(line)
 		}
 		entries = append(entries, entry)
 	}
+
+	// Best-effort level filtering for K8s logs (no structured level available).
+	if lokiParams.LevelFilter != "" {
+		filtered := make([]logEntry, 0, len(entries))
+		for _, e := range entries {
+			if errorKeywordRE.MatchString(e.Message) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	// Reverse for backward direction (K8s returns oldest-first).
+	if lokiParams.Direction == "backward" {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	}
+
 	c.JSON(http.StatusOK, entries)
 }

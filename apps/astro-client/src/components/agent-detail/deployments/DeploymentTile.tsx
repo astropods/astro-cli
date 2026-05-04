@@ -1,0 +1,130 @@
+import type { ReactNode } from "react";
+import { Github, Loader2, SquareTerminal } from "lucide-react";
+import { formatRelativeTime, mapDeploymentStatus } from "@/lib/deployment-utils";
+import type { DeployedAgentStatus } from "@/components/DeployedAgentCard";
+import type { AgentDeployment } from "@/lib/api";
+
+type StatusColor = { bg: string; border: string; badgeBg: string; badgeText: string };
+
+const STATUS_COLORS: Record<string, StatusColor> = {
+  active:      { bg: "color-mix(in oklch, var(--color-green-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-green-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-green-600) 20%, transparent)",  badgeText: "var(--color-green-600)" },
+  deploying:   { bg: "color-mix(in oklch, var(--color-teal-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-teal-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-teal-400) 30%, transparent)", badgeText: "var(--color-teal-300)" },
+  restarting:  { bg: "color-mix(in oklch, var(--color-teal-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-teal-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-teal-400) 30%, transparent)", badgeText: "var(--color-teal-300)" },
+  pausing:     { bg: "color-mix(in oklch, var(--color-teal-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-teal-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-teal-400) 30%, transparent)", badgeText: "var(--color-teal-300)" },
+  resuming:    { bg: "color-mix(in oklch, var(--color-teal-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-teal-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-teal-400) 30%, transparent)", badgeText: "var(--color-teal-300)" },
+  error:       { bg: "color-mix(in oklch, var(--color-coral-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-coral-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-coral-600) 20%, transparent)",  badgeText: "var(--color-coral-600)" },
+  undeploying: { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
+  inactive:    { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
+};
+
+const NEUTRAL_COLORS: StatusColor = { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" };
+
+const STATUS_LABELS: Record<DeployedAgentStatus, string> = {
+  active: "Active",
+  deploying: "Deploying",
+  error: "Error",
+  undeploying: "Undeploying",
+  inactive: "Inactive",
+  restarting: "Restarting",
+  pausing: "Pausing",
+  resuming: "Resuming",
+};
+
+const SPINNING_STATUSES = new Set<string>(["deploying", "restarting", "pausing", "resuming", "undeploying"]);
+
+function resolveStatus(deployment: AgentDeployment | undefined, isCurrent: boolean): DeployedAgentStatus | null {
+  if (!isCurrent || !deployment) return null;
+  return mapDeploymentStatus(deployment);
+}
+
+export interface DeploymentTileProps {
+  /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
+  name: string;
+  /** Whether this is the currently active deployment. */
+  active?: boolean;
+  /** Live deployment object — used to derive status for the current tile. */
+  deployment?: AgentDeployment;
+  /** Deployment source: "github" or "direct". */
+  source: "github" | "direct";
+  /** Branch name (shown for GitHub deployments). */
+  branch?: string;
+  /** Short build ID hash. */
+  buildId: string;
+  /** ISO timestamp of when the deployment was created. */
+  deployedAt: string;
+  /** GitHub commit SHA (used to build commit link). */
+  commitSha?: string;
+  /** GitHub repo full name, e.g. "owner/repo" (used to build commit link). */
+  repoFullName?: string;
+  /** Optional menu (kebab dropdown) rendered in the top-right corner. */
+  menu?: ReactNode;
+}
+
+export function DeploymentTile({
+  name,
+  active,
+  deployment,
+  source,
+  branch,
+  buildId,
+  deployedAt,
+  commitSha,
+  repoFullName,
+  menu,
+}: DeploymentTileProps) {
+  const status = resolveStatus(deployment, !!active);
+  const colors = status ? (STATUS_COLORS[status] ?? NEUTRAL_COLORS) : NEUTRAL_COLORS;
+  const shortBuild = buildId.length > 8 ? buildId.slice(0, 8) : buildId;
+  const commitUrl = repoFullName && commitSha
+    ? `https://github.com/${repoFullName}/commit/${commitSha}`
+    : undefined;
+
+  return (
+    <div
+      className="flex flex-col gap-1.5 rounded border px-3.5 py-3"
+      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-body font-medium text-foreground">
+          {name}
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {status && (
+            <span
+              className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
+              style={{ backgroundColor: colors.badgeBg, color: colors.badgeText }}
+            >
+              {SPINNING_STATUSES.has(status) && <Loader2 className="size-3 animate-spin" />}
+              {STATUS_LABELS[status]}
+            </span>
+          )}
+          {menu}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
+        {commitUrl ? (
+          <a
+            href={commitUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
+          >
+            <Github className="size-3 shrink-0" />
+            <span className="truncate underline decoration-current/20 underline-offset-2">{branch || "GitHub"}</span>
+          </a>
+        ) : (
+          <span className="flex min-w-0 shrink items-center gap-1.5">
+            {source === "github" ? (
+              <Github className="size-3 shrink-0" />
+            ) : (
+              <SquareTerminal className="size-3 shrink-0" />
+            )}
+            <span className="truncate">{source === "github" ? branch || "GitHub" : "ast push"}</span>
+          </span>
+        )}
+        <span className="shrink-0 font-mono">{shortBuild}</span>
+        <span className="shrink-0">{formatRelativeTime(deployedAt)}</span>
+      </div>
+    </div>
+  );
+}

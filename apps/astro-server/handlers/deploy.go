@@ -120,6 +120,71 @@ func resolveDeployment(c *gin.Context, deployStore *deploymentstore.Store, accou
 	return dep, nil
 }
 
+// validateAgentDisplayName trims and validates a display name.
+func validateAgentDisplayName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("display_name must not be empty")
+	}
+	if len(name) > 64 {
+		return "", fmt.Errorf("display_name must be 64 characters or fewer")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("display_name contains invalid control characters")
+		}
+	}
+	return name, nil
+}
+
+// UpdateDeploymentDisplayName returns a handler that updates only the display name
+// of a deployment without triggering a redeploy.
+func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		var body struct {
+			DisplayName string `json:"display_name"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		name, err := validateAgentDisplayName(body.DisplayName)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := deployStore.UpdateDisplayName(dep.ID, name); err != nil {
+			log.Error("failed to update display name", "deployment_id", dep.ID, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
+			return
+		}
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = "deployment.rename"
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Renamed deployment to " + name
+		evt.Metadata = map[string]any{"display_name": name}
+		auditStore.LogAsync(log, evt)
+
+		c.JSON(http.StatusOK, gin.H{"display_name": name})
+	}
+}
+
 // DeployAgent returns a handler for deploying agents to Kubernetes
 // parseDeploySpec reads and parses a deployment spec from the request body.
 // Supports both YAML and JSON (detected automatically).
@@ -234,18 +299,13 @@ func prepareDeployment(
 	}
 
 	// Sanitize and validate the optional display name
-	submittedSpec.Target.DisplayName = strings.TrimSpace(submittedSpec.Target.DisplayName)
-	if dn := submittedSpec.Target.DisplayName; dn != "" {
-		if len(dn) > 64 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "target.display_name must be 64 characters or fewer"})
+	if dn := submittedSpec.Target.DisplayName; strings.TrimSpace(dn) != "" {
+		validated, err := validateAgentDisplayName(dn)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return nil, false
 		}
-		for _, r := range dn {
-			if r < 0x20 || r == 0x7f {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "target.display_name contains invalid control characters"})
-				return nil, false
-			}
-		}
+		submittedSpec.Target.DisplayName = validated
 	}
 
 	agentName := submittedSpec.Source.Name
@@ -947,6 +1007,7 @@ type WorkloadDetail struct {
 	Kind       string                `json:"kind"`      // "Deployment" or "StatefulSet"
 	Component  string                `json:"component"` // from app.kubernetes.io/component label
 	Age        string                `json:"age"`
+	Phase      string                `json:"phase,omitempty"` // k8s pod phase (Running, Pending, Succeeded, Failed, Unknown)
 	PodName    string                `json:"pod_name,omitempty"` // name of the representative pod (for restarts)
 	Containers []ContainerStatus     `json:"containers"`
 	URLs       []ServiceEndpointInfo `json:"urls,omitempty"`
@@ -1044,6 +1105,96 @@ func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, de
 		}
 
 		c.JSON(http.StatusOK, gin.H{"count": count})
+	}
+}
+
+// DeploymentSummaryItem is a lightweight deployment projection for quick-switch UIs.
+type DeploymentSummaryItem struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	DisplayName  string          `json:"display_name,omitempty"`
+	Status       string          `json:"status"`
+	AvatarURL    string          `json:"avatar_url,omitempty"`
+	AvatarColors json.RawMessage `json:"avatar_colors,omitempty"`
+}
+
+// AccountDeploymentsSummary groups deployment summaries under an account.
+type AccountDeploymentsSummary struct {
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name"`
+	Type        string                  `json:"type"`
+	DisplayName string                  `json:"display_name"`
+	Deployments []DeploymentSummaryItem `json:"deployments"`
+}
+
+// DeploymentsSummaryResponse is the response for GET /api/v1/deployments/summary.
+type DeploymentsSummaryResponse struct {
+	Accounts []AccountDeploymentsSummary `json:"accounts"`
+}
+
+// ListDeploymentsSummary returns lightweight deployment summaries across all
+// accounts the authenticated user belongs to. No K8s enrichment — DB only.
+func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accounts, err := accountStore.GetAccountsForUser(user.ID)
+		if err != nil {
+			log.Error("Failed to get accounts for user", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get accounts"})
+			return
+		}
+
+		accountIDs := make([]string, len(accounts))
+		accountMap := make(map[string]account.AccountWithRole, len(accounts))
+		for i, a := range accounts {
+			accountIDs[i] = a.ID
+			accountMap[a.ID] = a
+		}
+
+		summaries, err := deployStore.GetSummariesForAccounts(accountIDs)
+		if err != nil {
+			log.Error("Failed to get deployment summaries", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment summaries"})
+			return
+		}
+
+		// Group by account, preserving DB sort order (deployed_at DESC).
+		grouped := make(map[string][]DeploymentSummaryItem, len(accounts))
+		for _, d := range summaries {
+			item := DeploymentSummaryItem{
+				ID:          d.ID,
+				Name:        d.AgentName,
+				DisplayName: d.DisplayName,
+				Status:      d.Status,
+				AvatarURL:   avatarStore.DeploymentAvatarURL(d.ID),
+			}
+			if d.AvatarColors != nil {
+				item.AvatarColors = *d.AvatarColors
+			}
+			grouped[d.AccountID] = append(grouped[d.AccountID], item)
+		}
+
+		result := make([]AccountDeploymentsSummary, 0, len(accounts))
+		for _, a := range accounts {
+			deps := grouped[a.ID]
+			if deps == nil {
+				deps = []DeploymentSummaryItem{}
+			}
+			result = append(result, AccountDeploymentsSummary{
+				ID:          a.ID,
+				Name:        a.Name,
+				Type:        a.Type,
+				DisplayName: a.DisplayName,
+				Deployments: deps,
+			})
+		}
+
+		c.JSON(http.StatusOK, DeploymentsSummaryResponse{Accounts: result})
 	}
 }
 
@@ -1638,6 +1789,11 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			info.Components = append(info.Components, component)
 		}
 
+		// Skip workloads scaled to zero — no pods to show
+		if dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
+			continue
+		}
+
 		wl := WorkloadDetail{
 			Name:       dep.Name,
 			Kind:       "Deployment",
@@ -1680,6 +1836,11 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 		if component != "" {
 			info.Components = append(info.Components, component)
+		}
+
+		// Skip workloads scaled to zero — no pods to show
+		if sts.Spec.Replicas != nil && *sts.Spec.Replicas == 0 {
+			continue
 		}
 
 		wl := WorkloadDetail{
@@ -1787,6 +1948,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 			wl.Containers = enrichContainerStatuses(wl.Containers, buildContainerStatuses(ctx, clientset, pod))
 			wl.PodName = pod.Name
+			wl.Phase = string(pod.Status.Phase)
 		}
 	}
 
@@ -2379,6 +2541,13 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			Container: containerName,
 			Limit:     tailLines,
 		}
+		if lvl := c.Query("level"); lvl != "" {
+			lokiParams.LevelFilter = lvl
+		}
+		if dir := c.Query("direction"); dir == "backward" {
+			lokiParams.Direction = "backward"
+		}
+
 		if s := c.Query("since"); s != "" {
 			if t, err := time.Parse(time.RFC3339, s); err == nil {
 				lokiParams.Start = t
@@ -2984,6 +3153,9 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
 				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
+				// Display name is mutable outside the deploy flow — always
+				// apply the current value from the DB, not the cached one.
+				resp.Template.Target.DisplayName = prefillExisting.DisplayName
 				if req.Finalize {
 					resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
 				}
@@ -3460,6 +3632,11 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			Status      string    `json:"status"`
 			DeployedAt  time.Time `json:"deployed_at"`
 			Spec        any       `json:"spec"`
+			Source      string    `json:"source"`
+			CommitSHA     string    `json:"commit_sha,omitempty"`
+			Branch        string    `json:"branch,omitempty"`
+			CommitMessage string    `json:"commit_message,omitempty"`
+			RepoFullName  string    `json:"repo_full_name,omitempty"`
 		}
 
 		records := make([]revisionRecord, 0, len(history))
@@ -3475,6 +3652,11 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 				Status:      r.Status,
 				DeployedAt:  r.DeployedAt,
 				Spec:        map[string]any{},
+				Source:      r.Source,
+				CommitSHA:     r.CommitSHA,
+				Branch:        r.Branch,
+				CommitMessage: r.CommitMessage,
+				RepoFullName:  r.RepoFullName,
 			})
 		}
 

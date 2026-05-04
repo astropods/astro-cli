@@ -9,110 +9,14 @@
       "count": 1
     }
   },
-  "src/components/AccountNameInput.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/BlueprintCard.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/InviteInput.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/components/LogViewer.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 4
-    }
-  },
-  "src/components/OrgSwitcher.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/StyledMarkdown.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 11
-    }
-  },
-  "src/components/blueprint-detail/BlueprintDetailBreadcrumb.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
   "src/components/blueprint-detail/BuildLogViewer.tsx": {
     "@typescript-eslint/no-unused-expressions": {
-      "count": 1
-    },
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/blueprint-detail/GitHubConnectionPanel.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/browse/BlueprintListView.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/deploy/InterfacesPicker.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/components/deploy/KnowledgeBindingPicker.tsx": {
-    "local-theme/no-raw-theme-colors": {
       "count": 1
     }
   },
   "src/components/deploy/VariableFields.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    },
     "react-hooks/rules-of-hooks": {
       "count": 2
-    }
-  },
-  "src/components/deployed-agent/detail/LiveRevealOverlay.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/deployed-agent/detail/configure/ConfigurePanel.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/deployed-agent/detail/deployments/ActiveContainerAccordion.tsx": {
-    "react-hooks/refs": {
-      "count": 1
-    }
-  },
-  "src/components/deployed-agent/detail/deployments/DeploymentHistoryTable.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/components/deployed-agent/detail/deployments/EnvVarsPanel.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/components/deployed-agent/detail/deployments/EventsPanel.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/components/knowledge/PrivateLinkSection.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 13
     }
   },
   "src/components/new-blueprint/RepoPicker.test.tsx": {
@@ -120,92 +24,9 @@
       "count": 7
     }
   },
-  "src/components/new-blueprint/RepoPicker.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/settings/AvatarUploadDialog.tsx": {
-    "react-hooks/refs": {
-      "count": 1
-    }
-  },
-  "src/components/settings/secrets/NewEntryDialog.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/components/trading-card/TradingCardModal.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 5
-    }
-  },
   "src/lib/blueprint-utils.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
-    }
-  },
-  "src/lib/log-utils.ts": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/pages/DeployBlueprint.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/pages/Home.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 12
-    }
-  },
-  "src/pages/NewBlueprint.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 5
-    }
-  },
-  "src/pages/NotFound.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/pages/RequestBlueprint.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 6
-    }
-  },
-  "src/pages/configure/ConfigureDeployment.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/KnowledgeStoreDetail/EventTimeline.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/pages/knowledge/NewKnowledgeStore/ConfigureForm.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 3
-    }
-  },
-  "src/pages/knowledge/NewKnowledgeStore/SuccessStage.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
-    }
-  },
-  "src/pages/settings/OrgSettingsLayout.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 8
-    },
-    "react-hooks/refs": {
-      "count": 2
-    }
-  },
-  "src/pages/settings/UsageSettings.tsx": {
-    "local-theme/no-raw-theme-colors": {
-      "count": 2
     }
   },
   "src/stories/ColorDiagnostics3D.tsx": {

@@ -628,6 +628,14 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 
 // UpdateDeploymentSpecJSON updates only the stored deployment spec JSON.
 // Used by repair to persist a re-generated template without changing status or revision.
+func (s *Store) UpdateDisplayName(deploymentID, displayName string) error {
+	_, err := s.db.Exec(`UPDATE deployments SET display_name = $2 WHERE id = $1`, deploymentID, displayName)
+	if err != nil {
+		return fmt.Errorf("update deployment display name: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) UpdateDeploymentSpecJSON(deploymentID, specJSON string) error {
 	_, err := s.db.Exec(`UPDATE deployments SET deployment_spec_json = $2 WHERE id = $1`, deploymentID, specJSON)
 	if err != nil {
@@ -832,4 +840,43 @@ func (s *Store) IsScaledDown(namespace string) (bool, error) {
 		return false, fmt.Errorf("failed to check scaled namespace: %w", err)
 	}
 	return exists, nil
+}
+
+// DeploymentSummary is a lightweight projection of a deployment for listing UIs.
+type DeploymentSummary struct {
+	ID           string           `json:"id"`
+	AccountID    string           `json:"account_id"`
+	AgentName    string           `json:"agent_name"`
+	DisplayName  string           `json:"display_name,omitempty"`
+	Status       string           `json:"status"`
+	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
+	DeployedAt   time.Time        `json:"deployed_at"`
+}
+
+// GetSummariesForAccounts returns lightweight deployment summaries for all
+// visible deployments across the given account IDs in a single query.
+func (s *Store) GetSummariesForAccounts(accountIDs []string) ([]*DeploymentSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT id, account_id, agent_name, display_name, status, avatar_colors, deployed_at
+		FROM deployments
+		WHERE account_id = ANY($1) AND status != 'undeployed'
+		ORDER BY deployed_at DESC
+	`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deployment summaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var summaries []*DeploymentSummary
+	for rows.Next() {
+		var d DeploymentSummary
+		if err := rows.Scan(&d.ID, &d.AccountID, &d.AgentName, &d.DisplayName, &d.Status, &d.AvatarColors, &d.DeployedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan deployment summary: %w", err)
+		}
+		summaries = append(summaries, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment summaries: %w", err)
+	}
+	return summaries, nil
 }

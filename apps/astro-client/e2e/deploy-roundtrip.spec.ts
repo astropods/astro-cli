@@ -26,7 +26,7 @@ test.describe("deploy then configure round-trip", () => {
     ]);
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -51,7 +51,7 @@ test.describe("deploy then configure round-trip", () => {
     ]);
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -76,7 +76,7 @@ test.describe("deploy then configure round-trip", () => {
     ]);
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 

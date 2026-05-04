@@ -6,7 +6,6 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const DEPLOYMENT_XACCT_PRIVATE_ID = "dep-xacct-private-1";
-const BUILD_UPGRADE_LABEL = "build-123 \u2192 build-124";
 const MOCK_BACKEND = "http://localhost:48787";
 
 // The mock backend is stateful (deploys update build_id), so reset between tests.
@@ -68,27 +67,27 @@ test("cross-account collision deployment does not show update badge from persona
 // primary path into the false-positive upgrade and must not render when
 // the source account's blueprint shows no upgrade — even when the
 // viewer's personal account has a newer same-named build.
-test("cross-account collision deployment does not show redeploy banner on detail page", async ({ page }) => {
+test("cross-account collision deployment does not show new build nudge on detail page", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_COLLISION_ID}`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_COLLISION_ID}/deployments`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByRole("heading", { name: "Cross-Account Collision Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: /Redeploy →/ })).toHaveCount(0);
+  await expect(page.getByText("Cross-Account Collision Bot")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New build available")).toHaveCount(0);
 });
 
-// Cross-account upgrade signal on the detail page: the Redeploy banner
+// Cross-account upgrade signal on the detail page: the upgrade nudge
 // must render for a legitimate cross-account upgrade so users can act on
 // it from the deployment detail view, not just the dashboard.
-test("cross-account deployment shows redeploy banner on detail page", async ({ page }) => {
+test("cross-account deployment shows new build nudge on detail page", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_UPGRADE_ID}`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_UPGRADE_ID}/deployments`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByRole("heading", { name: "Cross-Account Upgrade Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: /Redeploy →/ })).toBeVisible();
+  await expect(page.getByText("Cross-Account Upgrade Bot")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New build available")).toBeVisible({ timeout: 10_000 });
 });
 
 // Private cross-account blueprints can be visible to users who also belong
@@ -107,41 +106,40 @@ test("cross-account private deployment does not show update badge from private s
   await expect(privateCard.getByText("Update available", { exact: true })).toHaveCount(0);
 });
 
-test("cross-account private deployment does not show redeploy banner on detail page", async ({ page }) => {
+test("cross-account private deployment does not show new build nudge on detail page", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_PRIVATE_ID}`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_PRIVATE_ID}/deployments`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByRole("heading", { name: "Cross-Account Private Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: /Redeploy →/ })).toHaveCount(0);
+  await expect(page.getByText("Cross-Account Private Bot")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New build available")).toHaveCount(0);
 });
 
 // Guards against false-positive badge rendering: when deployed build matches the
 // latest published build, no "New build" indicator should appear.
 test("up-to-date deployment does not show new build badge", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/deployments`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByRole("heading", { name: "Slack Overlap Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("New build")).toHaveCount(0);
+  await expect(page.getByText("Slack Overlap Bot")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New build available")).toHaveCount(0);
 });
 
 
-// Build-only upgrade flow: with no dirty config edits, configure page should still
-// surface a Redeploy action and allow submitting current config against latest build.
-test("configure page shows build-only redeploy button and redeploys without edits", async ({ page }) => {
+// Build-only upgrade flow: navigating to configure with ?build= shows the upgrade
+// banner and Redeploy button. Submitting without edits redeploys the current config
+// against the latest build.
+test("configure page shows upgrade banner and redeploys without edits", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure?build=build-124`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("New build available")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(BUILD_UPGRADE_LABEL)).toBeVisible();
+  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^cancel$/i })).toHaveCount(0);
 
   const redeployRequest = page.waitForRequest(
     (request) => request.method() === "POST" && request.url().includes("/api/v1/deploy"),
@@ -149,7 +147,7 @@ test("configure page shows build-only redeploy button and redeploys without edit
 
   await Promise.all([
     redeployRequest,
-    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}`, { timeout: 20_000 }),
+    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/**`, { timeout: 20_000 }),
     page.getByRole("button", { name: /^redeploy$/i }).click(),
   ]);
 
@@ -160,72 +158,68 @@ test("configure page shows build-only redeploy button and redeploys without edit
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-existing-value");
 });
 
-// After a successful build-only redeploy, the optimistic cache update should
-// clear the badge immediately on the detail page without waiting for a server round-trip.
-test("new build badge clears after successful redeploy", async ({ page }) => {
+// After a successful upgrade redeploy, the deployments tab should no longer show
+// the "New build available" nudge because the build_id was updated.
+test("new build nudge clears after successful upgrade redeploy", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure?build=build-124`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("New build available")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   await Promise.all([
-    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}`, { timeout: 20_000 }),
+    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/**`, { timeout: 20_000 }),
     page.getByRole("button", { name: /^redeploy$/i }).click(),
   ]);
 
-  await expect(page.getByRole("heading", { name: "Slack Full Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("New build")).toHaveCount(0);
+  await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New build available")).toHaveCount(0);
 });
 
-// With a newer build available, the bar starts as build-only ("Redeploy"). Editing a
-// config field should transition it to dirty mode ("Save & Redeploy") with a cancel button.
-test("editing config with newer build switches bar from redeploy to save and redeploy", async ({ page }) => {
+// On the upgrade configure page, editing a config field keeps the Redeploy button
+// (the footer reflects the change count). Discarding reverts the form edits.
+test("editing config on upgrade page keeps redeploy and discard reverts", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure?build=build-124`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("New build available")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^cancel$/i })).toHaveCount(0);
 
   await page.getByLabel("Slack Bot Token").fill("xoxb-changed-value");
 
-  await expect(page.getByText("New build available")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^cancel$/i })).toBeVisible();
-
-  // Clicking Cancel resets the form, restoring the build-only bar
-  await page.getByRole("button", { name: /^cancel$/i }).click();
-
-  await expect(page.getByText("New build available")).toBeVisible();
+  // Redeploy button stays visible; footer text updates to show change count
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^cancel$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /discard/i })).toBeVisible();
+
+  // Clicking Discard removes the build override, returning to normal configure
+  await page.getByRole("button", { name: /discard/i }).click();
+
+  // After discard the upgrade override is cleared, footer disappears
+  await expect(page.getByText("Upgrade", { exact: true })).toHaveCount(0, { timeout: 5_000 });
 });
 
 // When the deploy API rejects a redeploy, the user should stay on the configure
 // page with the error displayed and the action bar still available for retry.
-// Editing a field makes the form dirty, so the bar shows change count + "Save & Redeploy"
-// rather than the build-only badge.
 test("failed redeploy keeps user on configure page with action bar", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure?build=build-124`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("New build available")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // Change the bot token to the sentinel that triggers a 400 from the mock backend
   await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");
 
-  await page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click();
+  await page.getByRole("button", { name: /^redeploy$/i }).click();
 
   await expect(page).toHaveURL(
-    new RegExp(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment$`),
+    new RegExp(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure`),
   );
   await expect(page.getByText("Validation failed")).toBeVisible();
-  await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 });

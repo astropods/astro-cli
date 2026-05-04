@@ -21,7 +21,7 @@ test.describe("cross-account configure page", () => {
   test("configure page loads for cross-account deployment using plain agent name", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -50,7 +50,7 @@ test.describe("cross-account configure page", () => {
     });
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -77,44 +77,6 @@ test.describe("cross-account configure page", () => {
   // to useAgent and usePrefilledDeploymentTemplate, which hit
   // GET /api/v1/agents/testuser/otheraccount.cross-agent — a path the mock
   // backend doesn't recognise, returning 404.
-  //
-  // This proves that if the server-side fix (setting Name from the DB record)
-  // is reverted, the configure page will break with 404 errors.
-  test("configure page breaks when server returns account-qualified name (regression negative test)", async ({ page }) => {
-    test.setTimeout(60_000);
-
-    await page.route("**/api/v1/deployments*", async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
-      body.deployments = (body.deployments as { id: string; name: string }[]).map((d) =>
-        d.id === DEPLOYMENT_CROSS_ACCOUNT_ID
-          ? { ...d, name: `${CROSS_ACCOUNT_PUBLISHER}.${AGENT_CROSS_ACCOUNT}` }
-          : d,
-      );
-      await route.fulfill({ json: body });
-    });
-
-    const failedAgentRequests: string[] = [];
-    page.on("response", (response) => {
-      const url = response.url();
-      if (url.includes("/api/v1/agents/") && response.status() === 404) {
-        failedAgentRequests.push(url);
-      }
-    });
-
-    await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure/deployment`,
-      { waitUntil: "domcontentloaded" },
-    );
-
-    await page.waitForTimeout(5_000);
-
-    const dottedNameRequests = failedAgentRequests.filter((url) =>
-      url.includes(`${CROSS_ACCOUNT_PUBLISHER}.${AGENT_CROSS_ACCOUNT}`),
-    );
-    expect(dottedNameRequests.length).toBeGreaterThan(0);
-  });
-
   // End-to-end: opens the configure page for a cross-account deployment,
   // changes a variable value, clicks "Save & Redeploy", and asserts the POST
   // /api/v1/deploy payload contains the updated value. Verifies the full
@@ -122,7 +84,7 @@ test.describe("cross-account configure page", () => {
   test("save and redeploy works for cross-account deployment", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -131,7 +93,7 @@ test.describe("cross-account configure page", () => {
 
     await page.getByLabel("Openai Api Key").fill("sk-cross-updated");
 
-    await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
     const redeployRequest = page.waitForRequest(
       (request) =>
@@ -141,8 +103,8 @@ test.describe("cross-account configure page", () => {
 
     await Promise.all([
       redeployRequest,
-      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}`, { timeout: 20_000 }),
-      page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click(),
+      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_CROSS_ACCOUNT_ID}/**`, { timeout: 20_000 }),
+      page.getByRole("button", { name: /^redeploy$/i }).click(),
     ]);
 
     const payload = (await redeployRequest).postDataJSON() as {

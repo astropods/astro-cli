@@ -107,7 +107,7 @@ test.describe("configure page", () => {
   test("prefilled schedule is editable on configure page", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -120,7 +120,7 @@ test.describe("configure page", () => {
     await page.getByRole("option", { name: "Hourly" }).click();
 
     await expect(page.getByText("Runs at minute 0")).toBeVisible();
-    await expect(page.getByRole("button", { name: /save.*redeploy/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
     const deployRequest = page.waitForRequest(
       (request) =>
@@ -130,7 +130,7 @@ test.describe("configure page", () => {
 
     await Promise.all([
       deployRequest,
-      page.getByRole("button", { name: /save.*redeploy/i }).click(),
+      page.getByRole("button", { name: /^redeploy$/i }).click(),
     ]);
 
     const payload = (await deployRequest).postDataJSON() as DeployPayload;
@@ -143,7 +143,7 @@ test.describe("configure page", () => {
   test("manual triggers hidden when deployment has no manual_ingestions", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -155,7 +155,7 @@ test.describe("configure page", () => {
     test.setTimeout(60_000);
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure/deployment`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/configure`,
       { waitUntil: "domcontentloaded" },
     );
 
@@ -181,13 +181,13 @@ test.describe("configure page", () => {
     await expect(manualBtn).toBeDisabled();
 
     await page.goto(
-      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}`,
+      `/${ACCOUNT}/agents/${DEPLOYMENT_INGESTION_SCHEDULE_ID}/deployments`,
       { waitUntil: "domcontentloaded" },
     );
 
     await page.reload({ waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /^Deployments$/i }).click();
-    const manualContainer = page.locator("span[title*='manual-manual']");
-    await expect(manualContainer).toBeVisible({ timeout: 20_000 });
+    // The triggered job should appear as a pod tile in the deployments tab
+    const manualContainer = page.locator("text=/manual/i");
+    await expect(manualContainer.first()).toBeVisible({ timeout: 20_000 });
   });
 });

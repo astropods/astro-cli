@@ -84,6 +84,11 @@ type RevisionHistoryRecord struct {
 	IsCurrent    bool
 	Status       string
 	DeployedAt   time.Time
+	Source        string // "github" or "direct"
+	CommitSHA     string // populated when Source == "github"
+	Branch        string // populated when Source == "github"
+	CommitMessage string // populated when Source == "github"
+	RepoFullName  string // populated when Source == "github", e.g. "owner/repo"
 }
 
 // GetDeploymentHistoryByRevisions returns one record per revision across all deployment
@@ -101,9 +106,20 @@ func (s *Store) GetDeploymentHistoryByRevisions(accountID, agentName string) ([]
 			COALESCE(d.display_name, ''),
 			(dr.revision = d.current_revision) AS is_current,
 			CASE WHEN dr.revision = d.current_revision THEN d.status ELSE 'undeployed' END AS status,
-			dr.created_at
+			dr.created_at,
+			CASE WHEN gb.id IS NOT NULL THEN 'github' ELSE 'direct' END AS source,
+			COALESCE(gb.commit_sha, ''),
+			COALESCE(gb.branch, ''),
+			COALESCE(gb.commit_message, ''),
+			COALESCE(gc.repo_full_name, '')
 		FROM deployment_revisions dr
 		JOIN deployments d ON dr.deployment_id = d.id
+		LEFT JOIN github_builds gb
+			ON gb.account_id = d.account_id
+			AND gb.agent_name = d.agent_name
+			AND gb.build_id = dr.build_id
+		LEFT JOIN github_connections gc
+			ON gc.id = gb.connection_id
 		WHERE d.account_id = $1 AND d.agent_name = $2
 		ORDER BY dr.created_at DESC
 	`, accountID, agentName)
@@ -118,6 +134,7 @@ func (s *Store) GetDeploymentHistoryByRevisions(accountID, agentName string) ([]
 		if err := rows.Scan(
 			&r.DeploymentID, &r.AgentName, &r.Revision, &r.BuildID,
 			&r.Namespace, &r.DisplayName, &r.IsCurrent, &r.Status, &r.DeployedAt,
+			&r.Source, &r.CommitSHA, &r.Branch, &r.CommitMessage, &r.RepoFullName,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan revision history row: %w", err)
 		}

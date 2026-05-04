@@ -5,7 +5,7 @@ import type { BlueprintCardProps } from "@/components/BlueprintCard";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { LiveRevealConfetti } from "@/components/deployed-agent/detail/LiveRevealConfetti";
+import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { GradientGridWash } from "@/components/GradientGridWash";
 import {
   BlueprintDetailBreadcrumb,

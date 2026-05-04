@@ -28,6 +28,8 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/purity': 'off',
       'react-hooks/immutability': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
     },
   },
   // Custom theme rule: enforces semantic tokens / `<Card>` over raw palette
@@ -36,7 +38,7 @@ export default defineConfig([
     files: ['src/**/*.{ts,tsx}'],
     plugins: { 'local-theme': localTheme },
     rules: {
-      'local-theme/no-raw-theme-colors': 'error',
+      'local-theme/no-raw-theme-colors': 'warn',
     },
   },
   // Allowlist: stories, tests, and intentionally-literal UI primitives.

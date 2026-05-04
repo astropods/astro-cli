@@ -22,6 +22,8 @@ export interface AuthContextType extends AuthState {
   refresh: () => Promise<void>;
   checkAuth: () => Promise<void>;
   switchOrg: (organizationId: string) => Promise<void>;
+  /** Seed auth state from a server-side loader response. Skips the client-side check. */
+  hydrateAuth: (response: import('./api').AuthResponse) => void;
 }
 
 export const initialAuthState: AuthState = {

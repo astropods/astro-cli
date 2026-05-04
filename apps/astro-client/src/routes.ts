@@ -51,12 +51,12 @@ export default [
       route("organization/new", "pages/OrganizationNew.tsx"),
       route("organization", "pages/OrganizationRedirect.tsx"),
       route("deploy/:account/:agentSlug", "pages/DeployBlueprint.tsx"),
-      route(":account/agents/:deploymentId", "pages/DeployedAgentDetail.tsx"),
-      ...prefix(":account/agents/:deploymentId/configure", [
-        layout("pages/DeployedAgentSettings.tsx", [
-          index("pages/configure/ConfigureRedirect.tsx"),
-          route("deployment", "pages/configure/ConfigureDeployment.tsx"),
-          route("danger-zone", "pages/configure/ConfigureDangerZone.tsx"),
+      ...prefix(":account/agents/:deploymentId", [
+        layout("pages/AgentDetail.tsx", [
+          index("pages/agent-detail/AgentDetailRedirect.tsx"),
+          route("monitor", "pages/agent-detail/AgentMonitor.tsx"),
+          route("deployments", "pages/agent-detail/AgentDeployments.tsx"),
+          route("configure", "pages/agent-detail/AgentConfigure.tsx"),
         ]),
       ]),
     ]),

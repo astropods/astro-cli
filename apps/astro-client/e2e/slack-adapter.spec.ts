@@ -319,7 +319,7 @@ test.describe("configure page", () => {
   // Save & Redeploy payload, not just initial install flow.
   test("save and redeploy sends updated slack bot token and SLACK_CONFIG", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure`, {
       waitUntil: "domcontentloaded",
     });
 
@@ -334,7 +334,7 @@ test.describe("configure page", () => {
     await page.getByLabel("Allowed Channel IDs").fill("C111, C222");
     await page.getByLabel("Allowed User IDs").fill("U111, U222");
 
-    await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
     const redeployRequest = page.waitForRequest(
       (request) =>
@@ -344,8 +344,8 @@ test.describe("configure page", () => {
 
     await Promise.all([
       redeployRequest,
-      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}`, { timeout: 20_000 }),
-      page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click(),
+      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/**`, { timeout: 20_000 }),
+      page.getByRole("button", { name: /^redeploy$/i }).click(),
     ]);
 
     const payload = (await redeployRequest).postDataJSON() as {
@@ -368,7 +368,7 @@ test.describe("configure page", () => {
   // prefilled state and still serialize correctly after redeploy edits.
   test("redeploy keeps overlapping slack token mapped and populated", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/configure/deployment`, {
+    await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/configure`, {
       waitUntil: "domcontentloaded",
     });
 
@@ -386,8 +386,8 @@ test.describe("configure page", () => {
 
     await Promise.all([
       redeployRequest,
-      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}`, { timeout: 20_000 }),
-      page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click(),
+      page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/**`, { timeout: 20_000 }),
+      page.getByRole("button", { name: /^redeploy$/i }).click(),
     ]);
 
     const payload = (await redeployRequest).postDataJSON() as {

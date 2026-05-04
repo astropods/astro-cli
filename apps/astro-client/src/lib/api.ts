@@ -435,6 +435,10 @@ class ApiClient {
     );
   }
 
+  async getDeploymentsSummary(): Promise<DeploymentsSummaryResponse> {
+    return this.request<DeploymentsSummaryResponse>('/api/v1/deployments/summary');
+  }
+
   async listDeployments(account: string): Promise<DeploymentsListResponse> {
     return this.request<DeploymentsListResponse>(
       `/api/v1/deployments?account=${encodeURIComponent(account)}`
@@ -444,6 +448,13 @@ class ApiClient {
   async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
     return this.request<{ deployment: AgentDeployment }>(
       `/api/v1/deployments/${encodeURIComponent(id)}`
+    );
+  }
+
+  async updateDeploymentDisplayName(id: string, displayName: string): Promise<{ display_name: string }> {
+    return this.request<{ display_name: string }>(
+      `/api/v1/deployments/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ display_name: displayName }) },
     );
   }
 
@@ -472,10 +483,14 @@ class ApiClient {
     container: string,
     since?: string,
     timezone?: string,
+    options?: { level?: string; direction?: string; tailLines?: number },
   ): Promise<LogEntry[]> {
     const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
     if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
+    if (options?.level) params.set('level', options.level);
+    if (options?.direction) params.set('direction', options.direction);
+    if (options?.tailLines !== undefined) params.set('tailLines', String(options.tailLines));
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
     const response = await fetch(url, {
       credentials: 'include',
@@ -1270,6 +1285,7 @@ export interface WorkloadDetail {
   kind: string;
   component: string;
   age: string;
+  phase?: string;
   pod_name?: string;
   containers: ContainerStatus[];
   urls?: ServiceEndpointInfo[];
@@ -1329,6 +1345,27 @@ export interface DeploymentsListResponse {
   count: number;
 }
 
+export interface DeploymentSummaryItem {
+  id: string;
+  name: string;
+  display_name?: string;
+  status: string;
+  avatar_url?: string;
+  avatar_colors?: AvatarColors;
+}
+
+export interface AccountDeploymentsSummary {
+  id: string;
+  name: string;
+  type: string;
+  display_name: string;
+  deployments: DeploymentSummaryItem[];
+}
+
+export interface DeploymentsSummaryResponse {
+  accounts: AccountDeploymentsSummary[];
+}
+
 export interface ActiveDeploymentSpecResponse {
   id: string;
   agent_name: string;
@@ -1350,6 +1387,11 @@ export interface DeploymentHistoryRecord {
   status: string;
   deployed_at: string;
   spec: Record<string, unknown>;
+  source: "github" | "direct";
+  commit_sha?: string;
+  branch?: string;
+  commit_message?: string;
+  repo_full_name?: string;
 }
 
 export interface DeploymentHistoryResponse {
@@ -1407,6 +1449,7 @@ export interface TraceEntry {
   status: string;
   latency_ms: number;
   total_tokens?: number;
+  total_cost?: number;
   input: string;
   output: string;
   timestamp: string;

@@ -1,0 +1,102 @@
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
+import { isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import type { AgentDeployment } from "@/lib/api";
+
+interface AgentStatusToggleProps {
+  deployment: AgentDeployment;
+  account: string;
+}
+
+export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProps) {
+  const stopMutation = useStopDeployment(account);
+  const wakeupMutation = useWakeUpDeployment(account);
+
+  const paused = isPausedState(deployment);
+  const status = mapDeploymentStatus(deployment);
+  const serverTransitioning = status === "deploying" || status === "pausing" || status === "resuming";
+
+  // Track local intent: "pausing" or "resuming" until server catches up
+  const [intent, setIntent] = useState<"pausing" | "resuming" | null>(null);
+
+  // Clear intent once server state reflects the completed action (render-time adjustment)
+  if (
+    (intent === "pausing" && paused && !serverTransitioning) ||
+    (intent === "resuming" && !paused && !serverTransitioning)
+  ) {
+    setIntent(null);
+  }
+
+  const transitioning = serverTransitioning || intent !== null;
+  const busy = stopMutation.isPending || wakeupMutation.isPending || transitioning;
+  const checked = intent === "resuming" ? true : intent === "pausing" ? false : !paused;
+
+  function handleToggle(next: boolean) {
+    if (busy) return;
+    if (next) {
+      setIntent("resuming");
+      wakeupMutation.mutate({ deploymentId: deployment.id });
+    } else {
+      setIntent("pausing");
+      stopMutation.mutate({ deploymentId: deployment.id });
+    }
+  }
+
+  const label = transitioning
+    ? (checked ? "Resuming" : "Pausing")
+    : checked ? "Active" : "Paused";
+
+  return (
+    <div data-testid="agent-status-toggle" className="flex items-center gap-2.5">
+      <span className="inline-flex items-center gap-2">
+        {transitioning ? (
+          <Loader2
+            className={cn(
+              "size-3 shrink-0 animate-spin",
+              checked ? "text-green-700 dark:text-green-400" : "text-stone-600 dark:text-stone-400",
+            )}
+          />
+        ) : (
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              checked
+                ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
+                : "bg-stone-500",
+            )}
+          />
+        )}
+        <span
+          className={cn(
+            "text-body font-medium tracking-wide",
+            checked ? "text-green-700 dark:text-green-400" : "text-stone-600 dark:text-stone-400",
+          )}
+        >
+          {label}
+        </span>
+      </span>
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center">
+              <Switch
+                checked={checked}
+                onCheckedChange={handleToggle}
+                disabled={busy}
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {transitioning
+              ? (checked ? "Resuming agent…" : "Pausing agent…")
+              : checked ? "Pause this agent" : "Resume this agent"}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+}

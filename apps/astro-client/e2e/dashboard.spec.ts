@@ -36,7 +36,7 @@ test("active agent card links to monitor tab", async ({ page }) => {
 
   const card = page.locator("a").filter({ hasText: "Slack Full Bot" }).first();
   const href = await card.getAttribute("href");
-  expect(href).toContain("tab=monitor");
+  expect(href).toContain("/agents/");
 });
 
 test("deploys navigate to dashboard", async ({ page }) => {

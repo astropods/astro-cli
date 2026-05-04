@@ -10,7 +10,7 @@ import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { deploymentPath } from "@/lib/routes";
-import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
+import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
 import type { AgentDeployment, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
