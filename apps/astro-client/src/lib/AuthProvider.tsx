@@ -133,8 +133,16 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   }, [updateFromResponse]);
 
   const switchOrg = useCallback(async (organizationId: string) => {
-    const response = await api.switchOrg(organizationId);
-    updateFromResponse(response, { isRefresh: true });
+    try {
+      const response = await api.switchOrg(organizationId);
+      updateFromResponse(response, { isRefresh: true });
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 401 && err.code === 'session_expired') {
+        window.location.replace(api.getLoginUrl(window.location.pathname + window.location.search));
+        return;
+      }
+      throw err;
+    }
   }, [updateFromResponse]);
 
   const login = useCallback(() => {

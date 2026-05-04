@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/workos/workos-go/v6/pkg/workos_errors"
 )
 
 // ─── stubs for fetchAccounts unit tests ──────────────────────────────────────
@@ -480,4 +481,83 @@ func TestMe_ReturnsEmptyPermissions(t *testing.T) {
 	if string(permsRaw) != "[]" {
 		t.Errorf("permissions = %s, want []", string(permsRaw))
 	}
+}
+
+// stubOrgRefresher implements orgTokenRefresher for SwitchOrg tests.
+type stubOrgRefresher struct {
+	result *auth.RefreshResult
+	err    error
+}
+
+func (s *stubOrgRefresher) AuthenticateWithRefreshTokenForOrg(_ context.Context, _, _ string) (*auth.RefreshResult, error) {
+	return s.result, s.err
+}
+
+func sealedSessionCookie(t *testing.T, h *AuthHandler) string {
+	t.Helper()
+	sessionData := &auth.SessionData{
+		Session: &auth.Session{
+			ID:             "sess-1",
+			UserID:         "user-1",
+			OrganizationID: "org-1",
+			RefreshToken:   "refresh-token",
+			AccessToken:    "access-token",
+			ExpiresAt:      time.Now().Add(1 * time.Hour),
+			CreatedAt:      time.Now(),
+		},
+		User: &auth.User{ID: "user-1", Email: "user@example.com"},
+	}
+	sealed, err := h.sessionManager.SealSession(sessionData)
+	require.NoError(t, err)
+	return sealed
+}
+
+func TestSwitchOrg_SessionExpired_Returns401(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.orgRefresher = &stubOrgRefresher{
+		err: fmt.Errorf("failed to refresh token: %w", workos_errors.HTTPError{
+			Code:      400,
+			ErrorCode: "invalid_grant",
+			Message:   "invalid_grant Session has already ended",
+		}),
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "session_expired", resp["error"])
+}
+
+func TestSwitchOrg_OtherError_Returns400(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.orgRefresher = &stubOrgRefresher{
+		err: fmt.Errorf("some other workos error"),
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "switch_failed", resp["error"])
 }

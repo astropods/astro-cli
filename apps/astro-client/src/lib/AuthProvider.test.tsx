@@ -1,23 +1,13 @@
-import { renderHook, cleanup, waitFor } from "@testing-library/react";
+import { renderHook, cleanup, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import type { AuthResponse, Account } from "./api";
+import { api, ApiRequestError, type AuthResponse, type Account } from "./api";
 import { AuthProvider } from "./AuthProvider";
 import { useAuth } from "./use-auth";
 
 afterEach(cleanup);
 
-// Mock the api module to control what getCurrentUser returns
-vi.mock("./api", () => ({
-  api: {
-    getCurrentUser: vi.fn(),
-    getLoginUrl: () => "/auth/login",
-    getLogoutUrl: () => "/auth/logout",
-    refreshSession: vi.fn(),
-  },
-}));
-
-import { api } from "./api";
-const mockGetCurrentUser = vi.mocked(api.getCurrentUser);
+const mockGetCurrentUser = vi.spyOn(api, "getCurrentUser");
+const mockSwitchOrg = vi.spyOn(api, "switchOrg");
 
 function makeAuthResponse(accounts: Account[]): AuthResponse {
   return {
@@ -95,5 +85,47 @@ describe("AuthProvider needsOnboarding", () => {
     });
 
     expect(result.current.needsOnboarding).toBe(false);
+  });
+});
+
+describe("AuthProvider switchOrg", () => {
+  const locationReplace = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("location", { replace: locationReplace, pathname: "/settings/org/foo", search: "" });
+    mockGetCurrentUser.mockResolvedValue(makeAuthResponse([]));
+  });
+
+  it("redirects to login with current path when session is expired", async () => {
+    mockSwitchOrg.mockRejectedValue(
+      new ApiRequestError({ error: "session_expired", error_description: "Session has expired" }, 401),
+    );
+
+    const { result } = renderUseAuth();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.switchOrg("org-2").catch(() => {});
+    });
+
+    expect(locationReplace).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/login"),
+    );
+  });
+
+  it("throws for non-session errors so the caller can show an error state", async () => {
+    mockSwitchOrg.mockRejectedValue(
+      new ApiRequestError({ error: "switch_failed", error_description: "Failed to switch organization" }, 400),
+    );
+
+    const { result } = renderUseAuth();
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await expect(
+      act(async () => {
+        await result.current.switchOrg("org-2");
+      }),
+    ).rejects.toThrow("Failed to switch organization");
   });
 });

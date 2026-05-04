@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/workos/workos-go/v6/pkg/usermanagement"
+	"github.com/workos/workos-go/v6/pkg/workos_errors"
 )
 
 // orgSyncer is satisfied by *org.Sync; extracted for unit testing.
@@ -30,11 +32,17 @@ type accountGetter interface {
 	GetAccountsForUser(userID string) ([]account.AccountWithRole, error)
 }
 
+// orgTokenRefresher is the subset of WorkOSClient used by SwitchOrg.
+type orgTokenRefresher interface {
+	AuthenticateWithRefreshTokenForOrg(ctx context.Context, refreshToken, organizationID string) (*auth.RefreshResult, error)
+}
+
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	log            *logger.Logger
 	cfg            *config.Config
 	workos         *auth.WorkOSClient
+	orgRefresher   orgTokenRefresher
 	sessionManager *auth.SessionManager
 	jwtValidator   *auth.JWTValidator
 	allowedOrigins map[string]bool
@@ -90,6 +98,7 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config, accountStore *accoun
 		log:            log,
 		cfg:            cfg,
 		workos:         workos,
+		orgRefresher:   workos,
 		sessionManager: sessionManager,
 		jwtValidator:   jwtValidator,
 		allowedOrigins: allowedOrigins,
@@ -558,13 +567,21 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		}
 
 		// Refresh token with the target organization ID
-		result, err := h.workos.AuthenticateWithRefreshTokenForOrg(
+		result, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(
 			c.Request.Context(),
 			sessionData.Session.RefreshToken,
 			req.OrganizationID,
 		)
 		if err != nil {
 			h.log.Error("Failed to switch org", "error", err, "org_id", req.OrganizationID)
+			var httpErr workos_errors.HTTPError
+			if errors.As(err, &httpErr) && httpErr.ErrorCode == "invalid_grant" {
+				c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
+					Error:       "session_expired",
+					Description: "Session has expired, please log in again",
+				})
+				return
+			}
 			c.JSON(http.StatusBadRequest, auth.ErrorResponse{
 				Error:       "switch_failed",
 				Description: "Failed to switch organization",
