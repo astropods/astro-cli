@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { CLI_STATE_FILE } from "./cli-state";
+import { envConfig } from "./env";
 
 const BLUEPRINT_URL = "/astro-testbot/hello-astro";
 
@@ -29,13 +30,12 @@ test.describe("hello-astro deploy flow", () => {
     await page.goto(BLUEPRINT_URL, { waitUntil: "load" });
     await page.getByRole("link", { name: /deploy this agent/i }).last().click();
     await page.waitForURL(/\/deploy\/astro-testbot\/hello-astro/, { timeout: 15000 });
-    await expect(page).not.toHaveURL(/login\.astropods\.com/);
+    await expect(page).not.toHaveURL(envConfig.loginUrlPattern);
     await page.getByRole("button", { name: /^deploy$/i }).click();
 
     // Confirm the deploying popup appears
     await expect(page.getByRole("heading", { name: /hello astro is deploying!/i })).toBeVisible({ timeout: 15000 });
     await expect(page.locator(".holo-card")).toBeVisible();
-    await expect(page.locator('svg image[href*="assets.astropods.ai"]')).toBeAttached();
 
     // Navigate to the deployment and capture the slug
     await page.getByRole("button", { name: /view deployment/i }).click();

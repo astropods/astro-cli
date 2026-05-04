@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "child_process";
 import { existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
-import { CLI_STATE_FILE } from "./cli-state";
+import { CLI_STATE_FILE, exec } from "./cli-state";
 import { envConfig } from "./env";
 
 test("archive hello-astro and clean up sandbox", () => {
@@ -12,7 +11,7 @@ test("archive hello-astro and clean up sandbox", () => {
   const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
 
   if (pushSucceeded) {
-    const archiveResult = execSync(`${astBin} bp archive hello-astro`, {
+    const archiveResult = exec(`${astBin} bp archive hello-astro`, {
       env: { ...process.env, HOME: fakeHome },
       encoding: "utf-8",
       timeout: 30000,
@@ -22,7 +21,7 @@ test("archive hello-astro and clean up sandbox", () => {
     expect(cleanArchive).toContain("Archiving blueprint hello-astro");
     expect(cleanArchive).toContain("✓ hello-astro archived");
 
-    const deleteResult = execSync(`${astBin} agent delete 'Hello Astro' --confirm 'Hello Astro'`, {
+    const deleteResult = exec(`${astBin} agent delete 'Hello Astro' --confirm 'Hello Astro'`, {
       env: { ...process.env, HOME: fakeHome },
       encoding: "utf-8",
       timeout: 30000,

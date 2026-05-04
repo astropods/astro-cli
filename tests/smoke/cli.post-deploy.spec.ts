@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { execSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { CLI_STATE_FILE } from "./cli-state";
+import { CLI_STATE_FILE, exec } from "./cli-state";
 import { envConfig } from "./env";
 
 test("ast agent list — deployment slug is present after deploy", () => {
@@ -13,7 +12,7 @@ test("ast agent list — deployment slug is present after deploy", () => {
   const { fakeHome, deploymentSlug } = JSON.parse(readFileSync(CLI_STATE_FILE, "utf-8"));
   const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
 
-  const result = execSync(`${astBin} agent list`, {
+  const result = exec(`${astBin} agent list`, {
     env: { ...process.env, HOME: fakeHome },
     encoding: "utf-8",
     timeout: 15000,

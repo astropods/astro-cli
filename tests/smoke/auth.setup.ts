@@ -26,7 +26,8 @@ setup("authenticate", async ({ page }) => {
 
   await page.getByLabel(/password/i).waitFor({ state: "visible", timeout: 10000 });
   await page.getByLabel(/password/i).fill(password);
-  await page.getByRole("button", { name: /continue|sign in/i }).click();
+  // Anchored to avoid matching "Sign in with a passkey" on the preview login page
+  await page.getByRole("button", { name: /^(continue|sign in)$/i }).click();
 
   await Promise.race([
     page.waitForURL((url) => envConfig.loginUrlExclude(url.toString()), { timeout: 60000 }),
