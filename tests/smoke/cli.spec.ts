@@ -119,6 +119,7 @@ test.describe("CLI", () => {
       env: { ...process.env, HOME: fakeHome },
       encoding: "utf-8",
       timeout: 300000, // 5 minutes — push involves a container build + registry upload
+      retries: 2,
     });
 
     console.log(result);

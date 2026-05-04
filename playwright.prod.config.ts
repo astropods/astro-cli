@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { envConfig } from "./tests/smoke/env";
 
+const isPreview = process.env.ASTRO_ENV === "preview";
 
 export default defineConfig({
   testDir: "./tests/smoke",
@@ -8,7 +10,7 @@ export default defineConfig({
   retries: 1,
   workers: 2,
   use: {
-    baseURL: process.env.ASTRO_TEST_HOST ?? "https://astropods.com",
+    baseURL: process.env.ASTRO_TEST_HOST ?? envConfig.appBaseUrl,
     headless: true,
     actionTimeout: 10000,
     navigationTimeout: 30000,
@@ -38,7 +40,7 @@ export default defineConfig({
       use: { browserName: "chromium" },
     },
 
-    // 3. Auth smoke test — just needs a valid session. Runs before CLI and app tests.
+    // 4. Auth smoke test — just needs a valid session. Runs before CLI and app tests.
     {
       name: "auth",
       testMatch: "**/auth.spec.ts",
@@ -49,58 +51,65 @@ export default defineConfig({
       },
     },
 
-    // 4. CLI — install + device-flow login. Runs after auth is confirmed.
-    //    Teardown runs after cli AND app.deploy have both finished.
-    {
-      name: "cli",
-      testMatch: "**/cli.spec.ts",
-      dependencies: ["auth"],
-      teardown: "cli-teardown",
-      use: {
-        browserName: "chromium",
-        storageState: "playwright/.auth/user.json",
-      },
-    },
+    // CLI + downstream projects — skipped on preview because the registry is not
+    // accessible from GitHub Actions in that environment.
+    ...(!isPreview
+      ? [
+          // 5. CLI — install + device-flow login. Runs after auth is confirmed.
+          //    Teardown runs after cli AND app.deploy have both finished.
+          {
+            name: "cli",
+            testMatch: "**/cli.spec.ts",
+            retries: 0, // serial group shares fakeHome — retrying from scratch breaks state
+            dependencies: ["auth"],
+            teardown: "cli-teardown",
+            use: {
+              browserName: "chromium",
+              storageState: "playwright/.auth/user.json",
+            },
+          },
 
-    // 4a. CLI teardown — archives hello-astro and removes sandbox. Managed by Playwright,
-    //     do not run directly.
-    {
-      name: "cli-teardown",
-      testMatch: "**/cli.teardown.ts",
-      use: { browserName: "chromium" },
-    },
+          // 5a. CLI teardown — archives hello-astro and removes sandbox. Managed by Playwright,
+          //     do not run directly.
+          {
+            name: "cli-teardown",
+            testMatch: "**/cli.teardown.ts",
+            use: { browserName: "chromium" },
+          },
 
-    // 5. Deploy — verifies hello-astro blueprint page and deploy flow after push.
-    {
-      name: "app.deploy",
-      testMatch: "**/app.deploy.spec.ts",
-      dependencies: ["cli"],
-      use: {
-        browserName: "chromium",
-        storageState: "playwright/.auth/user.json",
-      },
-    },
+          // 6. Deploy — verifies hello-astro blueprint page and deploy flow after push.
+          {
+            name: "app.deploy",
+            testMatch: "**/app.deploy.spec.ts",
+            dependencies: ["cli"],
+            use: {
+              browserName: "chromium",
+              storageState: "playwright/.auth/user.json",
+            },
+          },
 
-    // 6. CLI post-deploy — verifies the deployed agent appears in ast agent list.
-    {
-      name: "cli.post-deploy",
-      testMatch: "**/cli.post-deploy.spec.ts",
-      dependencies: ["app.deploy"],
-      use: { browserName: "chromium" },
-    },
+          // 7. CLI post-deploy — verifies the deployed agent appears in ast agent list.
+          {
+            name: "cli.post-deploy",
+            testMatch: "**/cli.post-deploy.spec.ts",
+            dependencies: ["app.deploy"],
+            use: { browserName: "chromium" },
+          },
 
-    // 7. Post-deploy — waits for hello-astro deployment to become Active.
-    {
-      name: "app.post-deploy",
-      testMatch: "**/app.post-deploy.spec.ts",
-      dependencies: ["app.deploy"],
-      use: {
-        browserName: "chromium",
-        storageState: "playwright/.auth/user.json",
-      },
-    },
+          // 8. Post-deploy — waits for hello-astro deployment to become Active.
+          {
+            name: "app.post-deploy",
+            testMatch: "**/app.post-deploy.spec.ts",
+            dependencies: ["app.deploy"],
+            use: {
+              browserName: "chromium",
+              storageState: "playwright/.auth/user.json",
+            },
+          },
+        ]
+      : []),
 
-    // 8. Chat — clicks the agent card and verifies the chat echo response.
+    // 9. Chat — clicks the agent card and verifies the chat echo response.
     // TODO: re-enable once chat test is stable
     // {
     //   name: "app.chat",
@@ -112,7 +121,7 @@ export default defineConfig({
     //   },
     // },
 
-    // 7. Secrets & variables — creates variables then verifies they auto-fill on the deploy page.
+    // 10. Secrets & variables — creates variables then verifies they auto-fill on the deploy page.
     {
       name: "app.secrets",
       testMatch: "**/app.secrets.spec.ts",
