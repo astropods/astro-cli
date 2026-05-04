@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -19,7 +17,6 @@ import (
 
 	"net/url"
 
-	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/client"
 
@@ -27,7 +24,6 @@ import (
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/patternmatcher/ignorefile"
-	"google.golang.org/protobuf/proto"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -417,90 +413,6 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	// Stream build output
 	if err := streamBuildOutput(resp.Body, verbose, quiet); err != nil {
 		return fmt.Errorf("error during build: %w", err)
-	}
-
-	return nil
-}
-
-func streamBuildOutput(reader io.Reader, _, quiet bool) error {
-	if !quiet {
-		fmt.Println()
-	}
-
-	var lastError string
-	decoder := json.NewDecoder(reader)
-	seenVertices := make(map[string]bool)
-
-	for {
-		var msg struct {
-			ID     string `json:"id"`
-			Aux    string `json:"aux"`
-			Stream string `json:"stream"`
-			Error  string `json:"error"`
-		}
-
-		if err := decoder.Decode(&msg); err != nil {
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
-		// Handle errors
-		if msg.Error != "" {
-			lastError = msg.Error
-			if !quiet {
-				fmt.Printf("      %sERROR: %s%s\n", colorRed, msg.Error, colorReset)
-			}
-		}
-
-		// Handle traditional Docker build stream output
-		if msg.Stream != "" && !quiet {
-			fmt.Print(msg.Stream)
-		}
-
-		// Handle BuildKit trace data
-		if msg.ID == "moby.buildkit.trace" && msg.Aux != "" && !quiet {
-			// Decode base64
-			data, err := base64.StdEncoding.DecodeString(msg.Aux)
-			if err != nil {
-				continue
-			}
-
-			// Parse protobuf
-			var status controlapi.StatusResponse
-			if err := proto.Unmarshal(data, &status); err != nil {
-				continue
-			}
-
-			// Print vertex names (build steps)
-			for _, v := range status.Vertexes {
-				if v.Name != "" && !seenVertices[v.Digest] {
-					seenVertices[v.Digest] = true
-					fmt.Printf("      %s%s%s\n", colorCyan, v.Name, colorReset)
-				}
-				if v.Error != "" {
-					lastError = v.Error
-					fmt.Printf("      %sERROR: %s%s\n", colorRed, v.Error, colorReset)
-				}
-			}
-
-			// Print logs (command output)
-			for _, l := range status.Logs {
-				if len(l.Msg) > 0 {
-					lines := strings.Split(string(l.Msg), "\n")
-					for _, line := range lines {
-						if line != "" {
-							fmt.Printf("      %s%s%s\n", colorDim, line, colorReset)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if lastError != "" {
-		return fmt.Errorf("build failed: %s", lastError)
 	}
 
 	return nil
