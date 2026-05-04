@@ -241,7 +241,7 @@ export function BlueprintDetailContent({
           <div className="flex items-center gap-2 border-b border-border-strong bg-muted px-4 py-2.5">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
-              ReadMe
+              AGENT.md
             </span>
           </div>
           <div className="px-6 py-5">

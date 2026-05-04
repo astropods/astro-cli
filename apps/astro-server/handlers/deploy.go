@@ -1007,7 +1007,7 @@ type WorkloadDetail struct {
 	Kind       string                `json:"kind"`      // "Deployment" or "StatefulSet"
 	Component  string                `json:"component"` // from app.kubernetes.io/component label
 	Age        string                `json:"age"`
-	Phase      string                `json:"phase,omitempty"` // k8s pod phase (Running, Pending, Succeeded, Failed, Unknown)
+	Phase      string                `json:"phase,omitempty"`    // k8s pod phase (Running, Pending, Succeeded, Failed, Unknown)
 	PodName    string                `json:"pod_name,omitempty"` // name of the representative pod (for restarts)
 	Containers []ContainerStatus     `json:"containers"`
 	URLs       []ServiceEndpointInfo `json:"urls,omitempty"`
@@ -3622,17 +3622,17 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		type revisionRecord struct {
-			ID          string    `json:"id"`
-			AgentName   string    `json:"agent_name"`
-			Revision    int       `json:"revision"`
-			BuildID     string    `json:"build_id"`
-			Namespace   string    `json:"namespace"`
-			DisplayName string    `json:"display_name"`
-			IsCurrent   bool      `json:"is_current"`
-			Status      string    `json:"status"`
-			DeployedAt  time.Time `json:"deployed_at"`
-			Spec        any       `json:"spec"`
-			Source      string    `json:"source"`
+			ID            string    `json:"id"`
+			AgentName     string    `json:"agent_name"`
+			Revision      int       `json:"revision"`
+			BuildID       string    `json:"build_id"`
+			Namespace     string    `json:"namespace"`
+			DisplayName   string    `json:"display_name"`
+			IsCurrent     bool      `json:"is_current"`
+			Status        string    `json:"status"`
+			DeployedAt    time.Time `json:"deployed_at"`
+			Spec          any       `json:"spec"`
+			Source        string    `json:"source"`
 			CommitSHA     string    `json:"commit_sha,omitempty"`
 			Branch        string    `json:"branch,omitempty"`
 			CommitMessage string    `json:"commit_message,omitempty"`
@@ -3642,17 +3642,17 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 		records := make([]revisionRecord, 0, len(history))
 		for _, r := range history {
 			records = append(records, revisionRecord{
-				ID:          r.DeploymentID,
-				AgentName:   r.AgentName,
-				Revision:    r.Revision,
-				BuildID:     r.BuildID,
-				Namespace:   r.Namespace,
-				DisplayName: r.DisplayName,
-				IsCurrent:   r.IsCurrent,
-				Status:      r.Status,
-				DeployedAt:  r.DeployedAt,
-				Spec:        map[string]any{},
-				Source:      r.Source,
+				ID:            r.DeploymentID,
+				AgentName:     r.AgentName,
+				Revision:      r.Revision,
+				BuildID:       r.BuildID,
+				Namespace:     r.Namespace,
+				DisplayName:   r.DisplayName,
+				IsCurrent:     r.IsCurrent,
+				Status:        r.Status,
+				DeployedAt:    r.DeployedAt,
+				Spec:          map[string]any{},
+				Source:        r.Source,
 				CommitSHA:     r.CommitSHA,
 				Branch:        r.Branch,
 				CommitMessage: r.CommitMessage,

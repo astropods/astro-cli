@@ -55,21 +55,20 @@ const proseClasses = [
   "prose-p:my-2.5",
   "prose-ul:my-1.5 prose-ul:pl-4 prose-ol:my-1.5 prose-ol:pl-6 [&_ol]:list-decimal [&_ul]:marker:text-foreground [&_ol]:marker:text-foreground",
   "prose-li:my-0.5 prose-li:text-body",
-  "prose-a:text-primary prose-a:underline prose-a:decoration-primary/40 prose-a:underline-offset-4 hover:prose-a:decoration-primary",
+  "prose-a:text-foreground prose-a:underline prose-a:decoration-muted-foreground/50 prose-a:underline-offset-4 hover:prose-a:decoration-foreground",
   "prose-strong:font-semibold prose-strong:text-foreground",
-  "prose-blockquote:my-3 prose-blockquote:border-teal-400 prose-hr:my-4",
+  "prose-blockquote:my-3 prose-blockquote:border-border-strong prose-hr:my-4",
   // task list checkboxes
   "[&_.contains-task-list]:list-none [&_.contains-task-list]:pl-0",
-  "[&_input[type=checkbox]]:accent-teal-600 [&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:align-middle [&_input[type=checkbox]]:relative [&_input[type=checkbox]]:-top-px",
+  "[&_input[type=checkbox]]:accent-primary [&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:align-middle [&_input[type=checkbox]]:relative [&_input[type=checkbox]]:-top-px",
   // tables
-  "[&_table]:border-collapse [&_th]:border [&_th]:border-stone-300 [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-stone-200 [&_td]:border [&_td]:border-stone-300 [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-[12px] dark:[&_th]:border-border dark:[&_td]:border-border dark:[&_th]:bg-teal-900/30",
+  "[&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-muted [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-[12px]",
   // code blocks
-  "prose-pre:my-3.5 prose-pre:rounded-md prose-pre:bg-stone-200/60 prose-pre:border prose-pre:border-stone-200 prose-pre:text-foreground prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px] dark:prose-pre:bg-teal-900 dark:prose-pre:border-transparent dark:prose-pre:text-code-text",
+  "prose-pre:my-3.5 prose-pre:rounded-[4px] prose-pre:bg-muted prose-pre:text-foreground prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px]",
   // inline code
-  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-stone-200 [&_:not(pre)>code]:border [&_:not(pre)>code]:border-stone-300",
+  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:border [&_:not(pre)>code]:border-border",
   "[&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:text-foreground",
   "[&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']",
-  "dark:[&_:not(pre)>code]:bg-teal-900/40 dark:[&_:not(pre)>code]:border-teal-300/20 dark:[&_:not(pre)>code]:text-teal-300",
   // images: block images get max-width, unwrapped consecutive images render inline
   "prose-img:max-w-full prose-img:rounded",
   "[&>img]:inline [&>a>img]:inline",

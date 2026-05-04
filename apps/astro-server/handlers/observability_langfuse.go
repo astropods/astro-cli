@@ -290,14 +290,14 @@ func GetLangfuseTraces(
 		result := make([]gin.H, 0, len(traces.Data))
 		for _, t := range traces.Data {
 			result = append(result, gin.H{
-				"trace_id":    t.ID,
-				"name":        t.Name,
-				"status":      "ok",
-				"latency_ms":  t.Latency * 1000,
-				"total_cost":  t.TotalCost,
-				"input":       t.Input,
-				"output":      t.Output,
-				"timestamp":   t.CreatedAt,
+				"trace_id":   t.ID,
+				"name":       t.Name,
+				"status":     "ok",
+				"latency_ms": t.Latency * 1000,
+				"total_cost": t.TotalCost,
+				"input":      t.Input,
+				"output":     t.Output,
+				"timestamp":  t.CreatedAt,
 			})
 		}
 

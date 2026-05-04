@@ -35,7 +35,7 @@ export function RequiredAppsList({ integrations, title = "Integrations" }: Requi
           return (
             <InlineBadge
               key={key}
-              className="gap-1.5 rounded-full border-border-strong bg-stone-200 px-2.5 py-1 font-sans text-[12px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-muted/30 dark:text-foreground"
+              className="gap-1.5 font-sans text-body-sm font-medium normal-case tracking-normal"
             >
               {known && (
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">

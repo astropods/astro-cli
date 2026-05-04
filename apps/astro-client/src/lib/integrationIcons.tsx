@@ -6,12 +6,20 @@ import { getIntegrationIconUrl } from "@/lib/assets";
 
 export function getIntegrationIcon(id: string): ReactNode {
   return (
-    <img
-      src={getIntegrationIconUrl(id, "light")}
-      alt=""
-      className="h-full w-full object-contain"
-      loading="lazy"
-    />
+    <>
+      <img
+        src={getIntegrationIconUrl(id, "light")}
+        alt=""
+        className="h-full w-full object-contain dark:hidden"
+        loading="lazy"
+      />
+      <img
+        src={getIntegrationIconUrl(id, "dark")}
+        alt=""
+        className="hidden h-full w-full object-contain dark:block"
+        loading="lazy"
+      />
+    </>
   );
 }
 

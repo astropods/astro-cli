@@ -75,15 +75,15 @@ func (s *Store) GetRevisions(deploymentID string) ([]DeploymentRevision, error) 
 // RevisionHistoryRecord is a flattened view of one deployment_revisions row joined with
 // its parent deployment, used for the history API endpoint.
 type RevisionHistoryRecord struct {
-	DeploymentID string
-	AgentName    string
-	Revision     int
-	BuildID      string
-	Namespace    string
-	DisplayName  string
-	IsCurrent    bool
-	Status       string
-	DeployedAt   time.Time
+	DeploymentID  string
+	AgentName     string
+	Revision      int
+	BuildID       string
+	Namespace     string
+	DisplayName   string
+	IsCurrent     bool
+	Status        string
+	DeployedAt    time.Time
 	Source        string // "github" or "direct"
 	CommitSHA     string // populated when Source == "github"
 	Branch        string // populated when Source == "github"

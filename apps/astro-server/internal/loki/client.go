@@ -31,13 +31,13 @@ func New(baseURL string) *Client {
 
 // QueryParams defines parameters for a log query.
 type QueryParams struct {
-	Namespace string
-	Pod       string // optional — exact pod name (used by K8s fallback)
-	Workload  string // optional — k8s workload name (Deployment, StatefulSet, etc.); matches all pods with this prefix
-	Container string // optional
-	Limit     int64  // default 200
-	Start     time.Time
-	End       time.Time
+	Namespace   string
+	Pod         string // optional — exact pod name (used by K8s fallback)
+	Workload    string // optional — k8s workload name (Deployment, StatefulSet, etc.); matches all pods with this prefix
+	Container   string // optional
+	Limit       int64  // default 200
+	Start       time.Time
+	End         time.Time
 	Direction   string // "forward" (oldest first) or "backward"; default "forward"
 	LevelFilter string // optional — appends `| level = "<value>"` LogQL pipeline filter (e.g. "error")
 }
