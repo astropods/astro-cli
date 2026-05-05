@@ -1466,9 +1466,16 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 		_, err := a.clientset.CoreV1().Secrets(a.namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil && errors.IsAlreadyExists(err) {
 			// Secret from a previous deploy — reuse it and read back stable values.
+			// Refresh labels to the current build so cleanupStaleBuildResources
+			// doesn't delete this secret as stale (the data stays put; only
+			// metadata is updated).
 			err = nil
 			if existing, getErr := a.clientset.CoreV1().Secrets(a.namespace).Get(ctx, secretName, metav1.GetOptions{}); getErr == nil {
 				creds = existing.Data
+				existing.Labels = secret.Labels
+				if _, updateErr := a.clientset.CoreV1().Secrets(a.namespace).Update(ctx, existing, metav1.UpdateOptions{}); updateErr != nil {
+					err = updateErr
+				}
 			}
 		}
 		if err == nil {

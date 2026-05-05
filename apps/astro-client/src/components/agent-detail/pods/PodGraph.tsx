@@ -42,14 +42,21 @@ export function PodGraph({ count, renderTile, effectiveWidth }: PodGraphProps) {
   const layoutWidth = effectiveWidth ?? containerW;
   const isVertical = layoutWidth > 0 && layoutWidth < VERTICAL_BREAKPOINT;
 
+  // Treat sizes as stale whenever it doesn't match the current count — the
+  // useEffect inside useTileMeasurements that resets sizes runs after commit,
+  // so a render that happens between "count changed" and "effect fired" would
+  // otherwise lay out N old positions while renderTile(i) reads the new
+  // (shorter) source array, dereferencing undefined.
+  const sizesValid = sizes !== null && sizes.length === count;
+
   const positions = useMemo(() => {
-    if (!sizes) return null;
-    return isVertical ? computeVerticalPositions(sizes) : computePodPositions(sizes);
-  }, [sizes, isVertical]);
+    if (!sizesValid) return null;
+    return isVertical ? computeVerticalPositions(sizes!) : computePodPositions(sizes!);
+  }, [sizes, sizesValid, isVertical]);
 
   const graphPositions = useMemo(
-    () => (sizes ? computePodPositions(sizes) : null),
-    [sizes],
+    () => (sizesValid ? computePodPositions(sizes!) : null),
+    [sizes, sizesValid],
   );
 
   const edges = useMemo(

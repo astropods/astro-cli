@@ -7,8 +7,8 @@ import { Squircle } from "../Squircle";
 
 export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending";
 
-export function derivePodStatus(workload: WorkloadDetail): PodStatus {
-  if (!workload.containers || workload.containers.length === 0) return "pending";
+export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatus {
+  if (!workload?.containers || workload.containers.length === 0) return "pending";
   if (workload.containers.some((c) => c.state === "waiting" || c.state === "terminated")) return "unhealthy";
   if (workload.containers.every((c) => c.ready)) {
     if (isFlapping(workload)) return "warning";
@@ -145,7 +145,7 @@ export function PodTileContent({ name, status = "pending", icon: Icon = Box, age
 
 /** Connected pod tile — derives status and fetches error logs for unhealthy pods. */
 interface PodTileProps {
-  workload: WorkloadDetail;
+  workload: WorkloadDetail | undefined;
   deploymentId: string;
   className?: string;
   onClick?: () => void;
@@ -154,6 +154,10 @@ interface PodTileProps {
 }
 
 export function PodTile({ workload, deploymentId, className, onClick, selected, dimmed }: PodTileProps) {
+  // Defense in depth: PodGraph also guards against stale-positions vs new
+  // workloads, but render order during AnimatePresence exits or query refetches
+  // can still feed `undefined` here briefly. Bail out so the page doesn't crash.
+  if (!workload) return null;
   const status = derivePodStatus(workload);
   const containerName = status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
