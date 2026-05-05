@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -13,10 +14,13 @@ import (
 	"time"
 )
 
-// newPreflighterWithServer builds a preflighter wired to the given test
+// newPreflighterWithServer builds a preflighter wired to the given TLS test
 // server. It rewrites all requests so they hit srv regardless of the host
-// embedded in the image — this lets us simulate "registry.localhost"
-// without messing with the test process's DNS resolver.
+// embedded in the image — this lets us simulate a non-local registry without
+// messing with the test process's DNS resolver. A self-signed TLS server is
+// used so the host is treated as https (matching production registries) — a
+// non-localhost host is required because the preflighter short-circuits
+// localhost-ish hosts before making any HTTP call.
 func newPreflighterWithServer(t *testing.T, srv *httptest.Server, localMode bool) *ImagePreflighter {
 	t.Helper()
 	target, err := url.Parse(srv.URL)
@@ -28,18 +32,20 @@ func newPreflighterWithServer(t *testing.T, srv *httptest.Server, localMode bool
 			d := net.Dialer{Timeout: 1 * time.Second}
 			return d.DialContext(ctx, network, target.Host)
 		},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // G402: test-only self-signed cert
 	}
 	p := NewImagePreflighter(localMode)
 	p.SetClient(http.Client{Transport: transport, Timeout: 2 * time.Second})
 	return p
 }
 
-// testImage is a host that resolves to the http (not https) scheme so the
-// preflighter dials the httptest.Server (HTTP) without TLS handshake errors.
-const testImage = "registry.localhost/acct/agent:b7396c13"
+// testImage uses a non-localhost host so the preflighter does not short-circuit
+// before reaching the HTTP call. The transport rewrites the dial to a TLS
+// httptest.Server so requests still terminate at the test server.
+const testImage = "registry.test.example/acct/agent:b7396c13"
 
 func TestImagePreflight_404ReturnsImageNotFound(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
@@ -60,13 +66,13 @@ func TestImagePreflight_404ReturnsImageNotFound(t *testing.T) {
 }
 
 func TestImagePreflight_LocalMirror5xxTreatedAsMissing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
 
 	p := newPreflighterWithServer(t, srv, true)
-	err := p.Preflight(context.Background(), "registry.localhost/acct/agent:b7396c13")
+	err := p.Preflight(context.Background(), testImage)
 
 	nf, ok := AsImageNotFound(err)
 	if !ok {
@@ -78,7 +84,7 @@ func TestImagePreflight_LocalMirror5xxTreatedAsMissing(t *testing.T) {
 }
 
 func TestImagePreflight_NonLocalMode5xxFailsOpen(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
 	t.Cleanup(srv.Close)
@@ -91,7 +97,7 @@ func TestImagePreflight_NonLocalMode5xxFailsOpen(t *testing.T) {
 }
 
 func TestImagePreflight_200Proceeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -120,7 +126,7 @@ func TestImagePreflight_TransportErrorFailsOpen(t *testing.T) {
 
 func TestImagePreflight_PositiveResultCached(t *testing.T) {
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -141,7 +147,7 @@ func TestImagePreflight_PositiveResultCached(t *testing.T) {
 
 func TestImagePreflight_404NotCached(t *testing.T) {
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -178,7 +184,7 @@ func TestImagePreflight_EmptyImageNoOp(t *testing.T) {
 }
 
 func TestImagePreflight_PreflightWithBuildIDInjectsBuildID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(srv.Close)
@@ -196,21 +202,51 @@ func TestImagePreflight_PreflightWithBuildIDInjectsBuildID(t *testing.T) {
 }
 
 func TestImagePreflight_LocalMirrorScopedToConfiguredHosts(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
 
 	p := newPreflighterWithServer(t, srv, true)
-	p.localMirrorHosts = []string{"registry.localhost"}
+	p.localMirrorHosts = []string{"mirror.test.example"}
 
-	// localhost:5000 falls outside the configured allowlist — even though
+	// other.test.example falls outside the configured allowlist — even though
 	// 5xx came back, it must fail open (might be an unrelated registry).
-	if err := p.Preflight(context.Background(), "localhost:5000/acct/agent:tag"); err != nil {
+	if err := p.Preflight(context.Background(), "other.test.example/acct/agent:tag"); err != nil {
 		t.Errorf("expected fail-open for non-mirror host, got %v", err)
 	}
-	if err := p.Preflight(context.Background(), "registry.localhost/acct/agent:tag"); err == nil {
+	if err := p.Preflight(context.Background(), "mirror.test.example/acct/agent:tag"); err == nil {
 		t.Errorf("expected ErrImageNotFound for mirror host, got nil")
+	}
+}
+
+func TestImagePreflight_LocalhostHostsSkipped(t *testing.T) {
+	// Any *.localhost / localhost / 127.* host must short-circuit before
+	// making an HTTP call. ast-dev push retags images with these hosts as a
+	// kubelet-resolvable name without pushing anywhere; there's no manifest
+	// to HEAD.
+	var hits atomic.Int32
+	transport := &http.Transport{
+		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+			hits.Add(1)
+			return nil, errors.New("dial should not happen")
+		},
+	}
+	p := NewImagePreflighter(true)
+	p.SetClient(http.Client{Transport: transport, Timeout: 1 * time.Second})
+
+	cases := []string{
+		"registry.localhost/acct/agent:b7396c13",
+		"localhost:5000/acct/agent:tag",
+		"127.0.0.1:5000/acct/agent:tag",
+	}
+	for _, image := range cases {
+		if err := p.Preflight(context.Background(), image); err != nil {
+			t.Errorf("%s: expected nil (skip preflight), got %v", image, err)
+		}
+	}
+	if got := hits.Load(); got != 0 {
+		t.Errorf("expected 0 dial attempts for localhost-ish hosts, got %d", got)
 	}
 }
 

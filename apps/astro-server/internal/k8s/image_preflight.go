@@ -121,6 +121,15 @@ func (p *ImagePreflighter) Preflight(ctx context.Context, image string) error {
 		return nil
 	}
 
+	// Local-dev tag scheme: ast-dev push retags images as
+	// registry.localhost/<ns>/<agent>:<tag> without pushing anywhere — kubelet
+	// resolves them from the Docker daemon via IfNotPresent. There's no
+	// registry to HEAD, and Traefik's catch-all returns 404 for these hosts,
+	// which would otherwise be mistaken for a missing manifest.
+	if isLikelyHTTPHost(host) {
+		return nil
+	}
+
 	url := buildManifestURL(host, repo, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {

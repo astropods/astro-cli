@@ -1171,7 +1171,9 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 				Name:        d.AgentName,
 				DisplayName: d.DisplayName,
 				Status:      d.Status,
-				AvatarURL:   avatarStore.DeploymentAvatarURL(d.ID),
+			}
+			if avatarStore != nil {
+				item.AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
 			}
 			if d.AvatarColors != nil {
 				item.AvatarColors = *d.AvatarColors

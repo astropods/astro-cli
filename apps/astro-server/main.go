@@ -595,6 +595,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	// JSON Schema for astropods.yml (public, no auth)
 	router.GET("/schema/package.json", handlers.AstroAISpecSchema())
 
+	// Local avatar storage: serve the on-disk assets dir so {ASSETS_CDN_URL}/{key}
+	// resolves without a real CDN. Only enabled when LocalDir is configured;
+	// production uses S3 + CloudFront and never hits this route.
+	if cfg.Avatar.IsLocal() {
+		router.Static("/assets", cfg.Avatar.LocalDir)
+	}
+
 	handlers.RegisterCLIRoutes(router, cfg)
 
 	// Setup authentication
