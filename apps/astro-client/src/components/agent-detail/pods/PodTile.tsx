@@ -154,18 +154,19 @@ interface PodTileProps {
 }
 
 export function PodTile({ workload, deploymentId, className, onClick, selected, dimmed }: PodTileProps) {
-  // Defense in depth: PodGraph also guards against stale-positions vs new
-  // workloads, but render order during AnimatePresence exits or query refetches
-  // can still feed `undefined` here briefly. Bail out so the page doesn't crash.
-  if (!workload) return null;
+  // Hooks must run unconditionally (rules-of-hooks). Pass safe defaults when
+  // workload is missing so we can still bail out below — see PodGraph for the
+  // root-cause fix; this is a defensive backstop for AnimatePresence exits and
+  // query refetches that can briefly feed undefined through.
   const status = derivePodStatus(workload);
-  const containerName = status === "unhealthy" ? findUnhealthyContainer(workload) : "";
+  const containerName = workload && status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
     deploymentId,
-    workload.name,
+    workload?.name ?? "",
     containerName,
-    status === "unhealthy",
+    !!workload && status === "unhealthy",
   );
+  if (!workload) return null;
   const lastError = errorLogs?.[0]?.message ?? null;
 
   const totalRestarts = workload.containers.reduce((sum, c) => sum + c.restart_count, 0);
