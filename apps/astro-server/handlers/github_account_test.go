@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/gin-gonic/gin"
@@ -323,7 +324,7 @@ func TestGitHubAccountDisconnect_Unauthenticated(t *testing.T) {
 	log := logger.New("error", "json")
 	router := gin.New()
 	// No session middleware — GetSession will return false.
-	router.DELETE("/api/v1/accounts/:account/github", GitHubAccountDisconnect(log, nil, nil, nil))
+	router.DELETE("/api/v1/accounts/:account/github", GitHubAccountDisconnect(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount/github", nil)
 	rec := httptest.NewRecorder()
@@ -534,7 +535,7 @@ func TestGitHubAccountDisconnect_KeepsWebhookWhenOtherSubpathConnExists(t *testi
 		c.Next()
 	})
 	router.DELETE("/accounts/:account/github",
-		GitHubAccountDisconnect(logger.New("error", "json"), pipesClient, store, whStore))
+		GitHubAccountDisconnect(logger.New("error", "json"), pipesClient, store, whStore, k8scache.NoopCache{}))
 
 	req := httptest.NewRequest(http.MethodDelete, "/accounts/accountA/github", nil)
 	w := httptest.NewRecorder()
@@ -1004,7 +1005,7 @@ func TestGitHubAccountDisconnect_TokenError_DeletesWebhookRow(t *testing.T) {
 		c.Next()
 	})
 	router.DELETE("/accounts/:account/github",
-		GitHubAccountDisconnect(logger.New("error", "json"), pipes.New("fake-workos-key"), store, whStore))
+		GitHubAccountDisconnect(logger.New("error", "json"), pipes.New("fake-workos-key"), store, whStore, k8scache.NoopCache{}))
 
 	req := httptest.NewRequest(http.MethodDelete, "/accounts/accountA/github", nil)
 	w := httptest.NewRecorder()

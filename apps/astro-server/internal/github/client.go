@@ -96,14 +96,30 @@ func (c *Client) GetLogin(ctx context.Context) (string, error) {
 	return user.Login, nil
 }
 
-// SearchRepos searches the authenticated user's repositories via the GitHub Search API.
+// GetOrgs returns the login names of all GitHub organizations the authenticated user is a member of.
+func (c *Client) GetOrgs(ctx context.Context) ([]string, error) {
+	var orgs []struct {
+		Login string `json:"login"`
+	}
+	if err := c.get(ctx, "/user/orgs?per_page=100", &orgs); err != nil {
+		return nil, fmt.Errorf("github: get orgs: %w", err)
+	}
+	logins := make([]string, len(orgs))
+	for i, o := range orgs {
+		logins[i] = o.Login
+	}
+	return logins, nil
+}
+
+// SearchRepos searches repositories the authenticated user has access to via the GitHub Search API.
 // login scopes results to user:{login}; if empty, GetLogin is called first.
+// orgs is a pre-fetched list of org logins added as org:{login} qualifiers so org repos are included.
+// fork:true is included so forked repos are not excluded by default.
 // With an empty query it returns all repos sorted by push date; with a query it
 // filters by name using the in:name qualifier.
-// fork:true is included so forked repos (which the user owns) are not excluded by default.
 // Note: the Search API does not return permissions objects reliably, so admin
 // filtering is skipped — non-admin repos will fail at webhook installation time.
-func (c *Client) SearchRepos(ctx context.Context, query, login string) ([]Repo, error) {
+func (c *Client) SearchRepos(ctx context.Context, query, login string, orgs []string) ([]Repo, error) {
 	if login == "" {
 		var err error
 		login, err = c.GetLogin(ctx)
@@ -112,12 +128,17 @@ func (c *Client) SearchRepos(ctx context.Context, query, login string) ([]Repo, 
 		}
 	}
 
+	scope := fmt.Sprintf("user:%s fork:true", login)
+	for _, org := range orgs {
+		scope += fmt.Sprintf(" org:%s", org)
+	}
+
 	var q, sort string
 	if query == "" {
-		q = fmt.Sprintf("user:%s fork:true", login)
+		q = scope
 		sort = "pushed"
 	} else {
-		q = fmt.Sprintf("user:%s fork:true %s in:name", login, query)
+		q = fmt.Sprintf("%s %s in:name", scope, query)
 		sort = "updated"
 	}
 

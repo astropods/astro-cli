@@ -1402,7 +1402,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("account", "Account name"),
 			)
 			api.DELETE(accountGitHubRoutes, "/github", "Disconnect GitHub from account",
-				handlers.GitHubAccountDisconnect(log, pipesClient, ghStore, webhookStore),
+				handlers.GitHubAccountDisconnect(log, pipesClient, ghStore, webhookStore, k8sCache),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1414,7 +1414,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("account", "Account name"),
 			)
 			api.GET(accountGitHubRoutes, "/github/repos", "List GitHub repos for account",
-				handlers.GitHubAccountListRepos(log, pipesClient),
+				handlers.GitHubAccountListRepos(log, pipesClient, k8sCache),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

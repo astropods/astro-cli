@@ -126,10 +126,34 @@ func TestClient_GetBranchHead_HTTPError(t *testing.T) {
 	}
 }
 
+func TestClient_GetOrgs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/orgs" {
+			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"login": "org-a"},
+			{"login": "org-b"},
+		})
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	orgs, err := c.GetOrgs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(orgs) != 2 || orgs[0] != "org-a" || orgs[1] != "org-b" {
+		t.Fatalf("unexpected orgs: %v", orgs)
+	}
+}
+
 func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
-		if q != "user:testuser fork:true" {
+		if q != "user:testuser fork:true org:my-org" {
 			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
 			return
 		}
@@ -149,7 +173,7 @@ func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	repos, err := c.SearchRepos(context.Background(), "", "testuser")
+	repos, err := c.SearchRepos(context.Background(), "", "testuser", []string{"my-org"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +185,7 @@ func TestClient_SearchRepos_EmptyQuery(t *testing.T) {
 func TestClient_SearchRepos_WithQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
-		if q != "user:testuser fork:true agent in:name" {
+		if q != "user:testuser fork:true org:my-org agent in:name" {
 			http.Error(w, "unexpected q: "+q, http.StatusBadRequest)
 			return
 		}
@@ -176,7 +200,7 @@ func TestClient_SearchRepos_WithQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	repos, err := c.SearchRepos(context.Background(), "agent", "testuser")
+	repos, err := c.SearchRepos(context.Background(), "agent", "testuser", []string{"my-org"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -192,7 +216,7 @@ func TestClient_SearchRepos_HTTPError(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	_, err := c.SearchRepos(context.Background(), "agent", "testuser")
+	_, err := c.SearchRepos(context.Background(), "agent", "testuser", nil)
 	if err == nil {
 		t.Fatal("expected error for 422 response")
 	}
@@ -399,6 +423,7 @@ func TestClient_AuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(struct {
 			Items []Repo `json:"items"`
 		}{})
@@ -406,7 +431,7 @@ func TestClient_AuthHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	_, _ = c.SearchRepos(context.Background(), "", "testuser")
+	_, _ = c.SearchRepos(context.Background(), "", "testuser", nil)
 
 	if gotAuth != "Bearer test-token" {
 		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-token")

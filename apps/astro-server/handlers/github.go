@@ -177,13 +177,16 @@ func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg Gi
 	}
 }
 
+const githubOrgsCachePrefix = "astro:github:orgs:"
+const githubOrgsCacheTTL = 5 * time.Minute
+
 // GitHubAccountListRepos handles GET /api/v1/accounts/:account/github/repos.
 // Uses the GitHub Search API for all cases:
 //   - no ?q  → returns the user's repos sorted by push date
 //   - ?q=foo → returns repos matching "foo" in name, scoped to the user
 //
 // Pass ?login=<login> to skip an extra GET /user round-trip.
-func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -206,7 +209,27 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.H
 		}
 
 		gh := githubclient.New(token.AccessToken)
-		repos, err := gh.SearchRepos(c.Request.Context(), strings.TrimSpace(c.Query("q")), strings.TrimSpace(c.Query("login")))
+
+		var orgs []string
+		cacheKey := githubOrgsCachePrefix + session.UserID
+		if cached, ok := cache.Get(c.Request.Context(), cacheKey); ok {
+			if jsonErr := json.Unmarshal(cached, &orgs); jsonErr != nil {
+				orgs = nil
+			}
+		}
+		if orgs == nil {
+			orgs, err = gh.GetOrgs(c.Request.Context())
+			if err != nil {
+				log.Error("github: get orgs for repo search, falling back to personal repos only", "error", err)
+				orgs = nil
+			} else {
+				if b, marshalErr := json.Marshal(orgs); marshalErr == nil {
+					_ = cache.Set(c.Request.Context(), cacheKey, b, githubOrgsCacheTTL)
+				}
+			}
+		}
+
+		repos, err := gh.SearchRepos(c.Request.Context(), strings.TrimSpace(c.Query("q")), strings.TrimSpace(c.Query("login")), orgs)
 		if err != nil {
 			log.Error("github: search account repos", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search GitHub repos"})
@@ -476,7 +499,7 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 
 // GitHubAccountDisconnect handles DELETE /api/v1/accounts/:account/github.
 // Removes all agent repo connections and their webhooks for the account.
-func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store) gin.HandlerFunc {
+func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -532,6 +555,8 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 		}); err != nil {
 			log.Error("github: revoke pipes connection on account disconnect", "error", err)
 		}
+
+		_ = cache.Invalidate(c.Request.Context(), githubOrgsCachePrefix+session.UserID)
 
 		log.Info("GitHub account disconnected", "account", acct.Name, "connections_removed", len(conns))
 		c.Status(http.StatusNoContent)
