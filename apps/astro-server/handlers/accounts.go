@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/mail"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -40,14 +43,29 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Type        string             `json:"type"`
-	DisplayName string             `json:"display_name"`
-	Owner       *AccountOwner      `json:"owner,omitempty"`
-	Invitations []org.InviteResult `json:"invitations,omitempty"`
-	CreatedAt   string             `json:"created_at"`
-	UpdatedAt   string             `json:"updated_at"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Type          string             `json:"type"`
+	DisplayName   string             `json:"display_name"`
+	Owner         *AccountOwner      `json:"owner,omitempty"`
+	Invitations   []org.InviteResult `json:"invitations,omitempty"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+	AccountNumber *int               `json:"account_number,omitempty"`
+	Bio           string             `json:"bio,omitempty"`
+	Location      string             `json:"location,omitempty"`
+	Email         string             `json:"email,omitempty"`
+	LocalTimezone string             `json:"local_timezone,omitempty"`
+	Pronouns      string             `json:"pronouns,omitempty"`
+	Website       string             `json:"website,omitempty"`
+	SocialLinks   []string           `json:"social_links"`
+}
+
+// AccountOrgResponse represents an org account in the profile orgs list.
+type AccountOrgResponse struct {
+	Name         string           `json:"name"`
+	DisplayName  string           `json:"display_name"`
+	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
 }
 
 // AccountWithRoleResponse represents an account in the profile response
@@ -276,14 +294,25 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 			return
 		}
 
+		socialLinks := acct.SocialLinks
+		if socialLinks == nil {
+			socialLinks = []string{}
+		}
 		resp := AccountResponse{
-			ID:          acct.ID,
-			Name:        acct.Name,
-			Type:        acct.Type,
-			DisplayName: acct.DisplayName,
-
-			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:            acct.ID,
+			Name:          acct.Name,
+			Type:          acct.Type,
+			DisplayName:   acct.DisplayName,
+			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			AccountNumber: acct.AccountNumber,
+			Bio:           acct.Bio,
+			Location:      acct.Location,
+			Email:         acct.Email,
+			LocalTimezone: acct.LocalTimezone,
+			Pronouns:      acct.Pronouns,
+			Website:       acct.Website,
+			SocialLinks:   socialLinks,
 		}
 
 		// Best-effort: look up owner profile for personal accounts
@@ -359,9 +388,18 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 	}
 }
 
-// UpdateAccountRequest represents the request body for updating account fields (e.g. display name).
+// UpdateAccountRequest represents the request body for updating account fields.
+// All profile fields use pointer types for PATCH semantics: absent (null/omitted)
+// means "leave unchanged"; present (even empty string) means "set to this value".
 type UpdateAccountRequest struct {
-	DisplayName string `json:"display_name"`
+	DisplayName   string    `json:"display_name"`
+	Bio           *string   `json:"bio"`
+	Location      *string   `json:"location"`
+	Email         *string   `json:"email"`
+	LocalTimezone *string   `json:"local_timezone"`
+	Pronouns      *string   `json:"pronouns"`
+	Website       *string   `json:"website"`
+	SocialLinks   *[]string `json:"social_links"`
 }
 
 // UpdateAccount handles PATCH /api/v1/accounts/:account (admin only)
@@ -384,36 +422,85 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 		}
 
 		req.DisplayName = strings.TrimSpace(req.DisplayName)
-		if req.DisplayName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "display name is required"})
-			return
-		}
-		if len(req.DisplayName) > 64 {
+		if req.DisplayName != "" && len(req.DisplayName) > 64 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
 			return
 		}
+		if req.Bio != nil && len(*req.Bio) > 160 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bio must be 160 characters or fewer"})
+			return
+		}
+		if req.Location != nil && len(*req.Location) > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "location must be 100 characters or fewer"})
+			return
+		}
+		if req.Email != nil && len(*req.Email) > 255 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email must be 255 characters or fewer"})
+			return
+		}
+		if req.Email != nil && *req.Email != "" {
+			if _, err := mail.ParseAddress(*req.Email); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "email must be a valid email address"})
+				return
+			}
+		}
+		if req.LocalTimezone != nil && len(*req.LocalTimezone) > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "local_timezone must be 50 characters or fewer"})
+			return
+		}
+		if req.Pronouns != nil && len(*req.Pronouns) > 50 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pronouns must be 50 characters or fewer"})
+			return
+		}
+		if req.Website != nil && len(*req.Website) > 255 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "website must be 255 characters or fewer"})
+			return
+		}
+		if req.Website != nil && *req.Website != "" {
+			u, err := url.ParseRequestURI(*req.Website)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "website must be a valid http or https URL"})
+				return
+			}
+		}
+		if req.SocialLinks != nil && len(*req.SocialLinks) > 4 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "social_links may contain at most 4 entries"})
+			return
+		}
+		if req.SocialLinks != nil {
+			for _, link := range *req.SocialLinks {
+				if len(link) > 255 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "each social link must be 255 characters or fewer"})
+					return
+				}
+				if link != "" {
+					u, err := url.ParseRequestURI(link)
+					if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "each social link must be a valid http or https URL"})
+						return
+					}
+				}
+			}
+		}
 
-		if err := accountStore.UpdateDisplayName(acct.ID, req.DisplayName); err != nil {
-			log.Error("Failed to update account display name", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
+		if err := accountStore.UpdateProfile(acct.ID, req.DisplayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks); err != nil {
+			log.Error("Failed to update account profile", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return
 		}
 
-		log.Info("Account display name updated", "account_id", acct.ID, "display_name", req.DisplayName)
+		log.Info("Account profile updated", "account_id", acct.ID, "display_name", req.DisplayName)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.ProfileUpdate
 		evt.ResourceType = "account"
 		evt.ResourceID = acct.ID
 		evt.ResourceName = acct.Name
-		evt.Description = "Updated account display name"
+		evt.Description = "Updated account profile"
 		evt.Metadata = map[string]any{"display_name": req.DisplayName}
 		auditStore.LogAsync(log, evt)
 
-		c.JSON(http.StatusOK, gin.H{
-			"message":      "display name updated",
-			"display_name": req.DisplayName,
-		})
+		c.JSON(http.StatusOK, gin.H{"message": "profile updated"})
 	}
 }
 
@@ -702,5 +789,57 @@ func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.
 		}
 
 		c.JSON(http.StatusOK, gin.H{"results": results})
+	}
+}
+
+// GetAccountOrgs handles GET /api/v1/accounts/:account/orgs
+// Returns the organization accounts the owner of the given personal account belongs to.
+// Org memberships are private: only the authenticated account owner receives the real list;
+// unauthenticated requests and requests from other users receive an empty list.
+func GetAccountOrgs(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		if acct.Type != "personal" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		ownerID, err := accountStore.GetFirstMemberUserID(acct.ID)
+		if err != nil {
+			// No members — return empty list
+			c.JSON(http.StatusOK, gin.H{"orgs": []AccountOrgResponse{}})
+			return
+		}
+
+		// Only expose org memberships to the account owner.
+		caller, authenticated := middleware.GetUser(c)
+		if !authenticated || caller.ID != ownerID {
+			c.JSON(http.StatusOK, gin.H{"orgs": []AccountOrgResponse{}})
+			return
+		}
+
+		orgs, err := accountStore.GetOrgAccountsForUser(ownerID)
+		if err != nil {
+			log.Error("Failed to get org accounts", "error", err, "account", accountName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get org accounts"})
+			return
+		}
+
+		resp := make([]AccountOrgResponse, 0, len(orgs))
+		for _, o := range orgs {
+			resp = append(resp, AccountOrgResponse{
+				Name:         o.Name,
+				DisplayName:  o.DisplayName,
+				AvatarColors: o.AvatarColors,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"orgs": resp})
 	}
 }

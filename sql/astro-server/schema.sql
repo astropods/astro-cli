@@ -16,6 +16,20 @@ CREATE TABLE public.accounts (
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
 
+CREATE TABLE public.account_profile (
+    account_id uuid NOT NULL,
+    account_number serial,
+    bio varchar(500),
+    location varchar(100),
+    email varchar(255),
+    local_timezone varchar(50),
+    pronouns varchar(50),
+    website varchar(255),
+    social_links text[] NOT NULL DEFAULT '{}',
+    CONSTRAINT account_profile_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_profile_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 CREATE INDEX idx_accounts_name_prefix ON public.accounts(name text_pattern_ops);
 
 CREATE TABLE public.account_organizations (

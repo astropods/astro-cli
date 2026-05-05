@@ -59,6 +59,16 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 		return nil, fmt.Errorf("failed to add owner member: %w", err)
 	}
 
+	// Seed the profile row so account_number is assigned at registration time
+	_, err = tx.Exec(`
+		INSERT INTO account_profile (account_id, social_links)
+		VALUES ($1, '{}')
+		ON CONFLICT (account_id) DO NOTHING
+	`, acct.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed account profile: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
@@ -85,6 +95,17 @@ func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
 	}
+
+	// Seed the profile row so account_number is assigned at registration time
+	_, err = s.db.Exec(`
+		INSERT INTO account_profile (account_id, social_links)
+		VALUES ($1, '{}')
+		ON CONFLICT (account_id) DO NOTHING
+	`, acct.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed account profile: %w", err)
+	}
+
 	return &acct, nil
 }
 
@@ -93,7 +114,14 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
 	var deletedAt sql.NullTime
-	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors)
+	var accountNumber sql.NullInt32
+	var bio, location, email, localTimezone, pronouns, website sql.NullString
+	var socialLinks pq.StringArray
+	err := row.Scan(
+		&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt,
+		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors,
+		&accountNumber, &bio, &location, &email, &localTimezone, &pronouns, &website, &socialLinks,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -103,15 +131,32 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	if deletedAt.Valid {
 		acct.DeletedAt = &deletedAt.Time
 	}
+	if accountNumber.Valid {
+		n := int(accountNumber.Int32)
+		acct.AccountNumber = &n
+	}
+	acct.Bio = bio.String
+	acct.Location = location.String
+	acct.Email = email.String
+	acct.LocalTimezone = localTimezone.String
+	acct.Pronouns = pronouns.String
+	acct.Website = website.String
+	if socialLinks != nil {
+		acct.SocialLinks = []string(socialLinks)
+	} else {
+		acct.SocialLinks = []string{}
+	}
 	return &acct, nil
 }
 
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		LEFT JOIN account_profile ap ON ap.account_id = a.id
 		WHERE a.name = $1 AND a.deleted_at IS NULL
 	`, name))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -126,9 +171,11 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		LEFT JOIN account_profile ap ON ap.account_id = a.id
 		WHERE a.id = $1 AND a.deleted_at IS NULL
 	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -143,9 +190,11 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}')
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
+		LEFT JOIN account_profile ap ON ap.account_id = a.id
 		WHERE ao.workos_org_id = $1
 	`, orgID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -292,6 +341,132 @@ func (s *AccountStore) UpdateDisplayName(accountID, displayName string) error {
 	}
 
 	return nil
+}
+
+// UpdateProfile upserts extended public profile fields for an account atomically.
+// If displayName is non-empty it is also applied to the accounts table; an empty
+// string leaves the existing display_name unchanged.
+// Pointer fields use PATCH semantics: nil means "not provided, leave as-is";
+// non-nil (including pointer to empty string) means "set to this value".
+func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, location, email, localTimezone, pronouns, website *string, socialLinks *[]string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if displayName != "" {
+		result, err := tx.Exec(`
+			UPDATE accounts SET display_name = $1, updated_at = $2 WHERE id = $3
+		`, displayName, time.Now(), accountID)
+		if err != nil {
+			return fmt.Errorf("failed to update display name: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("account not found: %s", accountID)
+		}
+	} else {
+		// Verify account exists even when display_name is not being changed.
+		var cnt int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM accounts WHERE id = $1 AND deleted_at IS NULL`, accountID,
+		).Scan(&cnt); err != nil {
+			return fmt.Errorf("failed to verify account: %w", err)
+		}
+		if cnt == 0 {
+			return fmt.Errorf("account not found: %s", accountID)
+		}
+	}
+
+	// Skip the profile upsert entirely if no profile fields were provided.
+	if bio == nil && location == nil && email == nil && localTimezone == nil && pronouns == nil && website == nil && socialLinks == nil {
+		return tx.Commit()
+	}
+
+	var socialLinksVal []string
+	if socialLinks != nil {
+		socialLinksVal = *socialLinks
+	} else {
+		socialLinksVal = []string{}
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO account_profile (account_id, bio, location, email, local_timezone, pronouns, website, social_links)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (account_id) DO UPDATE SET
+			bio            = CASE WHEN $9  THEN EXCLUDED.bio            ELSE account_profile.bio END,
+			location       = CASE WHEN $10 THEN EXCLUDED.location       ELSE account_profile.location END,
+			email          = CASE WHEN $11 THEN EXCLUDED.email          ELSE account_profile.email END,
+			local_timezone = CASE WHEN $12 THEN EXCLUDED.local_timezone ELSE account_profile.local_timezone END,
+			pronouns       = CASE WHEN $13 THEN EXCLUDED.pronouns       ELSE account_profile.pronouns END,
+			website        = CASE WHEN $14 THEN EXCLUDED.website        ELSE account_profile.website END,
+			social_links   = CASE WHEN $15 THEN EXCLUDED.social_links   ELSE account_profile.social_links END
+	`, accountID,
+		nullablePtrStr(bio),
+		nullablePtrStr(location),
+		nullablePtrStr(email),
+		nullablePtrStr(localTimezone),
+		nullablePtrStr(pronouns),
+		nullablePtrStr(website),
+		pq.Array(socialLinksVal),
+		bio != nil,
+		location != nil,
+		email != nil,
+		localTimezone != nil,
+		pronouns != nil,
+		website != nil,
+		socialLinks != nil,
+	); err != nil {
+		return fmt.Errorf("failed to upsert profile: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// nullableStr converts an empty string to a SQL NULL.
+func nullableStr(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// nullablePtrStr converts a *string to a SQL NullString.
+// nil pointer → SQL NULL; pointer to empty string → SQL NULL; non-empty → valid string.
+func nullablePtrStr(s *string) sql.NullString {
+	if s == nil {
+		return sql.NullString{Valid: false}
+	}
+	return nullableStr(*s)
+}
+
+// GetOrgAccountsForUser returns all organization accounts the given user belongs to.
+func (s *AccountStore) GetOrgAccountsForUser(userID string) ([]Account, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}')
+		FROM accounts a
+		JOIN account_members am ON am.account_id = a.id
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		LEFT JOIN account_profile ap ON ap.account_id = a.id
+		WHERE am.user_id = $1 AND a.type = 'organization' AND a.deleted_at IS NULL
+		ORDER BY a.name
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query org accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var orgs []Account
+	for rows.Next() {
+		acct, err := scanAccount(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan org account: %w", err)
+		}
+		orgs = append(orgs, *acct)
+	}
+	return orgs, rows.Err()
 }
 
 // SetAvatarColors stores the extracted avatar color scheme for an account.

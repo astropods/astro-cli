@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // --- stubs for resolvePublishers ---
@@ -788,8 +789,8 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 	accountStore := account.NewAccountStore(accountDB)
 	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("testaccount").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
-			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil)))
 	accountMock.ExpectQuery("SELECT.*WHERE am.user_id").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name"}).

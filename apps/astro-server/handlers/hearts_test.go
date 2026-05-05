@@ -42,8 +42,8 @@ func expectHeartAccountLookup(mock sqlmock.Sqlmock, name, id string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs(name).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}).
-			AddRow(id, name, "personal", nil, nil, now, now, "", nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links"}).
+			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil))
 }
 
 func TestToggleHeart_AddHeart(t *testing.T) {
@@ -119,7 +119,7 @@ func TestToggleHeart_AccountNotFound(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/my-agent/heart", nil)
 	rec := httptest.NewRecorder()
@@ -127,5 +127,164 @@ func TestToggleHeart_AccountNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- ListHearted handler tests ---
+
+func setupListHeartedRouter() (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New()
+	heartDB, heartMock, _ := sqlmock.New()
+
+	accountStore := account.NewAccountStore(accountDB)
+	hearts := heartstore.New(heartDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/hearts", ListHearted(log, hearts, accountStore))
+
+	return router, accountMock, heartMock
+}
+
+var heartAccountColumns = []string{
+	"id", "name", "type", "workos_org_id", "deleted_at",
+	"created_at", "updated_at", "display_name", "avatar_colors",
+	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
+}
+
+func expectListHeartedAccountLookup(mock sqlmock.Sqlmock, name, id string) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs(name).
+		WillReturnRows(sqlmock.NewRows(heartAccountColumns).
+			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+}
+
+func TestListHearted_EmptyList(t *testing.T) {
+	router, accountMock, heartMock := setupListHeartedRouter()
+
+	expectListHeartedAccountLookup(accountMock, "taylor", "acct-1")
+	accountMock.ExpectQuery("SELECT user_id FROM account_members").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user-1"))
+
+	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "hearted_at"}
+	heartMock.ExpectQuery("SELECT owner.name").
+		WithArgs("user-1", 21).
+		WillReturnRows(sqlmock.NewRows(heartCols))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/hearts", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	items := resp["items"].([]interface{})
+	if len(items) != 0 {
+		t.Errorf("expected empty items, got %d", len(items))
+	}
+	if _, hasCursor := resp["next_cursor"]; hasCursor {
+		t.Error("expected no next_cursor in response when list is empty")
+	}
+}
+
+func TestListHearted_WithResults(t *testing.T) {
+	router, accountMock, heartMock := setupListHeartedRouter()
+
+	expectListHeartedAccountLookup(accountMock, "taylor", "acct-1")
+	accountMock.ExpectQuery("SELECT user_id FROM account_members").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user-1"))
+
+	now := time.Now()
+	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "hearted_at"}
+	heartMock.ExpectQuery("SELECT owner.name").
+		WithArgs("user-1", 21).
+		WillReturnRows(sqlmock.NewRows(heartCols).
+			AddRow("someorg", "cool-agent", "public", nil, 5, now))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/hearts", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	items := resp["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+}
+
+func TestListHearted_AccountNotFound(t *testing.T) {
+	router, accountMock, _ := setupListHeartedRouter()
+
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("nobody").
+		WillReturnRows(sqlmock.NewRows(heartAccountColumns))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/nobody/hearts", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListHearted_NoMemberReturnsEmpty(t *testing.T) {
+	router, accountMock, _ := setupListHeartedRouter()
+
+	expectListHeartedAccountLookup(accountMock, "orphan", "acct-2")
+	accountMock.ExpectQuery("SELECT user_id FROM account_members").
+		WithArgs("acct-2").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/orphan/hearts", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	items := resp["items"].([]interface{})
+	if len(items) != 0 {
+		t.Errorf("expected empty items for memberless account, got %d", len(items))
+	}
+}
+
+func TestListHearted_OrgAccountReturns404(t *testing.T) {
+	router, accountMock, _ := setupListHeartedRouter()
+
+	now := time.Now()
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("astro-inc").
+		WillReturnRows(sqlmock.NewRows(heartAccountColumns).
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/hearts", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for org account, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

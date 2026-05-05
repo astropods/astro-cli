@@ -678,6 +678,24 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			oapispec.Response(200, &handlers.AccountResponse{}),
 			oapispec.Response(404, &handlers.ErrorResponse{}),
 		)
+		// Org memberships are private — use OptionalAuth so the handler can
+		// distinguish the account owner from unauthenticated visitors.
+		accountOrgsGroup := v1.Group("")
+		accountOrgsGroup.Use(authMw.OptionalAuth())
+		api.GET(accountOrgsGroup, "/accounts/:account/orgs", "Get org memberships for an account", handlers.GetAccountOrgs(log, accountStore),
+			oapispec.Tags("Accounts"),
+			oapispec.PathParam("account", "Account name"),
+			oapispec.Response(200, gin.H{"orgs": []handlers.AccountOrgResponse{}}),
+			oapispec.Response(404, &handlers.ErrorResponse{}),
+		)
+		api.GET(v1, "/accounts/:account/hearts", "List blueprints hearted by an account", handlers.ListHearted(log, heartStore, accountStore),
+			oapispec.Tags("Accounts"),
+			oapispec.PathParam("account", "Account name"),
+			oapispec.QueryParam("cursor", "Pagination cursor", false),
+			oapispec.QueryParam("limit", "Page size (default 20, max 100)", false),
+			oapispec.Response(200, gin.H{"items": []heartstore.HeartedAgent{}}),
+			oapispec.Response(404, &handlers.ErrorResponse{}),
+		)
 		api.GET(v1, "/accounts/check/:name", "Check account name availability", handlers.CheckAccountName(log, accountStore),
 			oapispec.Tags("Accounts"),
 			oapispec.PathParam("name", "Account name to check"),

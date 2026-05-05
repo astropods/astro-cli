@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -571,6 +572,252 @@ func TestDeleteAccount_MarkDeletedDBError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- UpdateAccount handler tests ---
+
+func setupUpdateAccountRouter() (*gin.Engine, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	auditDB, _, _ := sqlmock.New()
+	auditStore := auditlog.NewStore(auditDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{
+			ID:   "acct-1",
+			Name: "testaccount",
+			Type: "personal",
+		})
+		c.Next()
+	})
+	router.PATCH("/api/v1/accounts/:account", UpdateAccount(log, store, auditStore))
+	return router, mock
+}
+
+func TestUpdateAccount_TooManySocialLinks(t *testing.T) {
+	router, _ := setupUpdateAccountRouter()
+	body := `{"display_name":"Test","social_links":["a","b","c","d","e"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for 5 social links, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateAccount_SocialLinksAccepted(t *testing.T) {
+	router, mock := setupUpdateAccountRouter()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE accounts SET display_name`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO account_profile`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := `{"display_name":"Test","social_links":["https://github.com/sohum","https://linkedin.com/in/sohum"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- GetAccountOrgs handler tests ---
+
+var fullAccountColumns = []string{
+	"id", "name", "type", "workos_org_id", "deleted_at",
+	"created_at", "updated_at", "display_name", "avatar_colors",
+	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
+}
+
+func expectGetByName(mock sqlmock.Sqlmock, name, id string) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs(name).
+		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
+			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+}
+
+func expectGetFirstMemberUserID(mock sqlmock.Sqlmock, accountID, userID string) {
+	mock.ExpectQuery("SELECT user_id FROM account_members").
+		WithArgs(accountID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(userID))
+}
+
+func TestGetAccountOrgs_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	// Simulate OptionalAuth having resolved user-1 from a valid token.
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/accounts/:account/orgs", GetAccountOrgs(log, store))
+
+	now := time.Now()
+	expectGetByName(mock, "taylor", "acct-1")
+	expectGetFirstMemberUserID(mock, "acct-1", "user-1")
+
+	orgColumns := []string{
+		"id", "name", "type", "workos_org_id", "deleted_at",
+		"created_at", "updated_at", "display_name", "avatar_colors",
+		"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
+	}
+	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows(orgColumns).
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Orgs []AccountOrgResponse `json:"orgs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Orgs) != 1 {
+		t.Fatalf("expected 1 org, got %d", len(resp.Orgs))
+	}
+	if resp.Orgs[0].Name != "astro-inc" {
+		t.Errorf("expected name 'astro-inc', got %q", resp.Orgs[0].Name)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestGetAccountOrgs_UnauthenticatedReturnsEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/orgs", GetAccountOrgs(log, store))
+
+	expectGetByName(mock, "taylor", "acct-1")
+	expectGetFirstMemberUserID(mock, "acct-1", "user-1")
+	// No org query expected — short-circuits before DB call.
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Orgs []AccountOrgResponse `json:"orgs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Orgs) != 0 {
+		t.Errorf("expected empty orgs for unauthenticated request, got %d", len(resp.Orgs))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestGetAccountOrgs_AccountNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/orgs", GetAccountOrgs(log, store))
+
+	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("nobody").
+		WillReturnRows(sqlmock.NewRows(fullAccountColumns))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/nobody/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetAccountOrgs_NoMembers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/orgs", GetAccountOrgs(log, store))
+
+	expectGetByName(mock, "orphan", "acct-2")
+	// No member rows — GetFirstMemberUserID returns no rows
+	mock.ExpectQuery("SELECT user_id FROM account_members").
+		WithArgs("acct-2").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/orphan/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Orgs []AccountOrgResponse `json:"orgs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Orgs) != 0 {
+		t.Errorf("expected empty orgs, got %d", len(resp.Orgs))
+	}
+}
+
+func TestGetAccountOrgs_OrgAccountReturns404(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/orgs", GetAccountOrgs(log, store))
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("astro-inc").
+		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for org account, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
@@ -46,5 +47,61 @@ func ToggleHeart(log *logger.Logger, hearts *heartstore.Store, accountStore *acc
 			Hearted:    hearted,
 			HeartCount: count,
 		})
+	}
+}
+
+const defaultHeartsPageSize = 20
+const maxHeartsPageSize = 100
+
+// ListHearted handles GET /api/v1/accounts/:account/hearts (public)
+// Returns blueprints hearted by the owner of the given personal account, newest first.
+// Query params: cursor (pagination), limit (default 20, max 100)
+func ListHearted(log *logger.Logger, hearts *heartstore.Store, accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		if acct.Type != "personal" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		ownerID, err := accountStore.GetFirstMemberUserID(acct.ID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"items": []heartstore.HeartedAgent{}, "next_cursor": nil})
+			return
+		}
+
+		pageSize := defaultHeartsPageSize
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+				if n > maxHeartsPageSize {
+					n = maxHeartsPageSize
+				}
+				pageSize = n
+			}
+		}
+
+		cursor := c.Query("cursor")
+		items, nextCursor, err := hearts.ListHearted(c.Request.Context(), ownerID, pageSize, cursor)
+		if err != nil {
+			log.Error("Failed to list hearted agents", "error", err, "account", accountName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list hearted blueprints"})
+			return
+		}
+
+		if items == nil {
+			items = []heartstore.HeartedAgent{}
+		}
+
+		resp := gin.H{"items": items}
+		if nextCursor != "" {
+			resp["next_cursor"] = nextCursor
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }

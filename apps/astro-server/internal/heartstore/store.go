@@ -4,7 +4,9 @@ package heartstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type Store struct {
@@ -67,6 +69,78 @@ func (s *Store) Info(ctx context.Context, accountID, agentName, userID string) (
 		return nil, fmt.Errorf("heart info: %w", err)
 	}
 	return info, nil
+}
+
+// HeartedAgent is a blueprint the given user has hearted, with its current heart count.
+type HeartedAgent struct {
+	Account      string           `json:"account"`
+	Name         string           `json:"name"`
+	Visibility   string           `json:"visibility"`
+	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
+	HeartCount   int              `json:"heart_count"`
+	HeartedAt    time.Time        `json:"hearted_at"`
+}
+
+// ListHearted returns blueprints hearted by the given user, ordered by hearted_at desc.
+// cursor is an RFC3339 hearted_at timestamp for pagination; pass "" for the first page.
+func (s *Store) ListHearted(ctx context.Context, userID string, pageSize int, cursor string) ([]HeartedAgent, string, error) {
+	var rows *sql.Rows
+	var err error
+
+	if cursor == "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT owner.name, a.name, a.visibility, a.avatar_colors,
+			       (SELECT COUNT(*) FROM agent_hearts h2 WHERE h2.account_id = a.account_id AND h2.agent_name = a.name),
+			       ah.created_at
+			FROM agent_hearts ah
+			JOIN agents a ON a.account_id = ah.account_id AND a.name = ah.agent_name
+			JOIN accounts owner ON owner.id = a.account_id
+			WHERE ah.user_id = $1 AND a.archived_at IS NULL AND a.visibility = 'public'
+			ORDER BY ah.created_at DESC
+			LIMIT $2
+		`, userID, pageSize+1)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT owner.name, a.name, a.visibility, a.avatar_colors,
+			       (SELECT COUNT(*) FROM agent_hearts h2 WHERE h2.account_id = a.account_id AND h2.agent_name = a.name),
+			       ah.created_at
+			FROM agent_hearts ah
+			JOIN agents a ON a.account_id = ah.account_id AND a.name = ah.agent_name
+			JOIN accounts owner ON owner.id = a.account_id
+			WHERE ah.user_id = $1 AND a.archived_at IS NULL AND a.visibility = 'public' AND ah.created_at < $2
+			ORDER BY ah.created_at DESC
+			LIMIT $3
+		`, userID, cursor, pageSize+1)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("list hearted: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var items []HeartedAgent
+	for rows.Next() {
+		var item HeartedAgent
+		var avatarColors []byte
+		if err := rows.Scan(&item.Account, &item.Name, &item.Visibility, &avatarColors, &item.HeartCount, &item.HeartedAt); err != nil {
+			return nil, "", fmt.Errorf("scan hearted agent: %w", err)
+		}
+		if avatarColors != nil {
+			raw := json.RawMessage(avatarColors)
+			item.AvatarColors = &raw
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate hearted agents: %w", err)
+	}
+
+	var nextCursor string
+	if len(items) > pageSize {
+		items = items[:pageSize]
+		nextCursor = items[len(items)-1].HeartedAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	return items, nextCursor, nil
 }
 
 // BulkCount returns heart counts for all agents belonging to an account.

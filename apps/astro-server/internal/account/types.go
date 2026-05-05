@@ -16,6 +16,14 @@ type Account struct {
 	UpdatedAt            time.Time        `json:"updated_at"`
 	DisplayName          string           `json:"display_name"`
 	AvatarColors         *json.RawMessage `json:"avatar_colors,omitempty"`
+	AccountNumber        *int             `json:"account_number,omitempty"`
+	Bio                  string           `json:"bio,omitempty"`
+	Location             string           `json:"location,omitempty"`
+	Email                string           `json:"email,omitempty"`
+	LocalTimezone        string           `json:"local_timezone,omitempty"`
+	Pronouns             string           `json:"pronouns,omitempty"`
+	Website              string           `json:"website,omitempty"`
+	SocialLinks          []string         `json:"social_links"`
 }
 
 // AccountMember represents a user's membership in an account
