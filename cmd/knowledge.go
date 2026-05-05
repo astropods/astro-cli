@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,14 +17,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
-// knowledgeServerURL mirrors the pattern from push.go — overridable per-command.
-var knowledgeServerURL string
-var knowledgeAccount string
-var knowledgeOutput string // -o / --output: "" (default) or "json"
+// knowledgeServerURLOverride is set in tests to redirect API calls to a test server.
+var knowledgeServerURLOverride string
 
 func displayMode(mode string) string {
 	if mode == "" {
@@ -103,17 +99,9 @@ func init() {
 	knowledgeCmd.AddCommand(knowledgeDeleteCmd)
 
 	for _, c := range []*cobra.Command{
-		knowledgeCreateCmd, knowledgeConnectCmd, knowledgeListCmd, knowledgeStatusCmd,
-		knowledgeLogsCmd, knowledgeCredentialsCmd, knowledgeDeleteCmd,
-	} {
-		c.Flags().StringVar(&knowledgeServerURL, "server", "", "Astropods server URL (overrides profile/default)")
-		c.Flags().StringVar(&knowledgeAccount, "account", "", "Account name (overrides profile default)")
-	}
-
-	for _, c := range []*cobra.Command{
 		knowledgeListCmd, knowledgeStatusCmd, knowledgeCredentialsCmd,
 	} {
-		c.Flags().StringVarP(&knowledgeOutput, "output", "o", "", "Output format: json")
+		c.Flags().Bool("json", false, "Output as JSON")
 	}
 
 	knowledgeLogsCmd.Flags().Bool("tail", false, "Follow logs in real time")
@@ -140,51 +128,25 @@ func init() {
 	_ = knowledgeConnectCmd.MarkFlagRequired("name")
 	_ = knowledgeConnectCmd.MarkFlagRequired("host")
 	_ = knowledgeConnectCmd.MarkFlagRequired("port")
-
 }
 
-// knowledgeAPIBase returns the effective server URL for knowledge API calls.
-func knowledgeAPIBase() string {
-	if knowledgeServerURL != "" {
-		return strings.TrimSuffix(knowledgeServerURL, "/")
+func knowledgeBaseURL() string {
+	if knowledgeServerURLOverride != "" {
+		return strings.TrimSuffix(knowledgeServerURLOverride, "/")
 	}
 	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
-func knowledgeRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	var bodyReader *bytes.Buffer
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		bodyReader = bytes.NewBuffer(b)
-	} else {
-		bodyReader = bytes.NewBuffer(nil)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, knowledgeAPIBase()+path, bodyReader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Cli-Version", buildinfo.Version)
-	if err := auth.AddAuthHeader(ctx, req, buildinfo.BinaryName); err != nil {
-		return nil, fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	return client.Do(req) //nolint:gosec
-}
-
-func knowledgePath(account, name string) string {
-	return fmt.Sprintf("/api/v1/accounts/%s/knowledge/%s", url.PathEscape(account), url.PathEscape(name))
+// knowledgePath builds a full URL for a named store. Extra parts become sub-resource segments.
+func knowledgePath(account, name string, parts ...string) string {
+	segs := append([]string{"knowledge", url.PathEscape(name)}, parts...)
+	return apiPath(knowledgeBaseURL(), account, "accounts", segs...)
 }
 
 // --- handlers ---
 
 func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
@@ -197,40 +159,25 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 
 	fmt.Printf("%s→%s Creating knowledge store %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset)
 
-	body := map[string]any{
+	reqBody := map[string]any{
 		"name":     name,
 		"provider": provider,
 		"storage":  storage,
 		"public":   public,
 	}
 	if storageClass != "" {
-		body["storage_class"] = storageClass
-	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
-		fmt.Sprintf("/api/v1/accounts/%s/knowledge", url.PathEscape(account)),
-		body,
-	)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusConflict {
-		return fmt.Errorf("a knowledge store named %q already exists in account %q", name, account)
-	}
-	if resp.StatusCode != http.StatusAccepted {
-		var body map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&body)
-		if msg, ok := body["error"].(string); ok {
-			return fmt.Errorf("server error: %s", msg)
-		}
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+		reqBody["storage_class"] = storageClass
 	}
 
 	var created knowledgeStoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	status, err := apiCall(cmd.Context(), http.MethodPost,
+		apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge"),
+		reqBody, at.Token, verbose, &created)
+	if err != nil {
+		if status == http.StatusConflict {
+			return fmt.Errorf("a knowledge store named %q already exists in account %q", name, at.Account)
+		}
+		return err
 	}
 
 	fmt.Printf("  %sARN:%s      %s\n", colorDim, colorReset, created.ARN)
@@ -241,7 +188,7 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 	fmt.Println()
 	fmt.Printf("%s→%s Provisioning", colorCyan, colorReset)
 
-	if err := pollKnowledgeReady(cmd.Context(), account, created.Name); err != nil {
+	if err := pollKnowledgeReady(cmd.Context(), at.Account, created.Name, at.Token); err != nil {
 		fmt.Println()
 		return err
 	}
@@ -251,7 +198,7 @@ func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
 }
 
 func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
@@ -278,57 +225,42 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 
 	fmt.Printf("%s→%s Connecting external store %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset)
 
-	body := map[string]any{
+	reqBody := map[string]any{
 		"name":     name,
 		"provider": provider,
 		"host":     host,
 		"port":     port,
 	}
 	if database != "" {
-		body["database"] = database
+		reqBody["database"] = database
 	}
 	if username != "" {
-		body["username"] = username
+		reqBody["username"] = username
 	}
 	if password != "" {
-		body["password"] = password
+		reqBody["password"] = password
 	}
 	if apiKey != "" {
-		body["api_key"] = apiKey
+		reqBody["api_key"] = apiKey
 	}
 	skipHealthCheck, _ := cmd.Flags().GetBool("skip-health-check")
 	if skipHealthCheck {
-		body["skip_health_check"] = true
+		reqBody["skip_health_check"] = true
 	}
 	privateLink, _ := cmd.Flags().GetBool("private-link")
 	if privateLink {
-		body["private_link"] = true
-	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodPost,
-		fmt.Sprintf("/api/v1/accounts/%s/knowledge/connect", url.PathEscape(account)),
-		body,
-	)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusConflict {
-		return fmt.Errorf("a knowledge store named %q already exists in account %q", name, account)
-	}
-	if resp.StatusCode != http.StatusOK {
-		var respBody map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&respBody)
-		if msg, ok := respBody["error"].(string); ok {
-			return fmt.Errorf("server error: %s", msg)
-		}
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+		reqBody["private_link"] = true
 	}
 
 	var created knowledgeStoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	status, err := apiCall(cmd.Context(), http.MethodPost,
+		apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge", "connect"),
+		reqBody, at.Token, verbose, &created)
+	if err != nil {
+		if status == http.StatusConflict {
+			return fmt.Errorf("a knowledge store named %q already exists in account %q", name, at.Account)
+		}
+		return err
 	}
 
 	fmt.Printf("  %sARN:%s      %s\n", colorDim, colorReset, created.ARN)
@@ -338,7 +270,7 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	// If PrivateLink was requested, poll until the endpoint is ready.
 	if privateLink {
 		fmt.Println()
-		if err := pollKnowledgePrivateLink(cmd.Context(), account, name); err != nil {
+		if err := pollKnowledgePrivateLink(cmd.Context(), at.Account, name, at.Token); err != nil {
 			fmt.Println()
 			return err
 		}
@@ -355,29 +287,21 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 }
 
 func runKnowledgeList(cmd *cobra.Command, _ []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodGet,
-		fmt.Sprintf("/api/v1/accounts/%s/knowledge", url.PathEscape(account)), nil)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
+	jsonOut := flagBool(cmd, "json")
 
 	var stores []knowledgeStoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&stores); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	if _, err := apiCall(cmd.Context(), http.MethodGet,
+		apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge"),
+		nil, at.Token, verbose, &stores); err != nil {
+		return err
 	}
 
-	if knowledgeOutput == "json" {
-		return json.NewEncoder(os.Stdout).Encode(stores)
+	if jsonOut {
+		return writeJSON(os.Stdout, stores)
 	}
 
 	if len(stores) == 0 {
@@ -403,31 +327,25 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 }
 
 func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodGet, knowledgePath(account, args[0]), nil)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("knowledge store %q not found", args[0])
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
+	jsonOut := flagBool(cmd, "json")
 
 	var s knowledgeStoreResponse
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	status, err := apiCall(cmd.Context(), http.MethodGet,
+		knowledgePath(at.Account, args[0]),
+		nil, at.Token, verbose, &s)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return fmt.Errorf("knowledge store %q not found", args[0])
+		}
+		return err
 	}
 
-	if knowledgeOutput == "json" {
-		return json.NewEncoder(os.Stdout).Encode(s)
+	if jsonOut {
+		return writeJSON(os.Stdout, s)
 	}
 
 	statusColor := colorReset
@@ -471,45 +389,30 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
 	tail, _ := cmd.Flags().GetBool("tail")
 	if tail {
-		return runKnowledgeLogsTail(cmd.Context(), account, args[0])
+		return runKnowledgeLogsTail(cmd.Context(), at.Account, args[0], at.Token)
 	}
 
 	// Historical logs — one-shot JSON fetch.
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet,
-		knowledgeAPIBase()+knowledgePath(account, args[0])+"/logs", nil)
+	status, body, err := apiStream(cmd.Context(), knowledgePath(at.Account, args[0], "logs"), at.Token, verbose)
 	if err != nil {
+		if status == http.StatusNotFound {
+			return fmt.Errorf("knowledge store %q not found", args[0])
+		}
 		return err
 	}
-	req.Header.Set("X-Cli-Version", buildinfo.Version)
-	if err := auth.AddAuthHeader(cmd.Context(), req, buildinfo.BinaryName); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
+	defer body.Close() //nolint:errcheck
 
-	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("knowledge store %q not found", args[0])
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	return printLogs(cmd.OutOrStdout(), resp.Body)
+	return printLogs(cmd.OutOrStdout(), body)
 }
 
-func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error {
+func runKnowledgeLogsTail(parentCtx context.Context, account, name, token string) error {
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	sigChan := make(chan os.Signal, 1)
@@ -519,15 +422,15 @@ func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error
 		cancel()
 	}()
 
-	url := knowledgeAPIBase() + knowledgePath(account, name) + "/logs/stream"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	streamURL := knowledgePath(account, name, "logs", "stream")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("X-Cli-Version", buildinfo.Version)
-	if err := auth.AddAuthHeader(ctx, req, buildinfo.BinaryName); err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	client := &http.Client{}
@@ -580,32 +483,25 @@ func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error
 }
 
 func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodGet,
-		knowledgePath(account, args[0])+"/credentials", nil)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("credentials not available for %q (store not found, or KMS was not configured at creation)", args[0])
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
+	jsonOut := flagBool(cmd, "json")
 
 	var creds map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	status, err := apiCall(cmd.Context(), http.MethodGet,
+		knowledgePath(at.Account, args[0], "credentials"),
+		nil, at.Token, verbose, &creds)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return fmt.Errorf("credentials not available for %q (store not found, or KMS was not configured at creation)", args[0])
+		}
+		return err
 	}
 
-	if knowledgeOutput == "json" {
-		return json.NewEncoder(os.Stdout).Encode(creds)
+	if jsonOut {
+		return writeJSON(os.Stdout, creds)
 	}
 
 	for k, v := range creds {
@@ -615,13 +511,13 @@ func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
 }
 
 func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
-	account, _, err := getUserNamespace(false, knowledgeAccount)
+	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
 	name := args[0]
-	fmt.Printf("Delete knowledge store %s%s%s in account %s%s%s? [y/N] ", colorBold, name, colorReset, colorBold, account, colorReset)
+	fmt.Printf("Delete knowledge store %s%s%s in account %s%s%s? [y/N] ", colorBold, name, colorReset, colorBold, at.Account, colorReset)
 
 	var confirm string
 	_, _ = fmt.Scanln(&confirm)
@@ -630,20 +526,17 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	resp, err := knowledgeRequest(cmd.Context(), http.MethodDelete, knowledgePath(account, name), nil)
+	status, err := apiCall(cmd.Context(), http.MethodDelete,
+		knowledgePath(at.Account, name),
+		nil, at.Token, verbose, nil)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("knowledge store %q not found", name)
-	}
-	if resp.StatusCode == http.StatusConflict {
-		return fmt.Errorf("knowledge store %q has active agent bindings and cannot be deleted", name)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+		if status == http.StatusNotFound {
+			return fmt.Errorf("knowledge store %q not found", name)
+		}
+		if status == http.StatusConflict {
+			return fmt.Errorf("knowledge store %q has active agent bindings and cannot be deleted", name)
+		}
+		return err
 	}
 
 	fmt.Printf("%s✓%s Deleted %s%s%s\n", colorGreen, colorReset, colorBold, name, colorReset)
@@ -652,7 +545,7 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 
 // pollKnowledgePrivateLink polls the store status during PrivateLink attachment.
 // It detects the pending-acceptance state and prints an action-required message.
-func pollKnowledgePrivateLink(ctx context.Context, account, name string) error {
+func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) error {
 	const (
 		pollInterval = 3 * time.Second
 		timeout      = 15 * time.Minute
@@ -667,14 +560,8 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name string) error {
 		case <-time.After(pollInterval):
 		}
 
-		resp, err := knowledgeRequest(ctx, http.MethodGet, knowledgePath(account, name), nil)
-		if err != nil {
-			fmt.Print(".")
-			continue
-		}
 		var s knowledgeStoreResponse
-		_ = json.NewDecoder(resp.Body).Decode(&s)
-		_ = resp.Body.Close()
+		_, _ = apiCall(ctx, http.MethodGet, knowledgePath(account, name), nil, token, false, &s)
 
 		switch s.Status {
 		case "connecting":
@@ -719,7 +606,7 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name string) error {
 
 // pollKnowledgeReady polls the status endpoint every 3 seconds until the store
 // reaches a terminal state. Avoids long-lived SSE connections that proxies drop.
-func pollKnowledgeReady(ctx context.Context, account, name string) error {
+func pollKnowledgeReady(ctx context.Context, account, name, token string) error {
 	const (
 		pollInterval = 3 * time.Second
 		timeout      = 15 * time.Minute
@@ -734,14 +621,8 @@ func pollKnowledgeReady(ctx context.Context, account, name string) error {
 		case <-time.After(pollInterval):
 		}
 
-		resp, err := knowledgeRequest(ctx, http.MethodGet, knowledgePath(account, name), nil)
-		if err != nil {
-			fmt.Print(".")
-			continue
-		}
 		var s knowledgeStoreResponse
-		_ = json.NewDecoder(resp.Body).Decode(&s)
-		_ = resp.Body.Close()
+		_, _ = apiCall(ctx, http.MethodGet, knowledgePath(account, name), nil, token, false, &s)
 
 		if len(s.Events) > 0 {
 			e := s.Events[0]

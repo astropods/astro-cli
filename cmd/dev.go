@@ -76,16 +76,6 @@ var devTriggerCmd = &cobra.Command{
 	RunE:  runDevTrigger,
 }
 
-var (
-	envFile    string
-	rebuild    bool
-	noPull     bool
-	local      bool
-	localReset bool
-	logsAll    bool
-	background bool
-)
-
 func init() {
 	rootCmd.AddCommand(devCmd)
 	devCmd.AddCommand(devStartCmd)
@@ -100,17 +90,17 @@ Use -b/--background to start in the background and exit immediately.`
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devStartCmd} {
-		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
-		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
-		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
-		cmd.Flags().BoolVarP(&background, "background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
-		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s project start --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
+		cmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
+		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
+		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
+		cmd.Flags().Bool("local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
+		cmd.Flags().Bool("local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s project start --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
 
-	devLogsCmd.Flags().BoolVar(&logsAll, "all", false, "Tail logs from all services (not just agent)")
+	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
 }
 
 // checkDockerRunning verifies the Docker daemon is accessible.
@@ -162,6 +152,13 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
+	envFile := flagString(cmd, "env")
+	rebuild := flagBool(cmd, "rebuild")
+	noPull := flagBool(cmd, "no-pull")
+	local := flagBool(cmd, "local")
+	localReset := flagBool(cmd, "local-reset")
+	background := flagBool(cmd, "background")
+
 	if err := checkDockerRunning(); err != nil {
 		return err
 	}
@@ -197,9 +194,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// --local implies --no-pull and requires ASTRO_ROOT for local packages
+	// --local requires ASTRO_ROOT for local packages
 	if local {
-		noPull = true
 		if os.Getenv("ASTRO_ROOT") == "" {
 			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
 		}
@@ -320,6 +316,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Start non-profiled services (already built above)
 	upProject := projectForUp(project)
+	if noPull || local {
+		for name, svc := range upProject.Services {
+			svc.PullPolicy = composeTypes.PullPolicyNever
+			upProject.Services[name] = svc
+		}
+	}
 	if err := withSpinner("Starting services...", "Services started", verbose, func() error {
 		return svc.Up(context.Background(), upProject, api.UpOptions{
 			Create: api.CreateOptions{
@@ -612,6 +614,8 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
+	envFile := flagString(cmd, "env")
+
 	if err := checkDockerRunning(); err != nil {
 		return err
 	}

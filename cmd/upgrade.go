@@ -23,14 +23,13 @@ var upgradeCmd = &cobra.Command{
 	RunE:  runUpgrade,
 }
 
-var forceUpgrade bool
-
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
-	upgradeCmd.Flags().BoolVar(&forceUpgrade, "force", false, "Skip version check and always download")
+	upgradeCmd.Flags().Bool("force", false, "Skip version check and always download")
 }
 
 func runUpgrade(cmd *cobra.Command, args []string) error {
+	forceUpgrade := flagBool(cmd, "force")
 	green := color.New(color.FgGreen)
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)

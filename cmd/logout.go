@@ -25,14 +25,13 @@ Example:
 	RunE: runLogout,
 }
 
-var logoutAll bool
-
 func init() {
 	rootCmd.AddCommand(logoutCmd)
-	logoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Log out from all profiles")
+	logoutCmd.Flags().Bool("all", false, "Log out from all profiles")
 }
 
 func runLogout(cmd *cobra.Command, args []string) error {
+	logoutAll := flagBool(cmd, "all")
 	green := color.New(color.FgGreen)
 	dim := color.New(color.Faint)
 
