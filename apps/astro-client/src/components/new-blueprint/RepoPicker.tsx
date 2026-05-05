@@ -125,7 +125,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
         >
           {selectedRepo && !repoOpen ? (
             <>
-              <Check className="size-3.5 text-green-700 shrink-0" />
+              <Check className="size-3.5 text-success shrink-0" />
               <span className="flex-1 text-sm font-medium truncate">
                 {selectedRepo.full_name}
               </span>
@@ -207,13 +207,13 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                       onClick={() => handleSelectRepo(repo)}
                       className={cn(
                         "w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors",
-                        isSelected ? "bg-primary/5" : "hover:bg-muted/60",
+                        isSelected ? "bg-primary/15" : "hover:bg-muted/60",
                         usedBy ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
                       )}
                     >
                       <span className="flex-1 font-medium truncate">{repo.full_name.split("/")[1]}</span>
                       {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
-                      {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">linked to {usedBy.agent_name}</span>}
+                      {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">Linked to {usedBy.agent_name}</span>}
                       {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}
                     </button>
                   );
@@ -288,7 +288,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                         onClick={() => handleSelectBranch(branch)}
                         className={cn(
                           "w-full flex items-center justify-between px-3 py-2.5 text-sm text-left transition-colors",
-                          selectedBranch === branch ? "bg-primary/5" : "hover:bg-muted/60",
+                          selectedBranch === branch ? "bg-primary/15" : "hover:bg-muted/60",
                         )}
                       >
                         {branch}

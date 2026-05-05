@@ -60,16 +60,30 @@ test("selecting dark theme applies html.dark and persists across reload", async 
     localStorage.setItem("astro:experiments", JSON.stringify({ theming: true }));
   });
 
-  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+  await page.goto("/agents", { waitUntil: "networkidle" });
 
   const userMenu = page.getByRole("button", { name: /User menu for/i }).first();
   await expect(userMenu).toBeVisible({ timeout: 10_000 });
-  await userMenu.click();
-  await page.getByRole("button", { name: "Use dark theme" }).click();
+
+  // SSR renders with `experiments.theming === false` (server reads DEFAULTS
+  // because `typeof window === "undefined"`), then the client re-reads
+  // localStorage post-hydration and flips it to true. Clicks dispatched on
+  // the trigger before hydration finishes are dropped by Radix. Retry the
+  // open until the dark-theme button is actually visible — guarding against
+  // re-clicking an already-open menu (which would toggle it closed).
+  const darkButton = page.getByRole("button", { name: "Use dark theme" });
+  await expect(async () => {
+    if (!(await darkButton.isVisible())) {
+      await userMenu.click();
+    }
+    await expect(darkButton).toBeVisible({ timeout: 1_500 });
+  }).toPass({ timeout: 15_000 });
+
+  await darkButton.click();
 
   await expect(page.locator("html.dark")).toHaveCount(1);
 
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.reload({ waitUntil: "networkidle" });
   await expect(page.locator("html.dark")).toHaveCount(1);
 });
 

@@ -317,16 +317,10 @@ function NewBlueprintContent() {
   );
 
   return (
-    <div
-      className="flex flex-1 flex-col overflow-hidden"
-      style={{
-        background: "radial-gradient(ellipse at 50% 0%, hsla(40, 50%, 90%, 0.8) 0%, hsla(40, 30%, 96%, 0.4) 60%), radial-gradient(ellipse at 80% 100%, hsla(170, 40%, 88%, 0.5) 0%, transparent 60%), hsl(40, 20%, 97%)",
-        backgroundRepeat: "no-repeat",
-      }}
-    >
+    <div className="dp-blueprint-bg flex flex-1 flex-col overflow-hidden">
       <div className="mx-auto w-full max-w-[640px] px-6 pt-16 pb-6 flex flex-1 flex-col overflow-hidden">
         <div className="mb-10 text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Setup your agent blueprint</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Setup your agent blueprint</h1>
           <p className="mt-2 text-muted-foreground max-w-[540px] mx-auto">A blueprint is your agent's packaged definition. Once it's pushed to the registry, you can deploy it as a running agent.</p>
         </div>
 
@@ -357,7 +351,7 @@ function NewBlueprintContent() {
                 className="flex flex-col"
                 style={{ width: `${100 / STEPS.length}%` }}
               >
-                <div className="rounded-xl border border-border bg-white overflow-hidden flex flex-col" style={{ minHeight: 460 }}>
+                <div className="rounded-xl border border-border bg-card overflow-hidden flex flex-col" style={{ minHeight: 460 }}>
 
                   {/* ── Source ── */}
                   {step.id === "source" && i <= activeStepIndex && (
@@ -377,7 +371,7 @@ function NewBlueprintContent() {
                               {/* Set up with GitHub */}
                               <div className={cn(
                                 "w-full rounded-lg border transition-all",
-                                sourcePath === "import" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card"
+                                sourcePath === "import" ? "border-primary bg-card ring-1 ring-primary/40" : "border-border bg-card"
                               )}>
                                 <button
                                   type="button"
@@ -428,7 +422,7 @@ function NewBlueprintContent() {
                                       <div className="border-t border-border">
                                           <>
                                             <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
-                                              <CheckCircleIcon className="size-3.5 text-green-700" />
+                                              <CheckCircleIcon className="size-3.5 text-success" />
                                               {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
                                             </p>
                                             <RepoPicker
@@ -451,7 +445,7 @@ function NewBlueprintContent() {
                                 onClick={handleSelectLocal}
                                 className={cn(
                                   "flex w-full cursor-pointer items-start gap-4 rounded-lg border p-4 text-left transition-all",
-                                  sourcePath === "fresh" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
+                                  sourcePath === "fresh" ? "border-primary bg-card ring-1 ring-primary/40" : "border-border bg-card hover:border-primary/30"
                                 )}
                               >
                                 <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-primary">
@@ -607,9 +601,9 @@ function NewBlueprintContent() {
                                 <p className="mt-1.5 pl-4 text-xs text-muted-foreground">Published as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
                               ) : name.trim().length > 0 && slug.length > 0 && (
                                 slug.length < 4
-                                  ? <p className="mt-1.5 pl-4 text-xs text-amber-600">Name must be at least 4 characters</p>
+                                  ? <p className="mt-1.5 pl-4 text-xs text-yellow-700 dark:text-yellow-400">Name must be at least 4 characters</p>
                                   : !/^[a-z]/.test(slug)
-                                    ? <p className="mt-1.5 pl-4 text-xs text-amber-600">Name must start with a letter</p>
+                                    ? <p className="mt-1.5 pl-4 text-xs text-yellow-700 dark:text-yellow-400">Name must start with a letter</p>
                                     : nameIsTaken
                                       ? <p className="mt-1.5 pl-4 text-xs text-destructive"><span className="font-mono">{selectedOrg}/{slug}</span> already exists</p>
                                       : <p className="mt-1.5 pl-4 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
@@ -646,7 +640,7 @@ function NewBlueprintContent() {
                                 onClick={() => setVisibility("private")}
                                 className={cn(
                                   "flex flex-1 cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-all",
-                                  visibility === "private" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
+                                  visibility === "private" ? "border-primary bg-card ring-1 ring-primary/40" : "border-border bg-card hover:border-primary/30"
                                 )}
                               >
                                 <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-primary">
@@ -665,7 +659,7 @@ function NewBlueprintContent() {
                                 onClick={() => setVisibility("public")}
                                 className={cn(
                                   "flex flex-1 cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-all",
-                                  visibility === "public" ? "border-primary/50 bg-card ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/30"
+                                  visibility === "public" ? "border-primary bg-card ring-1 ring-primary/40" : "border-border bg-card hover:border-primary/30"
                                 )}
                               >
                                 <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 border-primary">
@@ -697,7 +691,7 @@ function NewBlueprintContent() {
                       <div ref={reviewPanelRef} className="relative flex flex-1 flex-col items-center justify-center bg-muted/30 px-6 py-8 gap-4 overflow-hidden">
                         <LiveRevealConfetti containerRef={reviewPanelRef} />
                         <div className="flex items-center gap-2">
-                          <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
+                          <div className="flex size-5 items-center justify-center rounded-full bg-success text-white dark:text-slate-950 shrink-0">
                             <Check className="size-3" />
                           </div>
                           <span className="text-base font-semibold text-foreground">
@@ -713,18 +707,11 @@ function NewBlueprintContent() {
                             ? <img src={avatarPreviewUrl} alt={slug} className="size-full object-cover" />
                             : <BlueprintIdentity account={selectedOrg} name={slug} size={80} className="size-full" />
                           }
-                          <div
-                            className="absolute left-0 right-0 h-[2px] mix-blend-overlay"
-                            style={{
-                              background: "linear-gradient(90deg, transparent, white, transparent)",
-                              animation: "scanLine 2.5s ease-in-out infinite",
-                              boxShadow: "0 0 12px 2px rgba(255,255,255,0.3)",
-                            }}
-                          />
-                          <div className="absolute top-1.5 left-1.5 size-3 border-t border-l border-white mix-blend-overlay rounded-tl-sm" />
-                          <div className="absolute top-1.5 right-1.5 size-3 border-t border-r border-white mix-blend-overlay rounded-tr-sm" />
-                          <div className="absolute bottom-1.5 left-1.5 size-3 border-b border-l border-white mix-blend-overlay rounded-bl-sm" />
-                          <div className="absolute bottom-1.5 right-1.5 size-3 border-b border-r border-white mix-blend-overlay rounded-br-sm" />
+                          <div className="dp-scan-line absolute left-0 right-0 h-[2px] mix-blend-overlay" />
+                          <div className="dp-scan-corner absolute top-1.5 left-1.5 size-3 border-t border-l mix-blend-overlay rounded-tl-sm" />
+                          <div className="dp-scan-corner absolute top-1.5 right-1.5 size-3 border-t border-r mix-blend-overlay rounded-tr-sm" />
+                          <div className="dp-scan-corner absolute bottom-1.5 left-1.5 size-3 border-b border-l mix-blend-overlay rounded-bl-sm" />
+                          <div className="dp-scan-corner absolute bottom-1.5 right-1.5 size-3 border-b border-r mix-blend-overlay rounded-br-sm" />
                         </div>
                         <div className="text-center">
                           <p className="text-sm font-semibold">{slug || "my-agent"}</p>
@@ -740,7 +727,7 @@ function NewBlueprintContent() {
                       </div>
                       <div className="border-t border-border flex items-center justify-between px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-stone-300" />
+                          <div className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-border" />
                           <div>
                             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Up next</p>
                             <p className="text-sm text-foreground">
@@ -756,12 +743,6 @@ function NewBlueprintContent() {
                           {sourcePath === "import" ? "View blueprint →" : "Continue setup →"}
                         </Button>
                       </div>
-                      <style>{`
-                        @keyframes scanLine {
-                          0%, 100% { top: 10%; }
-                          50% { top: 85%; }
-                        }
-                      `}</style>
                     </div>
                   )}
 

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 
 type LinkConfirmDialogProps = {
   open: boolean;
@@ -70,8 +70,10 @@ export function LinkConfirmDialog({
           <div className="flex-1 mx-2 border-t-2 border-dashed border-border" />
 
           {/* GitHub */}
-          <div className="size-14 rounded-full bg-[#1b1f23] flex items-center justify-center border border-border shrink-0 shadow-md">
-            <GitHubIcon className="size-7 text-white" />
+          <div className="size-14 rounded-full bg-card flex items-center justify-center border border-border shrink-0 shadow-md">
+            <span className="size-7 flex items-center justify-center [&>img]:size-full">
+              {getIntegrationIcon("github")}
+            </span>
           </div>
         </div>
 
