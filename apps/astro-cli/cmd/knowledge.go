@@ -19,6 +19,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 // knowledgeServerURL mirrors the pattern from push.go — overridable per-command.
@@ -147,7 +148,7 @@ func knowledgeAPIBase() string {
 	if knowledgeServerURL != "" {
 		return strings.TrimSuffix(knowledgeServerURL, "/")
 	}
-	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
 func knowledgeRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -167,9 +168,9 @@ func knowledgeRequest(ctx context.Context, method, path string, body any) (*http
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Cli-Version", version)
-	if err := auth.AddAuthHeader(ctx, req, binaryName); err != nil {
-		return nil, fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, binaryName)
+	req.Header.Set("X-Cli-Version", buildinfo.Version)
+	if err := auth.AddAuthHeader(ctx, req, buildinfo.BinaryName); err != nil {
+		return nil, fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -486,8 +487,8 @@ func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Cli-Version", version)
-	if err := auth.AddAuthHeader(cmd.Context(), req, binaryName); err != nil {
+	req.Header.Set("X-Cli-Version", buildinfo.Version)
+	if err := auth.AddAuthHeader(cmd.Context(), req, buildinfo.BinaryName); err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
@@ -524,8 +525,8 @@ func runKnowledgeLogsTail(parentCtx context.Context, account, name string) error
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("X-Cli-Version", version)
-	if err := auth.AddAuthHeader(ctx, req, binaryName); err != nil {
+	req.Header.Set("X-Cli-Version", buildinfo.Version)
+	if err := auth.AddAuthHeader(ctx, req, buildinfo.BinaryName); err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 

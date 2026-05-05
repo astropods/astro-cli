@@ -95,15 +95,15 @@ jobs:
         run: |
           mkdir -p bin
           LDFLAGS="-s -w \
-            -X github.com/astropods/astro/apps/astro-cli/cmd.version=${VERSION} \
-            -X github.com/astropods/astro/apps/astro-cli/cmd.commit=${COMMIT} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/auth.DefaultServerURL=${SERVER_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/auth.DefaultRegistryURL=${REGISTRY_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/auth.FleetServerURL=${FLEET_SERVER_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/cmd.downloadBaseURL=${DOWNLOAD_URL} \
             -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=${BINARY_NAME} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=${AMPLITUDE_API_KEY}"
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Version=${VERSION} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=${COMMIT} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.WorkOSClientID=${WORKOS_CLIENT_ID} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=${SERVER_URL} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultRegistryURL=${REGISTRY_URL} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.FleetServerURL=${FLEET_SERVER_URL} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DownloadBaseURL=${DOWNLOAD_URL} \
+            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY}"
 
           for OS in darwin linux; do
             for ARCH in amd64 arm64; do

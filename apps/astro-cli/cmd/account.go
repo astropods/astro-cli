@@ -12,11 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 // accountNewStorage is the storage constructor used by account commands. Overridable in tests.
-var accountNewStorage = func() *auth.Storage { return auth.NewStorage(binaryName) }
+var accountNewStorage = func() *auth.Storage { return auth.NewStorage(buildinfo.BinaryName) }
 
 var accountCmd = &cobra.Command{
 	Use:   "account",
@@ -59,7 +60,7 @@ For organization accounts this is an org-scoped access token.`,
 func init() {
 	accountCmd.AddCommand(accountListCmd)
 	accountCmd.AddCommand(accountSwitchCmd)
-	if isDevBuild {
+	if buildinfo.BuildType == buildinfo.BuildTypeDev {
 		accountCmd.AddCommand(accountTokenCmd)
 	}
 	rootCmd.AddCommand(accountCmd)
@@ -70,7 +71,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
 	currentAccount, err := storage.GetCurrentAccount()
@@ -186,7 +187,7 @@ func getAccountToken(ctx context.Context, account string) (string, error) {
 	storage := accountNewStorage()
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 	var orgID string
 	for _, a := range profile.Accounts {
@@ -195,7 +196,7 @@ func getAccountToken(ctx context.Context, account string) (string, error) {
 			break
 		}
 	}
-	tokenManager := auth.NewTokenManager(binaryName)
+	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	var token string
 	if orgID != "" {
 		token, err = tokenManager.GetOrgScopedAccessToken(ctx, orgID)
@@ -203,7 +204,7 @@ func getAccountToken(ctx context.Context, account string) (string, error) {
 		token, err = tokenManager.GetValidAccessToken(ctx)
 	}
 	if err != nil {
-		return "", fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, binaryName)
+		return "", fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
 	}
 	return token, nil
 }

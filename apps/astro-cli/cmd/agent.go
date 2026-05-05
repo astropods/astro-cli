@@ -15,7 +15,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
@@ -33,7 +33,7 @@ func agentBaseURL() string {
 	if agentServerURLOverride != "" {
 		return strings.TrimSuffix(agentServerURLOverride, "/")
 	}
-	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
 var agentCmd = &cobra.Command{

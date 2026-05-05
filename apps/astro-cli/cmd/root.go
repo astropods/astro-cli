@@ -14,24 +14,15 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
 )
 
-// version, commit, and downloadBaseURL are set at build time via ldflags.
-var (
-	version         = "dev"
-	commit          = ""
-	binaryName      = buildinfo.BinaryName
-	isDevBuild      = binaryName == buildinfo.DevBinaryName
-	downloadBaseURL = "" // e.g. https://download.astropods.ai
-)
-
 func fullVersion() string {
-	if commit != "" {
-		return binaryName + "/" + version + " (" + commit + ") BETA"
+	if buildinfo.Commit != "" {
+		return buildinfo.BinaryName + "/" + buildinfo.Version + " (" + buildinfo.Commit + ") BETA"
 	}
-	return binaryName + "/" + version + " BETA"
+	return buildinfo.BinaryName + "/" + buildinfo.Version + " BETA"
 }
 
 var rootCmd = &cobra.Command{
-	Use:   binaryName,
+	Use:   buildinfo.BinaryName,
 	Short: "Astropods CLI - Build, push, and develop AI agents",
 	Long: astroBanner() + `
 
@@ -42,14 +33,19 @@ Build, push, and develop AI agents.`,
 }
 
 func Execute() {
+	if err := buildinfo.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	// Identify the subcommand before executing so we can skip the version
 	// check for commands that manage the CLI itself.
 	invoked, _, _ := rootCmd.Find(os.Args[1:])
 
 	// Print first-run telemetry notice (once per install)
-	if telemetry.EnsureNoticed(binaryName) {
+	if telemetry.EnsureNoticed(buildinfo.BinaryName) {
 		fmt.Fprintln(os.Stderr, "Notice: Astropods collects anonymous usage data to improve the CLI.")
-		fmt.Fprintln(os.Stderr, "Run `"+binaryName+" settings update --telemetry off` to opt out.")
+		fmt.Fprintln(os.Stderr, "Run `"+buildinfo.BinaryName+" settings update --telemetry off` to opt out.")
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -58,7 +54,7 @@ func Execute() {
 
 	// Send telemetry — skip noise commands (help, version, completion, telemetry config)
 	cmdName := resolveCommandName(invoked, os.Args[1:])
-	if telemetry.IsEnabled(binaryName) && !isNoiseCommand(cmdName) {
+	if telemetry.IsEnabled(buildinfo.BinaryName) && !isNoiseCommand(cmdName) {
 		tc := buildTelemetryClient()
 		if tc != nil {
 			tc.TrackCommand(cmdName, time.Since(start), execErr)
@@ -122,13 +118,13 @@ func isNoiseCommand(name string) bool {
 // User identity enrichment happens on the web client — CLI just needs the same UserID.
 func buildTelemetryClient() *telemetry.Client {
 	userID := ""
-	storage := auth.NewStorage(binaryName)
+	storage := auth.NewStorage(buildinfo.BinaryName)
 	if profile, err := storage.GetCurrentProfile(); err == nil && profile.User != nil {
 		userID = profile.User.ID
 	}
-	deviceID := telemetry.GetDeviceID(binaryName)
+	deviceID := telemetry.GetDeviceID(buildinfo.BinaryName)
 
-	return telemetry.NewClient(userID, deviceID, version)
+	return telemetry.NewClient(userID, deviceID, buildinfo.Version)
 }
 
 func init() {

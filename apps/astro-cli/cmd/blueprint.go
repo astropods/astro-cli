@@ -14,7 +14,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -208,7 +208,7 @@ func runBlueprintBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-	platform, _ := resolveBuildPlatform(auth.DefaultServerURL)
+	platform, _ := resolveBuildPlatform(buildinfo.DefaultServerURL)
 	return runBuild(cmd.Context(), specPath, name, generateBuildID(), []string{platform}, false, verbose, false)
 }
 
@@ -278,7 +278,7 @@ func blueprintBaseURL() string {
 	if blueprintServerURLOverride != "" {
 		return strings.TrimSuffix(blueprintServerURLOverride, "/")
 	}
-	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
 // Response types
@@ -396,7 +396,7 @@ func printBlueprintNextSteps(w io.Writer) {
 	var lines []string
 	lines = append(lines, boldPrimary.Render("Waiting for first push..."))
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("  %s   %s", boldPrimary.Render(binaryName+" blueprint push"), dim.Render("push your agent image")))
+	lines = append(lines, fmt.Sprintf("  %s   %s", boldPrimary.Render(buildinfo.BinaryName+" blueprint push"), dim.Render("push your agent image")))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).

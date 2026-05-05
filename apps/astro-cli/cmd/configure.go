@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -43,7 +44,7 @@ func init() {
 
 Reads astropods.yml to determine required variables. '%[1]s project start' loads them automatically.
 
-Run without flags for an interactive form.`, binaryName)
+Run without flags for an interactive form.`, buildinfo.BinaryName)
 
 	registerConfigureFlags(configureCmd)
 
@@ -202,7 +203,7 @@ func runConfigureOut(format string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	vars := config.GetProjectVars(binaryName, workingDir)
+	vars := config.GetProjectVars(buildinfo.BinaryName, workingDir)
 	if len(vars) == 0 {
 		fmt.Fprintf(os.Stderr, "%sNo stored config variables found for this project.%s\n", colorDim, colorReset)
 		return nil
@@ -263,7 +264,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	// `stored` is the raw view of the project store and is used below to
 	// distinguish "preserved existing stored value" from "genuinely blank"
 	// when reporting the save summary.
-	stored := config.GetProjectVars(binaryName, workingDir)
+	stored := config.GetProjectVars(buildinfo.BinaryName, workingDir)
 	if stored == nil {
 		stored = make(map[string]string)
 	}
@@ -414,7 +415,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := config.MergeProjectVars(binaryName, workingDir, astroSpec.Name, filtered); err != nil {
+	if err := config.MergeProjectVars(buildinfo.BinaryName, workingDir, astroSpec.Name, filtered); err != nil {
 		return fmt.Errorf("failed to save project config: %w", err)
 	}
 
@@ -481,7 +482,7 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", importFile, err)
 		}
-		if err := config.MergeProjectVars(binaryName, workingDir, specName, vars); err != nil {
+		if err := config.MergeProjectVars(buildinfo.BinaryName, workingDir, specName, vars); err != nil {
 			return fmt.Errorf("failed to import config: %w", err)
 		}
 		fmt.Printf("Imported %d variable(s) from %s\n", len(vars), importFile)
@@ -496,7 +497,7 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 			}
 			vars[kv[:idx]] = kv[idx+1:]
 		}
-		if err := config.SetProjectVars(binaryName, workingDir, specName, vars); err != nil {
+		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, vars); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 		for k := range vars {
@@ -505,7 +506,7 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 	}
 
 	if len(unsetKeys) > 0 {
-		if err := config.UnsetProjectVars(binaryName, workingDir, unsetKeys); err != nil {
+		if err := config.UnsetProjectVars(buildinfo.BinaryName, workingDir, unsetKeys); err != nil {
 			return fmt.Errorf("failed to unset config: %w", err)
 		}
 		for _, k := range unsetKeys {
@@ -519,9 +520,9 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 
 // configsPathDisplay returns a user-friendly display path for project-configs.json.
 func configsPathDisplay() string {
-	path, err := config.ConfigsPath(binaryName)
+	path, err := config.ConfigsPath(buildinfo.BinaryName)
 	if err != nil {
-		return fmt.Sprintf("~/.%s/project-configs.json", binaryName)
+		return fmt.Sprintf("~/.%s/project-configs.json", buildinfo.BinaryName)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

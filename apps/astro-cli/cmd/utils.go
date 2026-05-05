@@ -156,6 +156,11 @@ func flagString(cmd *cobra.Command, name string) string {
 	return s
 }
 
+func flagBool(cmd *cobra.Command, name string) bool {
+	b, _ := cmd.Flags().GetBool(name)
+	return b
+}
+
 // cmdAuth returns the current account token and the verbose flag for a command.
 func cmdAuth(cmd *cobra.Command) (AccountToken, bool, error) {
 	at, err := getCurrentAccountToken(cmd.Context())

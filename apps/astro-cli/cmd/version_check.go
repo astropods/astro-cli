@@ -12,6 +12,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/fatih/color"
 )
 
@@ -33,7 +34,7 @@ func versionCacheFilePath() (string, error) {
 	dir := versionCacheDir
 	if dir == "" {
 		var err error
-		dir, err = auth.ConfigDir(binaryName)
+		dir, err = auth.ConfigDir(buildinfo.BinaryName)
 		if err != nil {
 			return "", err
 		}
@@ -72,7 +73,7 @@ func saveVersionCache(cache *versionCache) {
 func fetchLatestVersion() (string, error) {
 	base := versionCheckDownloadURL
 	if base == "" {
-		base = downloadBaseURL
+		base = buildinfo.DownloadBaseURL
 	}
 	if base == "" {
 		return "", fmt.Errorf("download URL not configured")
@@ -115,9 +116,9 @@ func isNewerVersion(latest, current string) bool {
 // prints an update notice if so. It caches the result for 24 hours to avoid
 // making a network request on every command invocation.
 //
-// This is a no-op for dev builds (version == "dev").
+// This is a no-op for dev builds.
 func notifyIfUpdateAvailable() {
-	if version == "dev" {
+	if buildinfo.BuildType == buildinfo.BuildTypeDev {
 		return
 	}
 
@@ -153,14 +154,14 @@ func notifyIfUpdateAvailable() {
 		dim.Fprintf(os.Stderr, "  version check: using cache (checked %s ago)\n", time.Since(cache.LastChecked).Truncate(time.Second)) //nolint:errcheck,gosec
 	}
 
-	if cache.LatestVersion == "" || !isNewerVersion(cache.LatestVersion, version) {
+	if cache.LatestVersion == "" || !isNewerVersion(cache.LatestVersion, buildinfo.Version) {
 		if verbose {
-			dim.Fprintf(os.Stderr, "  version check: up to date (%s)\n", version) //nolint:errcheck,gosec
+			dim.Fprintf(os.Stderr, "  version check: up to date (%s)\n", buildinfo.Version) //nolint:errcheck,gosec
 		}
 		return
 	}
 
 	fmt.Fprintln(os.Stderr)
-	_, _ = color.New(color.FgYellow).Fprintf(os.Stderr, "  Update available: %s → %s\n", version, cache.LatestVersion)
-	_, _ = color.New(color.Faint).Fprintf(os.Stderr, "  Run `%s upgrade` to update.\n\n", binaryName)
+	_, _ = color.New(color.FgYellow).Fprintf(os.Stderr, "  Update available: %s → %s\n", buildinfo.Version, cache.LatestVersion)
+	_, _ = color.New(color.Faint).Fprintf(os.Stderr, "  Run `%s upgrade` to update.\n\n", buildinfo.BinaryName)
 }

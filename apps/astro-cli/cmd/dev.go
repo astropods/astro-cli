@@ -26,6 +26,7 @@ import (
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
@@ -94,7 +95,7 @@ func init() {
 	devStartCmd.Long = fmt.Sprintf(`Start the local development environment with Docker containers.
 
 Containers start in the background and the command exits.
-Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, binaryName)
+Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, buildinfo.BinaryName)
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devStartCmd} {
@@ -102,7 +103,7 @@ Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, binary
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s dev --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", binaryName))
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s dev --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
@@ -125,7 +126,7 @@ func devStatePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
-	return filepath.Join(workingDir, ".ast", ".running"), nil
+	return filepath.Join(workingDir, buildinfo.AppDirName, ".running"), nil
 }
 
 // readDevProjectName returns the compose project name stored in the .running
@@ -231,7 +232,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load stored project config and merge (config store takes priority over .env)
-	storedVars := config.GetProjectVars(binaryName, workingDir)
+	storedVars := config.GetProjectVars(buildinfo.BinaryName, workingDir)
 	for k, v := range storedVars {
 		envVars[k] = v
 		if err := os.Setenv(k, v); err != nil {
@@ -241,7 +242,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if len(storedVars) > 0 {
 		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
 	} else if len(envVars) == 0 {
-		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, binaryName, colorReset)
+		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
 	}
 	// Check for native Ollama — require host-installed Ollama for dev mode
 	buildOpts := composeBuilder.BuildOptions{}
@@ -270,9 +271,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	astDir := filepath.Join(workingDir, ".ast")
+	astDir := filepath.Join(workingDir, buildinfo.AppDirName)
 	if err := os.MkdirAll(astDir, 0755); err != nil { //nolint:gosec
-		return fmt.Errorf("failed to create .ast directory: %w", err)
+		return fmt.Errorf("failed to create %s directory: %w", buildinfo.AppDirName, err)
 	}
 
 	// Log services before building
@@ -493,7 +494,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
-	fmt.Printf("  %sTip: run '%s dev --local-reset' to remove injected local dependencies%s\n", colorDim, binaryName, colorReset)
+	fmt.Printf("  %sTip: run '%s dev --local-reset' to remove injected local dependencies%s\n", colorDim, buildinfo.BinaryName, colorReset)
 
 	return nil
 }
@@ -603,7 +604,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
 		}
 		fmt.Println()
-		fmt.Printf("Run %s%s dev trigger <name>%s to trigger one.\n", colorBold, binaryName, colorReset)
+		fmt.Printf("Run %s%s dev trigger <name>%s to trigger one.\n", colorBold, buildinfo.BinaryName, colorReset)
 		return nil
 	}
 
@@ -637,7 +638,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		envVars = make(map[string]string)
 	}
 	// Merge stored project vars (same as runDevStart — takes priority over .env)
-	for k, v := range config.GetProjectVars(binaryName, workingDir) {
+	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
 		envVars[k] = v
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -940,15 +941,15 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, bold.Render(binaryName+" dev logs")+"  — tail logs")
-	lines = append(lines, bold.Render(binaryName+" dev stop")+"  — stop")
+	lines = append(lines, bold.Render(buildinfo.BinaryName+" dev logs")+"  — tail logs")
+	lines = append(lines, bold.Render(buildinfo.BinaryName+" dev stop")+"  — stop")
 
 	// Manual / schedule ingestion hints
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
 			continue
 		}
-		lines = append(lines, bold.Render(fmt.Sprintf("%s dev trigger %-8s", binaryName, name))+"— trigger ingestion")
+		lines = append(lines, bold.Render(fmt.Sprintf("%s dev trigger %-8s", buildinfo.BinaryName, name))+"— trigger ingestion")
 	}
 
 	box := lipgloss.NewStyle().

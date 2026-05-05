@@ -26,7 +26,7 @@ type repairFileCheck struct {
 }
 
 // runRepair expects an already-resolved spec path and working directory; the caller is responsible for resolution.
-func runRepair(specPath, workingDir string) error {
+func runRepair(specPath, workingDir string, yes bool) error {
 	var astroSpec *spec.AstroSpec
 	var specErr error
 	if specPath != "" {
@@ -49,7 +49,7 @@ func runRepair(specPath, workingDir string) error {
 				colorYellow, colorReset, colorBold, colorReset, colorBold, targetName, colorReset)
 
 			rename := true
-			if !yesFlag {
+			if !yes {
 				reader := bufio.NewReader(os.Stdin)
 				fmt.Printf("  Rename astro.yml → %s? [Y/n] ", targetName)
 				line, _ := reader.ReadString('\n')
@@ -131,7 +131,7 @@ func runRepair(specPath, workingDir string) error {
 	}
 
 	// Ask the user which files to repair (skipped when --yes)
-	if !yesFlag {
+	if !yes {
 		items := make([]repairui.Item, len(entries))
 		for i, e := range entries {
 			items[i] = repairui.Item{Label: e.label, Selected: e.defaultSelected}
@@ -164,7 +164,7 @@ func runRepair(specPath, workingDir string) error {
 
 	// processIssue shows the diff (if any) and prompts to act, returning true if the file was written.
 	processIssue := func(check repairFileCheck, relPath, action string) {
-		if !yesFlag {
+		if !yes {
 			fmt.Printf("  %s%s%s? [Y/n] ", colorBold, relPath, colorReset)
 			line, _ := reader.ReadString('\n')
 			trimmed := strings.TrimSpace(strings.ToLower(line))
@@ -238,11 +238,11 @@ func runRepair(specPath, workingDir string) error {
 	}
 
 	// Scan for deprecated references
-	checkDeprecatedPackages(workingDir, reader, yesFlag)
+	checkDeprecatedPackages(workingDir, reader, yes)
 
 	// Remove deprecated build args/secrets from astroai.yml
 	if !specMissing {
-		checkBuildArgsAndSecrets(specPath, reader, yesFlag)
+		checkBuildArgsAndSecrets(specPath, reader, yes)
 	}
 
 	// Delete the old .astro directory if present (replaced by .ast).

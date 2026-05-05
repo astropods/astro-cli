@@ -9,19 +9,20 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/stretchr/testify/require"
 )
 
 func init() {
 	// Use a real storage instance — testing.Testing() prevents the Keychain probe.
-	accountNewStorage = func() *auth.Storage { return auth.NewStorage("ast") }
+	accountNewStorage = func() *auth.Storage { return auth.NewStorage(buildinfo.BinaryName) }
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func writeAccountTestCredentials(t *testing.T, creds *auth.Credentials) {
 	t.Helper()
-	path, err := auth.CredentialsPath("ast")
+	path, err := auth.CredentialsPath(buildinfo.BinaryName)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
 	data, err := json.MarshalIndent(creds, "", "  ")

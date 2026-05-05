@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
 )
 
@@ -32,7 +33,7 @@ Use --telemetry on|off to enable or disable anonymous usage data collection.`,
 		if telemetryVal != "on" && telemetryVal != "off" {
 			return fmt.Errorf("--telemetry must be on or off")
 		}
-		if err := telemetry.SetEnabled(binaryName, telemetryVal == "on"); err != nil {
+		if err := telemetry.SetEnabled(buildinfo.BinaryName, telemetryVal == "on"); err != nil {
 			return fmt.Errorf("failed to update telemetry setting: %w", err)
 		}
 		if telemetryVal == "on" {
@@ -45,7 +46,7 @@ Use --telemetry on|off to enable or disable anonymous usage data collection.`,
 }
 
 func writeCompletionFile(cmd *cobra.Command, shell string, gen func(w io.Writer) error) error {
-	dir, err := auth.ConfigDir(binaryName)
+	dir, err := auth.ConfigDir(buildinfo.BinaryName)
 	if err != nil {
 		return fmt.Errorf("failed to resolve config directory: %w", err)
 	}
@@ -53,7 +54,7 @@ func writeCompletionFile(cmd *cobra.Command, shell string, gen func(w io.Writer)
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	absPath := filepath.Join(dir, binaryName+"-completion."+shell)
+	absPath := filepath.Join(dir, buildinfo.BinaryName+"-completion."+shell)
 	f, err := os.Create(absPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create %s: %w", absPath, err)
@@ -77,8 +78,8 @@ func writeCompletionFile(cmd *cobra.Command, shell string, gen func(w io.Writer)
 		fmt.Fprintf(w, "  source %s\n\n", absPath)                      //nolint:errcheck
 		fmt.Fprintf(w, "Then reload: source ~/.zshrc\n")                //nolint:errcheck
 	case "fish":
-		fmt.Fprintf(w, "\nTo enable completions, copy to the fish completions directory:\n\n") //nolint:errcheck
-		fmt.Fprintf(w, "  cp %s ~/.config/fish/completions/%s.fish\n", absPath, binaryName)    //nolint:errcheck
+		fmt.Fprintf(w, "\nTo enable completions, copy to the fish completions directory:\n\n")        //nolint:errcheck
+		fmt.Fprintf(w, "  cp %s ~/.config/fish/completions/%s.fish\n", absPath, buildinfo.BinaryName) //nolint:errcheck
 	case "powershell":
 		fmt.Fprintf(w, "\nTo enable completions, add to your PowerShell profile ($PROFILE):\n\n") //nolint:errcheck
 		fmt.Fprintf(w, "  . %s\n", absPath)                                                       //nolint:errcheck
