@@ -31,7 +31,7 @@ var configureCmd = &cobra.Command{
 }
 
 func registerConfigureFlags(cmd *cobra.Command) {
-	cmd.Flags().String("out", "", "Print stored config vars in the given format: env or json")
+	cmd.Flags().StringP("output", "o", "", "Print stored config vars in the given format: env or json")
 	cmd.Flags().String("vars-file", "", "Import variables from an env file")
 	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
 	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
@@ -218,7 +218,7 @@ func runConfigureOut(format string) error {
 }
 
 func runConfigure(cmd *cobra.Command, args []string) error {
-	if format, _ := cmd.Flags().GetString("out"); format != "" {
+	if format, _ := cmd.Flags().GetString("output"); format != "" {
 		return runConfigureOut(format)
 	}
 

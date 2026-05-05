@@ -40,16 +40,15 @@ otherwise in the CLI config directory with restricted permissions.`,
 	RunE: runLogin,
 }
 
-var noBrowser bool
-var loginAccount string
-
 func init() {
 	rootCmd.AddCommand(loginCmd)
-	loginCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't automatically open browser")
-	loginCmd.Flags().StringVar(&loginAccount, "account", "", "Switch to this account after login")
+	loginCmd.Flags().Bool("no-browser", false, "Don't automatically open browser")
+	loginCmd.Flags().String("account", "", "Switch to this account after login")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	noBrowser := flagBool(cmd, "no-browser")
+	loginAccount := flagString(cmd, "account")
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	// Color definitions

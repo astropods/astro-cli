@@ -353,54 +353,6 @@ func printPushComplete(success bool, _ int64) {
 	}
 }
 
-// getUserNamespace reads the user's namespace (account name) from the stored profile.
-// If accountOverride is non-empty, it looks up that account and returns its WorkOS org ID.
-// Pass "" to use the current logged-in account (the default for push).
-func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOrgID string, err error) {
-	storage := auth.NewStorage(buildinfo.BinaryName)
-	profile, err := storage.GetCurrentProfile()
-	if err != nil {
-		return "", "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
-	}
-
-	if accountOverride != "" {
-		for _, acct := range profile.Accounts {
-			if strings.EqualFold(acct.Name, accountOverride) {
-				if acct.Type == "organization" && acct.WorkOSOrganizationID == "" {
-					return "", "", fmt.Errorf("organization %q is not linked. Run '%s login' to refresh your accounts", accountOverride, buildinfo.BinaryName)
-				}
-				if verbose {
-					fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s, type: %s)%s\n", colorDim, acct.Name, acct.ID, acct.Type, colorReset)
-				}
-				return strings.ToLower(acct.Name), acct.WorkOSOrganizationID, nil
-			}
-		}
-		var names []string
-		for _, acct := range profile.Accounts {
-			names = append(names, acct.Name)
-		}
-		return "", "", fmt.Errorf("account %q not found. Available accounts: %s. Run '%s login' to refresh", accountOverride, strings.Join(names, ", "), buildinfo.BinaryName)
-	}
-
-	name := profile.User.AccountName
-	if name == "" && len(profile.Accounts) > 0 {
-		name = profile.Accounts[0].Name
-	}
-	if name == "" {
-		return "", "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", buildinfo.BinaryName)
-	}
-
-	if verbose {
-		accountID := profile.User.AccountID
-		if accountID == "" && len(profile.Accounts) > 0 {
-			accountID = profile.Accounts[0].ID
-		}
-		fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s)%s\n", colorDim, name, accountID, colorReset)
-	}
-
-	return strings.ToLower(name), "", nil
-}
-
 // generateBuildID returns a random 8-character hex string (4 bytes).
 func generateBuildID() string {
 	b := make([]byte, 4)
