@@ -168,7 +168,6 @@ export function PodTile({ workload, deploymentId, className, onClick, selected, 
   );
   if (!workload) return null;
   const lastError = errorLogs?.[0]?.message ?? null;
-
   const totalRestarts = workload.containers.reduce((sum, c) => sum + c.restart_count, 0);
   const warningMessage = status === "warning"
     ? `Restarting frequently (${totalRestarts} restarts)`

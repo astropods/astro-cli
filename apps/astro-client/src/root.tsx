@@ -7,6 +7,7 @@ import {
   ScrollRestoration,
   Navigate,
   useLocation,
+  useMatches,
   isRouteErrorResponse,
 } from "react-router";
 import type { Route } from "./+types/root";
@@ -18,6 +19,7 @@ import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
 import { QueryAuthSync } from "./lib/QueryAuthSync";
 import { Button } from "./components/ui/button";
+import { parseCookieTheme, ServerThemeContext } from "./lib/theme";
 
 export const meta: Route.MetaFunction = () => [
   { title: "Astro" },
@@ -31,14 +33,18 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const matches = useMatches();
+  const rootData = matches[0]?.data as { serverTheme?: "light" | "dark" } | undefined;
+  const serverTheme = rootData?.serverTheme ?? "light";
+
   return (
-    <html lang="en">
+    <html lang="en" className={serverTheme === "dark" ? "dark" : undefined} suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem("astro:theme")||"light";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";if(t==="dark")document.documentElement.classList.add("dark")})()`,
+            __html: `(function(){var t=localStorage.getItem("astro:theme")||"light";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark");document.cookie="astro-theme="+t+";path=/;max-age=31536000;SameSite=Lax"})()`,
           }}
         />
         <Meta />
@@ -77,11 +83,12 @@ export function shouldRevalidate() {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
+  const serverTheme = parseCookieTheme(request.headers.get("cookie"));
   try {
     const serverAuth = await api.getCurrentUser();
-    return { serverAuth };
+    return { serverAuth, serverTheme };
   } catch {
-    return { serverAuth: null };
+    return { serverAuth: null, serverTheme };
   }
 }
 
@@ -91,16 +98,18 @@ export default function Root({ loaderData }: Route.ComponentProps) {
   const [queryClient] = useState(() => new QueryClient(queryClientConfig));
 
   return (
-    <AuthProvider serverAuth={loaderData?.serverAuth}>
-      <QueryClientProvider client={queryClient}>
-        <QueryAuthSync />
-        <AmplitudeProvider>
-          <OnboardingGuard>
-            <Outlet />
-          </OnboardingGuard>
-        </AmplitudeProvider>
-      </QueryClientProvider>
-    </AuthProvider>
+    <ServerThemeContext.Provider value={loaderData?.serverTheme ?? "light"}>
+      <AuthProvider serverAuth={loaderData?.serverAuth}>
+        <QueryClientProvider client={queryClient}>
+          <QueryAuthSync />
+          <AmplitudeProvider>
+            <OnboardingGuard>
+              <Outlet />
+            </OnboardingGuard>
+          </AmplitudeProvider>
+        </QueryClientProvider>
+      </AuthProvider>
+    </ServerThemeContext.Provider>
   );
 }
 

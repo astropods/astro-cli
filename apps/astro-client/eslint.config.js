@@ -10,7 +10,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 import localTheme from './eslint-rules/index.js'
 
 export default defineConfig([
-  globalIgnores(['dist', '.react-router', 'build', 'playwright-report', 'test-results']),
+  globalIgnores(['dist', '.react-router', 'build', 'playwright-report', 'test-results', 'storybook-static']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -1,8 +1,28 @@
-import { useSyncExternalStore, useEffect } from "react";
+import { useSyncExternalStore, useEffect, createContext, useContext } from "react";
 
 export type Theme = "light" | "dark" | "auto";
 
 const STORAGE_KEY = "astro:theme";
+const COOKIE_NAME = "astro-theme";
+const COOKIE_MAX_AGE = 31536000; // 1 year
+
+/**
+ * Context provided by the Root component with the cookie-derived theme.
+ * Used by useResolvedTheme() for its server snapshot so SSR renders
+ * components with the correct theme (e.g. chart colors, starfield).
+ */
+export const ServerThemeContext = createContext<"light" | "dark">("light");
+
+function writeCookie(resolved: "light" | "dark") {
+  if (typeof document === "undefined") return;
+  document.cookie = `${COOKIE_NAME}=${resolved};path=/;max-age=${COOKIE_MAX_AGE};SameSite=Lax`;
+}
+
+export function parseCookieTheme(cookieHeader: string | null): "light" | "dark" {
+  if (!cookieHeader) return "light";
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=(light|dark)`));
+  return (match?.[1] as "light" | "dark") ?? "light";
+}
 
 function getSystemTheme(): "light" | "dark" {
   if (typeof window === "undefined" || !window.matchMedia) return "light";
@@ -54,6 +74,8 @@ export function setTheme(next: Theme) {
   } catch {
     // ignore
   }
+  const resolved = next === "auto" ? getSystemTheme() : next;
+  writeCookie(resolved);
   snapshot = next;
   applyTheme(next);
   notify();
@@ -62,14 +84,17 @@ export function setTheme(next: Theme) {
 if (typeof window !== "undefined") {
   // Apply the resolved class on module init so `<html>` reflects the
   // persisted choice as soon as the bundle evaluates, before any component
-  // mounts.
+  // mounts. Also write the cookie so subsequent SSR requests have it
+  // (handles migration from localStorage-only).
   applyTheme(snapshot);
+  writeCookie(snapshot === "auto" ? getSystemTheme() : snapshot);
 
   // Cross-tab sync: pick up writes from sibling tabs and rebroadcast.
   window.addEventListener("storage", (e) => {
     if (e.key !== STORAGE_KEY) return;
     snapshot = loadTheme();
     applyTheme(snapshot);
+    writeCookie(snapshot === "auto" ? getSystemTheme() : snapshot);
     notify();
   });
 
@@ -79,6 +104,7 @@ if (typeof window !== "undefined") {
     mq.addEventListener("change", () => {
       if (snapshot === "auto") {
         applyTheme("auto");
+        writeCookie(getSystemTheme());
         notify();
       }
     });
@@ -103,7 +129,8 @@ function getResolvedTheme(): "light" | "dark" {
 }
 
 /** Returns the resolved theme ("light" | "dark"), tracking both user choice and system preference.
- *  SSR-safe: defaults to "light" on the server, resolves on the client after hydration. */
+ *  SSR-safe: uses the cookie-derived theme from ServerThemeContext on the server. */
 export function useResolvedTheme(): "light" | "dark" {
-  return useSyncExternalStore(subscribe, getResolvedTheme, () => "light" as const);
+  const serverTheme = useContext(ServerThemeContext);
+  return useSyncExternalStore(subscribe, getResolvedTheme, () => serverTheme);
 }
