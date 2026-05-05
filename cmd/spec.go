@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 var specCmd = &cobra.Command{
@@ -41,7 +43,7 @@ var repairCmd = &cobra.Command{
 		if workingDir == "" {
 			return fmt.Errorf("failed to get working directory")
 		}
-		return runRepair(specPath, workingDir)
+		return runRepair(specPath, workingDir, flagBool(cmd, "yes"))
 	},
 }
 
@@ -65,12 +67,12 @@ func init() {
 
 	specCmd.PersistentFlags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 
-	repairCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Update all outdated files without prompting")
+	repairCmd.Flags().BoolP("yes", "y", false, "Update all outdated files without prompting")
 	specCmd.AddCommand(repairCmd)
 
 	specCmd.AddCommand(specValidateCmd)
 
 	explainCmd.Example = fmt.Sprintf(`  %[1]s spec explain
-  %[1]s spec explain -f /path/to/astropods.yml`, binaryName)
+  %[1]s spec explain -f /path/to/astropods.yml`, buildinfo.BinaryName)
 	specCmd.AddCommand(explainCmd)
 }

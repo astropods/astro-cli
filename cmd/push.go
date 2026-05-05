@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -32,17 +33,17 @@ func pushBaseURL() string {
 	if pushServerURLOverride != "" {
 		return strings.TrimSuffix(pushServerURLOverride, "/")
 	}
-	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
 func pushRegistryURL() string {
 	if pushServerURLOverride != "" {
 		return auth.RegistryURLFromServerURL(pushServerURLOverride)
 	}
-	if auth.DefaultRegistryURL != "" {
-		return strings.TrimSuffix(auth.DefaultRegistryURL, "/")
+	if buildinfo.DefaultRegistryURL != "" {
+		return strings.TrimSuffix(buildinfo.DefaultRegistryURL, "/")
 	}
-	return auth.RegistryURLFromServerURL(auth.DefaultServerURL)
+	return auth.RegistryURLFromServerURL(buildinfo.DefaultServerURL)
 }
 
 // pushConfig holds all parameters for a push operation.
@@ -70,11 +71,11 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: run '%s login'", binaryName)
+		return fmt.Errorf("registry URL required: run '%s login'", buildinfo.BinaryName)
 	}
 
 	if effectiveServerURL == "" {
-		return fmt.Errorf("server URL required: run '%s login'", binaryName)
+		return fmt.Errorf("server URL required: run '%s login'", buildinfo.BinaryName)
 	}
 
 	astroSpec, err := spec.ParseSpec(cfg.specPath)
@@ -297,7 +298,7 @@ func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
 		printStepDone("")
 	}
 
-	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(effectiveServerURL, "/"), at.Account, agentName)
+	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(buildinfo.DefaultServerURL, "/"), at.Account, agentName)
 
 	bold := lipgloss.NewStyle().Bold(true)
 	dim := lipgloss.NewStyle().Faint(true)
@@ -356,17 +357,17 @@ func printPushComplete(success bool, _ int64) {
 // If accountOverride is non-empty, it looks up that account and returns its WorkOS org ID.
 // Pass "" to use the current logged-in account (the default for push).
 func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOrgID string, err error) {
-	storage := auth.NewStorage(binaryName)
+	storage := auth.NewStorage(buildinfo.BinaryName)
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", "", fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return "", "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
 	if accountOverride != "" {
 		for _, acct := range profile.Accounts {
 			if strings.EqualFold(acct.Name, accountOverride) {
 				if acct.Type == "organization" && acct.WorkOSOrganizationID == "" {
-					return "", "", fmt.Errorf("organization %q is not linked. Run '%s login' to refresh your accounts", accountOverride, binaryName)
+					return "", "", fmt.Errorf("organization %q is not linked. Run '%s login' to refresh your accounts", accountOverride, buildinfo.BinaryName)
 				}
 				if verbose {
 					fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s, type: %s)%s\n", colorDim, acct.Name, acct.ID, acct.Type, colorReset)
@@ -378,7 +379,7 @@ func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOr
 		for _, acct := range profile.Accounts {
 			names = append(names, acct.Name)
 		}
-		return "", "", fmt.Errorf("account %q not found. Available accounts: %s. Run '%s login' to refresh", accountOverride, strings.Join(names, ", "), binaryName)
+		return "", "", fmt.Errorf("account %q not found. Available accounts: %s. Run '%s login' to refresh", accountOverride, strings.Join(names, ", "), buildinfo.BinaryName)
 	}
 
 	name := profile.User.AccountName
@@ -386,7 +387,7 @@ func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOr
 		name = profile.Accounts[0].Name
 	}
 	if name == "" {
-		return "", "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", binaryName)
+		return "", "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", buildinfo.BinaryName)
 	}
 
 	if verbose {
@@ -483,14 +484,14 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Cli-Version", version)
+	req.Header.Set("X-Cli-Version", buildinfo.Version)
 
 	// Add authentication header if not skipped
 	if !skipAuth {
 		if tokenOverride != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
-		} else if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
-			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, binaryName)
+		} else if err := auth.AddAuthHeader(context.Background(), req, buildinfo.BinaryName); err != nil {
+			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
 		}
 		if verbose {
 			authHeader := req.Header.Get("Authorization")
@@ -536,10 +537,10 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		var errResp map[string]interface{}
 		if json.Unmarshal(body, &errResp) == nil {
 			if msg, ok := errResp["error"].(string); ok {
-				return fmt.Errorf("%s\nRun '%s upgrade' to update", msg, binaryName)
+				return fmt.Errorf("%s\nRun '%s upgrade' to update", msg, buildinfo.BinaryName)
 			}
 		}
-		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", version, binaryName)
+		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", buildinfo.Version, buildinfo.BinaryName)
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized && !skipAuth && tokenOverride == "" {
@@ -548,8 +549,8 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		retryReq, retryErr := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 		if retryErr == nil {
 			retryReq.Header.Set("Content-Type", "application/json")
-			retryReq.Header.Set("X-Cli-Version", version)
-			if refreshErr := auth.RefreshAndUpdateHeader(context.Background(), retryReq, binaryName); refreshErr == nil {
+			retryReq.Header.Set("X-Cli-Version", buildinfo.Version)
+			if refreshErr := auth.RefreshAndUpdateHeader(context.Background(), retryReq, buildinfo.BinaryName); refreshErr == nil {
 				if retryResp, doErr := client.Do(retryReq); doErr == nil { //nolint:gosec
 					resp = retryResp
 					defer resp.Body.Close() //nolint:errcheck,gosec
@@ -560,7 +561,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), binaryName)
+		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), buildinfo.BinaryName)
 	}
 
 	if resp.StatusCode != http.StatusCreated {
@@ -655,7 +656,7 @@ func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool,
 	if !skipAuth {
 		if tokenOverride != "" {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
-		} else if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
+		} else if err := auth.AddAuthHeader(context.Background(), req, buildinfo.BinaryName); err != nil {
 			fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: auth error\n", colorYellow, colorReset)
 			return agentServerInfo{}
 		}

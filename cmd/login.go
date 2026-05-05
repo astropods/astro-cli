@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
@@ -145,7 +146,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Store credentials
-	storage := auth.NewStorage(binaryName)
+	storage := auth.NewStorage(buildinfo.BinaryName)
 
 	profile := &auth.Profile{
 		AccessToken:  tokenResp.AccessToken,
@@ -163,7 +164,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Fetch user accounts from the server
-	serverURL := auth.DefaultServerURL
+	serverURL := buildinfo.DefaultServerURL
 	if verbose {
 		fmt.Printf("  %s GET %s\n", cyan.Sprint("→"), dim.Sprint(serverURL+"/api/v1/me")) //nolint:errcheck,gosec
 	}

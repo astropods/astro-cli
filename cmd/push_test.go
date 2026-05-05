@@ -18,16 +18,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 )
 
 func TestPushRegistryURL(t *testing.T) {
-	origDefaultRegistryURL := auth.DefaultRegistryURL
-	origDefaultServerURL := auth.DefaultServerURL
+	origDefaultRegistryURL := buildinfo.DefaultRegistryURL
+	origDefaultServerURL := buildinfo.DefaultServerURL
 	t.Cleanup(func() {
 		pushServerURLOverride = ""
-		auth.DefaultRegistryURL = origDefaultRegistryURL
-		auth.DefaultServerURL = origDefaultServerURL
+		buildinfo.DefaultRegistryURL = origDefaultRegistryURL
+		buildinfo.DefaultServerURL = origDefaultServerURL
 	})
 
 	tests := []struct {
@@ -63,8 +64,8 @@ func TestPushRegistryURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pushServerURLOverride = tt.serverOverride
-			auth.DefaultRegistryURL = tt.defaultRegistryURL
-			auth.DefaultServerURL = tt.defaultServerURL
+			buildinfo.DefaultRegistryURL = tt.defaultRegistryURL
+			buildinfo.DefaultServerURL = tt.defaultServerURL
 
 			got := pushRegistryURL()
 			require.Equal(t, tt.want, got)
@@ -97,7 +98,7 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +354,7 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +488,7 @@ func TestGetUserNamespace_PersonalAccount(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +532,7 @@ func TestGetUserNamespace_OrgOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +577,7 @@ func TestGetUserNamespace_OrgOverrideCaseInsensitive(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +622,7 @@ func TestGetUserNamespace_OrgNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +670,7 @@ func TestGetUserNamespace_OrgMissingWorkOSID(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +715,7 @@ func TestGetUserNamespace_PersonalOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -1066,7 +1067,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
-	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
 		t.Fatal(err)
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -25,7 +25,7 @@ func secretsBaseURL() string {
 	if secretsServerURLOverride != "" {
 		return strings.TrimSuffix(secretsServerURLOverride, "/")
 	}
-	return strings.TrimSuffix(auth.DefaultServerURL, "/")
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
 func exactValidSecretName(cmd *cobra.Command, args []string) error {

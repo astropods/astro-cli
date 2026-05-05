@@ -8,7 +8,7 @@ tasks:
       cache: false
 
   build:
-    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-dev .'
+    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=${ASTRO_SERVER_URL:-http://localhost:8080} -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-dev .'
     inputs:
       - "**/*.go"
       - "cmd/docs/**"
@@ -21,7 +21,7 @@ tasks:
       - "bin/ast-dev"
 
   build-preview:
-    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/astropods/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/auth.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropod.ai:9092 -X github.com/astropods/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
+    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.FleetServerURL=fleet.astropod.ai:9092 -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
     inputs:
       - "**/*.go"
       - "cmd/docs/**"

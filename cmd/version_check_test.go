@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 // captureStderr redirects os.Stderr to a pipe for the duration of f, then
@@ -45,9 +47,11 @@ func setupVersionCheckTest(t *testing.T, srv *httptest.Server) string {
 	dir := t.TempDir()
 	orig := versionCacheDir
 	origURL := versionCheckDownloadURL
-	origVersion := version
+	origVersion := buildinfo.Version
+	origBuildType := buildinfo.BuildType
 
 	versionCacheDir = dir
+	buildinfo.BuildType = buildinfo.BuildTypeProd // default to prod so update checks run
 	if srv != nil {
 		versionCheckDownloadURL = srv.URL
 	}
@@ -55,7 +59,8 @@ func setupVersionCheckTest(t *testing.T, srv *httptest.Server) string {
 	t.Cleanup(func() {
 		versionCacheDir = orig
 		versionCheckDownloadURL = origURL
-		version = origVersion
+		buildinfo.Version = origVersion
+		buildinfo.BuildType = origBuildType
 	})
 	return dir
 }
@@ -208,7 +213,7 @@ func TestIsNewerVersion(t *testing.T) {
 
 func TestNotifyIfUpdateAvailable_DevBuild(t *testing.T) {
 	setupVersionCheckTest(t, nil)
-	version = "dev"
+	buildinfo.BuildType = buildinfo.BuildTypeDev
 
 	out := captureStderr(t, notifyIfUpdateAvailable)
 	if out != "" {
@@ -221,7 +226,7 @@ func TestNotifyIfUpdateAvailable_AlreadyUpToDate(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "1.0.0"
+	buildinfo.Version = "1.0.0"
 
 	out := captureStderr(t, notifyIfUpdateAvailable)
 	if out != "" {
@@ -235,7 +240,7 @@ func TestNotifyIfUpdateAvailable_CurrentNewer(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "2.0.0"
+	buildinfo.Version = "2.0.0"
 
 	out := captureStderr(t, notifyIfUpdateAvailable)
 	if out != "" {
@@ -248,7 +253,7 @@ func TestNotifyIfUpdateAvailable_UpdateAvailable(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "1.0.0"
+	buildinfo.Version = "1.0.0"
 
 	out := captureStderr(t, notifyIfUpdateAvailable)
 	if !strings.Contains(out, "2.0.0") {
@@ -270,7 +275,7 @@ func TestNotifyIfUpdateAvailable_UsesCacheWhenFresh(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "1.0.0"
+	buildinfo.Version = "1.0.0"
 
 	// Pre-populate a fresh cache with a known version.
 	fresh := &versionCache{
@@ -294,7 +299,7 @@ func TestNotifyIfUpdateAvailable_RefreshesStalCache(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "1.0.0"
+	buildinfo.Version = "1.0.0"
 
 	// Write a stale cache with an outdated version entry.
 	stale := &versionCache{
@@ -331,7 +336,7 @@ func TestNotifyIfUpdateAvailable_SilentOnNetworkError(t *testing.T) {
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
-	version = "1.0.0"
+	buildinfo.Version = "1.0.0"
 	// No cache — first run, network failure.
 
 	out := captureStderr(t, notifyIfUpdateAvailable)

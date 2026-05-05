@@ -12,6 +12,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
@@ -36,16 +37,16 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	if version == "dev" && !forceUpgrade {
+	if buildinfo.BuildType == buildinfo.BuildTypeDev && !forceUpgrade {
 		return fmt.Errorf("cannot upgrade a dev build; use --force to override")
 	}
 
-	base := strings.TrimRight(downloadBaseURL, "/")
+	base := strings.TrimRight(buildinfo.DownloadBaseURL, "/")
 	if base == "" {
 		return fmt.Errorf("upgrade not available: download URL not configured in this build")
 	}
 
-	binName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
+	binName := fmt.Sprintf("%s-%s-%s", buildinfo.BinaryName, runtime.GOOS, runtime.GOARCH)
 	downloadURL := base + "/" + binName
 	versionURL := base + "/VERSION"
 
@@ -64,9 +65,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	if !forceUpgrade {
-		if latestVersion != "" && latestVersion == version {
+		if latestVersion != "" && latestVersion == buildinfo.Version {
 			green.Print("✓ ") //nolint:errcheck,gosec
-			fmt.Printf("Already up to date (%s)\n", version)
+			fmt.Printf("Already up to date (%s)\n", buildinfo.Version)
 			return nil
 		}
 	}
@@ -77,7 +78,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to find executable path: %w", err)
 	}
 	installDir := filepath.Dir(execPath)
-	symlinkPath := filepath.Join(installDir, binaryName)
+	symlinkPath := filepath.Join(installDir, buildinfo.BinaryName)
 
 	// Download to temp file in the install directory.
 	tmpFile, err := os.CreateTemp(installDir, ".ast-upgrade-*")
@@ -114,7 +115,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	if latestVersion != "" {
 		// Versioned binary + symlink approach
-		versionedName := fmt.Sprintf("%s-%s", binaryName, latestVersion)
+		versionedName := fmt.Sprintf("%s-%s", buildinfo.BinaryName, latestVersion)
 		versionedPath := filepath.Join(installDir, versionedName)
 
 		if err := os.Rename(tmpPath, versionedPath); err != nil { //nolint:gosec
@@ -126,7 +127,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create symlink: %w", err)
 		}
 
-		cleanOldVersions(installDir, binaryName, latestVersion)
+		cleanOldVersions(installDir, latestVersion)
 	} else {
 		// No version info — fall back to direct replace
 		realPath, err := filepath.EvalSymlinks(execPath)
@@ -140,7 +141,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	green.Print("✓ ") //nolint:errcheck,gosec
 	fmt.Print("Upgraded ")
-	dim.Print(version) //nolint:errcheck,gosec
+	dim.Print(buildinfo.Version) //nolint:errcheck,gosec
 	fmt.Print(" → ")
 	if latestVersion != "" {
 		green.Println(latestVersion) //nolint:errcheck,gosec
@@ -169,15 +170,15 @@ func fetchVersionFile(url string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-// cleanOldVersions removes versioned binaries in dir matching {binaryName}-{semver}
+// cleanOldVersions removes versioned binaries in dir matching {buildinfo.BinaryName}-{semver}
 // except for the one matching keepVersion.
-func cleanOldVersions(dir, binaryName, keepVersion string) {
+func cleanOldVersions(dir, keepVersion string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
-	keep := fmt.Sprintf("%s-%s", binaryName, keepVersion)
-	pfx := binaryName + "-"
+	keep := fmt.Sprintf("%s-%s", buildinfo.BinaryName, keepVersion)
+	pfx := buildinfo.BinaryName + "-"
 	for _, e := range entries {
 		name := e.Name()
 		if name == keep || !strings.HasPrefix(name, pfx) {

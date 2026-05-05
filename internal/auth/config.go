@@ -1,37 +1,16 @@
 package auth
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
-// Build-time configuration (set via ldflags)
-var (
-	// WorkOSClientID is the public OAuth client ID for device flow
-	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_..."
-	WorkOSClientID = "client_01K1VMRDRQ94MV98D9ANFVT7H2"
-
-	// WorkOSBaseURL is the WorkOS API base URL
-	WorkOSBaseURL = "https://api.workos.com"
-
-	// Default host (used when not set in profile or env).
-	// Dev builds use localhost; prod/preview override this via ldflags at build time.
-	DefaultServerURL = "http://localhost:8080"
-
-	// DefaultRegistryURL overrides the registry URL derived from the server URL.
-	// When empty (default), the registry URL is derived via RegistryURLFromServerURL.
-	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.DefaultRegistryURL=https://registry.astropods.ai"
-	DefaultRegistryURL = ""
-
-	// FleetServerURL is the connect/fleet server address (host:port).
-	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropods.ai:9092"
-	FleetServerURL = "localhost:9092"
-)
+// WorkOSBaseURL is the WorkOS API base URL.
+const WorkOSBaseURL = "https://api.workos.com"
 
 // Environment variable names
 const (
@@ -39,21 +18,18 @@ const (
 	EnvRefreshToken = "ASTRO_REFRESH_TOKEN"
 )
 
-// ConfigDir returns the path to the astro config directory.
-// Returns ~/.ast-preview when binaryName is "ast-preview", otherwise ~/.ast.
+// ConfigDir returns ~/.{binaryName} (e.g. ~/.ast, ~/.ast-dev, ~/.ast-preview).
+// binaryName must be non-empty; callers should pass buildinfo.BinaryName.
 func ConfigDir(binaryName string) (string, error) {
+	binaryName = strings.TrimSpace(binaryName)
+	if binaryName == "" {
+		return "", fmt.Errorf("ConfigDir: binaryName must not be empty")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dir := ".ast"
-	switch binaryName {
-	case "ast-preview":
-		dir = ".ast-preview"
-	case buildinfo.DevBinaryName:
-		dir = "." + buildinfo.DevBinaryName
-	}
-	return filepath.Join(home, dir), nil
+	return filepath.Join(home, "."+binaryName), nil
 }
 
 // CredentialsPath returns the path to the credentials file

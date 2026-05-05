@@ -14,6 +14,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 const maxPushRetries = 3
@@ -26,7 +27,7 @@ func getDockerRegistryAuth(tokenOverride string) (string, error) {
 	if tokenOverride != "" {
 		token = tokenOverride
 	} else {
-		tokenManager := auth.NewTokenManager(binaryName)
+		tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 		var err error
 		token, err = tokenManager.GetValidAccessToken(context.Background())
 		if err != nil {

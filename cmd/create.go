@@ -10,19 +10,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	projectconfig "github.com/astropods/astro/apps/astro-cli/internal/config"
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui/create"
 	spec "github.com/astropods/astro/packages/astro-spec"
-)
-
-var (
-	yesFlag      bool
-	pathFlag     string
-	templateFlag string
-	forceFlag    bool
-	modelFlag    string
 )
 
 var createCmd = &cobra.Command{
@@ -46,11 +39,11 @@ Available templates:
 }
 
 func registerCreateFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
-	cmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
-	cmd.Flags().StringVarP(&templateFlag, "template", "t", "mastra", "Agent template (mastra, langchain)")
-	cmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
-	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "LLM provider: anthropic, openai, or ollama[/<model>] (e.g. ollama/llama3.3:70b)")
+	cmd.Flags().BoolP("yes", "y", false, "Accept defaults (non-interactive)")
+	cmd.Flags().StringP("path", "p", "", "Parent directory where the project will be created")
+	cmd.Flags().StringP("template", "t", "mastra", "Agent template (mastra, langchain)")
+	cmd.Flags().Bool("force", false, "Recreate in place if directory already exists")
+	cmd.Flags().StringP("model", "m", "", "LLM provider: anthropic, openai, or ollama[/<model>] (e.g. ollama/llama3.3:70b)")
 }
 
 func initExamples(cmd string) string {
@@ -66,7 +59,7 @@ func initExamples(cmd string) string {
 
 func init() {
 	devCmd.AddCommand(createCmd)
-	createCmd.Example = initExamples(binaryName + " project create")
+	createCmd.Example = initExamples(buildinfo.BinaryName + " project create")
 	registerCreateFlags(createCmd)
 
 	topLevelCreateCmd := &cobra.Command{
@@ -76,25 +69,30 @@ func init() {
 		Args:  createCmd.Args,
 		RunE:  runCreate,
 	}
-	topLevelCreateCmd.Example = initExamples(binaryName + " project create")
+	topLevelCreateCmd.Example = initExamples(buildinfo.BinaryName + " project create")
 	registerCreateFlags(topLevelCreateCmd)
 	rootCmd.AddCommand(topLevelCreateCmd)
 }
 
-func runCreate(_ *cobra.Command, args []string) error {
+func runCreate(cmd *cobra.Command, args []string) error {
+	yes := flagBool(cmd, "yes")
+	path := flagString(cmd, "path")
+	template := flagString(cmd, "template")
+	force := flagBool(cmd, "force")
+	model := flagString(cmd, "model")
 	var name string
 	if len(args) > 0 {
 		name = args[0]
 	}
 
 	// Validate template
-	if _, ok := scaffold.LangForTemplate(templateFlag); !ok {
+	if _, ok := scaffold.LangForTemplate(template); !ok {
 		available := "  mastra     TypeScript/Bun agent using Mastra\n  langchain  Python agent using LangChain"
-		return fmt.Errorf("unknown template: %q\n\nAvailable templates:\n%s", templateFlag, available)
+		return fmt.Errorf("unknown template: %q\n\nAvailable templates:\n%s", template, available)
 	}
 
 	// Validate model flag
-	if _, _, err := create.ParseModelFlag(modelFlag); err != nil {
+	if _, _, err := create.ParseModelFlag(model); err != nil {
 		return err
 	}
 
@@ -107,16 +105,16 @@ func runCreate(_ *cobra.Command, args []string) error {
 
 	// Get config
 	var config scaffold.ScaffoldConfig
-	if yesFlag {
+	if yes {
 		if name == "" {
 			return fmt.Errorf("agent name is required with --yes flag")
 		}
 		printBanner()
 		config = scaffold.DefaultConfig(name)
-		applyModelOverride(&config, modelFlag)
+		applyModelOverride(&config, model)
 	} else {
 		var err error
-		config, err = create.Run(name, modelFlag)
+		config, err = create.Run(name, model)
 		if errors.Is(err, create.ErrCancelled) {
 			return nil
 		}
@@ -128,16 +126,16 @@ func runCreate(_ *cobra.Command, args []string) error {
 
 	// Determine target directory
 	targetDir := name
-	if pathFlag != "" {
+	if path != "" {
 		// Create the parent directory if it doesn't exist
-		if err := os.MkdirAll(pathFlag, 0755); err != nil { //nolint:gosec
+		if err := os.MkdirAll(path, 0755); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
-		targetDir = filepath.Join(pathFlag, name)
+		targetDir = filepath.Join(path, name)
 	}
 
 	// Validate directory doesn't exist (or remove it if --force)
-	if forceFlag {
+	if force {
 		if err := os.RemoveAll(targetDir); err != nil {
 			return fmt.Errorf("failed to remove existing directory: %w", err)
 		}
@@ -146,7 +144,7 @@ func runCreate(_ *cobra.Command, args []string) error {
 	}
 
 	// Generate files
-	if err := scaffold.GenerateFiles(targetDir, config, templateFlag); err != nil {
+	if err := scaffold.GenerateFiles(targetDir, config, template); err != nil {
 		_ = os.RemoveAll(targetDir)
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
@@ -154,11 +152,11 @@ func runCreate(_ *cobra.Command, args []string) error {
 	// Save any API keys collected during the interactive form
 	if vars := config.CollectEnvVars(); len(vars) > 0 {
 		if absDir, err := filepath.Abs(targetDir); err == nil {
-			_ = projectconfig.MergeProjectVars(binaryName, absDir, config.Name, vars)
+			_ = projectconfig.MergeProjectVars(buildinfo.BinaryName, absDir, config.Name, vars)
 		}
 	}
 
-	printSuccess(name, targetDir, yesFlag)
+	printSuccess(name, targetDir, yes)
 	return nil
 }
 
@@ -192,13 +190,13 @@ func printSuccess(name, targetDir string, usedDefaults bool) {
 
 	addStep("cd "+targetDir, "enter the project directory")
 	if usedDefaults {
-		addStep(binaryName+" project configure", "set your API keys")
+		addStep(buildinfo.BinaryName+" project configure", "set your API keys")
 	}
-	addStep(binaryName+" project start", "start your agent locally")
+	addStep(buildinfo.BinaryName+" project start", "start your agent locally")
 
 	lines = append(lines, "")
-	lines = append(lines, dim.Render("Tip: run ")+boldPrimary.Render(binaryName+" spec explain")+dim.Render(" for a plain-English breakdown of your spec."))
-	lines = append(lines, dim.Render("Ready to ship? ")+boldPrimary.Render(binaryName+" push "+name)+dim.Render(" then ")+boldPrimary.Render(binaryName+" deploy "+name)+dim.Render("."))
+	lines = append(lines, dim.Render("Tip: run ")+boldPrimary.Render(buildinfo.BinaryName+" spec explain")+dim.Render(" for a plain-English breakdown of your spec."))
+	lines = append(lines, dim.Render("Ready to ship? ")+boldPrimary.Render(buildinfo.BinaryName+" push "+name)+dim.Render(" then ")+boldPrimary.Render(buildinfo.BinaryName+" deploy "+name)+dim.Render("."))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).

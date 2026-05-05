@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/connect"
 	"github.com/astropods/astro/apps/astro-cli/internal/daemon"
 	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
@@ -54,12 +55,12 @@ func init() {
 func runConnect(cmd *cobra.Command, args []string) error {
 	// Handle --status
 	if status, _ := cmd.Flags().GetBool("status"); status {
-		return daemon.Status(binaryName)
+		return daemon.Status(buildinfo.BinaryName)
 	}
 
 	// Handle --stop
 	if stop, _ := cmd.Flags().GetBool("stop"); stop {
-		return daemon.Stop(binaryName)
+		return daemon.Stop(buildinfo.BinaryName)
 	}
 
 	// Handle --daemon: re-exec as background process
@@ -68,7 +69,7 @@ func runConnect(cmd *cobra.Command, args []string) error {
 		if server, _ := cmd.Flags().GetString("server"); server != "" {
 			extra = append(extra, "--server", server)
 		}
-		return daemon.Start(binaryName, extra)
+		return daemon.Start(buildinfo.BinaryName, extra)
 	}
 
 	// Foreground mode (default, or --foreground from daemon re-exec)
@@ -76,9 +77,9 @@ func runConnect(cmd *cobra.Command, args []string) error {
 }
 
 func runConnectForeground(cmd *cobra.Command) error {
-	tokenManager := auth.NewTokenManager(binaryName)
+	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	if err := tokenManager.RequireAuth(); err != nil {
-		return fmt.Errorf("authentication required: run '%s login' first", binaryName)
+		return fmt.Errorf("authentication required: run '%s login' first", buildinfo.BinaryName)
 	}
 
 	token, err := tokenManager.GetValidAccessToken(cmd.Context())
@@ -91,7 +92,7 @@ func runConnectForeground(cmd *cobra.Command) error {
 		serverAddr = defaultConnectServer()
 	}
 
-	deviceID := telemetry.GetDeviceID(binaryName)
+	deviceID := telemetry.GetDeviceID(buildinfo.BinaryName)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -108,7 +109,7 @@ func runConnectForeground(cmd *cobra.Command) error {
 	// Clean up PID file on exit if we were started by --daemon
 	if fg, _ := cmd.Flags().GetBool("foreground"); fg {
 		defer func() {
-			pidFile, _, _ := daemon.Paths(binaryName)
+			pidFile, _, _ := daemon.Paths(buildinfo.BinaryName)
 			_ = os.Remove(pidFile)
 		}()
 	}
@@ -119,7 +120,7 @@ func runConnectForeground(cmd *cobra.Command) error {
 		ServerAddr: serverAddr,
 		Token:      token,
 		DeviceID:   deviceID,
-		CLIVersion: version,
+		CLIVersion: buildinfo.Version,
 		Verbose:    verbose,
 	})
 }
@@ -129,7 +130,7 @@ func runConnectInstallService(cmd *cobra.Command, args []string) error {
 	if server, _ := cmd.Parent().Flags().GetString("server"); server != "" {
 		extra = append(extra, "--server", server)
 	}
-	return daemon.InstallService(binaryName, extra)
+	return daemon.InstallService(buildinfo.BinaryName, extra)
 }
 
 func runConnectUninstallService(cmd *cobra.Command, args []string) error {
@@ -138,5 +139,5 @@ func runConnectUninstallService(cmd *cobra.Command, args []string) error {
 
 // defaultConnectServer returns the fleet server address set at build time.
 func defaultConnectServer() string {
-	return auth.FleetServerURL
+	return buildinfo.FleetServerURL
 }

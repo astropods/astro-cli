@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 // DeviceAuthorizationResponse is returned by the device authorization endpoint
@@ -63,7 +65,7 @@ type Client struct {
 // NewClient creates a new WorkOS auth client
 func NewClient() *Client {
 	return &Client{
-		clientID: WorkOSClientID,
+		clientID: buildinfo.WorkOSClientID,
 		baseURL:  WorkOSBaseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,

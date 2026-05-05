@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 var logoutCmd = &cobra.Command{
@@ -35,7 +36,7 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
 	dim := color.New(color.Faint)
 
-	storage := auth.NewStorage(binaryName)
+	storage := auth.NewStorage(buildinfo.BinaryName)
 
 	if logoutAll {
 		if err := storage.DeleteAllProfiles(); err != nil {

@@ -19,7 +19,7 @@ var PrimaryANSI string
 var PrimaryFatihAttr color.Attribute
 
 func init() {
-	IsPreview = buildinfo.BinaryName == "ast-preview"
+	IsPreview = buildinfo.BuildType == buildinfo.BuildTypePreview
 	if IsPreview {
 		Primary = lipgloss.Color("205")
 		PrimaryANSI = "\033[38;5;205m"

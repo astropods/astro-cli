@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
@@ -39,23 +40,23 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	storage := auth.NewStorage(binaryName)
+	storage := auth.NewStorage(buildinfo.BinaryName)
 
 	// Load current profile
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
 	if profile.AccessToken == "" {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
 	// Validate token is still valid (this will refresh if needed)
-	tokenManager := auth.NewTokenManager(binaryName)
+	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	_, err = tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
-		return fmt.Errorf("session expired or invalid. Run '%s login' to re-authenticate", binaryName)
+		return fmt.Errorf("session expired or invalid. Run '%s login' to re-authenticate", buildinfo.BinaryName)
 	}
 
 	// Reload profile in case it was refreshed

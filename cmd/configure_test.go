@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -356,7 +357,7 @@ func writePersistenceSpec(t *testing.T, dir, name string) {
 
 func readPersistenceStore(t *testing.T) configPersistenceStore {
 	t.Helper()
-	path, err := config.ConfigsPath(binaryName)
+	path, err := config.ConfigsPath(buildinfo.BinaryName)
 	require.NoError(t, err)
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err)

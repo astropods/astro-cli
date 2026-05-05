@@ -11,6 +11,8 @@ package cmd
 import (
 	"errors"
 	"fmt"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 var errNoSpecFile = errors.New("astropods.yml not found in current directory, run 'ast project create' to create a new agent harness or pass -f to specify a path to a valid spec")
@@ -18,7 +20,7 @@ var errNoSpecFile = errors.New("astropods.yml not found in current directory, ru
 func errDeployNameConflict(displayName string) error {
 	return fmt.Errorf(
 		"deployment name %q is already in use — choose a different name:\n  %s deploy <blueprint> --name <new-name>",
-		displayName, binaryName,
+		displayName, buildinfo.BinaryName,
 	)
 }
 
@@ -27,6 +29,6 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 		"spec account %q does not match current account %q\n\n"+
 			"To push as %s, switch first:\n  %s account switch %s\n\n"+
 			"To push under the current account (%s), use --allow-account-override",
-		specAccount, currentAccount, specAccount, binaryName, specAccount, currentAccount,
+		specAccount, currentAccount, specAccount, buildinfo.BinaryName, specAccount, currentAccount,
 	)
 }

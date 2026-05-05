@@ -6,11 +6,9 @@ import (
 	"time"
 
 	"github.com/amplitude/analytics-go/amplitude"
-)
 
-// AmplitudeAPIKey is set at build time via ldflags.
-// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=..."
-var AmplitudeAPIKey = ""
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+)
 
 // noopLogger suppresses all Amplitude SDK log output.
 type noopLogger struct{}
@@ -31,11 +29,11 @@ type Client struct {
 
 // NewClient creates a telemetry client. Returns nil if API key is empty.
 func NewClient(userID, deviceID, cliVersion string) *Client {
-	if AmplitudeAPIKey == "" {
+	if buildinfo.AmplitudeAPIKey == "" {
 		return nil
 	}
 
-	config := amplitude.NewConfig(AmplitudeAPIKey)
+	config := amplitude.NewConfig(buildinfo.AmplitudeAPIKey)
 	config.FlushQueueSize = 1 // flush immediately — CLI is short-lived
 	config.FlushInterval = 100 * time.Millisecond
 	config.Logger = noopLogger{}

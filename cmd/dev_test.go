@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -14,8 +15,8 @@ func TestDevStatePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("devStatePath() error = %v", err)
 	}
-	if !strings.HasSuffix(path, filepath.Join(".ast", ".running")) {
-		t.Errorf("devStatePath() = %q, want suffix %q", path, filepath.Join(".ast", ".running"))
+	if !strings.HasSuffix(path, filepath.Join(buildinfo.AppDirName, ".running")) {
+		t.Errorf("devStatePath() = %q, want suffix %q", path, filepath.Join(buildinfo.AppDirName, ".running"))
 	}
 }
 
