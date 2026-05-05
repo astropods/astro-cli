@@ -1,0 +1,24 @@
+http:
+  routers:
+    astro-server:
+      rule: "Host(`localhost`) && PathPrefix(`/api`)"
+      service: astro-server
+      entryPoints: [web]
+      priority: 10
+
+    astro-client:
+      rule: "Host(`localhost`)"
+      service: astro-client
+      entryPoints: [web]
+      priority: 1
+
+  services:
+    astro-server:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8080"
+
+    astro-client:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:5173"

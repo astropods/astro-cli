@@ -66,21 +66,42 @@ The pre-commit hook runs `gofmt` on staged Go files.
 
 ## Astro AI Service Development
 
-### Client
+Run the full platform locally with a single command:
+
+```bash
+./scripts/local-dev.sh
+```
+
+This starts Traefik (port 80), the server (port 8080), and the client (port 5173), then builds the `ast-dev` CLI pointed at `http://localhost`. Everything is available at http://localhost — `/api` routes to the server, everything else to the client.
+
+| Endpoint | Service |
+|---|---|
+| http://localhost | astro-client |
+| http://localhost/api | astro-server |
+| http://localhost:8090/dashboard | Traefik dashboard |
+| `apps/astro-cli/bin/ast-dev` | local CLI |
+
+Press `Ctrl+C` to stop all services.
+
+### Running client or server independently
+
+If you only need one service:
+
+**Client**
 
 ```bash
 moon run astro-client:dev
 ```
 
-Open http://localhost:5173. Defaults to `VITE_API_URL=http://localhost:8080`; override in `.env` if needed.
+Opens http://localhost:5173. Defaults to `VITE_API_URL=http://localhost:8080`; override in `.env` if needed.
 
-### Server
+**Server**
 
 ```bash
 moon run astro-server:dev
 ```
 
-Starts Postgres, runs migrations, and the server with hot reload on http://localhost:8080. Run the client in a separate terminal to use the full platform UI.
+Starts Postgres, runs migrations, and the server with hot reload on http://localhost:8080.
 
 ## Astro Agent Local Development
 
