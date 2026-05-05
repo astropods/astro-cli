@@ -127,23 +127,22 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 		return status.Error(codes.Unauthenticated, "missing user identity")
 	}
 
-	// Resolve the user's org from the JWT claim, falling back to their personal account.
-	orgID := OrgIDFromContext(ctx)
-	if orgID == "" {
-		accounts, err := s.accountStore.GetAccountsForUser(userID)
-		if err != nil {
-			s.log.Error("failed to resolve accounts for user", "error", err, "user_id", userID)
-			return status.Error(codes.Internal, "failed to resolve account")
+	// Devices are scoped to the user's personal account, regardless of any
+	// org claim on the JWT — a developer machine doesn't belong to an org.
+	accounts, err := s.accountStore.GetAccountsForUser(userID)
+	if err != nil {
+		s.log.Error("failed to resolve accounts for user", "error", err, "user_id", userID)
+		return status.Error(codes.Internal, "failed to resolve account")
+	}
+	var accountID string
+	for _, a := range accounts {
+		if a.Type == "personal" {
+			accountID = a.ID
+			break
 		}
-		for _, a := range accounts {
-			if a.Type == "personal" {
-				orgID = a.ID
-				break
-			}
-		}
-		if orgID == "" {
-			return status.Error(codes.PermissionDenied, "no account found — run 'ast login' and create an account first")
-		}
+	}
+	if accountID == "" {
+		return status.Error(codes.PermissionDenied, "no personal account found — run 'ast login' and create an account first")
 	}
 
 	var deviceID string
@@ -155,7 +154,7 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 			s.mu.Lock()
 			delete(s.sessions, deviceID)
 			s.mu.Unlock()
-			s.disconnectDevice(orgID, deviceID)
+			s.disconnectDevice(accountID, deviceID)
 		}
 	}()
 
@@ -171,7 +170,7 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 		switch {
 		case msg.Register != nil:
 			deviceID = msg.Register.DeviceID
-			_, dbErr := s.deviceStore.Upsert(ctx, orgID, userID, &devicestore.Device{
+			_, dbErr := s.deviceStore.Upsert(ctx, accountID, userID, &devicestore.Device{
 				DeviceID:   msg.Register.DeviceID,
 				Hostname:   msg.Register.Hostname,
 				OS:         msg.Register.OS,
@@ -203,7 +202,7 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 				"device_id", deviceID,
 				"hostname", msg.Register.Hostname,
 				"user_id", userID,
-				"org_id", orgID,
+				"account_id", accountID,
 			)
 			_ = stream.Send(&connectv1.ServerMessage{
 				RegisterAck: &connectv1.RegisterDeviceResponse{
@@ -214,7 +213,7 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 
 		case msg.Heartbeat != nil:
 			if registered {
-				_ = s.deviceStore.Heartbeat(ctx, orgID, deviceID)
+				_ = s.deviceStore.Heartbeat(ctx, accountID, deviceID)
 			}
 
 		case msg.CommandResult != nil:
@@ -235,10 +234,10 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 	}
 }
 
-func (s *Server) disconnectDevice(orgID, deviceID string) {
+func (s *Server) disconnectDevice(accountID, deviceID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.deviceStore.Disconnect(ctx, orgID, deviceID); err != nil {
+	if err := s.deviceStore.Disconnect(ctx, accountID, deviceID); err != nil {
 		s.log.Error("failed to mark device disconnected", "error", err, "device_id", deviceID)
 	} else {
 		s.log.Info("device disconnected", "device_id", deviceID)

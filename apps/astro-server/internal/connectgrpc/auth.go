@@ -15,20 +15,11 @@ import (
 
 type ctxKey string
 
-const (
-	ctxUserID ctxKey = "user_id"
-	ctxOrgID  ctxKey = "org_id"
-)
+const ctxUserID ctxKey = "user_id"
 
 // UserIDFromContext extracts the authenticated user ID from the context.
 func UserIDFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxUserID).(string)
-	return v
-}
-
-// OrgIDFromContext extracts the authenticated organization ID from the context.
-func OrgIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(ctxOrgID).(string)
 	return v
 }
 
@@ -66,11 +57,10 @@ func JWTStreamInterceptor(validator *auth.JWTValidator, log *logger.Logger) grpc
 			return status.Errorf(codes.Unauthenticated, "invalid token: %v", err)
 		}
 
-		log.Debug("QUIC auth: authenticated", "remote", remoteAddr, "user_id", claims.Subject, "org_id", claims.OrganizationID)
+		log.Debug("QUIC auth: authenticated", "remote", remoteAddr, "user_id", claims.Subject)
 
 		// Inject user identity into context
 		ctx = context.WithValue(ctx, ctxUserID, claims.Subject)
-		ctx = context.WithValue(ctx, ctxOrgID, claims.OrganizationID)
 
 		wrapped := &wrappedStream{ServerStream: ss, ctx: ctx}
 		return handler(srv, wrapped)
