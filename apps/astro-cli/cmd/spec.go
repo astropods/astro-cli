@@ -16,8 +16,9 @@ var specCmd = &cobra.Command{
 }
 
 var explainCmd = &cobra.Command{
-	Use:   "explain",
-	Short: "Explain the agent project based on its spec",
+	Use:    "explain",
+	Hidden: true,
+	Short:  "Explain the agent project based on its spec",
 	Long: `Parse astropods.yml and display a human-readable explanation
 of the agent project: its components, what variables each component injects into
 the agent, and what secrets and inputs are required.`,

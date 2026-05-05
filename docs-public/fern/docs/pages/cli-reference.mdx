@@ -186,29 +186,30 @@ ast blueprint archive <name>
 
 ## project
 
-Manage the local agent project development environment. Alias: `ast dev`.
+Manage the local agent project development environment.
 
 ```bash
 ast project <subcommand>
-ast dev <subcommand>
 ```
 
 ### project create
 
-Create a new agent harness. Alias: `ast create`.
+Create a new agent harness. Name is required. Non-interactive. Alias: `ast create`.
 
 ```bash
-ast project create [name] [flags]
-ast create [name] [flags]
+ast project create <name> [flags]
+ast create <name> [flags]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-y, --yes` | Accept all defaults, skip prompts |
+| `-y, --yes` | Skip the goal prompt and output the coding-agent prompt immediately |
 | `-p, --path <dir>` | Parent directory for the project |
 | `-t, --template <name>` | Agent template: `mastra` (default) or `langchain` |
-| `-m, --model <provider>` | LLM provider: `anthropic`, `openai`, or `ollama[/<model>]` |
+| `-m, --model <provider>` | LLM provider: `anthropic`, `openai`, or `ollama[/<model>]` (e.g. `ollama/llama3.3:70b`). Tab completion for `--model` is context-aware: typing `ollama/` lists known models; typing a model name followed by `:` shows only the tag suffix. |
 | `--force` | Overwrite existing directory |
+
+After generating the agent harness, the CLI asks what you want the agent to do and prints a prompt to paste into Claude or another coding agent. Pass `-y` to skip the question and output the prompt immediately.
 
 ### project configure
 
@@ -230,7 +231,7 @@ Run without flags for an interactive form. Reads `astropods.yml` to determine re
 
 ### project start
 
-Start local dev containers. Alias: `ast dev start`.
+Start local dev containers and tail all logs in the foreground. Press Ctrl+C to stop everything.
 
 ```bash
 ast project start [flags]
@@ -238,13 +239,14 @@ ast project start [flags]
 
 | Flag | Description |
 |------|-------------|
+| `-b, --background` | Start containers and exit immediately; use `ast project logs` and `ast project stop` to manage |
 | `--env <file>` | Environment file for credentials (default: `.env`) |
 | `--rebuild` | Force rebuild all containers without cache |
 | `--no-pull` | Use only local images; skip pulling |
 
 ### project logs
 
-Tail container logs. Alias: `ast dev logs`.
+Tail container logs.
 
 ```bash
 ast project logs [service]
@@ -254,7 +256,7 @@ Defaults to the agent container. Pass a service name (e.g. `astro-messaging`) to
 
 ### project stop
 
-Stop and remove dev containers. Alias: `ast dev stop`.
+Stop and remove dev containers.
 
 ```bash
 ast project stop
@@ -360,14 +362,6 @@ ast spec validate [-f <file>]
 ```
 
 Checks YAML syntax, JSON schema conformance, and semantic rules. Exit code `0` on success, making it suitable for CI.
-
-### spec explain
-
-Print a human-readable explanation of the agent defined in `astropods.yml`.
-
-```bash
-ast spec explain [-f <file>]
-```
 
 ---
 

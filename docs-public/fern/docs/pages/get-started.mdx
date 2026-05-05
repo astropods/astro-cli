@@ -8,17 +8,13 @@ Go from zero to a running agent in four steps. Have the [CLI installed](/install
 
 <Steps>
   <Step title="Create an agent">
-    Create a new agent harness:
+    Create a new agent harness. The name is required; use `--model` to set the LLM provider:
 
     ```bash
-    ast project create
+    ast project create my-agent --model anthropic
     ```
 
-    The wizard asks for a name, LLM provider, and agent interface. Pass `--yes` to accept defaults, or `--model` to skip the provider step:
-
-    ```bash
-    ast project create my-agent --yes --model anthropic
-    ```
+    After generating the agent harness, the CLI asks what you want the agent to do and prints a prompt to paste into Claude or another coding agent. Pass `-y` to skip the question and get the prompt immediately.
   </Step>
   <Step title="Build your agent logic">
     The agent harness includes starter source code, `astropods.yml`, and two files that describe the project to coding agents:
@@ -55,7 +51,7 @@ Go from zero to a running agent in four steps. Have the [CLI installed](/install
     ast project start
     ```
 
-    Containers start in the background. Tail logs with `ast project logs` and stop with `ast project stop`.
+    Containers start and logs stream automatically in the foreground. Press Ctrl+C to stop everything. To start in the background instead and manage containers manually, use `ast project start --background`, then `ast project logs` and `ast project stop`.
 
     To enable hot reload, add a `dev` block to `astropods.yml`:
 

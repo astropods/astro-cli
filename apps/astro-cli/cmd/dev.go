@@ -83,6 +83,7 @@ var (
 	local      bool
 	localReset bool
 	logsAll    bool
+	background bool
 )
 
 func init() {
@@ -92,18 +93,19 @@ func init() {
 	devCmd.AddCommand(devStopCmd)
 	devCmd.AddCommand(devTriggerCmd)
 
-	devStartCmd.Long = fmt.Sprintf(`Start the local development environment with Docker containers.
+	devStartCmd.Long = `Start the local development environment with Docker containers.
 
-Containers start in the background and the command exits.
-Use '%[1]s project logs' to tail logs and '%[1]s project stop' to stop.`, buildinfo.BinaryName)
+By default, tails logs in the foreground and stops containers on Ctrl+C.
+Use -b/--background to start in the background and exit immediately.`
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devStartCmd} {
 		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
+		cmd.Flags().BoolVarP(&background, "background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
 		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s dev --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s project start --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
@@ -355,7 +357,43 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Run startup ingestions before printing the ready block so output isn't interleaved
 	runStartupIngestions(astroSpec, project, verbose)
 
-	printReadyBlock(astroSpec, hasWebInterface)
+	printReadyBlock(astroSpec, hasWebInterface, background)
+
+	if background {
+		return nil
+	}
+	return runForeground(projectName, astDir)
+}
+
+// runForeground tails all container logs and blocks until Ctrl+C, then stops.
+func runForeground(projectName, astDir string) error {
+	logsSvc, err := newComposeService(false)
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+
+	logsCtx, logsCancel := context.WithCancel(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		logsCancel()
+	}()
+
+	_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+		api.LogOptions{Follow: true})
+	logsCancel()
+	signal.Stop(sigChan)
+
+	fmt.Println()
+	fmt.Printf("%s→%s Stopping containers...\n", colorCyan, colorReset)
+	stopSvc, err := newComposeService(false)
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	_ = stopSvc.Down(context.Background(), projectName, api.DownOptions{})
+	_ = os.Remove(filepath.Join(astDir, ".running"))
+	fmt.Printf("%s→%s Stopped\n", colorCyan, colorReset)
 	return nil
 }
 
@@ -494,7 +532,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
-	fmt.Printf("  %sTip: run '%s dev --local-reset' to remove injected local dependencies%s\n", colorDim, buildinfo.BinaryName, colorReset)
+	fmt.Printf("  %sTip: run '%s project start --local-reset' to remove injected local dependencies%s\n", colorDim, buildinfo.BinaryName, colorReset)
 
 	return nil
 }
@@ -506,7 +544,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
+		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
 	service := "agent"
@@ -548,7 +586,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
+		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
 	fmt.Println("🛑 Stopping dev containers...")
@@ -604,7 +642,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
 		}
 		fmt.Println()
-		fmt.Printf("Run %s%s dev trigger <name>%s to trigger one.\n", colorBold, buildinfo.BinaryName, colorReset)
+		fmt.Printf("Run %s%s project trigger <name>%s to trigger one.\n", colorBold, buildinfo.BinaryName, colorReset)
 		return nil
 	}
 
@@ -626,7 +664,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
+		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
 	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
@@ -909,7 +947,7 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 }
 
 // printReadyBlock renders the post-start summary using lipgloss.
-func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
+func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
 	primary := lipgloss.NewStyle().Foreground(theme.Primary)
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
@@ -941,15 +979,11 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, bold.Render(buildinfo.BinaryName+" dev logs")+"  — tail logs")
-	lines = append(lines, bold.Render(buildinfo.BinaryName+" dev stop")+"  — stop")
-
-	// Manual / schedule ingestion hints
-	for name, ingestion := range s.Ingestion {
-		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
-			continue
-		}
-		lines = append(lines, bold.Render(fmt.Sprintf("%s dev trigger %-8s", buildinfo.BinaryName, name))+"— trigger ingestion")
+	if background {
+		lines = append(lines, bold.Render(buildinfo.BinaryName+" project logs")+"  — tail logs")
+		lines = append(lines, bold.Render(buildinfo.BinaryName+" project stop")+"  — stop")
+	} else {
+		lines = append(lines, dim.Render("Ctrl+C to stop"))
 	}
 
 	box := lipgloss.NewStyle().

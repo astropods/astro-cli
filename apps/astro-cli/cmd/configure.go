@@ -104,7 +104,7 @@ func (m *configureApp) buildForm() {
 		}
 		fields = append(fields, inp)
 	}
-	f := huh.NewForm(huh.NewGroup(fields...))
+	f := huh.NewForm(huh.NewGroup(fields...)).WithTheme(cliHuhTheme())
 	if m.formHeight > 0 {
 		f = f.WithHeight(m.formHeight - 1) // reserve 1 line for the hint
 	}
@@ -444,7 +444,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 					Negative("Keep it").
 					Value(&deleteDotenv),
 			),
-		)
+		).WithTheme(cliHuhTheme())
 		if err := prompt.Run(); err == nil && deleteDotenv {
 			if err := os.Remove(envFilePath); err != nil {
 				fmt.Printf("%s✗%s Could not delete %s: %v\n", colorRed, colorReset, utils.DefaultEnvFile, err)

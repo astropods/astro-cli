@@ -189,7 +189,7 @@ func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
 func DefaultConfig(name string) ScaffoldConfig {
 	return ScaffoldConfig{
 		Name:            name,
-		Description:     "Summarizes weekly workspace activity and highlights projects that need attention.",
+		Description:     "Describe what your agent does in one sentence.",
 		Interfaces:      []string{"web"},
 		ModelProvider:   "",
 		Model:           "",
