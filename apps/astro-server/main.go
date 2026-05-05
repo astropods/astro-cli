@@ -1078,7 +1078,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore), "agents", "agent_builds"),
+					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

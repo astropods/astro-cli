@@ -585,7 +585,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
 // If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -733,6 +733,27 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		evt.Description = "Registered agent " + agentName
 		evt.Metadata = map[string]any{"build_id": req.BuildID}
 		auditStore.LogAsync(log, evt)
+
+		// Generate and upload the placeholder avatar if one doesn't already
+		// exist. Failures are non-fatal — the periodic backfill job will
+		// retry missing avatars.
+		if avatarStore != nil {
+			if exists, _ := avatarStore.AgentAvatarExists(c.Request.Context(), accountName, agentName); !exists {
+				if jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
+					Seed: accountName + "/" + agentName,
+				}); err != nil {
+					log.Warn("Failed to generate blueprint avatar", "account", accountName, "name", agentName, "error", err)
+				} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, agentName, jpegBytes); err != nil {
+					log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", agentName, "error", err)
+				} else {
+					extractAndStoreColors(c.Request.Context(), log,
+						func(context.Context) ([]byte, error) { return jpegBytes, nil },
+						func(j []byte) error { return index.SetAvatarColors(accountID, agentName, j) },
+						"account", accountName, "name", agentName,
+					)
+				}
+			}
+		}
 
 		response := gin.H{
 			"message":  "Agent registered successfully",
