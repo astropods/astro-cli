@@ -136,12 +136,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		// reuse the public-facing frontend URL — the API surface is co-
 		// located there, no separate authz endpoint.
 		AuthzCallbackURL: d.Cfg.Auth.FrontendURL,
-		NamespaceLabels: map[string]string{
-			"astro.dev/account-id": dep.AccountID,
-			"astro.dev/account":    acct.Name,
-			"astro.dev/agent":      dep.AgentName,
-			"astro.dev/build":      dep.BuildID,
-		},
+		NamespaceLabels:  buildNamespaceLabels(dep, acct.Name),
 		NamespaceAnnotations: map[string]string{
 			"astro.dev/display-name": dep.DisplayName,
 		},
@@ -336,6 +331,23 @@ func (d *Deployer) kmsClient(ctx context.Context) envelope.KMSClient {
 		return nil
 	}
 	return kms.NewFromConfig(awsCfg)
+}
+
+// buildNamespaceLabels returns the namespace label set for a deployment.
+// The source-account-id label is omitted when SourceAccountID is unset
+// (legacy/ancient rows) so the reconciler's missing-label fallback
+// path takes over rather than the row recording an empty-string label.
+func buildNamespaceLabels(dep *deploymentstore.Deployment, accountName string) map[string]string {
+	labels := map[string]string{
+		"astro.dev/account-id":   dep.AccountID,
+		"astro.dev/account":      accountName,
+		deployment.LabelKeyAgent: dep.AgentName,
+		"astro.dev/build":        dep.BuildID,
+	}
+	if dep.SourceAccountID != nil && *dep.SourceAccountID != "" {
+		labels[deployment.LabelKeySourceAccountID] = *dep.SourceAccountID
+	}
+	return labels
 }
 
 // Teardown deletes the K8s namespace for a deployment, cascading to all resources.

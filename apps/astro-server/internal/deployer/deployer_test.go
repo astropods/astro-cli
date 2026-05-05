@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -218,5 +219,89 @@ func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 	}
 	if bk != nil || bc != nil {
 		t.Error("expected nil maps when no bound entries")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildNamespaceLabels
+//
+// This helper is the only place that stamps the astro.dev/source-account-id
+// label, and it's the label the orphan-recovery reconciler reads to decide
+// which account to record as the lineage source. A typo or wrong-field bug
+// here makes every recovered row's source_account_id default to the
+// deployer account regardless of the original deploy's lineage — and the
+// reconciler-side tests can't catch it because they fixture the label
+// content themselves. These tests pin the write site directly.
+// ---------------------------------------------------------------------------
+
+func TestBuildNamespaceLabels_StampsSourceAccountID(t *testing.T) {
+	src := "src-acct-uuid"
+	dep := &deploymentstore.Deployment{
+		AccountID:       "deployer-acct-uuid",
+		AgentName:       "my-agent",
+		BuildID:         "build-1",
+		SourceAccountID: &src,
+	}
+
+	labels := buildNamespaceLabels(dep, "deployer-name")
+
+	wantBase := map[string]string{
+		"astro.dev/account-id":   "deployer-acct-uuid",
+		"astro.dev/account":      "deployer-name",
+		deployment.LabelKeyAgent: "my-agent",
+		"astro.dev/build":        "build-1",
+	}
+	for k, v := range wantBase {
+		if got := labels[k]; got != v {
+			t.Errorf("labels[%q] = %q, want %q", k, got, v)
+		}
+	}
+	got, ok := labels[deployment.LabelKeySourceAccountID]
+	if !ok {
+		t.Fatalf("labels[%q] missing; want %q (this is the keystone of orphan recovery)",
+			deployment.LabelKeySourceAccountID, src)
+	}
+	if got != src {
+		t.Errorf("labels[%q] = %q, want %q", deployment.LabelKeySourceAccountID, got, src)
+	}
+}
+
+func TestBuildNamespaceLabels_OmitsLabelWhenSourceAccountIDNil(t *testing.T) {
+	dep := &deploymentstore.Deployment{
+		AccountID:       "deployer-acct-uuid",
+		AgentName:       "my-agent",
+		BuildID:         "build-1",
+		SourceAccountID: nil,
+	}
+
+	labels := buildNamespaceLabels(dep, "deployer-name")
+
+	if _, ok := labels[deployment.LabelKeySourceAccountID]; ok {
+		t.Errorf("labels[%q] must be absent when SourceAccountID is nil "+
+			"(reconciler relies on the missing-key path, not on empty-value)",
+			deployment.LabelKeySourceAccountID)
+	}
+	// Legacy labels still present so the reconciler can still recover.
+	if labels[deployment.LabelKeyAgent] != "my-agent" {
+		t.Errorf("agent label dropped: %q", labels[deployment.LabelKeyAgent])
+	}
+}
+
+func TestBuildNamespaceLabels_OmitsLabelWhenSourceAccountIDEmptyString(t *testing.T) {
+	empty := ""
+	dep := &deploymentstore.Deployment{
+		AccountID:       "deployer-acct-uuid",
+		AgentName:       "my-agent",
+		BuildID:         "build-1",
+		SourceAccountID: &empty,
+	}
+
+	labels := buildNamespaceLabels(dep, "deployer-name")
+
+	if _, ok := labels[deployment.LabelKeySourceAccountID]; ok {
+		t.Errorf("labels[%q] must be absent when SourceAccountID dereferences to empty string "+
+			"(stamping an empty value would make the reconciler take the present-but-empty path "+
+			"instead of the missing-key fallback)",
+			deployment.LabelKeySourceAccountID)
 	}
 }

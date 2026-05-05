@@ -59,6 +59,40 @@ func k8sNamespaceListHandler(namespaces ...string) http.Handler {
 	return mux
 }
 
+// k8sNS describes one namespace returned by the labelled list handler.
+// labels override the default set; account-id and agent default to the
+// "acct-1"/"agent" pair the existing simple helper uses.
+type k8sNS struct {
+	name   string
+	labels map[string]string
+}
+
+// k8sNamespaceListLabeledHandler is the per-namespace-label sibling of
+// k8sNamespaceListHandler. Use it when a test asserts on something the
+// reconciler reads off labels (e.g. astro.dev/source-account-id) that
+// the simple helper hardcodes.
+func k8sNamespaceListLabeledHandler(items ...k8sNS) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/namespaces", func(w http.ResponseWriter, r *http.Request) {
+		var encoded []string
+		for _, ns := range items {
+			labels := map[string]string{
+				"app.kubernetes.io/managed-by": "astro-server",
+				"astro.dev/account-id":         "acct-1",
+				"astro.dev/agent":              "agent",
+			}
+			for k, v := range ns.labels {
+				labels[k] = v
+			}
+			labelJSON, _ := json.Marshal(labels)
+			encoded = append(encoded, fmt.Sprintf(`{"metadata":{"name":%q,"labels":%s}}`, ns.name, labelJSON))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"apiVersion":"v1","kind":"NamespaceList","items":[%s]}`, strings.Join(encoded, ","))
+	})
+	return mux
+}
+
 func addDeployRow(rows *sqlmock.Rows, id, namespace, status string) {
 	now := time.Now()
 	rows.AddRow(id, "acct-1", nil, "agent", "build-1", namespace, "agent",
@@ -91,6 +125,10 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 	}
 }
 
+// Without astro.dev/source-account-id on the namespace, the reconciler
+// must default source_account_id to the deployer account. This test
+// pins both that fallback and the INSERT arg shape that lands the value
+// at write time (no NULL-then-backfill round trip).
 func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 	k8sClient := newTestK8sClient(k8sNamespaceListHandler("astro-orphan-0"))
 
@@ -100,10 +138,55 @@ func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM deployments").
 		WillReturnRows(sqlmock.NewRows(testDeployColumns))
 
-	// Expect the recovery transaction: BEGIN, INSERT deployment, INSERT event, COMMIT
+	// INSERT args: (id, accountID, sourceAccountID, agentName, buildID,
+	// namespace, status, errorMessage). Source defaults to accountID
+	// because the simple list handler does not stamp the new label.
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO deployments").
-		WithArgs(sqlmock.AnyArg(), "acct-1", "agent", "", "astro-orphan-0", "failed", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "acct-1", "acct-1", "agent", "", "astro-orphan-0", "failed", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").
+		WithArgs(sqlmock.AnyArg(), "failed", "Deployment recovered from orphaned K8s namespace").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := &ReconcileWorker{
+		store: store,
+		k8s:   k8sClient,
+		log:   logger.New("warn", "json"),
+	}
+
+	w.maintainNamespaceOwnership(t.Context())
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled DB expectations: %v", err)
+	}
+}
+
+// With astro.dev/source-account-id stamped on the namespace, the
+// reconciler must thread that value through to the INSERT verbatim
+// rather than defaulting to the deployer account.
+func TestMaintainNamespaceOwnership_OrphanRecovered_LabeledSource(t *testing.T) {
+	k8sClient := newTestK8sClient(k8sNamespaceListLabeledHandler(
+		k8sNS{
+			name: "astro-orphan-0",
+			labels: map[string]string{
+				"astro.dev/source-account-id": "src-1",
+				"astro.dev/build":             "build-9",
+			},
+		},
+	))
+
+	db, mock, _ := sqlmock.New()
+	store := deploymentstore.NewStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM deployments").
+		WillReturnRows(sqlmock.NewRows(testDeployColumns))
+
+	mock.ExpectBegin()
+	// source_account_id (3rd positional) must be "src-1", NOT "acct-1".
+	mock.ExpectExec("INSERT INTO deployments").
+		WithArgs(sqlmock.AnyArg(), "acct-1", "src-1", "agent", "build-9", "astro-orphan-0", "failed", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO deployment_events").
 		WithArgs(sqlmock.AnyArg(), "failed", "Deployment recovered from orphaned K8s namespace").

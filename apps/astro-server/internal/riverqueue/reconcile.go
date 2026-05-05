@@ -512,11 +512,26 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 			continue
 		}
 
+		// The source-account-id label was added in the PR2 work — namespaces
+		// stamped before that commit lack it. Default the missing case to the
+		// deployer account: same-account deploys are the common case, and
+		// any genuine cross-account orphan stamped pre-PR2 is rare enough
+		// that the warning + manual triage is preferable to silently
+		// recording a wrong lineage.
+		sourceAccountID := ns.Labels[deployment.LabelKeySourceAccountID]
+		if sourceAccountID == "" {
+			w.log.Warn("Reconcile: orphaned K8s namespace missing source-account-id label, defaulting to deployer account",
+				"namespace", ns.Name,
+				"account_id", accountID,
+			)
+			sourceAccountID = accountID
+		}
+
 		newID := deployid.FromNamespace(ns.Name)
 		if newID == "" {
 			newID = deployid.New()
 		}
-		if err := w.store.RecoverOrphanedDeployment(newID, accountID, agentName, buildID, ns.Name); err != nil {
+		if err := w.store.RecoverOrphanedDeployment(newID, accountID, sourceAccountID, agentName, buildID, ns.Name); err != nil {
 			w.log.Error("Reconcile: failed to recover orphaned namespace",
 				"namespace", ns.Name,
 				"error", err,
@@ -528,6 +543,7 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 			"namespace", ns.Name,
 			"deployment_id", newID,
 			"account_id", accountID,
+			"source_account_id", sourceAccountID,
 			"agent", agentName,
 		)
 	}

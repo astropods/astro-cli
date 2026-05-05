@@ -70,20 +70,27 @@ func setupOrphanEnv(t *testing.T) *orphanTestEnv {
 }
 
 // createOrphanedNamespace creates a K8s namespace with astro labels but no DB record.
-func (e *orphanTestEnv) createOrphanedNamespace(name, accountID, agentName, buildID string) {
+// sourceAccountID is the source-account-id label; when empty, the label is
+// omitted so legacy/pre-PR2 namespaces can be simulated.
+func (e *orphanTestEnv) createOrphanedNamespace(name, accountID, sourceAccountID, agentName, buildID string) {
 	e.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	labels := map[string]string{
+		"app.kubernetes.io/managed-by": "astro-server",
+		"astro.dev/account-id":         accountID,
+		"astro.dev/agent":              agentName,
+		"astro.dev/build":              buildID,
+	}
+	if sourceAccountID != "" {
+		labels["astro.dev/source-account-id"] = sourceAccountID
+	}
+
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "astro-server",
-				"astro.dev/account-id":         accountID,
-				"astro.dev/agent":              agentName,
-				"astro.dev/build":              buildID,
-			},
+			Name:   name,
+			Labels: labels,
 		},
 	}
 	if _, err := e.client.Clientset().CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil {
@@ -123,7 +130,7 @@ func TestOrphan_RecoverNewFormat(t *testing.T) {
 	origID := deployid.New()
 	ns := "astro-" + deployid.Compact(origID) + "-0"
 
-	env.createOrphanedNamespace(ns, accountID, "orphan-new-agent", "build-01")
+	env.createOrphanedNamespace(ns, accountID, "", "orphan-new-agent", "build-01")
 
 	// Verify no deployment exists for this namespace
 	dep, err := env.store.GetDeploymentByNamespace(ns)
@@ -143,7 +150,7 @@ func TestOrphan_RecoverNewFormat(t *testing.T) {
 		t.Errorf("FromNamespace = %q, want %q", recoveredID, origID)
 	}
 
-	err = env.store.RecoverOrphanedDeployment(recoveredID, accountID, "orphan-new-agent", "build-01", ns)
+	err = env.store.RecoverOrphanedDeployment(recoveredID, accountID, accountID, "orphan-new-agent", "build-01", ns)
 	if err != nil {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
@@ -191,7 +198,7 @@ func TestOrphan_RecoverOldFormat(t *testing.T) {
 		ns = ns[:50]
 	}
 
-	env.createOrphanedNamespace(ns, accountID, "orphan-old-agent", "build-02")
+	env.createOrphanedNamespace(ns, accountID, "", "orphan-old-agent", "build-02")
 
 	// FromNamespace should return empty for non-standard format
 	if id := deployid.FromNamespace(ns); id != "" {
@@ -200,7 +207,7 @@ func TestOrphan_RecoverOldFormat(t *testing.T) {
 
 	// Recover with a new ID (what the reconciler does for old format)
 	newID := deployid.New()
-	err := env.store.RecoverOrphanedDeployment(newID, accountID, "orphan-old-agent", "build-02", ns)
+	err := env.store.RecoverOrphanedDeployment(newID, accountID, accountID, "orphan-old-agent", "build-02", ns)
 	if err != nil {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
@@ -233,9 +240,9 @@ func TestOrphan_RecoveredVisibleInStatusQuery(t *testing.T) {
 	origID := deployid.New()
 	ns := "astro-" + deployid.Compact(origID) + "-0"
 
-	env.createOrphanedNamespace(ns, accountID, "orphan-visible-agent", "build-03")
+	env.createOrphanedNamespace(ns, accountID, "", "orphan-visible-agent", "build-03")
 
-	err := env.store.RecoverOrphanedDeployment(origID, accountID, "orphan-visible-agent", "build-03", ns)
+	err := env.store.RecoverOrphanedDeployment(origID, accountID, accountID, "orphan-visible-agent", "build-03", ns)
 	if err != nil {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
@@ -271,9 +278,9 @@ func TestOrphan_RecoverIdempotent(t *testing.T) {
 	origID := deployid.New()
 	ns := "astro-" + deployid.Compact(origID) + "-0"
 
-	env.createOrphanedNamespace(ns, accountID, "orphan-idem-agent", "build-04")
+	env.createOrphanedNamespace(ns, accountID, "", "orphan-idem-agent", "build-04")
 
-	err := env.store.RecoverOrphanedDeployment(origID, accountID, "orphan-idem-agent", "build-04", ns)
+	err := env.store.RecoverOrphanedDeployment(origID, accountID, accountID, "orphan-idem-agent", "build-04", ns)
 	if err != nil {
 		t.Fatalf("first RecoverOrphanedDeployment: %v", err)
 	}
@@ -285,7 +292,7 @@ func TestOrphan_RecoverIdempotent(t *testing.T) {
 	// Second recovery with a different ID should fail on unique deployment ID
 	// or namespace constraint — either way it should error
 	secondID := deployid.New()
-	err = env.store.RecoverOrphanedDeployment(secondID, accountID, "orphan-idem-agent", "build-04", ns)
+	err = env.store.RecoverOrphanedDeployment(secondID, accountID, accountID, "orphan-idem-agent", "build-04", ns)
 	if err == nil {
 		// Clean up the second record if it was somehow created
 		t.Cleanup(func() {
@@ -311,9 +318,9 @@ func TestOrphan_EventRecorded(t *testing.T) {
 	origID := deployid.New()
 	ns := "astro-" + deployid.Compact(origID) + "-0"
 
-	env.createOrphanedNamespace(ns, accountID, "orphan-event-agent", "build-05")
+	env.createOrphanedNamespace(ns, accountID, "", "orphan-event-agent", "build-05")
 
-	err := env.store.RecoverOrphanedDeployment(origID, accountID, "orphan-event-agent", "build-05", ns)
+	err := env.store.RecoverOrphanedDeployment(origID, accountID, accountID, "orphan-event-agent", "build-05", ns)
 	if err != nil {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
@@ -449,3 +456,66 @@ func TestOrphan_SourceAccountUpdatedOnReUpsert(t *testing.T) {
 		t.Errorf("after second upsert: source_account = %q, want %q", sourceAccount, "new-owner-team")
 	}
 }
+
+// ensureSecondaryAccount creates an auxiliary personal account by name so
+// cross-account orphan tests have a second account ID for the source FK
+// to resolve against. Idempotent across reruns.
+func (e *orphanTestEnv) ensureSecondaryAccount(name string) string {
+	e.t.Helper()
+	var id string
+	err := e.db.QueryRow(`
+		INSERT INTO accounts (name, type) VALUES ($1, 'personal')
+		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+		RETURNING id
+	`, name).Scan(&id)
+	if err != nil {
+		e.t.Fatalf("ensureSecondaryAccount(%q): %v", name, err)
+	}
+	return id
+}
+
+// TestOrphan_RecoverWithSourceAccountLabel pins the cross-account orphan
+// path: when the namespace carries astro.dev/source-account-id pointing
+// at a *different* account than the deployer, the recovered row's
+// source_account_id must be that account, not the deployer.
+//
+// The reconciler-side label-reading is covered by the sqlmock test
+// TestMaintainNamespaceOwnership_OrphanRecovered_LabeledSource — this
+// test exercises the store half against real Postgres so the FK on
+// source_account_id → accounts.id is satisfied with a genuine UUID
+// from a real accounts row, not a sqlmock stand-in.
+func TestOrphan_RecoverWithSourceAccountLabel(t *testing.T) {
+	env := setupOrphanEnv(t)
+	deployerID := env.ensureTestAccount()
+	sourceID := env.ensureSecondaryAccount("orphan-cross-source-e2e")
+
+	origID := deployid.New()
+	ns := "astro-" + deployid.Compact(origID) + "-0"
+
+	env.createOrphanedNamespace(ns, deployerID, sourceID, "orphan-cross-agent", "build-06")
+
+	err := env.store.RecoverOrphanedDeployment(origID, deployerID, sourceID, "orphan-cross-agent", "build-06", ns)
+	if err != nil {
+		t.Fatalf("RecoverOrphanedDeployment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", origID)
+		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", origID)
+	})
+
+	dep, err := env.store.GetDeploymentByID(origID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID: %v", err)
+	}
+	if dep == nil {
+		t.Fatal("expected recovered deployment, got nil")
+	}
+	if dep.SourceAccountID == nil {
+		t.Fatalf("source_account_id is NULL, want %q", sourceID)
+	}
+	if *dep.SourceAccountID != sourceID {
+		t.Errorf("source_account_id = %q, want %q (label-bearing recovery must not default to deployer %q)",
+			*dep.SourceAccountID, sourceID, deployerID)
+	}
+}
+

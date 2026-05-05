@@ -763,7 +763,13 @@ func (s *Store) GetDeploymentsInStatus(statuses ...string) ([]*Deployment, error
 // RecoverOrphanedDeployment inserts a stub deployment record for an orphaned K8s
 // namespace that has no matching database row. The deployment is created with status
 // 'failed' and no revisions, so the user can redeploy or undeploy to fix it.
-func (s *Store) RecoverOrphanedDeployment(id, accountID, agentName, buildID, namespace string) error {
+//
+// sourceAccountID is the account that originally published the build (read from
+// the namespace's astro.dev/source-account-id label by the reconciler). Pre-PR2
+// namespaces lack the label and the reconciler defaults sourceAccountID to
+// accountID before calling here, so this routine never has to make that
+// inference itself — the caller is the right place to log the fallback.
+func (s *Store) RecoverOrphanedDeployment(id, accountID, sourceAccountID, agentName, buildID, namespace string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -771,11 +777,11 @@ func (s *Store) RecoverOrphanedDeployment(id, accountID, agentName, buildID, nam
 	defer tx.Rollback() //nolint:errcheck
 
 	res, err := tx.Exec(`
-		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace,
+		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id, namespace,
 		    deployment_spec_json, status, error_message, status_changed_at, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, '{}', $6, $7, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, '{}', $7, $8, NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING
-	`, id, accountID, agentName, buildID, namespace, StatusFailed,
+	`, id, accountID, sourceAccountID, agentName, buildID, namespace, StatusFailed,
 		"Recovered from orphaned K8s namespace — redeploy or undeploy to fix")
 	if err != nil {
 		return fmt.Errorf("failed to insert recovered deployment: %w", err)

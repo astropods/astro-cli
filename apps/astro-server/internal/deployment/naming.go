@@ -9,6 +9,14 @@ import (
 // LabelKeyAgent is the Kubernetes label key used to identify the agent (account.agent format).
 const LabelKeyAgent = "astro.dev/agent"
 
+// LabelKeySourceAccountID is the Kubernetes label key carrying the source
+// account UUID — i.e. the account that *published* the build deployed in
+// the namespace, which may differ from the account that owns the
+// deployment (cross-account deploys). Read by the reconciler's orphan
+// recovery path so a recovered row's deployments.source_account_id
+// matches the original lineage instead of defaulting to the deployer.
+const LabelKeySourceAccountID = "astro.dev/source-account-id"
+
 var (
 	sanitizeRegex           = regexp.MustCompile(`[^a-z0-9-]`)
 	consecutiveHyphensRegex = regexp.MustCompile(`-+`)
