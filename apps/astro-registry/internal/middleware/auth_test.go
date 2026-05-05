@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,9 +71,13 @@ func setupTestMiddleware(jwksURL string) (*gin.Engine, *AuthMiddleware) {
 
 	cfg := &config.Config{
 		Auth: config.AuthConfig{
-			JWKSEndpoint:   jwksURL,
-			JWTIssuer:      "https://test-issuer.com",
-			WorkOSClientID: "test-client-id",
+			JWKSEndpoint:        jwksURL,
+			JWTIssuer:           "https://test-issuer.com",
+			WorkOSClientID:      "test-client-id",
+			RegistryTokenSecret: "test-secret",
+			RegistryTokenIssuer: "astro-registry",
+			RegistryTokenTTL:    time.Hour,
+			RegistryTokenRealm:  "https://registry.test/token",
 		},
 	}
 
@@ -276,5 +281,225 @@ func TestGetSession_Set(t *testing.T) {
 	}
 	if session.ID != expectedSession.ID {
 		t.Errorf("expected session ID %s, got %s", expectedSession.ID, session.ID)
+	}
+}
+
+// --- Registry-token dual-mode tests ---
+
+func mintRegistryToken(t *testing.T, access []auth.ResourceAccess) string {
+	t.Helper()
+	signer := auth.NewRegistryTokenSigner("test-secret", "astro-registry", "astro-registry", time.Hour)
+	tok, _, _, err := signer.Issue("user_123", access)
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	return tok
+}
+
+func TestRequireAuth_RegistryToken_Accepted(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.PUT("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		claims, ok := GetRegistryClaims(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "no claims"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"sub": claims.Subject})
+	})
+
+	tok := mintRegistryToken(t, []auth.ResourceAccess{{
+		Type:      "repository",
+		Name:      "saswatds/myapp",
+		Actions:   []string{"pull", "push"},
+		AccountID: "acc_uuid",
+	}})
+
+	req := httptest.NewRequest(http.MethodPut, "/v2/saswatds/myapp/manifests/latest", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequireAuth_RegistryToken_RejectedWrongScope(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.PUT("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{})
+	})
+
+	tok := mintRegistryToken(t, []auth.ResourceAccess{{
+		Type:    "repository",
+		Name:    "saswatds/different-app",
+		Actions: []string{"pull", "push"},
+	}})
+
+	// Request targets saswatds/myapp but token only grants saswatds/different-app.
+	req := httptest.NewRequest(http.MethodPut, "/v2/saswatds/myapp/manifests/latest", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestRequireAuth_RegistryToken_RejectedPullOnlyForPush(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.PUT("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{})
+	})
+
+	// Only pull granted, request is a push.
+	tok := mintRegistryToken(t, []auth.ResourceAccess{{
+		Type:    "repository",
+		Name:    "saswatds/myapp",
+		Actions: []string{"pull"},
+	}})
+
+	req := httptest.NewRequest(http.MethodPut, "/v2/saswatds/myapp/manifests/latest", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("pull-only token must be rejected for push, got %d", rec.Code)
+	}
+}
+
+func TestRequireAuth_RegistryToken_PushImpliesPull(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.GET("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{})
+	})
+
+	// Only push granted; pull (GET) must succeed because push implies pull.
+	tok := mintRegistryToken(t, []auth.ResourceAccess{{
+		Type:    "repository",
+		Name:    "saswatds/myapp",
+		Actions: []string{"push"},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/v2/saswatds/myapp/manifests/latest", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("push token must allow pull, got %d", rec.Code)
+	}
+}
+
+func TestRequireAuth_BearerChallenge_HasRealmAndScope(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.PUT("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{})
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/v2/saswatds/myapp/blobs/uploads/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+	challenge := rec.Header().Get("WWW-Authenticate")
+	if !strings.HasPrefix(challenge, "Bearer ") {
+		t.Errorf("expected Bearer challenge, got %q", challenge)
+	}
+	for _, want := range []string{
+		`realm="https://registry.test/token"`,
+		`service="astro-registry"`,
+		`scope="repository:saswatds/myapp:push,pull"`,
+	} {
+		if !strings.Contains(challenge, want) {
+			t.Errorf("challenge missing %s; got %s", want, challenge)
+		}
+	}
+}
+
+func TestRequireAuth_BearerChallenge_ScopeOmittedForShortPaths(t *testing.T) {
+	kp, _ := generateTestKeyPair()
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	router, mw := setupTestMiddleware(server.URL)
+	router.GET("/v2/*path", mw.RequireAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{})
+	})
+
+	// /v2/ version check has no repository → no scope= in the challenge.
+	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+	challenge := rec.Header().Get("WWW-Authenticate")
+	if strings.Contains(challenge, "scope=") {
+		t.Errorf("expected no scope= for /v2/, got %s", challenge)
+	}
+}
+
+func TestRepositoryAndAction(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		method   string
+		path     string
+		wantRepo string
+		wantAct  string
+		wantOK   bool
+	}{
+		{http.MethodPut, "/v2/saswatds/myapp/manifests/latest", "saswatds/myapp", "push", true},
+		{http.MethodGet, "/v2/saswatds/myapp/manifests/latest", "saswatds/myapp", "pull", true},
+		{http.MethodHead, "/v2/saswatds/myapp/blobs/sha256:abc", "saswatds/myapp", "pull", true},
+		{http.MethodPost, "/v2/saswatds/myapp/blobs/uploads/", "saswatds/myapp", "push", true},
+		{http.MethodDelete, "/v2/saswatds/myapp/manifests/v1", "saswatds/myapp", "push", true},
+		{http.MethodGet, "/v2/", "", "", false},
+		{http.MethodGet, "/v2/_catalog", "", "", false},
+		// Multi-segment repository names (not currently used by astro but spec-allowed).
+		{http.MethodPut, "/v2/ns/sub/img/manifests/latest", "ns/sub/img", "push", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			repo, action, ok := repositoryAndAction(req)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if repo != tc.wantRepo {
+				t.Errorf("repo = %q, want %q", repo, tc.wantRepo)
+			}
+			if action != tc.wantAct {
+				t.Errorf("action = %q, want %q", action, tc.wantAct)
+			}
+		})
 	}
 }

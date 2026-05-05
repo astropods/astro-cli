@@ -33,4 +33,8 @@ const (
 	UserContextKey ContextKey = "user"
 	// SessionContextKey is the context key for the session
 	SessionContextKey ContextKey = "session"
+	// RegistryClaimsContextKey is the context key for verified registry-scope
+	// token claims, when authentication used the registry-token path.
+	// Absent for WorkOS-bearer requests.
+	RegistryClaimsContextKey ContextKey = "registry_claims"
 )

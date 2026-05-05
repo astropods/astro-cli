@@ -11,11 +11,15 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("ENVIRONMENT", "test")
 	t.Setenv("WORKOS_CLIENT_ID", "client_test")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REGISTRY_TOKEN_SECRET", "test-secret")
+	t.Setenv("REGISTRY_TOKEN_REALM", "https://registry.test/token")
 	defer func() {
 		_ = os.Unsetenv("REGISTRY_URL")
 		_ = os.Unsetenv("ENVIRONMENT")
 		_ = os.Unsetenv("WORKOS_CLIENT_ID")
 		_ = os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("REGISTRY_TOKEN_SECRET")
+		_ = os.Unsetenv("REGISTRY_TOKEN_REALM")
 	}()
 
 	cfg, err := Load()
@@ -35,6 +39,13 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Errorf("expected default log level info, got %s", cfg.Log.Level)
 	}
 
+	if cfg.Auth.RegistryTokenIssuer != "astro-registry" {
+		t.Errorf("expected default RegistryTokenIssuer astro-registry, got %s", cfg.Auth.RegistryTokenIssuer)
+	}
+
+	if cfg.Auth.RegistryTokenTTL.Hours() != 1 {
+		t.Errorf("expected default RegistryTokenTTL=1h, got %v", cfg.Auth.RegistryTokenTTL)
+	}
 }
 
 func TestLoad_CustomValues(t *testing.T) {
@@ -46,6 +57,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	t.Setenv("ENVIRONMENT", "staging")
 	t.Setenv("WORKOS_CLIENT_ID", "client_test")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REGISTRY_TOKEN_SECRET", "test-secret")
+	t.Setenv("REGISTRY_TOKEN_REALM", "https://registry.test/token")
 
 	defer func() {
 		_ = os.Unsetenv("PORT")
@@ -56,6 +69,8 @@ func TestLoad_CustomValues(t *testing.T) {
 		_ = os.Unsetenv("ENVIRONMENT")
 		_ = os.Unsetenv("WORKOS_CLIENT_ID")
 		_ = os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("REGISTRY_TOKEN_SECRET")
+		_ = os.Unsetenv("REGISTRY_TOKEN_REALM")
 	}()
 
 	cfg, err := Load()
@@ -97,6 +112,26 @@ func TestLoad_MissingRegistryURL(t *testing.T) {
 	}
 }
 
+func TestLoad_MissingRegistryTokenSecret(t *testing.T) {
+	t.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
+	t.Setenv("ENVIRONMENT", "test")
+	t.Setenv("WORKOS_CLIENT_ID", "client_test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	_ = os.Unsetenv("REGISTRY_TOKEN_SECRET")
+
+	defer func() {
+		_ = os.Unsetenv("REGISTRY_URL")
+		_ = os.Unsetenv("ENVIRONMENT")
+		_ = os.Unsetenv("WORKOS_CLIENT_ID")
+		_ = os.Unsetenv("DATABASE_URL")
+	}()
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for missing REGISTRY_TOKEN_SECRET")
+	}
+}
+
 func TestLoad_MissingClientID(t *testing.T) {
 	t.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
 	t.Setenv("ENVIRONMENT", "test")
@@ -112,6 +147,28 @@ func TestLoad_MissingClientID(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for missing WORKOS_CLIENT_ID")
+	}
+}
+
+func TestValidate_RealmRequired(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Port: "8080", Mode: "release"},
+		Log:      LogConfig{Level: "info"},
+		Registry: RegistryConfig{URL: "https://test.ecr.amazonaws.com", Environment: "test"},
+		Auth: AuthConfig{
+			WorkOSClientID:      "client_test",
+			RegistryTokenSecret: "test-secret",
+		},
+		Database: DatabaseConfig{URL: "postgres://localhost/test"},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected error for missing REGISTRY_TOKEN_REALM")
+	}
+
+	cfg.Auth.RegistryTokenRealm = "https://registry.test/token"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error with realm set: %v", err)
 	}
 }
 

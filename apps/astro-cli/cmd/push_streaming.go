@@ -22,6 +22,13 @@ const maxPushRetries = 3
 // getDockerRegistryAuth returns a base64-encoded registry auth string
 // for use with the Docker Engine API.
 // If tokenOverride is non-empty, it is used directly instead of fetching from the profile.
+//
+// Sends Username/Password (not RegistryToken) so the Docker daemon honors the
+// astro-registry WWW-Authenticate Bearer challenge and exchanges the WorkOS
+// access token for a registry-scope token at /token. RegistryToken would
+// short-circuit that flow and reuse the WorkOS bearer for every request,
+// causing the manifest PUT to fail once the WorkOS TTL elapses mid-push.
+// See docs/03-architecture/registry-token-auth.md.
 func getDockerRegistryAuth(tokenOverride string) (string, error) {
 	var token string
 	if tokenOverride != "" {
@@ -36,7 +43,8 @@ func getDockerRegistryAuth(tokenOverride string) (string, error) {
 	}
 
 	authConfig := registry.AuthConfig{
-		RegistryToken: token,
+		Username: "token",
+		Password: token,
 	}
 	authBytes, err := json.Marshal(authConfig) //nolint:gosec // registry auth token, not a secret leak
 	if err != nil {

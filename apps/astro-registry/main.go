@@ -137,6 +137,16 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, aut
 	router.GET("/readyz", probeHandler.Readyz())
 	router.GET("/healthz", probeHandler.Healthz())
 
+	// Token endpoint — Docker Registry v2 token-auth realm. Authenticates the
+	// IdP credential itself (HTTP Basic) so it sits outside RequireAuth.
+	router.GET("/token", handlers.Token(handlers.TokenHandlerConfig{
+		Logger:            log,
+		WorkOSValidator:   authMw.JWTValidator(),
+		Signer:            authMw.RegistrySigner(),
+		MembershipChecker: mc,
+		Service:           cfg.Auth.RegistryTokenIssuer,
+	}))
+
 	// Registry proxy configuration
 	proxyCfg := handlers.RegistryProxyConfig{
 		RegistryURL:       cfg.Registry.URL,

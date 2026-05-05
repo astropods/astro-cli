@@ -166,6 +166,10 @@ func extractRepositoryName(path string, env string, accountID string) string {
 // All operations require account membership. Org accounts also require the appropriate
 // permission: agents:read for pulls, agents:write for pushes.
 // Returns (allowed, accountID) — accountID is the resolved UUID, empty for short paths.
+//
+// When the request authenticated via a registry-scope token, the middleware
+// already enforced scope and the token's access entry carries the account ID;
+// the per-request membership/permission DB check is skipped.
 func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc *account.MembershipChecker) (bool, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
@@ -174,6 +178,29 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 
 	namespace := parts[0]
 	isRead := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead
+
+	// Registry-token fast path: trust scope + account_id from the token.
+	if claims, ok := middleware.GetRegistryClaims(c); ok {
+		repoEnd := len(parts)
+		for i, seg := range parts {
+			if seg == "manifests" || seg == "blobs" || seg == "tags" {
+				repoEnd = i
+				break
+			}
+		}
+		if repoEnd >= 2 {
+			repo := strings.Join(parts[:repoEnd], "/")
+			action := "push"
+			if isRead {
+				action = "pull"
+			}
+			if entry := claims.AccessFor(repo, action); entry != nil && entry.AccountID != "" {
+				return true, entry.AccountID
+			}
+		}
+		// Fall through to the WorkOS path on mismatch — should not happen because
+		// the middleware already verified scope.
+	}
 
 	// Get authenticated user from context
 	user, ok := middleware.GetUser(c)

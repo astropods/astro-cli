@@ -56,6 +56,13 @@ type AuthConfig struct {
 	JWKSEndpoint   string // WorkOS JWKS endpoint for JWT validation
 	JWTIssuer      string // Expected JWT issuer
 	WorkOSClientID string // WorkOS client ID (JWT audience)
+
+	// Registry token authentication (Docker Registry v2 token-auth flow).
+	// See docs/03-architecture/registry-token-auth.md.
+	RegistryTokenSecret string        // HMAC key for signing registry-scope tokens
+	RegistryTokenIssuer string        // iss claim for registry-scope tokens
+	RegistryTokenTTL    time.Duration // Lifetime of registry-scope tokens
+	RegistryTokenRealm  string        // Public URL of /token; advertised in WWW-Authenticate. Derived from request host if empty.
 }
 
 // Load loads configuration from environment variables with defaults
@@ -83,9 +90,13 @@ func Load() (*Config, error) {
 			Environment: getEnv("ENVIRONMENT", ""),
 		},
 		Auth: AuthConfig{
-			JWKSEndpoint:   getEnv("JWKS_ENDPOINT", "https://api.workos.com/sso/jwks"),
-			JWTIssuer:      getEnv("JWT_ISSUER", ""), // Will be auto-constructed if empty
-			WorkOSClientID: getEnv("WORKOS_CLIENT_ID", ""),
+			JWKSEndpoint:        getEnv("JWKS_ENDPOINT", "https://api.workos.com/sso/jwks"),
+			JWTIssuer:           getEnv("JWT_ISSUER", ""), // Will be auto-constructed if empty
+			WorkOSClientID:      getEnv("WORKOS_CLIENT_ID", ""),
+			RegistryTokenSecret: getEnv("REGISTRY_TOKEN_SECRET", ""),
+			RegistryTokenIssuer: getEnv("REGISTRY_TOKEN_ISSUER", "astro-registry"),
+			RegistryTokenTTL:    getEnvDuration("REGISTRY_TOKEN_TTL", 1*time.Hour),
+			RegistryTokenRealm:  getEnv("REGISTRY_TOKEN_REALM", ""),
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", ""),
@@ -135,6 +146,14 @@ func (c *Config) Validate() error {
 
 	if c.Auth.WorkOSClientID == "" {
 		return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required")
+	}
+
+	if c.Auth.RegistryTokenSecret == "" {
+		return fmt.Errorf("REGISTRY_TOKEN_SECRET environment variable is required")
+	}
+
+	if c.Auth.RegistryTokenRealm == "" {
+		return fmt.Errorf("REGISTRY_TOKEN_REALM environment variable is required")
 	}
 
 	if c.Database.URL == "" {
