@@ -10,7 +10,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 // Table layout constants shared by list commands.
@@ -156,9 +159,17 @@ func flagString(cmd *cobra.Command, name string) string {
 	return s
 }
 
+// flagBool returns the boolean value of a flag
 func flagBool(cmd *cobra.Command, name string) bool {
 	b, _ := cmd.Flags().GetBool(name)
 	return b
+}
+
+// cliHuhTheme returns a huh theme styled to match the CLI's primary color.
+func cliHuhTheme() *huh.Theme {
+	t := huh.ThemeCharm()
+	t.Focused.Title = t.Focused.Title.Foreground(theme.Primary)
+	return t
 }
 
 // cmdAuth returns the current account token and the verbose flag for a command.

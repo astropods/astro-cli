@@ -707,10 +707,7 @@ func confirmVisibilityChange(current, desired string) bool {
 		),
 	)
 
-	huhTheme := huh.ThemeCharm()
-	primary := theme.Primary
-	huhTheme.Focused.Title = huhTheme.Focused.Title.Foreground(primary)
-	form.WithTheme(huhTheme)
+	form.WithTheme(cliHuhTheme())
 
 	if err := form.Run(); err != nil {
 		return false

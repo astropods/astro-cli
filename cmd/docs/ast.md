@@ -73,8 +73,8 @@ Sample output:
 ✓ Created hello-astropods
 
 Next steps:
-  1  cd /path/to/project/hello-astropods   enter the project directory
-  2  ast project configure                  set your API keys
+  1  cd /path/to/project/hello-astropods    enter the project directory
+  2  ast project configure                  set your model API keys
   3  ast project start                      start your agent locally
 ```
 
