@@ -7,6 +7,7 @@ import { server } from "@/test/msw/server";
 import { mockTemplate, wrapTemplateResponse } from "@/test/msw/handlers";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import type { AgentDeployment } from "@/lib/api";
+import type { AuthContextType } from "@/lib/auth-context";
 import AgentConfigure from "./AgentConfigure";
 
 // ---------------------------------------------------------------------------
@@ -53,10 +54,12 @@ afterEach(() => server.resetHandlers());
 function renderConfigure(
   deployment?: AgentDeployment,
   searchParams?: string,
+  opts?: { account?: string; auth?: AuthContextType },
 ) {
   const dep = deployment ?? makeDeployment();
   const user = userEvent.setup();
-  const path = `/testuser/agents/${dep.id}/configure${searchParams ? `?${searchParams}` : ""}`;
+  const account = opts?.account ?? "testuser";
+  const path = `/${account}/agents/${dep.id}/configure${searchParams ? `?${searchParams}` : ""}`;
 
   const result = renderRoute(
     [
@@ -66,7 +69,7 @@ function renderConfigure(
           <Outlet
             context={{
               deployment: dep,
-              account: "testuser",
+              account,
               deploymentId: dep.id,
             }}
           />
@@ -80,7 +83,7 @@ function renderConfigure(
         ],
       },
     ],
-    { initialEntries: [path], auth: mockAuthContext },
+    { initialEntries: [path], auth: opts?.auth ?? mockAuthContext },
   );
 
   return { ...result, user };
@@ -365,5 +368,79 @@ describe("upgrade mode", () => {
 
     expect(screen.getByText(/upgrade to new build/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /redeploy/i })).toBeInTheDocument();
+  });
+});
+
+// Regression: redeploying an org deployment was building target.account from
+// personalAccount.name (because useDeployForm seeds _targetAccount from "" and
+// the seeding effect never calls setTargetAccount). This makes the server reject
+// any private blueprint redeploy with "source agent not found" because
+// canDeploySourceAgent treats it as a cross-account private deploy. Pin the
+// configure-page contract: the deploy payload must always carry the URL
+// account as both source and target, no matter which other accounts the user
+// belongs to.
+describe("redeploy of org-owned deployment", () => {
+  function multiAccountAuth() {
+    return {
+      ...mockAuthContext,
+      accounts: [
+        { id: "acct-personal", name: "mattcolozzo", type: "personal" as const },
+        { id: "acct-org", name: "astropods", type: "organization" as const },
+      ],
+    };
+  }
+
+  it("uses the URL account (org) as target.account, not the user's personal account", async () => {
+    const deployHandler = vi.fn();
+    server.use(
+      // The configure page is for /astropods/agents/dep-1, so the
+      // deployment-template POST hits the org account path.
+      http.post("/api/v1/agents/astropods/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        // Server-resolved template: source.account is the publishing org;
+        // target.account would be set by mergeDeploymentPrefill to the
+        // deployment's owning account (also the org for same-account redeploy).
+        const tmpl = {
+          ...mockTemplate,
+          source: { ...mockTemplate.source, account: "astropods" },
+          target: { ...mockTemplate.target, account: "astropods", deployment_id: "dep-1" },
+        };
+        return HttpResponse.json(
+          wrapTemplateResponse(tmpl, body as Parameters<typeof wrapTemplateResponse>[1]),
+        );
+      }),
+      http.post("/api/v1/deploy", async ({ request }) => {
+        const payload = (await request.json()) as Record<string, unknown>;
+        deployHandler(payload);
+        return HttpResponse.json({
+          status: "deployed",
+          deployment_id: "dep-1",
+          name: "code-reviewer",
+          build_id: "b2c3d4e5f6a7",
+          k8s_namespace: "astro-ns",
+          deployed_at: new Date().toISOString(),
+          resources: [],
+        });
+      }),
+    );
+
+    const { user } = renderConfigure(undefined, undefined, {
+      account: "astropods",
+      auth: multiAccountAuth(),
+    });
+    await waitForForm();
+
+    // Make a redeploy-required edit so the Redeploy button enables.
+    await user.type(screen.getByLabelText("OpenAI API Key"), "sk-redeploy-key");
+    await user.click(screen.getByRole("button", { name: /redeploy/i }));
+
+    await waitFor(() => expect(deployHandler).toHaveBeenCalledTimes(1));
+
+    const payload = deployHandler.mock.calls[0][0] as {
+      source?: { account?: string };
+      target?: { account?: string };
+    };
+    expect(payload.source?.account).toBe("astropods");
+    expect(payload.target?.account).toBe("astropods");
   });
 });

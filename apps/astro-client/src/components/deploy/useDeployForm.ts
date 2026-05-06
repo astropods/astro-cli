@@ -286,6 +286,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Applies a set of form values to all state variables at once.
   // Used by both the initial seeding effect and `reset()`.
+  //
+  // targetAccount is part of the seeded set: extracted.targetAccount comes
+  // from the URL/owning account, and silently dropping it caused redeploys
+  // from the configure page to fall back to personalAccount.name, which the
+  // server rejects as a cross-account private deploy ("source agent not
+  // found") whenever the URL account differs from the user's personal one.
   const applyValues = (v: DeployFormInitialValues) => {
     // deployName uses || because "" should fall through to the slugToTitle fallback
     setDeployName(v.deployName || slugToTitle(name));
@@ -294,6 +300,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAdapterCredentials(v.adapterCredentials ?? {});
     setIngestionSchedules(v.ingestionSchedules ?? {});
     setWebAuthEnabled(v.webAuthEnabled ?? false);
+    if (v.targetAccount !== undefined) {
+      setTargetAccount(v.targetAccount);
+    }
   };
 
   // Seed all form state from the template in one pass once it loads.

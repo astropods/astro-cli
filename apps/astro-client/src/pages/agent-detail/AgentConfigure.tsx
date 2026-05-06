@@ -28,9 +28,17 @@ export default function AgentConfigure() {
 
   const formOpts = useMemo(() => ({
     deploymentId: deployment.id,
+    // Redeploy is locked to the deployment's own account — the account picker
+    // is hidden on this page, and the server's in-place update path keys off
+    // deployment_id (account_id is not mutated). Pin allowedTargetAccounts so
+    // useDeployForm cannot fall back to personalAccount.name when the URL
+    // account differs from the viewer's personal account, which would turn a
+    // same-account redeploy into a cross-account submission and trip
+    // canDeploySourceAgent for any private blueprint.
+    allowedTargetAccounts: account ? [account] : undefined,
     ...(rollbackRevision ? { revision: Number(rollbackRevision) } : {}),
     ...(rollbackBuild ? { build: rollbackBuild } : {}),
-  }), [deployment.id, rollbackRevision, rollbackBuild]);
+  }), [account, deployment.id, rollbackRevision, rollbackBuild]);
 
   const form = useDeployForm(account, deployment.name, formOpts);
 
