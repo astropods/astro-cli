@@ -606,7 +606,10 @@ CREATE TABLE public.deployment_authorization_grants (
     CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, subject_type, subject_id, adapter),
     CONSTRAINT deployment_authorization_grants_subject_check CHECK (subject_type IN ('account', 'user', 'anyone')),
     CONSTRAINT deployment_authorization_grants_adapter_check CHECK (adapter IN ('web', 'slack')),
-    CONSTRAINT deployment_authorization_grants_user_web_only_check CHECK (subject_type <> 'user' OR adapter = 'web'),
+    -- user grants are now allowed on slack too: the messaging container
+    -- forwards (team_id, slack_user_id), the server resolves it to a
+    -- WorkOS user via slack_identity_mappings, and the user grant lookup
+    -- runs the same path as web. The previous user_web_only_check is gone.
     CONSTRAINT deployment_authorization_grants_anyone_empty_check CHECK (subject_type <> 'anyone' OR subject_id = ''),
     CONSTRAINT deployment_authorization_grants_deployment_fkey FOREIGN KEY (deployment_id)
         REFERENCES public.deployments(id) ON DELETE CASCADE

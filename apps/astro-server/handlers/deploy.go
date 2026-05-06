@@ -3460,13 +3460,12 @@ func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 				errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
 			}
 
-			// user grants are web-only under slack: slack identity is opaque
-			// so per-user authz isn't possible there. `anyone` is allowed —
-			// it collapses to the same scope as account_id:<owner> for slack
-			// (the bot is per-account), and is the seeded fresh-deploy default.
-			if adapter == authorizationstore.AdapterSlack && g.UserID != "" {
-				errs = append(errs, prefix+": slack grants must use account_id or anyone (user_id is web-only)")
-			}
+			// user grants on slack are now allowed: the messaging container
+			// forwards (team_id, slack_user_id) and the resolver looks up
+			// the linked WorkOS user via slack_identity_mappings. Slack
+			// users who haven't linked their identity still fall through
+			// to the owning-account / anyone candidates — a user grant
+			// just won't match for them.
 
 			// Detect duplicates within the same spec.
 			key := adapter + "|"

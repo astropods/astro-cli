@@ -23,7 +23,6 @@ package e2e
 import (
 	"database/sql"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
@@ -120,27 +119,24 @@ func TestE2E_AuthzGrants_SchemaCheck_AnyoneOnSlackAccepted(t *testing.T) {
 	}
 }
 
-// Schema CHECK: user under slack is still rejected — slack identity is
-// opaque, so per-user authz isn't possible there and the resolved
-// candidate would never be a user-typed subject. The CHECK enforces this
-// at storage so a misbehaving caller can't write unmatchable rows.
-func TestE2E_AuthzGrants_SchemaCheck_UserOnSlackRejected(t *testing.T) {
+// Schema CHECK: user under slack is now accepted. The previous
+// user_web_only_check constraint blocked these rows when slack identity
+// resolution couldn't produce a user candidate; with slack_identity_mappings
+// in place, the resolver does emit a user candidate when the team_id is
+// linked, so user grants on slack are storable and matchable.
+func TestE2E_AuthzGrants_SchemaCheck_UserOnSlackAccepted(t *testing.T) {
 	db := testDB(t)
 	depID := seedDeploymentForGrantsTest(t, db)
 	t.Cleanup(func() {
 		_, _ = db.Exec("DELETE FROM deployment_authorization_grants WHERE deployment_id = $1", depID)
 	})
 
-	_, err := db.Exec(`
+	if _, err := db.Exec(`
 		INSERT INTO deployment_authorization_grants
 		    (deployment_id, subject_type, subject_id, adapter)
 		VALUES ($1, 'user', 'alice', 'slack')
-	`, depID)
-	if err == nil {
-		t.Fatal("user+slack INSERT was accepted; the user_web_only_check constraint should reject it")
-	}
-	if !strings.Contains(err.Error(), "user_web_only_check") {
-		t.Errorf("expected user_web_only_check violation, got: %v", err)
+	`, depID); err != nil {
+		t.Errorf("user+slack INSERT was rejected; the user_web_only_check constraint should be gone: %v", err)
 	}
 }
 

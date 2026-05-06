@@ -65,7 +65,9 @@ func TestValidateAuth_UserAndAnyone(t *testing.T) {
 	}
 }
 
-// C5: user_id under slack.grants → reject.
+// C5 (lifted): user_id under slack.grants is now accepted. The messaging
+// container forwards (team_id, slack_user_id), the resolver looks up the
+// linked WorkOS user, and the user grant matches via the same path as web.
 func TestValidateAuth_UserOnSlack(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Slack: &spec.DeploymentSlackAuth{
@@ -74,8 +76,8 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 			},
 		},
 	})
-	if len(errs) == 0 {
-		t.Fatal("expected validation error")
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
 	}
 }
 
@@ -92,20 +94,6 @@ func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 	})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
-	}
-}
-
-// user_id under slack.grants → still rejected (slack identity is opaque).
-func TestValidateAuth_UserIDOnSlack(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
-		Slack: &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
-				{UserID: "alice"},
-			},
-		},
-	})
-	if len(errs) == 0 {
-		t.Fatal("expected validation error")
 	}
 }
 

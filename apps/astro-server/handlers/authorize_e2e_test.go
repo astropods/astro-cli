@@ -11,6 +11,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 )
@@ -20,10 +21,11 @@ import (
 // against sqlmock without the full deploy-token plumbing — token tests live
 // in the deploytoken package.
 type authorizeFixture struct {
-	router *gin.Engine
-	store  *authorizationstore.Store
-	mock   sqlmock.Sqlmock
-	db     *sql.DB
+	router     *gin.Engine
+	store      *authorizationstore.Store
+	slackStore *slackidentity.Store
+	mock       sqlmock.Sqlmock
+	db         *sql.DB
 }
 
 func newAuthorizeFixture(t *testing.T, deploymentID string) *authorizeFixture {
@@ -33,6 +35,7 @@ func newAuthorizeFixture(t *testing.T, deploymentID string) *authorizeFixture {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	store := authorizationstore.NewStore(db)
+	slackStore := slackidentity.NewStore(db)
 	log := logger.New("error", "text")
 
 	gin.SetMode(gin.TestMode)
@@ -41,8 +44,8 @@ func newAuthorizeFixture(t *testing.T, deploymentID string) *authorizeFixture {
 		c.Set("deploy_token_deployment_id", deploymentID)
 		c.Next()
 	})
-	r.GET("/authorize", CheckDeploymentAuthorization(log, store))
-	return &authorizeFixture{router: r, store: store, mock: mock, db: db}
+	r.GET("/authorize", CheckDeploymentAuthorization(log, store, slackStore))
+	return &authorizeFixture{router: r, store: store, slackStore: slackStore, mock: mock, db: db}
 }
 
 func (f *authorizeFixture) close() { _ = f.db.Close() }
@@ -312,6 +315,96 @@ func TestAuthorize_FallbackNoGrants_SlackOwnerAllowed(t *testing.T) {
 	}
 }
 
+// Slack with identity_scope=team_id and a linked WorkOS user → resolver
+// emits a user candidate plus the user's account candidates, and a user
+// grant on slack matches.
+func TestAuthorize_SlackWithScope_MappedUserGrantMatches(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	// 1. anyone short-circuit miss
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	// 2. resolveCandidates(slack): owning account
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	// 3. slack identity mapping HIT → resolved WorkOS user
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U01").
+		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
+	// 4. mapped user's account memberships
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	// 5. grant lookup: user candidate hits the user-grant on slack
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U01&identity_scope=T1&adapter=slack")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !decodeAllowed(t, w) {
+		t.Fatal("expected allowed=true via mapped slack user")
+	}
+}
+
+// Slack with scope but no mapping → resolver emits only the owning-account
+// candidate (no regression for users who haven't linked their slack).
+func TestAuthorize_SlackWithScope_NoMappingFallsBack(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	// Mapping miss is benign — must NOT cause a 5xx.
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U-unknown").
+		WillReturnError(sql.ErrNoRows)
+	// Grant lookup runs with just the owning-account candidate (no user array).
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
+		WillReturnError(sql.ErrNoRows)
+	expectHasGrants(f.mock, "dep-1", true) // grants exist → no fallback
+
+	w := f.call(t, "identity_type=slack&identity_id=U-unknown&identity_scope=T1&adapter=slack")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if decodeAllowed(t, w) {
+		t.Fatal("expected allowed=false for unmapped slack user")
+	}
+}
+
+// Slack with NO identity_scope → resolver skips the mapping lookup entirely.
+// Pre-team-id callers (and the rare anonymous slack request) must keep
+// working without hitting the slack_identity_mappings table.
+func TestAuthorize_SlackWithoutScope_SkipsMappingLookup(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	// No slack_identity_mappings query expected — sqlmock's ExpectationsWereMet
+	// would fail if we queued one and the resolver skipped it.
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U01&adapter=slack")
+	if !decodeAllowed(t, w) {
+		t.Fatal("expected allowed=true via owning-account candidate")
+	}
+	if err := f.mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected mock state (mapping lookup should have been skipped): %v", err)
+	}
+}
+
 // 400 when adapter is unknown.
 func TestAuthorize_UnknownAdapter(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
@@ -341,10 +434,11 @@ func TestAuthorize_MissingDeploymentID(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 	store := authorizationstore.NewStore(db)
+	slackStore := slackidentity.NewStore(db)
 	log := logger.New("error", "text")
 
 	r := gin.New()
-	r.GET("/authorize", CheckDeploymentAuthorization(log, store))
+	r.GET("/authorize", CheckDeploymentAuthorization(log, store, slackStore))
 
 	req := httptest.NewRequest(http.MethodGet, "/authorize?adapter=web", nil)
 	w := httptest.NewRecorder()
