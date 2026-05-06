@@ -20,9 +20,9 @@ func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock, *sql.DB) {
 }
 
 const (
-	upsertQuery    = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id, source, connected_account_id,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id       = EXCLUDED.workos_user_id,\n\t\t\torganization_id      = EXCLUDED.organization_id,\n\t\t\tsource               = EXCLUDED.source,\n\t\t\tconnected_account_id = EXCLUDED.connected_account_id,\n\t\t\tteam_name            = EXCLUDED.team_name,\n\t\t\tteam_domain          = EXCLUDED.team_domain,\n\t\t\tteam_icon_url        = EXCLUDED.team_icon_url,\n\t\t\tslack_username       = EXCLUDED.slack_username,\n\t\t\tupdated_at           = now(),\n\t\t\trevoked_at           = NULL\n\t"
+	upsertQuery    = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id, source,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tsource           = EXCLUDED.source,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
 	lookupQuery    = "\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t"
-	listQuery      = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       COALESCE(connected_account_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	listQuery      = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
 	revokeQuery    = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
 	revokeOneQuery = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
 )
@@ -34,12 +34,12 @@ func TestUpsert_WritesRow(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T123", "U456", "user_abc", "org_xyz", "oauth", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
+		WithArgs("T123", "U456", "user_abc", "org_xyz", "oauth", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(Mapping{
 		TeamID: "T123", SlackUserID: "U456", WorkOSUserID: "user_abc",
-		OrganizationID: "org_xyz", Source: "oauth", ConnectedAccountID: "ca_1",
+		OrganizationID: "org_xyz", Source: "oauth",
 		TeamName: "Acme", TeamDomain: "acme", TeamIconURL: "https://avatars.slack-edge.com/icon.png",
 		SlackUsername: "alice",
 	})
@@ -57,7 +57,7 @@ func TestUpsert_DefaultsSourceToOAuth(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "", "").
+		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
@@ -92,7 +92,7 @@ func TestUpsert_PropagatesDBError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "", "").
+		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "").
 		WillReturnError(errors.New("boom"))
 
 	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
@@ -164,12 +164,12 @@ func TestListByWorkOSUser_ReturnsActiveMappings(t *testing.T) {
 		WithArgs("user_abc").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source", "connected_account_id",
+			"organization_id", "source",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}).
-			AddRow("T1", "U1", "user_abc", "org_xyz", "oauth", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
-			AddRow("T2", "U2", "user_abc", "", "oauth", "", "", "", "", "", now, now, nil))
+			AddRow("T1", "U1", "user_abc", "org_xyz", "oauth", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
+			AddRow("T2", "U2", "user_abc", "", "oauth", "", "", "", "", now, now, nil))
 
 	out, err := store.ListByWorkOSUser("user_abc")
 	if err != nil {
@@ -187,8 +187,8 @@ func TestListByWorkOSUser_ReturnsActiveMappings(t *testing.T) {
 	if out[0].TeamIconURL != "https://avatars.slack-edge.com/icon.png" {
 		t.Errorf("first row icon: %q", out[0].TeamIconURL)
 	}
-	if out[1].OrganizationID != "" || out[1].ConnectedAccountID != "" {
-		t.Errorf("second row should have empty optional fields: %+v", out[1])
+	if out[1].OrganizationID != "" {
+		t.Errorf("second row should have empty optional org_id: %+v", out[1])
 	}
 	if out[1].TeamName != "" || out[1].SlackUsername != "" {
 		t.Errorf("second row display fields should be empty: %+v", out[1])
@@ -203,7 +203,7 @@ func TestListByWorkOSUser_EmptyResult(t *testing.T) {
 		WithArgs("user_abc").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source", "connected_account_id",
+			"organization_id", "source",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}))

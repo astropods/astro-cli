@@ -638,7 +638,6 @@ CREATE TABLE public.slack_identity_mappings (
     workos_user_id        varchar     NOT NULL,
     organization_id       varchar,
     source                varchar     NOT NULL DEFAULT 'oauth',
-    connected_account_id  varchar,
     -- Display fields captured at link time so the settings UI (and audit
     -- logs) can render workspace + handle without re-querying Slack on
     -- every status load. Refreshed on each Upsert.

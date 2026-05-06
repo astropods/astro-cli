@@ -40,16 +40,15 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Mapping is one row in slack_identity_mappings. Zero values for optional
-// columns (OrganizationID, ConnectedAccountID) are stored as SQL NULL;
-// display fields (TeamName/TeamDomain/SlackUsername) are stored as ''.
+// Mapping is one row in slack_identity_mappings. OrganizationID is
+// stored as SQL NULL when empty; display fields
+// (TeamName/TeamDomain/SlackUsername) are stored as '' when blank.
 type Mapping struct {
-	TeamID             string
-	SlackUserID        string
-	WorkOSUserID       string
-	OrganizationID     string // optional; empty means stored NULL
-	Source             string
-	ConnectedAccountID string // optional; empty means stored NULL
+	TeamID         string
+	SlackUserID    string
+	WorkOSUserID   string
+	OrganizationID string // optional; empty means stored NULL
+	Source         string
 	// Display fields captured at link time from oauth.v2.access + team.info.
 	// Used by the settings UI to render "Connected as @alice in Acme"
 	// with the workspace icon, no fresh round-trip per render.
@@ -77,21 +76,20 @@ func (s *Store) Upsert(m Mapping) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO slack_identity_mappings
-			(team_id, slack_user_id, workos_user_id, organization_id, source, connected_account_id,
+			(team_id, slack_user_id, workos_user_id, organization_id, source,
 			 team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, now(), NULL)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, now(), NULL)
 		ON CONFLICT (team_id, slack_user_id) DO UPDATE SET
-			workos_user_id       = EXCLUDED.workos_user_id,
-			organization_id      = EXCLUDED.organization_id,
-			source               = EXCLUDED.source,
-			connected_account_id = EXCLUDED.connected_account_id,
-			team_name            = EXCLUDED.team_name,
-			team_domain          = EXCLUDED.team_domain,
-			team_icon_url        = EXCLUDED.team_icon_url,
-			slack_username       = EXCLUDED.slack_username,
-			updated_at           = now(),
-			revoked_at           = NULL
-	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID, source, m.ConnectedAccountID,
+			workos_user_id   = EXCLUDED.workos_user_id,
+			organization_id  = EXCLUDED.organization_id,
+			source           = EXCLUDED.source,
+			team_name        = EXCLUDED.team_name,
+			team_domain      = EXCLUDED.team_domain,
+			team_icon_url    = EXCLUDED.team_icon_url,
+			slack_username   = EXCLUDED.slack_username,
+			updated_at       = now(),
+			revoked_at       = NULL
+	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID, source,
 		m.TeamName, m.TeamDomain, m.TeamIconURL, m.SlackUsername)
 	if err != nil {
 		return fmt.Errorf("slackidentity: upsert: %w", err)
@@ -135,7 +133,6 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 	rows, err := s.db.Query(`
 		SELECT team_id, slack_user_id, workos_user_id,
 		       COALESCE(organization_id, ''), source,
-		       COALESCE(connected_account_id, ''),
 		       team_name, team_domain, team_icon_url, slack_username,
 		       created_at, updated_at, revoked_at
 		FROM slack_identity_mappings
@@ -152,7 +149,7 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 		var m Mapping
 		if err := rows.Scan(
 			&m.TeamID, &m.SlackUserID, &m.WorkOSUserID,
-			&m.OrganizationID, &m.Source, &m.ConnectedAccountID,
+			&m.OrganizationID, &m.Source,
 			&m.TeamName, &m.TeamDomain, &m.TeamIconURL, &m.SlackUsername,
 			&m.CreatedAt, &m.UpdatedAt, &m.RevokedAt,
 		); err != nil {
