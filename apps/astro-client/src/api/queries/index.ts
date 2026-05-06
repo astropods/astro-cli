@@ -1,4 +1,4 @@
-export { accountKeys, auditLogKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys } from './keys';
+export { accountKeys, auditLogKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys, slackKeys } from './keys';
 export { useGitHubStatus, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild, useGitHubAccountConnect, useGitHubAccountRepos, useGitHubAccountScan, useGitHubAccountConnections } from './github';
 export { useBlueprints, useAccountBlueprints, useBlueprint, useDeployAgent, useUploadBlueprintAvatar, useCreateBlueprint } from './blueprints';
 export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, useUploadDeploymentAvatar, useDeleteDeploymentAvatar } from './deployments';

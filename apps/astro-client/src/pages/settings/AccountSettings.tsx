@@ -16,13 +16,15 @@ import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountConnections } from "@/api/queries/github";
-import { githubKeys } from "@/api/queries/keys";
+import { useSlackAccountStatus, useSlackAccountDisconnect, useSlackAccountConnect } from "@/api/queries/slack";
+import { githubKeys, slackKeys } from "@/api/queries/keys";
 import { repoHref, repoLabel } from "@/lib/github-utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { Slack } from "@/components/ui/svgs/slack";
 import { AstroIcon } from "@/components/ui/astro-icon";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 
 export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }];
 
@@ -253,6 +255,133 @@ function GitHubSection() {
   );
 }
 
+function SlackSection() {
+  const { personalAccount } = useAuth();
+  const account = personalAccount?.name ?? "";
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const justConnected = searchParams.get("slack_connected") === "true";
+  const oauthError = searchParams.get("slack_error") ?? "";
+
+  const { data: status, isLoading } = useSlackAccountStatus(account, {
+    enabled: !!account,
+  });
+  const disconnect = useSlackAccountDisconnect(account);
+  const connect = useSlackAccountConnect(account);
+
+  const workspaces = status?.workspaces ?? [];
+
+  // Strip the OAuth params after we've consumed them so a refresh doesn't
+  // re-trigger the same UI state (and so a stale slack_error doesn't linger).
+  // The status query refetches automatically and surfaces the new mapping.
+  useEffect(() => {
+    if (!justConnected && !oauthError) return;
+    setSearchParams((p) => {
+      p.delete("slack_connected");
+      p.delete("slack_user");
+      p.delete("slack_team");
+      p.delete("slack_error");
+      return p;
+    }, { replace: true });
+  }, [justConnected, oauthError, setSearchParams]);
+
+  const handleConnect = () => {
+    connect.mutate("/settings/account", {
+      onSuccess: (data) => {
+        if (data.redirect_url) {
+          window.location.href = data.redirect_url;
+        }
+      },
+    });
+  };
+
+  const handleDisconnectOne = (teamID: string) => {
+    // Optimistic: drop the workspace from the cached list immediately. On
+    // error we restore the previous list so the row reappears.
+    const key = slackKeys.accountStatus(account);
+    const previous = queryClient.getQueryData<typeof status>(key);
+    if (previous) {
+      queryClient.setQueryData(key, {
+        ...previous,
+        workspaces: previous.workspaces.filter((w) => w.team_id !== teamID),
+      });
+    }
+    disconnect.mutate(teamID, {
+      onError: () => {
+        if (previous) queryClient.setQueryData(key, previous);
+      },
+    });
+  };
+
+  return (
+    <>
+      {oauthError && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-[12px] text-destructive">
+            Couldn't link your Slack account ({oauthError}). Try again?
+          </p>
+        </div>
+      )}
+
+      <div className="border border-border rounded-md bg-card overflow-hidden">
+        <div className="flex items-center justify-between gap-4 px-3 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Slack className="size-5 shrink-0" aria-hidden />
+            <div className="min-w-0">
+              {isLoading ? (
+                <div className="h-4 w-32 rounded animate-pulse bg-muted" />
+              ) : workspaces.length > 0 ? (
+                <p className="text-[12px] text-muted-foreground">
+                  {workspaces.length} workspace{workspaces.length !== 1 ? "s" : ""} linked
+                </p>
+              ) : (
+                <span className="text-[13px] text-muted-foreground">Not connected</span>
+              )}
+            </div>
+          </div>
+          {!isLoading && (
+            <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+              {connect.isPending ? "Opening Slack…" : workspaces.length > 0 ? "Add workspace" : "Connect Slack"}
+            </Button>
+          )}
+        </div>
+
+        {workspaces.length > 0 && (
+          <ul className="border-t border-border divide-y divide-border">
+            {workspaces.map((w) => (
+              <li
+                key={w.team_id}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] bg-background"
+              >
+                <Slack className="size-3.5 shrink-0" aria-hidden />
+                <span className="font-medium text-foreground">
+                  {w.team || w.team_domain || w.team_id}
+                </span>
+                {w.slack_username && (
+                  <>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">@{w.slack_username}</span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Disconnect ${w.team || w.team_id}`}
+                  onClick={() => handleDisconnectOne(w.team_id)}
+                  disabled={disconnect.isPending}
+                  className="ml-auto text-muted-foreground hover:text-destructive transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
 function DangerZone() {
   const [open, setOpen] = useState(false);
 
@@ -283,6 +412,9 @@ export default function AccountSettings() {
       <hr className="my-2 border-border" />
       <SectionHeader title="GitHub" subtitle="Connect your GitHub account to enable automatic builds from your repos." />
       <GitHubSection />
+      <hr className="my-2 border-border" />
+      <SectionHeader title="Slack" subtitle="Link Slack workspaces to use deployed agents under your own identity." />
+      <SlackSection />
       <hr className="my-2 border-border" />
       <SectionHeader title="Danger Zone" subtitle="These actions are irreversible" />
       <DangerZone />

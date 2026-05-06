@@ -926,6 +926,31 @@ class ApiClient {
     );
   }
 
+  // Account-level Slack identity link via WorkOS Pipes. The mapping that
+  // backs per-user grants on slack lives in slack_identity_mappings and
+  // is populated by the callback handler.
+
+  async slackAccountStatus(account: string): Promise<SlackStatusResponse> {
+    return this.request<SlackStatusResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/slack`
+    );
+  }
+
+  /** Disconnect: omit teamID to revoke every workspace mapping; pass a
+   *  team_id to revoke just that one (multi-workspace per-row disconnect). */
+  async slackAccountDisconnect(account: string, teamID?: string): Promise<void> {
+    const url = `/api/v1/accounts/${encodeURIComponent(account)}/slack`;
+    const qs = teamID ? `?team_id=${encodeURIComponent(teamID)}` : '';
+    return this.request(url + qs, { method: 'DELETE' });
+  }
+
+  async slackConnectAccount(account: string, redirectTo: string): Promise<SlackConnectResponse> {
+    return this.request<SlackConnectResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/slack/connect`,
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
+    );
+  }
+
   async gitHubListAccountRepos(account: string, q: string, login?: string): Promise<{ repos: GitHubRepo[]; has_more: boolean }> {
     const params = new URLSearchParams({ q });
     if (login) params.set("login", login);
@@ -1688,6 +1713,29 @@ export interface GitHubConnectResponse {
   connected?: boolean;
   redirect_url?: string;
   github_login?: string;
+}
+
+/** One Slack workspace linked to the current user. The pair (team_id,
+ *  slack_user_id) is the unique key; the rest are display fields captured
+ *  from auth.test at link time. */
+export interface SlackWorkspace {
+  team_id: string;
+  slack_user_id: string;
+  team?: string;
+  team_domain?: string;
+  slack_username?: string;
+}
+
+/** GET /api/v1/accounts/:account/slack — returns every active Slack
+ *  workspace mapping for the current user. Empty list = not connected. */
+export interface SlackStatusResponse {
+  workspaces: SlackWorkspace[];
+}
+
+/** POST /api/v1/accounts/:account/slack/connect — returns the OAuth URL
+ *  the frontend navigates to. Always a fresh redirect; no short-circuit. */
+export interface SlackConnectResponse {
+  redirect_url: string;
 }
 
 export interface GitHubLinkInput {

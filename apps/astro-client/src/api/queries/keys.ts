@@ -45,6 +45,10 @@ export const githubKeys = {
   accountConnections: (account: string) => ['github', account, 'connections'] as const,
 };
 
+export const slackKeys = {
+  accountStatus: (account: string) => ['slack', account, 'status'] as const,
+};
+
 export const deploymentKeys = {
   summary: ['deployments', 'summary'] as const,
   all: (account: string) => ['deployments', account] as const,
