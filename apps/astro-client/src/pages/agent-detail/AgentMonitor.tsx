@@ -141,7 +141,7 @@ export default function AgentMonitor() {
                   {key === range && (
                     <motion.div
                       layoutId="monitor-range-pill"
-                      className="absolute inset-0 rounded-[10px] bg-white/10"
+                      className="absolute inset-0 rounded-[10px] bg-primary/15 dark:bg-white/10"
                       transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
                     />
                   )}

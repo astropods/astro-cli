@@ -141,7 +141,7 @@ export function ImportVariables({ onImport }: ImportVariablesProps) {
         </DialogHeader>
 
         {result ? (
-          <div className="rounded-[6px] bg-stone-100 p-4 dark:bg-stone-800">
+          <div className="rounded-[6px] bg-slate-100 p-4 dark:bg-slate-800">
             <div className="flex items-center gap-1.5">
               <Check size={16} className="text-green-700 dark:text-green-400 shrink-0" />
               <span className="text-sm font-medium text-foreground">

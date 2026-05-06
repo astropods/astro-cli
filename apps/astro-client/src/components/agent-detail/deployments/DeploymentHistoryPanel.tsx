@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pause, Play, History, Copy, Check } from "lucide-react";
+import { ArrowUp, ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pause, Play, History, Copy, Check } from "lucide-react";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import {
   useDeploymentHistory,
@@ -212,22 +212,25 @@ function UpgradeNudge({ currentBuildId, latestBuildId }: { currentBuildId: strin
   const navigate = useNavigate();
 
   return (
-    <button
-      onClick={() =>
-        navigate(`../configure?build=${encodeURIComponent(latestBuildId)}`, { relative: "path" })
-      }
-      className="flex w-full items-center justify-between gap-3 rounded border border-purple-600/30 bg-purple-500/10 px-3.5 py-2.5 text-left transition-colors hover:bg-purple-500/15 dark:border-purple-500/20 dark:bg-purple-500/12 dark:hover:bg-purple-500/18"
+    <div
+      className="flex w-full items-center justify-between gap-3 rounded border border-indigo-600/30 bg-indigo-500/15 px-3.5 py-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/18"
     >
       <div className="min-w-0">
-        <p className="text-mono-sm font-medium text-purple-800 dark:text-purple-300">New build available</p>
-        <p className="mt-0.5 truncate text-mono-sm text-purple-800/80 dark:text-purple-300/50">
+        <p className="text-mono-sm font-medium text-indigo-950 dark:text-indigo-100">New build available</p>
+        <p className="mt-0.5 truncate text-mono-sm text-indigo-950/70 dark:text-indigo-100/60">
           {currentBuildId.slice(0, 8)} → {latestBuildId.slice(0, 8)}
         </p>
       </div>
-      <span className="shrink-0 rounded bg-purple-500/20 px-2 py-1 text-mono-sm font-medium text-purple-800 transition-colors hover:bg-purple-500/30 dark:bg-purple-400/15 dark:text-purple-300 dark:hover:bg-purple-400/25">
-        Update
-      </span>
-    </button>
+      <Button
+        size="xs"
+        onClick={() =>
+          navigate(`../configure?build=${encodeURIComponent(latestBuildId)}`, { relative: "path" })
+        }
+      >
+        <ArrowUp className="size-3" />
+        Upgrade
+      </Button>
+    </div>
   );
 }
 
@@ -280,6 +283,9 @@ export function DeploymentHistoryPanel({
     >
       {records.map((record) => (
         <Fragment key={`${record.id}-${record.revision}`}>
+          {record.is_current && latestBuildId && (
+            <UpgradeNudge currentBuildId={deployment.build_id} latestBuildId={latestBuildId} />
+          )}
           <DeploymentTile
             name={tileDisplayName(record)}
             active={record.is_current}
@@ -296,9 +302,6 @@ export function DeploymentHistoryPanel({
                 : <HistoryTileMenu revision={record.revision} buildId={record.build_id} />
             }
           />
-          {record.is_current && latestBuildId && (
-            <UpgradeNudge currentBuildId={deployment.build_id} latestBuildId={latestBuildId} />
-          )}
         </Fragment>
       ))}
     </DeploymentHistoryPanelContent>

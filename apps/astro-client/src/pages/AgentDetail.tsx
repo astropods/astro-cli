@@ -50,7 +50,7 @@ export function useAgentDetailContext() {
 
 const STARFIELD_COLORS = {
   darkBg: "linear-gradient(to top, color-mix(in srgb, var(--color-indigo-900) 18%, var(--color-background)), var(--color-background))",
-  lightBg: "linear-gradient(to bottom, color-mix(in srgb, var(--color-indigo-500) 60%, var(--color-surface)), color-mix(in srgb, var(--color-indigo-500) 20%, var(--color-surface)))",
+  lightBg: "linear-gradient(in oklch to bottom, color-mix(in srgb, var(--color-blue-500) 60%, var(--color-surface)) 0%, color-mix(in srgb, var(--color-blue-500) 40%, var(--color-surface)) 70%, color-mix(in srgb, var(--color-blue-500) 25%, var(--color-surface)) 80%, color-mix(in srgb, var(--color-pink-500) 12%, var(--color-surface)) 93%, color-mix(in srgb, var(--color-amber-500) 20%, var(--color-surface)) 100%)",
   darkStars: "oklch(87.08% 0.0571 272.201)", // indigo-200
   lightStars: "#ffffff",
   darkCloudColor: "oklch(58.40% 0.2055 274.722)", // indigo-500

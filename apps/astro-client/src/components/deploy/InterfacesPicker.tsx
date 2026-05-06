@@ -85,12 +85,12 @@ export function InterfacesPicker({
                   !(hasInlineCredentials || hasWebAuthToggle) &&
                     (isSelected
                       ? "border-primary/40 bg-primary/5"
-                      : "border-border bg-transparent hover:bg-stone-200/50"),
+                      : "border-border bg-transparent hover:bg-slate-200/50"),
                 )}
               >
                 <div className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-sm shrink-0 transition-colors",
-                  isSelected ? "bg-primary/10" : "bg-stone-200",
+                  isSelected ? "bg-primary/10" : "bg-slate-200",
                   !isBrand && (isSelected ? "text-primary" : "text-muted-foreground"),
                 )}>
                   {icon}

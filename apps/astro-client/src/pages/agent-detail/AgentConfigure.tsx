@@ -111,22 +111,22 @@ export default function AgentConfigure() {
           transition={{ duration: 0.25, ease: "easeOut" }}
         >
           {isRollback && (
-            <div className="mb-6 flex items-center gap-3 rounded-md border border-purple-500/30 bg-purple-500/10 px-4 py-3">
-              <History className="size-4 shrink-0 text-purple-400" />
-              <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-purple-200">
+            <div className="mb-6 flex items-center gap-3 rounded-md border border-indigo-600/30 bg-indigo-300/80 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-500/18">
+              <History className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
+              <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-indigo-950 dark:text-indigo-100">
                 <span className="font-medium">Rollback</span>
-                <span className="text-purple-200/50">·</span>
+                <span className="text-indigo-950/50 dark:text-indigo-100/50">·</span>
                 <span>Config #{rollbackRevision}</span>
                 {rollbackBuild && (
                   <>
-                    <span className="text-purple-200/50">·</span>
+                    <span className="text-indigo-950/50 dark:text-indigo-100/50">·</span>
                     <span className="font-mono">{rollbackBuild.slice(0, 8)}</span>
                   </>
                 )}
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded p-0.5 text-purple-400/60 transition-colors hover:text-purple-300"
+                className="shrink-0 rounded p-0.5 text-indigo-700/60 transition-colors hover:text-indigo-900 dark:text-indigo-300/60 dark:hover:text-indigo-100"
                 onClick={clearOverrideParams}
               >
                 <X className="size-3.5" />
@@ -134,18 +134,18 @@ export default function AgentConfigure() {
             </div>
           )}
           {isUpgrade && (
-            <div className="mb-6 flex items-center gap-3 rounded-md border border-purple-500/30 bg-purple-500/10 px-4 py-3">
-              <ArrowUp className="size-4 shrink-0 text-purple-400" />
-              <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-purple-200">
+            <div className="mb-6 flex items-center gap-3 rounded-md border border-indigo-600/30 bg-indigo-300/80 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-500/18">
+              <ArrowUp className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
+              <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-indigo-950 dark:text-indigo-100">
                 <span className="font-medium">Upgrade</span>
-                <span className="text-purple-200/50">·</span>
+                <span className="text-indigo-950/50 dark:text-indigo-100/50">·</span>
                 <span>
                   {deployment.build_id.slice(0, 8)} → <span className="font-mono">{rollbackBuild!.slice(0, 8)}</span>
                 </span>
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded p-0.5 text-purple-400/60 transition-colors hover:text-purple-300"
+                className="shrink-0 rounded p-0.5 text-indigo-700/60 transition-colors hover:text-indigo-900 dark:text-indigo-300/60 dark:hover:text-indigo-100"
                 onClick={clearOverrideParams}
               >
                 <X className="size-3.5" />
