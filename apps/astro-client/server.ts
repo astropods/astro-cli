@@ -89,6 +89,17 @@ Bun.serve({
       }
     }
 
+    // Asset paths must never fall through to SSR. A miss here is a stale
+    // chunk reference from a previous build; if SSR renders a 200 HTML
+    // response under this URL, CDNs cache it and break MIME checks for
+    // every subsequent visitor until the cache TTL expires.
+    if (url.pathname.startsWith("/assets/")) {
+      return new Response("Not Found", {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
     // SSR for everything else
     try {
       return await handler(request);
