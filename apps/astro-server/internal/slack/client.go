@@ -49,10 +49,24 @@ type OAuthTeam struct {
 }
 
 // OAuthAuthedUser corresponds to the `authed_user` block. ID is the
-// linker's slack user_id — the identity our mapping is keyed on.
+// linker's slack user_id — the identity our mapping is keyed on. The
+// access token is the user-token (xoxp-…) issued by user_scope and is
+// what callers pass to TeamInfo / users.info / auth.test. Treat it as
+// short-lived: we use it once during the link flow and discard.
 type OAuthAuthedUser struct {
-	ID    string
-	Scope string
+	ID          string
+	Scope       string
+	AccessToken string
+}
+
+// TeamInfo is a subset of the slack `team.info` response. Used to
+// capture the workspace icon at link time so the settings UI can render
+// it without an extra round-trip per render.
+type TeamInfo struct {
+	ID      string
+	Name    string
+	Domain  string
+	IconURL string
 }
 
 // OAuthClient holds a slack app's client credentials and an HTTP client
@@ -139,8 +153,9 @@ func (c *OAuthClient) ExchangeCode(ctx context.Context, code, redirectURI string
 			Domain string `json:"domain,omitempty"`
 		} `json:"team"`
 		AuthedUser struct {
-			ID    string `json:"id"`
-			Scope string `json:"scope"`
+			ID          string `json:"id"`
+			Scope       string `json:"scope"`
+			AccessToken string `json:"access_token"`
 		} `json:"authed_user"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -161,8 +176,83 @@ func (c *OAuthClient) ExchangeCode(ctx context.Context, code, redirectURI string
 			Domain: raw.Team.Domain,
 		},
 		AuthedUser: OAuthAuthedUser{
-			ID:    raw.AuthedUser.ID,
-			Scope: raw.AuthedUser.Scope,
+			ID:          raw.AuthedUser.ID,
+			Scope:       raw.AuthedUser.Scope,
+			AccessToken: raw.AuthedUser.AccessToken,
 		},
+	}, nil
+}
+
+// TeamInfo calls slack.com/api/team.info with the supplied user token
+// and returns the workspace's display fields including its icon URL. The
+// caller passes the OAuth response's authed_user.access_token; the token
+// needs `team:read` scope.
+//
+// We pick image_88 for the icon — sharp at 2x for the small size we
+// render (~16-20px), no point fetching the larger sizes the API also
+// returns.
+func (c *OAuthClient) TeamInfo(ctx context.Context, userToken string) (TeamInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://slack.com/api/team.info", nil)
+	if err != nil {
+		return TeamInfo{}, fmt.Errorf("slack team.info: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+userToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return TeamInfo{}, fmt.Errorf("slack team.info: request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return TeamInfo{}, fmt.Errorf("slack team.info: read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return TeamInfo{}, fmt.Errorf("slack team.info: returned %d: %s", resp.StatusCode, body)
+	}
+
+	var raw struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+		Team  struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Domain string `json:"domain"`
+			Icon   struct {
+				Image34         string `json:"image_34,omitempty"`
+				Image44         string `json:"image_44,omitempty"`
+				Image68         string `json:"image_68,omitempty"`
+				Image88         string `json:"image_88,omitempty"`
+				ImageDefault    bool   `json:"image_default,omitempty"`
+			} `json:"icon"`
+		} `json:"team"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return TeamInfo{}, fmt.Errorf("slack team.info: decode: %w", err)
+	}
+	if !raw.OK {
+		return TeamInfo{}, fmt.Errorf("slack team.info: %s", raw.Error)
+	}
+
+	// Prefer image_88 (sharp at 2x); fall back through smaller sizes.
+	// image_default=true means the workspace has the generic Slack icon —
+	// we leave IconURL empty in that case so the frontend uses our svg.
+	icon := raw.Team.Icon.Image88
+	if icon == "" {
+		icon = raw.Team.Icon.Image68
+	}
+	if icon == "" {
+		icon = raw.Team.Icon.Image44
+	}
+	if raw.Team.Icon.ImageDefault {
+		icon = ""
+	}
+
+	return TeamInfo{
+		ID:      raw.Team.ID,
+		Name:    raw.Team.Name,
+		Domain:  raw.Team.Domain,
+		IconURL: icon,
 	}, nil
 }

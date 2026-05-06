@@ -354,7 +354,15 @@ function SlackSection() {
                 key={w.team_id}
                 className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] bg-background"
               >
-                <Slack className="size-3.5 shrink-0" aria-hidden />
+                {w.icon ? (
+                  <img
+                    src={w.icon}
+                    alt=""
+                    className="size-4 shrink-0 rounded-sm object-cover"
+                  />
+                ) : (
+                  <Slack className="size-3.5 shrink-0" aria-hidden />
+                )}
                 <span className="font-medium text-foreground">
                   {w.team || w.team_domain || w.team_id}
                 </span>

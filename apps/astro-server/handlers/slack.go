@@ -47,11 +47,14 @@ type SlackConnectRequest struct {
 
 // SlackWorkspace is one linked slack workspace surfaced in the status
 // response. A single WorkOS user can hold multiple, one per team_id.
+// Icon is empty when the workspace uses slack's default icon — the
+// frontend falls back to a generic Slack svg in that case.
 type SlackWorkspace struct {
 	TeamID        string `json:"team_id"`
 	SlackUserID   string `json:"slack_user_id"`
 	Team          string `json:"team,omitempty"`
 	TeamDomain    string `json:"team_domain,omitempty"`
+	Icon          string `json:"icon,omitempty"`
 	SlackUsername string `json:"slack_username,omitempty"`
 }
 
@@ -70,11 +73,17 @@ const (
 	slackOAuthStateMaxAge = 600 // 10 minutes
 )
 
-// slackUserScopes is the minimum scope set we ask slack for. user_scope
-// (not scope) ensures we get back a USER token whose authed_user.id is
-// the linker's actual slack identity. Bot scopes would give us a bot
-// token whose auth.test resolves to the bot, breaking the mapping.
-var slackUserScopes = []string{"users:read"}
+// slackUserScopes is the scope set we ask slack for. user_scope (not
+// scope) ensures we get back a USER token whose authed_user.id is the
+// linker's actual slack identity — bot scopes would give us a bot token
+// whose auth.test resolves to the bot, breaking the mapping.
+//
+//   - users:read — minimum to identify the human via authed_user.id
+//   - team:read  — needed for team.info → workspace icon URL the
+//     settings UI renders. team.info also returns name+domain which
+//     are already in the oauth.v2.access response, so the icon is the
+//     real reason this scope is here.
+var slackUserScopes = []string{"users:read", "team:read"}
 
 // SlackAccountConnect handles POST /api/v1/accounts/:account/slack/connect.
 // Returns the slack.com OAuth URL the frontend redirects to. A CSRF
@@ -198,6 +207,21 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			return
 		}
 
+		// Best-effort enrichment: pull the workspace icon via team.info so
+		// the settings UI can render it. Never fatal — if team:read isn't
+		// granted or slack 5xxs, we persist the mapping without an icon
+		// and the frontend falls back to its generic Slack svg.
+		var iconURL string
+		if resp.AuthedUser.AccessToken != "" {
+			info, infoErr := oauth.TeamInfo(c.Request.Context(), resp.AuthedUser.AccessToken)
+			if infoErr != nil {
+				log.Warn("slack: team.info failed; persisting without icon",
+					"error", infoErr, "user", session.UserID, "team_id", resp.Team.ID)
+			} else {
+				iconURL = info.IconURL
+			}
+		}
+
 		if upErr := store.Upsert(slackidentity.Mapping{
 			TeamID:         resp.Team.ID,
 			SlackUserID:    resp.AuthedUser.ID,
@@ -206,6 +230,7 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			Source:         slackidentity.SourcePipes, // historical name; still the only source
 			TeamName:       resp.Team.Name,
 			TeamDomain:     resp.Team.Domain,
+			TeamIconURL:    iconURL,
 			// SlackUsername is not in oauth.v2.access; the settings UI
 			// falls back to displaying @<slack_user_id> until a future
 			// users.info call populates it.
@@ -249,6 +274,7 @@ func SlackAccountStatus(log *logger.Logger, store *slackidentity.Store) gin.Hand
 				SlackUserID:   m.SlackUserID,
 				Team:          m.TeamName,
 				TeamDomain:    m.TeamDomain,
+				Icon:          m.TeamIconURL,
 				SlackUsername: m.SlackUsername,
 			})
 		}

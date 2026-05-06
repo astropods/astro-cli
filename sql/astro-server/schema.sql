@@ -644,6 +644,7 @@ CREATE TABLE public.slack_identity_mappings (
     -- every status load. Refreshed on each Upsert.
     team_name             varchar     NOT NULL DEFAULT '',
     team_domain           varchar     NOT NULL DEFAULT '',
+    team_icon_url         varchar     NOT NULL DEFAULT '',
     slack_username        varchar     NOT NULL DEFAULT '',
     created_at            timestamptz NOT NULL DEFAULT now(),
     updated_at            timestamptz NOT NULL DEFAULT now(),

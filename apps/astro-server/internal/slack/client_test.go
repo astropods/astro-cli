@@ -85,7 +85,11 @@ func TestOAuthClient_ExchangeCode_OK(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"ok": true,
 			"team": { "id": "T123", "name": "Acme", "domain": "acme" },
-			"authed_user": { "id": "U456", "scope": "users:read" }
+			"authed_user": {
+				"id": "U456",
+				"scope": "users:read,team:read",
+				"access_token": "xoxp-test-user-token"
+			}
 		}`))
 	}))
 	defer srv.Close()
@@ -100,6 +104,90 @@ func TestOAuthClient_ExchangeCode_OK(t *testing.T) {
 	}
 	if r.Team.Name != "Acme" || r.Team.Domain != "acme" {
 		t.Errorf("team display: %+v", r.Team)
+	}
+	// access_token must round-trip — TeamInfo / users.info need it.
+	if r.AuthedUser.AccessToken != "xoxp-test-user-token" {
+		t.Errorf("authed_user.access_token: %q", r.AuthedUser.AccessToken)
+	}
+}
+
+// TeamInfo happy path: pulls icon URL from image_88, surfaces team
+// display fields. Authorization header carries the user token verbatim.
+func TestOAuthClient_TeamInfo_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/team.info" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer xoxp-test" {
+			t.Errorf("auth header: %q", got)
+		}
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"team": {
+				"id": "T1",
+				"name": "Acme",
+				"domain": "acme",
+				"icon": {
+					"image_44": "https://example.com/44.png",
+					"image_68": "https://example.com/68.png",
+					"image_88": "https://example.com/88.png"
+				}
+			}
+		}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	info, err := c.TeamInfo(context.Background(), "xoxp-test")
+	if err != nil {
+		t.Fatalf("team.info: %v", err)
+	}
+	if info.ID != "T1" || info.Name != "Acme" || info.Domain != "acme" {
+		t.Errorf("identity: %+v", info)
+	}
+	if info.IconURL != "https://example.com/88.png" {
+		t.Errorf("expected image_88 preferred; got %q", info.IconURL)
+	}
+}
+
+// image_default=true means the workspace uses slack's generic icon —
+// surface IconURL="" so the frontend renders our own svg instead of a
+// placeholder slack-hash icon.
+func TestOAuthClient_TeamInfo_DefaultIconReturnsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"team": {
+				"id": "T1", "name": "Acme", "domain": "acme",
+				"icon": { "image_default": true, "image_88": "https://example.com/generic.png" }
+			}
+		}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	info, err := c.TeamInfo(context.Background(), "xoxp-test")
+	if err != nil {
+		t.Fatalf("team.info: %v", err)
+	}
+	if info.IconURL != "" {
+		t.Errorf("expected empty icon for image_default=true; got %q", info.IconURL)
+	}
+}
+
+// ok:false (e.g. missing_scope when team:read isn't granted) must surface
+// so the callback handler can decide whether to log + continue without
+// the icon vs. fail the link.
+func TestOAuthClient_TeamInfo_OkFalseSurfacesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok": false, "error": "missing_scope"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.TeamInfo(context.Background(), "xoxp-test")
+	if err == nil || !strings.Contains(err.Error(), "missing_scope") {
+		t.Errorf("expected missing_scope in error; got %v", err)
 	}
 }
 
