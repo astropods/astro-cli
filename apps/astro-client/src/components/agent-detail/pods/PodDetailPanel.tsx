@@ -160,23 +160,21 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
     return all;
   }, [workload, externalUrls]);
 
-  // Flatten env vars across all containers, dedup by name, sort alphabetically
-  const envVars = useMemo(() => {
-    const seen = new Map<string, { name: string; value: string; source: string; secret: boolean }>();
-    for (const container of workload.containers) {
-      for (const env of container.env ?? []) {
-        if (seen.has(env.name)) continue;
+  // Group env vars per container, sorted alphabetically within each
+  const envByContainer = useMemo(() => {
+    return workload.containers.map((container) => {
+      const vars = (container.env ?? []).map((env) => {
         const value = env.value ?? "";
         const source = env.from ?? "static";
-        seen.set(env.name, {
+        return {
           name: env.name,
           value,
           source,
           secret: isSensitiveEnvVar(env.name, value, source),
-        });
-      }
-    }
-    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      return { containerName: container.name, vars };
+    });
   }, [workload.containers]);
 
   return (
@@ -197,12 +195,23 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
       <PanelSection
         title="Environment Variables"
         description="Variables injected into this pod on startup."
-        isEmpty={envVars.length === 0}
+        isEmpty={envByContainer.every((c) => c.vars.length === 0)}
         emptyState="No environment variables"
       >
-        <div className="grid grid-cols-[auto_1fr] overflow-hidden rounded border border-border @max-[450px]:grid-cols-1">
-          {envVars.map((env, i) => (
-            <EnvVarRow key={env.name} name={env.name} value={env.value} secret={env.secret} isLast={i === envVars.length - 1} />
+        <div className="flex flex-col gap-4">
+          {envByContainer.map((container) => (
+            container.vars.length > 0 && (
+              <div key={container.containerName}>
+                {envByContainer.length > 1 && (
+                  <h4 className="mb-2 text-mono-sm font-medium text-muted-foreground">{container.containerName}</h4>
+                )}
+                <div className="grid grid-cols-[auto_1fr] overflow-hidden rounded border border-border @max-[450px]:grid-cols-1">
+                  {container.vars.map((env, i) => (
+                    <EnvVarRow key={env.name} name={env.name} value={env.value} secret={env.secret} isLast={i === container.vars.length - 1} />
+                  ))}
+                </div>
+              </div>
+            )
           ))}
         </div>
       </PanelSection>
