@@ -207,18 +207,42 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			return
 		}
 
-		// Best-effort enrichment: pull the workspace icon via team.info so
-		// the settings UI can render it. Never fatal — if team:read isn't
-		// granted or slack 5xxs, we persist the mapping without an icon
-		// and the frontend falls back to its generic Slack svg.
-		var iconURL string
+		// Best-effort enrichment: team.info for the workspace's display
+		// fields + icon, users.info for the linker's slack username. Both
+		// are non-fatal — if either fails (missing scope, slack 5xx) we
+		// persist what we have and the settings UI degrades gracefully.
+		//
+		// team.info is preferred over the OAuth response for name/domain
+		// because oauth.v2.access doesn't always include team.domain;
+		// team.info reliably does.
+		teamName := resp.Team.Name
+		teamDomain := resp.Team.Domain
+		var iconURL, slackUsername string
 		if resp.AuthedUser.AccessToken != "" {
 			info, infoErr := oauth.TeamInfo(c.Request.Context(), resp.AuthedUser.AccessToken)
 			if infoErr != nil {
 				log.Warn("slack: team.info failed; persisting without icon",
 					"error", infoErr, "user", session.UserID, "team_id", resp.Team.ID)
 			} else {
+				if info.Name != "" {
+					teamName = info.Name
+				}
+				if info.Domain != "" {
+					teamDomain = info.Domain
+				}
 				iconURL = info.IconURL
+			}
+
+			user, userErr := oauth.UserInfo(c.Request.Context(), resp.AuthedUser.AccessToken, resp.AuthedUser.ID)
+			if userErr != nil {
+				log.Warn("slack: users.info failed; persisting without username",
+					"error", userErr, "user", session.UserID, "slack_user_id", resp.AuthedUser.ID)
+			} else {
+				// Prefer the user-set display_name; fall back to handle.
+				slackUsername = user.DisplayName
+				if slackUsername == "" {
+					slackUsername = user.Name
+				}
 			}
 		}
 
@@ -227,13 +251,11 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			SlackUserID:    resp.AuthedUser.ID,
 			WorkOSUserID:   session.UserID,
 			OrganizationID: session.OrganizationID,
-			Source:         slackidentity.SourcePipes, // historical name; still the only source
-			TeamName:       resp.Team.Name,
-			TeamDomain:     resp.Team.Domain,
+			Source:         slackidentity.SourceOAuth,
+			TeamName:       teamName,
+			TeamDomain:     teamDomain,
 			TeamIconURL:    iconURL,
-			// SlackUsername is not in oauth.v2.access; the settings UI
-			// falls back to displaying @<slack_user_id> until a future
-			// users.info call populates it.
+			SlackUsername:  slackUsername,
 		}); upErr != nil {
 			log.Error("slack: persist identity mapping", "error", upErr, "user", session.UserID, "team_id", resp.Team.ID)
 			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=persist_failed")

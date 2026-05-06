@@ -34,12 +34,12 @@ func TestUpsert_WritesRow(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T123", "U456", "user_abc", "org_xyz", "pipes", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
+		WithArgs("T123", "U456", "user_abc", "org_xyz", "oauth", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(Mapping{
 		TeamID: "T123", SlackUserID: "U456", WorkOSUserID: "user_abc",
-		OrganizationID: "org_xyz", Source: "pipes", ConnectedAccountID: "ca_1",
+		OrganizationID: "org_xyz", Source: "oauth", ConnectedAccountID: "ca_1",
 		TeamName: "Acme", TeamDomain: "acme", TeamIconURL: "https://avatars.slack-edge.com/icon.png",
 		SlackUsername: "alice",
 	})
@@ -51,13 +51,13 @@ func TestUpsert_WritesRow(t *testing.T) {
 	}
 }
 
-// Source defaults to "pipes" when not supplied.
-func TestUpsert_DefaultsSourceToPipes(t *testing.T) {
+// Source defaults to "oauth" when not supplied.
+func TestUpsert_DefaultsSourceToOAuth(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "pipes", "", "", "", "", "").
+		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "", "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
@@ -92,7 +92,7 @@ func TestUpsert_PropagatesDBError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "pipes", "", "", "", "", "").
+		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "", "").
 		WillReturnError(errors.New("boom"))
 
 	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
@@ -168,8 +168,8 @@ func TestListByWorkOSUser_ReturnsActiveMappings(t *testing.T) {
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}).
-			AddRow("T1", "U1", "user_abc", "org_xyz", "pipes", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
-			AddRow("T2", "U2", "user_abc", "", "pipes", "", "", "", "", "", now, now, nil))
+			AddRow("T1", "U1", "user_abc", "org_xyz", "oauth", "ca_1", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
+			AddRow("T2", "U2", "user_abc", "", "oauth", "", "", "", "", "", now, now, nil))
 
 	out, err := store.ListByWorkOSUser("user_abc")
 	if err != nil {

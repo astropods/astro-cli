@@ -175,6 +175,55 @@ func TestOAuthClient_TeamInfo_DefaultIconReturnsEmpty(t *testing.T) {
 	}
 }
 
+// UserInfo happy path: returns username + display name via users.info.
+// Authorization header carries the user token verbatim.
+func TestOAuthClient_UserInfo_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/users.info" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("user"); got != "U456" {
+			t.Errorf("user query: %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer xoxp-test" {
+			t.Errorf("auth header: %q", got)
+		}
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"user": {
+				"id": "U456",
+				"name": "alice",
+				"profile": { "display_name": "Alice Cooper" }
+			}
+		}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	info, err := c.UserInfo(context.Background(), "xoxp-test", "U456")
+	if err != nil {
+		t.Fatalf("users.info: %v", err)
+	}
+	if info.ID != "U456" || info.Name != "alice" || info.DisplayName != "Alice Cooper" {
+		t.Errorf("identity: %+v", info)
+	}
+}
+
+// users.info ok:false (e.g. user_not_found) surfaces as an error so the
+// callback can log it and proceed without slack_username.
+func TestOAuthClient_UserInfo_OkFalseSurfacesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok": false, "error": "user_not_found"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.UserInfo(context.Background(), "xoxp-test", "U-missing")
+	if err == nil || !strings.Contains(err.Error(), "user_not_found") {
+		t.Errorf("expected user_not_found in error; got %v", err)
+	}
+}
+
 // ok:false (e.g. missing_scope when team:read isn't granted) must surface
 // so the callback handler can decide whether to log + continue without
 // the icon vs. fail the link.

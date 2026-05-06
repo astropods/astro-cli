@@ -637,7 +637,7 @@ CREATE TABLE public.slack_identity_mappings (
     slack_user_id         varchar     NOT NULL,
     workos_user_id        varchar     NOT NULL,
     organization_id       varchar,
-    source                varchar     NOT NULL DEFAULT 'pipes',
+    source                varchar     NOT NULL DEFAULT 'oauth',
     connected_account_id  varchar,
     -- Display fields captured at link time so the settings UI (and audit
     -- logs) can render workspace + handle without re-querying Slack on
@@ -651,7 +651,7 @@ CREATE TABLE public.slack_identity_mappings (
     revoked_at            timestamptz,
     CONSTRAINT slack_identity_mappings_pkey PRIMARY KEY (id),
     CONSTRAINT slack_identity_mappings_unique UNIQUE (team_id, slack_user_id),
-    CONSTRAINT slack_identity_mappings_source_check CHECK (source IN ('pipes'))
+    CONSTRAINT slack_identity_mappings_source_check CHECK (source IN ('oauth'))
 );
 
 CREATE INDEX idx_slack_identity_mappings_workos_user ON public.slack_identity_mappings(workos_user_id) WHERE revoked_at IS NULL;

@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	// SourcePipes marks a mapping created via the WorkOS Pipes link flow.
-	// Reserved for future sources (e.g. SCIM-driven, manual admin import).
-	SourcePipes = "pipes"
+	// SourceOAuth marks a mapping created via the raw Slack OAuth link
+	// flow. Reserved as a discriminator for future sources (e.g. SCIM-
+	// driven, manual admin import).
+	SourceOAuth = "oauth"
 )
 
 // Store is the data-access layer for Slack identity mappings.
@@ -72,7 +73,7 @@ func (s *Store) Upsert(m Mapping) error {
 	}
 	source := m.Source
 	if source == "" {
-		source = SourcePipes
+		source = SourceOAuth
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO slack_identity_mappings

@@ -69,6 +69,15 @@ type TeamInfo struct {
 	IconURL string
 }
 
+// UserInfo is a subset of the slack `users.info` response. We capture
+// the username at link time so the settings UI can show "@alice" instead
+// of "@U0ALENLUWBG".
+type UserInfo struct {
+	ID          string
+	Name        string // slack username (handle), e.g. "alice"
+	DisplayName string // user-set display name, e.g. "Alice Cooper"
+}
+
 // OAuthClient holds a slack app's client credentials and an HTTP client
 // scoped for OAuth requests.
 type OAuthClient struct {
@@ -254,5 +263,60 @@ func (c *OAuthClient) TeamInfo(ctx context.Context, userToken string) (TeamInfo,
 		Name:    raw.Team.Name,
 		Domain:  raw.Team.Domain,
 		IconURL: icon,
+	}, nil
+}
+
+// UserInfo calls slack.com/api/users.info?user=<id> with the supplied
+// user token and returns the user's display fields. Requires `users:read`
+// scope (which we already request).
+//
+// Used at link time to capture the slack username so the settings UI
+// can render "@alice" instead of "@U0ALENLUWBG". Best-effort: callers
+// log and continue when this fails — identity is already captured by
+// the OAuth response.
+func (c *OAuthClient) UserInfo(ctx context.Context, userToken, userID string) (UserInfo, error) {
+	q := url.Values{}
+	q.Set("user", userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://slack.com/api/users.info?"+q.Encode(), nil)
+	if err != nil {
+		return UserInfo{}, fmt.Errorf("slack users.info: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+userToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return UserInfo{}, fmt.Errorf("slack users.info: request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return UserInfo{}, fmt.Errorf("slack users.info: read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return UserInfo{}, fmt.Errorf("slack users.info: returned %d: %s", resp.StatusCode, body)
+	}
+
+	var raw struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+		User  struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Profile struct {
+				DisplayName string `json:"display_name,omitempty"`
+			} `json:"profile"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return UserInfo{}, fmt.Errorf("slack users.info: decode: %w", err)
+	}
+	if !raw.OK {
+		return UserInfo{}, fmt.Errorf("slack users.info: %s", raw.Error)
+	}
+	return UserInfo{
+		ID:          raw.User.ID,
+		Name:        raw.User.Name,
+		DisplayName: raw.User.Profile.DisplayName,
 	}, nil
 }
