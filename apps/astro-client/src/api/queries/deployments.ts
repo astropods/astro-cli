@@ -29,7 +29,7 @@ export function useDeploymentsSummary() {
   });
 }
 
-export function useDeployments(account: string, enabled = true) {
+export function useDeployments(account: string, enabled = true, opts?: { initialData?: DeploymentsListResponse }) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.all(account),
@@ -48,6 +48,8 @@ export function useDeployments(account: string, enabled = true) {
       });
       return hasTransitional ? 3000 : false;
     },
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
@@ -76,6 +78,7 @@ export function useDeployment(
     queryFn: () => api.getDeployment(id),
     enabled: !!id && enabled,
     initialData: options?.initialData,
+    initialDataUpdatedAt: options?.initialData ? 0 : undefined,
     refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
   });
 }

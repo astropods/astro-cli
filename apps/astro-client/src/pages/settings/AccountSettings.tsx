@@ -7,11 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { TimezoneSelect } from "@/components/ui/timezone-select";
 import { useAuth } from "@/lib/auth";
-import { useUpdateProfile } from "@/api/queries";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
 import { useLogTimezone } from "@/lib/timezone";
 import { SectionHeader, SavedIndicator } from "@/components/settings/SettingsShared";
-import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
@@ -27,26 +25,6 @@ import { AstroIcon } from "@/components/ui/astro-icon";
 import { ArrowRight, X } from "lucide-react";
 
 export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }];
-
-function ProfileSection() {
-  const { personalAccount, refresh } = useAuth();
-  const updateProfile = useUpdateProfile();
-
-  if (!personalAccount) return null;
-
-  return (
-    <ProfileEditor
-      accountName={personalAccount.name}
-      currentDisplayName={personalAccount.display_name ?? ""}
-      avatarDialogTitle="Upload profile image"
-      onSave={async (displayName) => {
-        await updateProfile.mutateAsync({ display_name: displayName });
-        refresh();
-      }}
-      isSaving={updateProfile.isPending}
-    />
-  );
-}
 
 function AccountSection() {
   const { user, personalAccount, refresh } = useAuth();
@@ -115,8 +93,6 @@ function GitHubSection() {
   const fromOAuth = searchParams.get('github_connected') === 'true';
   const oauthLogin = searchParams.get('github_login') ?? '';
 
-  // Seed the cache from the OAuth callback params so the toggle is visible
-  // immediately. initialDataUpdatedAt: 0 marks it stale → background refetch follows.
   const { data: status, isLoading } = useGitHubAccountStatus(account, {
     enabled: !!account,
     initialData: fromOAuth ? { connected: true, github_login: oauthLogin } : undefined,
@@ -409,10 +385,7 @@ function DangerZone() {
 export default function AccountSettings() {
   return (
     <>
-      <SectionHeader title="Profile" subtitle="Your public identity on Astro" />
-      <ProfileSection />
-      <hr className="my-2 border-border" />
-      <SectionHeader title="Account" subtitle="Email, password, and authentication" />
+      <SectionHeader title="Account" subtitle="Email, username, and authentication" />
       <AccountSection />
       <hr className="my-2 border-border" />
       <SectionHeader title="Preferences" subtitle="Display and localization" />

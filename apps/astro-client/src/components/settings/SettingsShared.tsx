@@ -1,4 +1,6 @@
+import React from "react";
 import { CheckIcon } from "@heroicons/react/24/outline";
+import { cn } from "@/lib/utils";
 
 const headingClass = {
   h1: "text-heading-1",
@@ -9,13 +11,15 @@ export function SectionHeader({
   as: Heading = "h2",
   title,
   subtitle,
+  className,
 }: {
   as?: "h1" | "h2";
-  title: string;
+  title: React.ReactNode;
   subtitle: string;
+  className?: string;
 }) {
   return (
-    <div className="space-y-1">
+    <div className={cn("flex-1 space-y-1 pb-6 border-b border-border", className)}>
       <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
       <p className="text-[13px] text-muted-foreground">{subtitle}</p>
     </div>

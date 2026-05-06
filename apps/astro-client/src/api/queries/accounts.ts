@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { AccountPublic, CreateAccountData, AccountMembersResponse } from '../../lib/api';
+import type { AccountPublic, CreateAccountData, AccountMembersResponse, AccountOrgsResponse } from '../../lib/api';
 import { accountKeys } from './keys';
 
 export function useAccountMembers(account: string, opts?: { includePending?: boolean }) {
@@ -72,12 +72,16 @@ export function useRenameAccount() {
   });
 }
 
-// No query invalidation here — callers refresh the session via useAuth().refresh()
-// which updates the session cookie with fresh user data from WorkOS.
-export function useUpdateProfile() {
+export function useUpdateProfile(account?: string) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { display_name: string }) =>
       api.updateProfile(data),
+    onSuccess: () => {
+      if (account) {
+        queryClient.invalidateQueries({ queryKey: accountKeys.detail(account) });
+      }
+    },
   });
 }
 
@@ -99,6 +103,28 @@ export function useSetAvatarPreset() {
 export function useResetAvatar() {
   return useMutation({
     mutationFn: (account: string) => api.resetAvatar(account),
+  });
+}
+
+export function useUpdateAccountProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, ...data }: { account: string; bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[] }) =>
+      api.updateAccountProfile(account, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });
+    },
+  });
+}
+
+export function useAccountOrgs(account: string, opts?: { initialData?: AccountOrgsResponse }) {
+  return useQuery<AccountOrgsResponse>({
+    queryKey: accountKeys.orgs(account),
+    queryFn: () => api.getAccountOrgs(account),
+    enabled: !!account,
+    staleTime: 60_000,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 

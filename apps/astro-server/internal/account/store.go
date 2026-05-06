@@ -346,8 +346,8 @@ func (s *AccountStore) UpdateDisplayName(accountID, displayName string) error {
 // UpdateProfile upserts extended public profile fields for an account atomically.
 // If displayName is non-empty it is also applied to the accounts table; an empty
 // string leaves the existing display_name unchanged.
-// Pointer fields use PATCH semantics: nil means "not provided, leave as-is";
-// non-nil (including pointer to empty string) means "set to this value".
+// UpdateProfile updates the account's display name and profile fields.
+// Pointer fields use PATCH semantics: nil = leave unchanged, non-nil = set (empty string clears the field).
 func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, location, email, localTimezone, pronouns, website *string, socialLinks *[]string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -382,44 +382,32 @@ func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, locatio
 		}
 	}
 
-	// Skip the profile upsert entirely if no profile fields were provided.
+	// Skip profile upsert entirely if no profile fields were provided.
 	if bio == nil && location == nil && email == nil && localTimezone == nil && pronouns == nil && website == nil && socialLinks == nil {
 		return tx.Commit()
 	}
 
-	var socialLinksVal []string
+	sl := []string{}
 	if socialLinks != nil {
-		socialLinksVal = *socialLinks
-	} else {
-		socialLinksVal = []string{}
+		sl = *socialLinks
 	}
 
+	// CASE WHEN flags ensure only explicitly provided fields overwrite existing values.
 	if _, err := tx.Exec(`
 		INSERT INTO account_profile (account_id, bio, location, email, local_timezone, pronouns, website, social_links)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (account_id) DO UPDATE SET
-			bio            = CASE WHEN $9  THEN EXCLUDED.bio            ELSE account_profile.bio END,
-			location       = CASE WHEN $10 THEN EXCLUDED.location       ELSE account_profile.location END,
-			email          = CASE WHEN $11 THEN EXCLUDED.email          ELSE account_profile.email END,
+			bio            = CASE WHEN $9  THEN EXCLUDED.bio            ELSE account_profile.bio            END,
+			location       = CASE WHEN $10 THEN EXCLUDED.location       ELSE account_profile.location       END,
+			email          = CASE WHEN $11 THEN EXCLUDED.email          ELSE account_profile.email          END,
 			local_timezone = CASE WHEN $12 THEN EXCLUDED.local_timezone ELSE account_profile.local_timezone END,
-			pronouns       = CASE WHEN $13 THEN EXCLUDED.pronouns       ELSE account_profile.pronouns END,
-			website        = CASE WHEN $14 THEN EXCLUDED.website        ELSE account_profile.website END,
-			social_links   = CASE WHEN $15 THEN EXCLUDED.social_links   ELSE account_profile.social_links END
+			pronouns       = CASE WHEN $13 THEN EXCLUDED.pronouns       ELSE account_profile.pronouns       END,
+			website        = CASE WHEN $14 THEN EXCLUDED.website        ELSE account_profile.website        END,
+			social_links   = CASE WHEN $15 THEN EXCLUDED.social_links   ELSE account_profile.social_links   END
 	`, accountID,
-		nullablePtrStr(bio),
-		nullablePtrStr(location),
-		nullablePtrStr(email),
-		nullablePtrStr(localTimezone),
-		nullablePtrStr(pronouns),
-		nullablePtrStr(website),
-		pq.Array(socialLinksVal),
-		bio != nil,
-		location != nil,
-		email != nil,
-		localTimezone != nil,
-		pronouns != nil,
-		website != nil,
-		socialLinks != nil,
+		nullablePtrStr(bio), nullablePtrStr(location), nullablePtrStr(email), nullablePtrStr(localTimezone), nullablePtrStr(pronouns), nullablePtrStr(website),
+		pq.Array(sl),
+		bio != nil, location != nil, email != nil, localTimezone != nil, pronouns != nil, website != nil, socialLinks != nil,
 	); err != nil {
 		return fmt.Errorf("failed to upsert profile: %w", err)
 	}
@@ -433,7 +421,7 @@ func nullableStr(s string) sql.NullString {
 }
 
 // nullablePtrStr converts a *string to a SQL NullString.
-// nil pointer → SQL NULL; pointer to empty string → SQL NULL; non-empty → valid string.
+// nil → SQL NULL; non-nil empty string → SQL NULL; non-nil non-empty → the value.
 func nullablePtrStr(s *string) sql.NullString {
 	if s == nil {
 		return sql.NullString{Valid: false}

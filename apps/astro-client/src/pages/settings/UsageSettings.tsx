@@ -3,6 +3,7 @@ import type { MetaFunction } from "react-router";
 import { Loader2, Info } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useAccountUsage, useQuotaIncreaseRequests } from "@/api/queries";
+import { SectionHeader } from "@/components/settings/SettingsShared";
 import type { UsageMeter } from "@/lib/api";
 import { formatNumber, RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import {
@@ -253,12 +254,7 @@ export default function UsageSettings() {
 
   return (
     <>
-      <div className="space-y-1">
-        <h2 className="text-heading-2 text-foreground">Usage</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Resource consumption for your account this billing period
-        </p>
-      </div>
+      <SectionHeader title="Usage" subtitle="Resource consumption for your account this billing period" />
       <UsageContent />
       <QuotaRequestsTable account={accountName} />
     </>

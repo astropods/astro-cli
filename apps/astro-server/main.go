@@ -687,11 +687,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			oapispec.Response(200, &handlers.AccountResponse{}),
 			oapispec.Response(404, &handlers.ErrorResponse{}),
 		)
-		// Org memberships are private — use OptionalAuth so the handler can
-		// distinguish the account owner from unauthenticated visitors.
-		accountOrgsGroup := v1.Group("")
-		accountOrgsGroup.Use(authMw.OptionalAuth())
-		api.GET(accountOrgsGroup, "/accounts/:account/orgs", "Get org memberships for an account", handlers.GetAccountOrgs(log, accountStore),
+		api.GET(v1, "/accounts/:account/orgs", "Get org memberships for an account", handlers.GetAccountOrgs(log, accountStore),
 			oapispec.Tags("Accounts"),
 			oapispec.PathParam("account", "Account name"),
 			oapispec.Response(200, gin.H{"orgs": []handlers.AccountOrgResponse{}}),

@@ -231,7 +231,7 @@ export function SidebarBody({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex flex-1 flex-col gap-6", className)}>
+    <div className={cn("flex flex-1 flex-col gap-6 md:pt-2", className)}>
       {children}
     </div>
   );

@@ -119,7 +119,7 @@ func SlackAccountConnect(log *logger.Logger, cfg SlackHandlerConfig) gin.Handler
 		// domain redirect (Lax permits top-level GETs across origins) and
 		// is invisible to JS. Secure tracks the configured frontend
 		// scheme so dev (http://localhost) still works.
-		http.SetCookie(c.Writer, &http.Cookie{
+		http.SetCookie(c.Writer, &http.Cookie{ //nolint:gosec // Secure is conditional on cfg; HttpOnly and SameSite are always set
 			Name:     slackOAuthStateCookie,
 			Value:    state,
 			Path:     "/",
@@ -353,7 +353,7 @@ func randomState() (string, error) {
 // clearStateCookie removes the CSRF state cookie. Called on every code
 // path the callback can take so a stale cookie can't be reused.
 func clearStateCookie(c *gin.Context, cfg SlackHandlerConfig) {
-	http.SetCookie(c.Writer, &http.Cookie{
+	http.SetCookie(c.Writer, &http.Cookie{ //nolint:gosec // Secure is conditional on cfg; HttpOnly and SameSite are always set
 		Name:     slackOAuthStateCookie,
 		Value:    "",
 		Path:     "/",

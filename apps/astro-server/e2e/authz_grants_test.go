@@ -74,8 +74,8 @@ func TestE2E_AuthzGrants_AtomicWrite_GrantsFailureRollsBackDeployment(t *testing
 	accountID := ensureTestAccount(t, db)
 	depID := deployid.New()
 
-	// user_id under slack violates the user_web_only_check constraint, so
-	// the INSERT inside ReplaceGrantsTx fails. Any production failure
+	// anyone + non-empty subject_id violates the anyone_empty_check constraint,
+	// so the INSERT inside ReplaceGrantsTx fails. Any production failure
 	// mode (deadlock, transient network, etc.) lands us in the same
 	// rollback path.
 	_, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
@@ -85,11 +85,11 @@ func TestE2E_AuthzGrants_AtomicWrite_GrantsFailureRollsBackDeployment(t *testing
 		SpecJSON:  `{"spec":"deployment/v1"}`,
 	}, func(tx *sql.Tx, id string) error {
 		return authorizationstore.ReplaceGrantsTx(tx, id, []authorizationstore.Grant{
-			{DeploymentID: id, SubjectType: authorizationstore.SubjectTypeUser, SubjectID: "u1", Adapter: authorizationstore.AdapterSlack},
+			{DeploymentID: id, SubjectType: authorizationstore.SubjectTypeAnyone, SubjectID: "non-empty", Adapter: authorizationstore.AdapterWeb},
 		})
 	})
 	if err == nil {
-		t.Fatal("expected SaveDeploymentPending to fail when grants insert violates the user_web_only_check constraint")
+		t.Fatal("expected SaveDeploymentPending to fail when grants insert violates the anyone_empty_check constraint")
 	}
 
 	if grantsDeploymentExists(t, db, depID) {

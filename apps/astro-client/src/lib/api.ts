@@ -34,6 +34,15 @@ export interface AccountPublic {
   owner?: AccountOwner;
   created_at: string;
   updated_at: string;
+  account_number?: number;
+  bio?: string;
+  location?: string;
+  email?: string;
+  local_timezone?: string;
+  pronouns?: string;
+  website?: string;
+  social_links?: string[];
+  avatar_colors?: AvatarColors;
 }
 
 export interface Account {
@@ -44,6 +53,24 @@ export interface Account {
   role?: string;
   organization_id?: string; // WorkOS org ID, present on organization accounts
   agents?: BlueprintSummary[];
+  account_number?: number;
+  bio?: string;
+  location?: string;
+  email?: string;
+  local_timezone?: string;
+  pronouns?: string;
+  website?: string;
+  social_links?: string[];
+}
+
+export interface AccountOrg {
+  name: string;
+  display_name?: string;
+  avatar_colors?: AvatarColors;
+}
+
+export interface AccountOrgsResponse {
+  orgs: AccountOrg[];
 }
 
 export interface AccountSearchResult {
@@ -286,6 +313,22 @@ class ApiClient {
         method: 'PATCH',
         body: JSON.stringify({ display_name: displayName }),
       }
+    );
+  }
+
+  async updateAccountProfile(
+    account: string,
+    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[] },
+  ): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    );
+  }
+
+  async getAccountOrgs(account: string): Promise<AccountOrgsResponse> {
+    return this.request<AccountOrgsResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/orgs`,
     );
   }
 

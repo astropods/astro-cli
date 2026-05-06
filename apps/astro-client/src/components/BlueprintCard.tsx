@@ -100,7 +100,7 @@ export interface BlueprintCardProps {
   slug: string;
   account: string;
   name: string;
-  description: string;
+  description?: string;
   visibility?: string;
   avatarUrl?: string;
   avatarColors?: AvatarColors;
@@ -316,7 +316,7 @@ export function BlueprintCard({
     <>
       <Link
         to={cardHref}
-        className={cn(cardShell, "group flex flex-col transition-all duration-150", !isDraft && "shadow-sm hover:shadow-md")}
+        className={cn(cardShell, "group flex h-full flex-col transition-all duration-150", !isDraft && "shadow-sm hover:shadow-md")}
         style={cardStyle}
       >
         {cardOverlays}
@@ -329,7 +329,7 @@ export function BlueprintCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-accent"
+                  className="flex h-7 w-7 items-center justify-center rounded-sm text-foreground transition-colors hover:bg-accent cursor-pointer"
                   aria-label="Blueprint options"
                 >
                   <EllipsisHorizontalIcon className="h-4 w-4" />

@@ -389,8 +389,7 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 }
 
 // UpdateAccountRequest represents the request body for updating account fields.
-// All profile fields use pointer types for PATCH semantics: absent (null/omitted)
-// means "leave unchanged"; present (even empty string) means "set to this value".
+// Profile fields use pointer/PATCH semantics: omitting a field leaves the existing value unchanged.
 type UpdateAccountRequest struct {
 	DisplayName   string    `json:"display_name"`
 	Bio           *string   `json:"bio"`
@@ -434,14 +433,16 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			c.JSON(http.StatusBadRequest, gin.H{"error": "location must be 100 characters or fewer"})
 			return
 		}
-		if req.Email != nil && len(*req.Email) > 255 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "email must be 255 characters or fewer"})
-			return
-		}
-		if req.Email != nil && *req.Email != "" {
-			if _, err := mail.ParseAddress(*req.Email); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "email must be a valid email address"})
+		if req.Email != nil {
+			if len(*req.Email) > 255 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "email must be 255 characters or fewer"})
 				return
+			}
+			if *req.Email != "" {
+				if _, err := mail.ParseAddress(*req.Email); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid email address"})
+					return
+				}
 			}
 		}
 		if req.LocalTimezone != nil && len(*req.LocalTimezone) > 50 {
@@ -452,33 +453,28 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pronouns must be 50 characters or fewer"})
 			return
 		}
-		if req.Website != nil && len(*req.Website) > 255 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "website must be 255 characters or fewer"})
-			return
-		}
-		if req.Website != nil && *req.Website != "" {
-			u, err := url.ParseRequestURI(*req.Website)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "website must be a valid http or https URL"})
+		if req.Website != nil {
+			if len(*req.Website) > 255 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "website must be 255 characters or fewer"})
 				return
 			}
-		}
-		if req.SocialLinks != nil && len(*req.SocialLinks) > 4 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "social_links may contain at most 4 entries"})
-			return
+			if *req.Website != "" {
+				u, err := url.ParseRequestURI(*req.Website)
+				if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "website must be a valid http or https URL"})
+					return
+				}
+			}
 		}
 		if req.SocialLinks != nil {
+			if len(*req.SocialLinks) > 4 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "social_links may contain at most 4 entries"})
+				return
+			}
 			for _, link := range *req.SocialLinks {
 				if len(link) > 255 {
 					c.JSON(http.StatusBadRequest, gin.H{"error": "each social link must be 255 characters or fewer"})
 					return
-				}
-				if link != "" {
-					u, err := url.ParseRequestURI(link)
-					if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "each social link must be a valid http or https URL"})
-						return
-					}
 				}
 			}
 		}
@@ -792,10 +788,11 @@ func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.
 	}
 }
 
-// GetAccountOrgs handles GET /api/v1/accounts/:account/orgs
+// GetAccountOrgs handles GET /api/v1/accounts/:account/orgs (public)
 // Returns the organization accounts the owner of the given personal account belongs to.
-// Org memberships are private: only the authenticated account owner receives the real list;
-// unauthenticated requests and requests from other users receive an empty list.
+// Intentionally unauthenticated: org memberships are visible on the public profile page.
+// TODO: when org accounts have a visibility field, filter here — authenticated owner gets all orgs,
+// unauthenticated visitors get public orgs only.
 func GetAccountOrgs(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
@@ -813,13 +810,6 @@ func GetAccountOrgs(log *logger.Logger, accountStore *account.AccountStore) gin.
 		ownerID, err := accountStore.GetFirstMemberUserID(acct.ID)
 		if err != nil {
 			// No members — return empty list
-			c.JSON(http.StatusOK, gin.H{"orgs": []AccountOrgResponse{}})
-			return
-		}
-
-		// Only expose org memberships to the account owner.
-		caller, authenticated := middleware.GetUser(c)
-		if !authenticated || caller.ID != ownerID {
 			c.JSON(http.StatusOK, gin.H{"orgs": []AccountOrgResponse{}})
 			return
 		}

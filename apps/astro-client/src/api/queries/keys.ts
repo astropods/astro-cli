@@ -9,6 +9,7 @@ export const accountKeys = {
   search: (q: string, type?: string) => ['accounts', 'search', q, type] as const,
   members: (account: string) => ['accounts', account, 'members'] as const,
   pendingMembers: (account: string) => ['accounts', account, 'members', 'include-pending'] as const,
+  orgs: (account: string) => ['accounts', account, 'orgs'] as const,
 };
 
 export const blueprintKeys = {

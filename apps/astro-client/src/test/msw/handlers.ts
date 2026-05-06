@@ -15,6 +15,8 @@ import type {
   AccountUsageResponse,
   AccountMembersResponse,
   DeploymentEventsResponse,
+  AccountPublic,
+  AccountOrgsResponse,
 } from '@/lib/api';
 
 // Fixture data — realistic but minimal
@@ -272,6 +274,22 @@ export const handlers = [
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> }));
+  }),
+
+  // GET /api/v1/accounts/:account (single account — tests override for 404/custom data)
+  http.get('/api/v1/accounts/:account', ({ params }) => {
+    return HttpResponse.json<AccountPublic>({
+      id: `acct-${params.account}`,
+      name: params.account as string,
+      type: 'personal',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+    });
+  }),
+
+  // GET /api/v1/accounts/:account/orgs
+  http.get('/api/v1/accounts/:account/orgs', () => {
+    return HttpResponse.json<AccountOrgsResponse>({ orgs: [] });
   }),
 
   // GET /api/v1/accounts/:account/members

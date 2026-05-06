@@ -15,7 +15,7 @@ export default [
     route("explore", "pages/Explore.tsx"),
     route("request-agent", "pages/RequestBlueprint.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
-    route(":account", "pages/AccountProfile.tsx"),
+    route(":account", "pages/AccountProfile/AccountProfile.tsx"),
     route(":account/:agentSlug", "pages/BlueprintDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),
 
@@ -32,6 +32,7 @@ export default [
       ...prefix("settings", [
         layout("pages/settings/SettingsLayout.tsx", [
           index("pages/settings/SettingsRedirect.tsx"),
+          route("profile", "pages/settings/ProfileSettings.tsx"),
           route("account", "pages/settings/AccountSettings.tsx"),
           route("usage", "pages/settings/UsageSettings.tsx"),
           route("secrets", "pages/settings/SecretsSettings.tsx"),

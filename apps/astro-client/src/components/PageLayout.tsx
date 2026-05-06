@@ -15,11 +15,19 @@ interface PageContainerProps {
    * values Tailwind can't express (e.g. `color-mix()` gradients).
    */
   style?: CSSProperties;
+  /**
+   * Rendered inside the outer full-bleed wrapper but outside the
+   * max-width inner container — use for decorations that should live
+   * in the side parking spaces (e.g. GradientGridWash).
+   * The outer wrapper becomes `relative` when this is provided.
+   */
+  outerChildren?: ReactNode;
 }
 
-export function PageContainer({ children, className, outerClassName, style }: PageContainerProps) {
+export function PageContainer({ children, className, outerClassName, style, outerChildren }: PageContainerProps) {
   return (
-    <div className={cn("flex-1 bg-muted", outerClassName)} style={style}>
+    <div className={cn("flex-1 bg-muted", outerChildren && "relative", outerClassName)} style={style}>
+      {outerChildren}
       <div
         className={cn(
           "@container w-full mx-auto max-w-[1500px] px-6 pb-6 pt-6 md:px-8 md:pb-8 md:pt-8",

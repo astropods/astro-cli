@@ -2,6 +2,7 @@ import type { MetaFunction } from "react-router";
 import { FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useExperiments } from "@/lib/experiments";
+import { SectionHeader } from "@/components/settings/SettingsShared";
 
 export const meta: MetaFunction = () => [{ title: "Experiments - Settings | Astro" }];
 
@@ -28,16 +29,11 @@ export default function ExperimentsSettings() {
   const { experiments, setExperiment } = useExperiments();
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-1">
-        <h1 className="text-heading-1 text-foreground flex items-center gap-2">
-          <FlaskConical className="size-5" />
-          Experimental features
-        </h1>
-        <p className="text-[13px] text-muted-foreground">
-          These features are in development and may change or be removed. Preferences are stored locally in your browser.
-        </p>
-      </div>
+    <>
+      <SectionHeader
+        title={<span className="flex items-center gap-2"><FlaskConical className="size-4" />Experimental features</span>}
+        subtitle="These features are in development and may change or be removed. Preferences are stored locally in your browser."
+      />
 
       <div className="rounded-md border border-border bg-surface px-4">
         <ExperimentRow
@@ -47,6 +43,6 @@ export default function ExperimentsSettings() {
           onCheckedChange={(v) => setExperiment("theming", v)}
         />
       </div>
-    </div>
+    </>
   );
 }
