@@ -613,3 +613,36 @@ CREATE TABLE public.deployment_authorization_grants (
 );
 
 CREATE INDEX idx_deployment_authorization_grants_deployment ON public.deployment_authorization_grants(deployment_id);
+
+-- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
+-- when the user connects their Slack account via WorkOS Pipes — the link
+-- handler exchanges the Pipes-issued access token for the slack identity via
+-- `auth.test`, then upserts a row here.
+--
+-- Used by the messaging container's authorization callback: a slack request
+-- carrying (team_id, slack_user_id) resolves to a WorkOS user_id via this
+-- table, which then enriches the candidate set used to match per-user grants.
+-- An unmapped slack user falls through to the existing owning-account
+-- candidate, so this table is purely additive — no behavior change for users
+-- who haven't linked.
+--
+-- revoked_at is a soft delete: the row is kept for audit / eventual restore
+-- when the user disconnects Slack. Lookups filter on revoked_at IS NULL.
+CREATE TABLE public.slack_identity_mappings (
+    id                    uuid        NOT NULL DEFAULT gen_random_uuid(),
+    team_id               varchar     NOT NULL,
+    slack_user_id         varchar     NOT NULL,
+    workos_user_id        varchar     NOT NULL,
+    organization_id       varchar,
+    source                varchar     NOT NULL DEFAULT 'pipes',
+    connected_account_id  varchar,
+    created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now(),
+    revoked_at            timestamptz,
+    CONSTRAINT slack_identity_mappings_pkey PRIMARY KEY (id),
+    CONSTRAINT slack_identity_mappings_unique UNIQUE (team_id, slack_user_id),
+    CONSTRAINT slack_identity_mappings_source_check CHECK (source IN ('pipes'))
+);
+
+CREATE INDEX idx_slack_identity_mappings_workos_user ON public.slack_identity_mappings(workos_user_id) WHERE revoked_at IS NULL;
+CREATE INDEX idx_slack_identity_mappings_lookup ON public.slack_identity_mappings(team_id, slack_user_id) WHERE revoked_at IS NULL;
