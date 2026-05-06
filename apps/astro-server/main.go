@@ -54,6 +54,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
 func main() {
@@ -415,6 +416,7 @@ func runAPI(
 	ghStore := githubconnection.New(db)
 	webhookStore := githubwebhook.New(db)
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
+	slackIdentityStore := slackidentity.NewStore(db)
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
@@ -426,7 +428,7 @@ func runAPI(
 	imagePreflighter := newImagePreflighter(cfg)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, ksStore, promClient, imagePreflighter)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -578,7 +580,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -1435,6 +1437,45 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			api.GET(accountGitHubRoutes, "/github/callback", "Account-level GitHub OAuth callback",
 				handlers.GitHubAccountCallback(log, pipesClient, githubCfg),
 				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+		}
+
+		// Account-scoped Slack identity routes. Slack identity is per-user-
+		// per-org via WorkOS Pipes — same shape as the GitHub account-level
+		// routes. The mapping is what lets per-user grants on slack work in
+		// the messaging container's authorization path.
+		slackCfg := handlers.SlackHandlerConfig{
+			WebhookBaseURL: callbackBase,
+			FrontendURL:    cfg.Auth.FrontendURL,
+		}
+		accountSlackRoutes := protected.Group("/accounts/:account")
+		accountSlackRoutes.Use(middleware.ResolveAccount(accountStore))
+		accountSlackRoutes.Use(middleware.RequireAccountMember(accountStore))
+		{
+			api.GET(accountSlackRoutes, "/slack", "Get Slack identity link status",
+				handlers.SlackAccountStatus(log, slackIdentityStore),
+				oapispec.Tags("Slack"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.DELETE(accountSlackRoutes, "/slack", "Disconnect Slack identity",
+				handlers.SlackAccountDisconnect(log, pipesClient, slackIdentityStore),
+				oapispec.Tags("Slack"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.POST(accountSlackRoutes, "/slack/connect", "Start Slack OAuth via WorkOS Pipes",
+				handlers.SlackAccountConnect(log, pipesClient, slackCfg),
+				oapispec.Tags("Slack"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			// Browser GET from the Pipes OAuth redirect — same auth middleware, no body.
+			api.GET(accountSlackRoutes, "/slack/callback", "WorkOS Pipes Slack OAuth callback",
+				handlers.SlackAccountCallback(log, pipesClient, slackIdentityStore, slackCfg),
+				oapispec.Tags("Slack"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)

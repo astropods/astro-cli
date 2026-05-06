@@ -636,6 +636,12 @@ CREATE TABLE public.slack_identity_mappings (
     organization_id       varchar,
     source                varchar     NOT NULL DEFAULT 'pipes',
     connected_account_id  varchar,
+    -- Display fields captured at link time so the settings UI (and audit
+    -- logs) can render workspace + handle without re-querying Slack on
+    -- every status load. Refreshed on each Upsert.
+    team_name             varchar     NOT NULL DEFAULT '',
+    team_domain           varchar     NOT NULL DEFAULT '',
+    slack_username        varchar     NOT NULL DEFAULT '',
     created_at            timestamptz NOT NULL DEFAULT now(),
     updated_at            timestamptz NOT NULL DEFAULT now(),
     revoked_at            timestamptz,

@@ -40,7 +40,8 @@ func NewStore(db *sql.DB) *Store {
 }
 
 // Mapping is one row in slack_identity_mappings. Zero values for optional
-// columns (OrganizationID, ConnectedAccountID) are stored as SQL NULL.
+// columns (OrganizationID, ConnectedAccountID) are stored as SQL NULL;
+// display fields (TeamName/TeamDomain/SlackUsername) are stored as ''.
 type Mapping struct {
 	TeamID             string
 	SlackUserID        string
@@ -48,9 +49,15 @@ type Mapping struct {
 	OrganizationID     string // optional; empty means stored NULL
 	Source             string
 	ConnectedAccountID string // optional; empty means stored NULL
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	RevokedAt          *time.Time // nil for active mappings
+	// Display fields captured at link time from auth.test. Used by the
+	// settings UI to render "Connected as @alice in Acme" without a fresh
+	// round-trip.
+	TeamName      string
+	TeamDomain    string
+	SlackUsername string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	RevokedAt     *time.Time // nil for active mappings
 }
 
 // Upsert writes or refreshes a mapping. Used by the link handler after
@@ -68,16 +75,21 @@ func (s *Store) Upsert(m Mapping) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO slack_identity_mappings
-			(team_id, slack_user_id, workos_user_id, organization_id, source, connected_account_id, updated_at, revoked_at)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, ''), now(), NULL)
+			(team_id, slack_user_id, workos_user_id, organization_id, source, connected_account_id,
+			 team_name, team_domain, slack_username, updated_at, revoked_at)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, now(), NULL)
 		ON CONFLICT (team_id, slack_user_id) DO UPDATE SET
 			workos_user_id       = EXCLUDED.workos_user_id,
 			organization_id      = EXCLUDED.organization_id,
 			source               = EXCLUDED.source,
 			connected_account_id = EXCLUDED.connected_account_id,
+			team_name            = EXCLUDED.team_name,
+			team_domain          = EXCLUDED.team_domain,
+			slack_username       = EXCLUDED.slack_username,
 			updated_at           = now(),
 			revoked_at           = NULL
-	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID, source, m.ConnectedAccountID)
+	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID, source, m.ConnectedAccountID,
+		m.TeamName, m.TeamDomain, m.SlackUsername)
 	if err != nil {
 		return fmt.Errorf("slackidentity: upsert: %w", err)
 	}
@@ -121,6 +133,7 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 		SELECT team_id, slack_user_id, workos_user_id,
 		       COALESCE(organization_id, ''), source,
 		       COALESCE(connected_account_id, ''),
+		       team_name, team_domain, slack_username,
 		       created_at, updated_at, revoked_at
 		FROM slack_identity_mappings
 		WHERE workos_user_id = $1 AND revoked_at IS NULL
@@ -137,6 +150,7 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 		if err := rows.Scan(
 			&m.TeamID, &m.SlackUserID, &m.WorkOSUserID,
 			&m.OrganizationID, &m.Source, &m.ConnectedAccountID,
+			&m.TeamName, &m.TeamDomain, &m.SlackUsername,
 			&m.CreatedAt, &m.UpdatedAt, &m.RevokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("slackidentity: scan: %w", err)
@@ -146,10 +160,8 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 	return out, rows.Err()
 }
 
-// Revoke soft-deletes every active mapping for a WorkOS user. Called on
-// disconnect so the user's slack identity stops resolving even before
-// WorkOS' Pipes-side revocation propagates. Returns the number of rows
-// affected.
+// Revoke soft-deletes every active mapping for a WorkOS user. Used by the
+// "Disconnect Slack entirely" path. Returns the number of rows affected.
 func (s *Store) Revoke(workosUserID string) (int64, error) {
 	res, err := s.db.Exec(`
 		UPDATE slack_identity_mappings
@@ -162,6 +174,26 @@ func (s *Store) Revoke(workosUserID string) (int64, error) {
 	n, err := res.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("slackidentity: revoke rows affected: %w", err)
+	}
+	return n, nil
+}
+
+// RevokeOne soft-deletes a single (workos_user_id, team_id) mapping. Used
+// by per-workspace disconnect — a user can have many slack workspaces
+// linked and may want to drop one without losing the rest. Returns the
+// number of rows affected (0 or 1).
+func (s *Store) RevokeOne(workosUserID, teamID string) (int64, error) {
+	res, err := s.db.Exec(`
+		UPDATE slack_identity_mappings
+		SET revoked_at = now(), updated_at = now()
+		WHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL
+	`, workosUserID, teamID)
+	if err != nil {
+		return 0, fmt.Errorf("slackidentity: revoke one: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("slackidentity: revoke one rows affected: %w", err)
 	}
 	return n, nil
 }
