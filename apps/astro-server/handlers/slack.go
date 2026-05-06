@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,26 +13,28 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	slackclient "github.com/astropods/astro/apps/astro-server/internal/slack"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
-// SlackProvider is the WorkOS Pipes provider slug for Slack OAuth.
-// Centralized so the link, callback, and disconnect handlers don't drift.
-const SlackProvider = "slack"
-
-// SlackHandlerConfig carries the URL-shape values the handlers need.
-// Mirrors GitHubHandlerConfig — same conventions, same naming.
+// SlackHandlerConfig carries the URL-shape values + slack app credentials
+// the handlers need. ClientID/ClientSecret come from the slack app at
+// api.slack.com/apps → Basic Information; the rest mirror the GitHub
+// pattern.
 type SlackHandlerConfig struct {
-	// WebhookBaseURL is the public API base URL (e.g. https://astropods.com).
+	ClientID     string
+	ClientSecret string
+	// WebhookBaseURL is the public API base URL the slack OAuth
+	// `redirect_uri` is built from. Must match a Redirect URL listed on
+	// the slack app's OAuth & Permissions page.
 	WebhookBaseURL string
-	// FrontendURL is the web app's base URL for browser redirects after the OAuth round-trip.
+	// FrontendURL is the web app's base URL for the post-callback
+	// browser redirect (e.g. back to /settings/account).
 	FrontendURL string
 }
 
-// SlackConnectResponse mirrors GitHubConnectResponse — a single redirect_url
-// the frontend navigates to in order to start the WorkOS Pipes OAuth flow.
+// SlackConnectResponse mirrors the GitHub one — a single redirect_url
+// the frontend navigates to, kicking off the slack OAuth round-trip.
 type SlackConnectResponse struct {
 	RedirectURL string `json:"redirect_url"`
 }
@@ -40,7 +45,7 @@ type SlackConnectRequest struct {
 	RedirectTo string `json:"redirect_to"`
 }
 
-// SlackWorkspace is one linked Slack workspace surfaced in the status
+// SlackWorkspace is one linked slack workspace surfaced in the status
 // response. A single WorkOS user can hold multiple, one per team_id.
 type SlackWorkspace struct {
 	TeamID        string `json:"team_id"`
@@ -50,23 +55,38 @@ type SlackWorkspace struct {
 	SlackUsername string `json:"slack_username,omitempty"`
 }
 
-// SlackStatusResponse lists every Slack workspace the current user has
+// SlackStatusResponse lists every slack workspace the current user has
 // linked. Empty list = not connected; the frontend renders an "Add
 // workspace" affordance unconditionally so the user can link more.
 type SlackStatusResponse struct {
 	Workspaces []SlackWorkspace `json:"workspaces"`
 }
 
+// CSRF state cookie. Random nonce written on /slack/connect, verified on
+// /slack/callback, then cleared. SameSite=Lax so it survives the
+// cross-domain redirect from slack.com back to our domain.
+const (
+	slackOAuthStateCookie = "astro_slack_oauth_state"
+	slackOAuthStateMaxAge = 600 // 10 minutes
+)
+
+// slackUserScopes is the minimum scope set we ask slack for. user_scope
+// (not scope) ensures we get back a USER token whose authed_user.id is
+// the linker's actual slack identity. Bot scopes would give us a bot
+// token whose auth.test resolves to the bot, breaking the mapping.
+var slackUserScopes = []string{"users:read"}
+
 // SlackAccountConnect handles POST /api/v1/accounts/:account/slack/connect.
-// Always returns a fresh Pipes authorization URL — there is no
-// already-connected short-circuit because each click is intended to add a
-// new workspace, not reuse an existing token. Pipes scopes by (user, org)
-// so any prior connection is revoked by the callback after the mapping is
-// captured, freeing the slot for the next link.
-func SlackAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg SlackHandlerConfig) gin.HandlerFunc {
+// Returns the slack.com OAuth URL the frontend redirects to. A CSRF
+// state cookie is set on the response; the callback verifies it.
+func SlackAccountConnect(log *logger.Logger, cfg SlackHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		session, ok := middleware.GetSession(c)
-		if !ok {
+		if cfg.ClientID == "" || cfg.ClientSecret == "" {
+			log.Error("slack: client credentials not configured (SLACK_CLIENT_ID / SLACK_CLIENT_SECRET)")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "slack integration not configured"})
+			return
+		}
+		if _, ok := middleware.GetSession(c); !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
 			return
 		}
@@ -77,116 +97,136 @@ func SlackAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Slac
 		}
 
 		var req SlackConnectRequest
-		_ = c.ShouldBindJSON(&req) // body is optional — empty redirect_to defaults below
+		_ = c.ShouldBindJSON(&req)
 
-		callbackURL := fmt.Sprintf("%s/api/v1/accounts/%s/slack/callback?redirect_to=%s",
-			cfg.WebhookBaseURL, acct.Name, url.QueryEscape(req.RedirectTo))
-
-		authURL, err := pipesClient.GetAuthorizationURL(c.Request.Context(), pipes.GetAuthorizationURLInput{
-			Provider:       SlackProvider,
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-			ReturnTo:       callbackURL,
-		})
+		state, err := randomState()
 		if err != nil {
-			log.Error("slack: pipes get authorization URL", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate Slack authorization URL"})
+			log.Error("slack: random state", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate state"})
 			return
 		}
 
-		c.JSON(http.StatusOK, SlackConnectResponse{RedirectURL: authURL})
+		// HttpOnly + SameSite=Lax: cookie survives the slack.com → our
+		// domain redirect (Lax permits top-level GETs across origins) and
+		// is invisible to JS. Secure tracks the configured frontend
+		// scheme so dev (http://localhost) still works.
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     slackOAuthStateCookie,
+			Value:    state,
+			Path:     "/",
+			MaxAge:   slackOAuthStateMaxAge,
+			HttpOnly: true,
+			Secure:   strings.HasPrefix(cfg.FrontendURL, "https://"),
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		redirectURI := fmt.Sprintf("%s/api/v1/accounts/%s/slack/callback?redirect_to=%s",
+			cfg.WebhookBaseURL, acct.Name, url.QueryEscape(req.RedirectTo))
+
+		oauth := slackclient.NewOAuthClient(cfg.ClientID, cfg.ClientSecret)
+		c.JSON(http.StatusOK, SlackConnectResponse{
+			RedirectURL: oauth.BuildAuthorizeURL(redirectURI, state, slackUserScopes),
+		})
 	}
 }
 
 // SlackAccountCallback handles GET /api/v1/accounts/:account/slack/callback.
-// WorkOS redirects here after the Pipes OAuth round-trip. We fetch the
-// freshly-issued Slack token, call auth.test to resolve (team_id,
-// slack_user_id), upsert the mapping, then send the browser back to the
-// frontend with ?slack_connected=true.
+// Slack redirects here with `code` + `state` after the user authorizes.
+// Verifies the state cookie, exchanges the code for an OAuth response,
+// reads team_id and authed_user.id directly (no auth.test follow-up),
+// upserts the mapping, and redirects back to the frontend.
 //
-// Errors during this flow surface as ?slack_error=<reason> so the settings
-// UI can render a useful message without a separate API call.
-func SlackAccountCallback(log *logger.Logger, pipesClient *pipes.Client, store *slackidentity.Store, cfg SlackHandlerConfig) gin.HandlerFunc {
+// On any failure the user is sent back to the frontend with
+// `?slack_error=<reason>` so the settings panel can render a useful
+// message without a separate API round-trip.
+func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg SlackHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
 			c.Redirect(http.StatusFound, cfg.FrontendURL+"?slack_error=not_authenticated")
 			return
 		}
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.Redirect(http.StatusFound, cfg.FrontendURL+"?slack_error=account_unresolved")
+			return
+		}
 
-		// Validate redirect_to to prevent open-redirect: must be a relative path.
+		// Validate redirect_to: must be a relative path (open-redirect guard).
 		redirectTo := c.Query("redirect_to")
 		if redirectTo == "" || !strings.HasPrefix(redirectTo, "/") || strings.HasPrefix(redirectTo, "//") {
 			redirectTo = "/settings/account"
 		}
 
-		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       SlackProvider,
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-		if err != nil {
-			log.Error("slack: token unavailable after callback", "error", err, "user", session.UserID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=token_unavailable")
+		// Slack puts user-cancelled / scope-rejected errors directly on
+		// the redirect (?error=access_denied). Surface them cleanly.
+		if slackErr := c.Query("error"); slackErr != "" {
+			clearStateCookie(c, cfg)
+			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error="+url.QueryEscape(slackErr))
 			return
 		}
 
-		// auth.test resolves the slack identity behind the OAuth grant.
-		// This is the only call we make against the user's Slack token in
-		// this flow — it just needs identity:read effectively.
-		identity, err := slackclient.New(token.AccessToken).AuthTest(c.Request.Context())
+		// CSRF: the cookie value must match the state= query param. Use a
+		// constant-time compare to avoid timing leaks (state is random
+		// nonce so the leak is mostly theoretical, but free here).
+		gotState := c.Query("state")
+		stateCookie, err := c.Request.Cookie(slackOAuthStateCookie)
+		if err != nil || stateCookie.Value == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(gotState)) != 1 {
+			clearStateCookie(c, cfg)
+			log.Warn("slack: state mismatch on callback", "user", session.UserID)
+			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=state_mismatch")
+			return
+		}
+		clearStateCookie(c, cfg)
+
+		code := c.Query("code")
+		if code == "" {
+			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=missing_code")
+			return
+		}
+
+		// Same redirect_uri value as the one sent during BuildAuthorizeURL —
+		// slack rejects on mismatch.
+		redirectURI := fmt.Sprintf("%s/api/v1/accounts/%s/slack/callback?redirect_to=%s",
+			cfg.WebhookBaseURL, acct.Name, url.QueryEscape(c.Query("redirect_to")))
+
+		oauth := slackclient.NewOAuthClient(cfg.ClientID, cfg.ClientSecret)
+		resp, err := oauth.ExchangeCode(c.Request.Context(), code, redirectURI)
 		if err != nil {
-			log.Error("slack: auth.test failed", "error", err, "user", session.UserID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=identity_failed")
+			log.Error("slack: oauth exchange failed", "error", err, "user", session.UserID)
+			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=exchange_failed")
 			return
 		}
 
 		if upErr := store.Upsert(slackidentity.Mapping{
-			TeamID:         identity.TeamID,
-			SlackUserID:    identity.UserID,
+			TeamID:         resp.Team.ID,
+			SlackUserID:    resp.AuthedUser.ID,
 			WorkOSUserID:   session.UserID,
 			OrganizationID: session.OrganizationID,
-			Source:         slackidentity.SourcePipes,
-			TeamName:       identity.Team,
-			TeamDomain:     identity.TeamDomain,
-			SlackUsername:  identity.User,
+			Source:         slackidentity.SourcePipes, // historical name; still the only source
+			TeamName:       resp.Team.Name,
+			TeamDomain:     resp.Team.Domain,
+			// SlackUsername is not in oauth.v2.access; the settings UI
+			// falls back to displaying @<slack_user_id> until a future
+			// users.info call populates it.
 		}); upErr != nil {
-			log.Error("slack: persist identity mapping", "error", upErr, "user", session.UserID, "team_id", identity.TeamID)
+			log.Error("slack: persist identity mapping", "error", upErr, "user", session.UserID, "team_id", resp.Team.ID)
 			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=persist_failed")
 			return
 		}
 
-		// Free the Pipes (user, org) slot so the next "Connect" click can
-		// link a different workspace. We don't need the slack token after
-		// this — auth.test was its only consumer, and the mapping is
-		// already persisted. Best-effort: a failure here doesn't affect
-		// authorization, just means the slot stays occupied until the
-		// user disconnects explicitly.
-		if delErr := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
-			Provider:       SlackProvider,
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		}); delErr != nil {
-			log.Warn("slack: pipes delete connection after link", "error", delErr, "user", session.UserID, "team_id", identity.TeamID)
-		}
-
 		params := url.Values{}
 		params.Set("slack_connected", "true")
-		if identity.User != "" {
-			params.Set("slack_user", identity.User)
-		}
-		if identity.Team != "" {
-			params.Set("slack_team", identity.Team)
+		if resp.Team.Name != "" {
+			params.Set("slack_team", resp.Team.Name)
 		}
 		c.Redirect(http.StatusFound, fmt.Sprintf("%s%s?%s", cfg.FrontendURL, redirectTo, params.Encode()))
 	}
 }
 
 // SlackAccountStatus handles GET /api/v1/accounts/:account/slack.
-// Returns every active Slack workspace mapping for the current user.
-// Source of truth is slack_identity_mappings — we don't ask Pipes
-// because the link flow revokes the Pipes connection after persisting
-// (so Pipes never has more than transient state for slack).
+// Returns every active slack workspace mapping for the current user. The
+// store is the source of truth — we don't talk to slack here.
 func SlackAccountStatus(log *logger.Logger, store *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
@@ -218,14 +258,14 @@ func SlackAccountStatus(log *logger.Logger, store *slackidentity.Store) gin.Hand
 
 // SlackAccountDisconnect handles DELETE /api/v1/accounts/:account/slack.
 //
-// Per-workspace disconnect: pass ?team_id=Txxx to revoke a single mapping.
-// Without team_id, every workspace mapping for the user is revoked.
+// Per-workspace disconnect: pass ?team_id=Txxx to revoke a single
+// mapping. Without team_id, every workspace mapping for the user is
+// revoked.
 //
-// The Pipes connection is normally already absent (the link callback
-// revokes it after persisting), but we make a best-effort DeleteConnection
-// in the all-mappings case as a defensive cleanup — if a callback half-
-// completed and left a Pipes connection orphaned, this clears it.
-func SlackAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, store *slackidentity.Store) gin.HandlerFunc {
+// We don't touch slack.com — the user token we issued is short-lived and
+// not stored anywhere. Authorization stops matching as soon as the
+// mapping row is soft-deleted.
+func SlackAccountDisconnect(log *logger.Logger, store *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -248,19 +288,30 @@ func SlackAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, store
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke Slack mappings"})
 			return
 		}
-
-		// Defensive: if a previous link callback failed before the Pipes-
-		// side revoke, the connection might still be parked here. Best-
-		// effort cleanup; benign 4xx from WorkOS is expected when the slot
-		// is already empty (the common case).
-		if err := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
-			Provider:       SlackProvider,
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		}); err != nil {
-			log.Warn("slack: pipes delete connection on full disconnect (best-effort)", "error", err, "user", session.UserID)
-		}
-
 		c.JSON(http.StatusOK, gin.H{"connected": false})
 	}
+}
+
+// randomState returns 32 bytes of cryptographic randomness, hex-encoded.
+// 64 chars; collision-resistant for CSRF state.
+func randomState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// clearStateCookie removes the CSRF state cookie. Called on every code
+// path the callback can take so a stale cookie can't be reused.
+func clearStateCookie(c *gin.Context, cfg SlackHandlerConfig) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     slackOAuthStateCookie,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   strings.HasPrefix(cfg.FrontendURL, "https://"),
+		SameSite: http.SameSiteLaxMode,
+	})
 }

@@ -1,10 +1,14 @@
-// Package slack provides a minimal Slack API client used to resolve a
-// user's Slack identity from a Pipes-issued OAuth token.
+// Package slack implements the slack OAuth client used to link a user's
+// slack identity to their WorkOS user. Identity comes from the
+// authed_user.id field of the oauth.v2.access response — there is no
+// follow-up auth.test call.
 //
-// The only call we make is auth.test, which returns the (team_id, user_id)
-// pair we need to persist a Slack ↔ WorkOS user mapping. Adding more Slack
-// API calls (chat.postMessage, conversations.list, etc.) is a matter of
-// adding methods to Client.
+// We do this raw (instead of via WorkOS Pipes) because Pipes' Slack
+// template is bot-token-shaped: GetAccessToken returns xoxb-* which
+// resolves to the *bot user* on auth.test, not the human installer. To
+// get the human's slack_user_id we need the user token issued by slack's
+// oauth.v2.access in the `authed_user.access_token` slot — and the
+// `authed_user.id` it ships alongside is exactly the identity we map.
 package slack
 
 import (
@@ -13,93 +17,152 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
-const apiBase = "https://slack.com/api"
+const (
+	authorizeURL = "https://slack.com/oauth/v2/authorize"
+	accessURL    = "https://slack.com/api/oauth.v2.access"
+)
 
-// Client calls the Slack Web API using a user OAuth token.
-type Client struct {
-	token      string
-	httpClient *http.Client
+// OAuthResponse is the subset of slack's oauth.v2.access response we
+// persist. The full response carries bot-token fields too (access_token,
+// scope), but we don't need them — slack identity is the only thing we
+// take from this flow.
+type OAuthResponse struct {
+	OK         bool
+	Error      string
+	Team       OAuthTeam
+	AuthedUser OAuthAuthedUser
 }
 
-// New returns a Client authenticated with the given OAuth token.
-func New(token string) *Client {
-	return &Client{
-		token: token,
+// OAuthTeam corresponds to the `team` block in oauth.v2.access. Domain
+// (the *.slack.com subdomain) is not always returned; we surface it when
+// present so the settings UI can render "Connected as @alice in
+// {team_domain}".
+type OAuthTeam struct {
+	ID     string
+	Name   string
+	Domain string
+}
+
+// OAuthAuthedUser corresponds to the `authed_user` block. ID is the
+// linker's slack user_id — the identity our mapping is keyed on.
+type OAuthAuthedUser struct {
+	ID    string
+	Scope string
+}
+
+// OAuthClient holds a slack app's client credentials and an HTTP client
+// scoped for OAuth requests.
+type OAuthClient struct {
+	clientID     string
+	clientSecret string
+	httpClient   *http.Client
+}
+
+// NewOAuthClient returns a Client authenticated with the given slack app
+// credentials. clientSecret is required only for ExchangeCode; the auth
+// URL builder uses clientID alone.
+func NewOAuthClient(clientID, clientSecret string) *OAuthClient {
+	return &OAuthClient{
+		clientID:     clientID,
+		clientSecret: clientSecret,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// Identity is the subset of auth.test we surface to callers. The Slack
-// workspace returns more (enterprise, bot_id, etc.) but only these fields
-// are load-bearing for identity mapping.
+// BuildAuthorizeURL returns the slack.com/oauth/v2/authorize URL the
+// browser navigates to.
 //
-// TeamID + UserID is the unique key for slack_identity_mappings. Team,
-// TeamDomain, and User are display strings — we persist them for the
-// settings UI ("Connected as @alice in Acme") and for audit.
-type Identity struct {
-	TeamID     string
-	UserID     string
-	Team       string // workspace display name (e.g. "Acme")
-	TeamDomain string // *.slack.com subdomain (e.g. "acme")
-	User       string // slack username (e.g. "alice")
+// userScopes are slack USER scopes (passed via `user_scope=`), distinct
+// from bot scopes (`scope=`). For identity link we only need
+// `users:read` — minimum to identify the human. We pass `scope=` empty
+// so no bot install happens.
+//
+// state is a CSRF nonce the caller writes to a cookie and verifies on
+// the callback. redirectURI must exactly match one of the URLs listed
+// under the slack app's OAuth & Permissions → Redirect URLs.
+func (c *OAuthClient) BuildAuthorizeURL(redirectURI, state string, userScopes []string) string {
+	q := url.Values{}
+	q.Set("client_id", c.clientID)
+	q.Set("user_scope", strings.Join(userScopes, ","))
+	q.Set("redirect_uri", redirectURI)
+	q.Set("state", state)
+	return authorizeURL + "?" + q.Encode()
 }
 
-// AuthTest calls https://slack.com/api/auth.test and returns the slack
-// identity associated with the client's token. Returns an error when Slack
-// reports ok=false (the token was revoked, scope insufficient, etc.) or
-// when the HTTP round-trip fails.
-func (c *Client) AuthTest(ctx context.Context) (Identity, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/auth.test", http.NoBody)
+// ExchangeCode swaps an OAuth code for the response carrying the user's
+// identity. redirectURI must match the value sent during BuildAuthorizeURL
+// (slack rejects a mismatch).
+//
+// Slack returns 200 even for ok=false errors (invalid_code, bad_redirect,
+// etc.); the body's `ok` field is the authoritative signal. A non-2xx is
+// a real network/proxy issue.
+func (c *OAuthClient) ExchangeCode(ctx context.Context, code, redirectURI string) (OAuthResponse, error) {
+	form := url.Values{}
+	form.Set("client_id", c.clientID)
+	form.Set("client_secret", c.clientSecret)
+	form.Set("code", code)
+	form.Set("redirect_uri", redirectURI)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, accessURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return Identity{}, fmt.Errorf("slack: build auth.test request: %w", err)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("slack: auth.test request: %w", err)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: exchange: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Identity{}, fmt.Errorf("slack: read auth.test body: %w", err)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: read body: %w", err)
 	}
-	// Slack returns 200 even for ok=false errors; the body's `ok` field is
-	// the authoritative signal. A non-2xx is a real network/proxy issue.
 	if resp.StatusCode >= 400 {
-		return Identity{}, fmt.Errorf("slack: auth.test returned %d: %s", resp.StatusCode, body)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: returned %d: %s", resp.StatusCode, body)
 	}
 
 	var raw struct {
-		OK         bool   `json:"ok"`
-		Error      string `json:"error,omitempty"`
-		TeamID     string `json:"team_id"`
-		UserID     string `json:"user_id"`
-		Team       string `json:"team"`
-		User       string `json:"user"`
-		TeamDomain string `json:"team_domain,omitempty"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+		Team  struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Domain string `json:"domain,omitempty"`
+		} `json:"team"`
+		AuthedUser struct {
+			ID    string `json:"id"`
+			Scope string `json:"scope"`
+		} `json:"authed_user"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return Identity{}, fmt.Errorf("slack: decode auth.test: %w", err)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: decode response: %w", err)
 	}
 	if !raw.OK {
-		return Identity{}, fmt.Errorf("slack: auth.test failed: %s", raw.Error)
+		return OAuthResponse{}, fmt.Errorf("slack oauth: exchange failed: %s", raw.Error)
 	}
-	if raw.TeamID == "" || raw.UserID == "" {
-		return Identity{}, fmt.Errorf("slack: auth.test missing team_id or user_id")
+	if raw.AuthedUser.ID == "" || raw.Team.ID == "" {
+		return OAuthResponse{}, fmt.Errorf("slack oauth: response missing team or authed_user identity")
 	}
-	return Identity{
-		TeamID:     raw.TeamID,
-		UserID:     raw.UserID,
-		Team:       raw.Team,
-		TeamDomain: raw.TeamDomain,
-		User:       raw.User,
+	return OAuthResponse{
+		OK:    true,
+		Error: raw.Error,
+		Team: OAuthTeam{
+			ID:     raw.Team.ID,
+			Name:   raw.Team.Name,
+			Domain: raw.Team.Domain,
+		},
+		AuthedUser: OAuthAuthedUser{
+			ID:    raw.AuthedUser.ID,
+			Scope: raw.AuthedUser.Scope,
+		},
 	}, nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 // redirectTransport rewrites request host/scheme to a test server so we
-// don't have to mock https://slack.com/api directly.
+// don't hit slack.com/api directly in unit tests.
 type redirectTransport struct {
 	target *url.URL
 }
@@ -22,91 +22,127 @@ func (rt *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return http.DefaultTransport.RoundTrip(r2)
 }
 
-func newTestClient(t *testing.T, srv *httptest.Server) *Client {
+func newTestClient(t *testing.T, srv *httptest.Server) *OAuthClient {
 	t.Helper()
 	u, _ := url.Parse(srv.URL)
-	c := New("test-token")
+	c := NewOAuthClient("client-id-1", "client-secret-2")
 	c.httpClient = &http.Client{Transport: &redirectTransport{target: u}}
 	return c
 }
 
-// AuthTest happy path: ok:true, fields populated → Identity returned.
-func TestClient_AuthTest_OK(t *testing.T) {
+// BuildAuthorizeURL serializes the authorize URL with the right params.
+// We pass user_scope (not scope) — bot scopes would issue a bot token and
+// auth.test would resolve to the bot, not the human. State and redirect
+// URI must round-trip to the callback exactly.
+func TestOAuthClient_BuildAuthorizeURL(t *testing.T) {
+	c := NewOAuthClient("client-id-1", "")
+	got := c.BuildAuthorizeURL("https://astropods.com/api/v1/accounts/x/slack/callback", "csrf-state", []string{"users:read"})
+
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if u.Host != "slack.com" || u.Path != "/oauth/v2/authorize" {
+		t.Errorf("unexpected URL: %s", got)
+	}
+	q := u.Query()
+	if q.Get("client_id") != "client-id-1" {
+		t.Errorf("client_id: %q", q.Get("client_id"))
+	}
+	if q.Get("user_scope") != "users:read" {
+		t.Errorf("user_scope: %q", q.Get("user_scope"))
+	}
+	if q.Get("scope") != "" {
+		t.Errorf("scope must be empty (we don't want a bot install): %q", q.Get("scope"))
+	}
+	if q.Get("state") != "csrf-state" {
+		t.Errorf("state: %q", q.Get("state"))
+	}
+	if q.Get("redirect_uri") != "https://astropods.com/api/v1/accounts/x/slack/callback" {
+		t.Errorf("redirect_uri: %q", q.Get("redirect_uri"))
+	}
+}
+
+// ExchangeCode happy path: ok:true, identity in team + authed_user.
+func TestOAuthClient_ExchangeCode_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/auth.test" {
+		if r.URL.Path != "/api/oauth.v2.access" {
 			t.Errorf("path: %s", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		if r.Method != http.MethodPost {
+			t.Errorf("method: %s", r.Method)
+		}
+		_ = r.ParseForm()
+		if r.Form.Get("client_id") != "client-id-1" || r.Form.Get("client_secret") != "client-secret-2" {
+			t.Errorf("missing creds: %+v", r.Form)
+		}
+		if r.Form.Get("code") != "ok-code" {
+			t.Errorf("code: %s", r.Form.Get("code"))
+		}
+		if r.Form.Get("redirect_uri") != "https://astropods.com/cb" {
+			t.Errorf("redirect_uri: %s", r.Form.Get("redirect_uri"))
 		}
 		_, _ = w.Write([]byte(`{
 			"ok": true,
-			"team_id": "T123",
-			"user_id": "U456",
-			"team": "Acme",
-			"user": "alice",
-			"team_domain": "acme"
+			"team": { "id": "T123", "name": "Acme", "domain": "acme" },
+			"authed_user": { "id": "U456", "scope": "users:read" }
 		}`))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
 
-	id, err := c.AuthTest(context.Background())
+	r, err := c.ExchangeCode(context.Background(), "ok-code", "https://astropods.com/cb")
 	if err != nil {
-		t.Fatalf("auth.test: %v", err)
+		t.Fatalf("exchange: %v", err)
 	}
-	if id.TeamID != "T123" || id.UserID != "U456" {
-		t.Errorf("identity keys: %+v", id)
+	if r.Team.ID != "T123" || r.AuthedUser.ID != "U456" {
+		t.Errorf("identity: %+v", r)
 	}
-	if id.Team != "Acme" || id.TeamDomain != "acme" || id.User != "alice" {
-		t.Errorf("identity display: %+v", id)
+	if r.Team.Name != "Acme" || r.Team.Domain != "acme" {
+		t.Errorf("team display: %+v", r.Team)
 	}
 }
 
-// Slack returns 200 with ok:false on auth failures (revoked token,
-// scope_insufficient, …). The error message must surface so callers can
-// decide between user-actionable ("re-link") vs. operator-actionable.
-func TestClient_AuthTest_OkFalseSurfacesSlackError(t *testing.T) {
+// Slack returns 200 with ok:false on auth failures (bad_redirect_uri,
+// invalid_code, …); the error must surface so the caller can decide how
+// to react instead of silently failing closed.
+func TestOAuthClient_ExchangeCode_OkFalseSurfacesError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"ok": false, "error": "invalid_auth"}`))
+		_, _ = w.Write([]byte(`{"ok": false, "error": "bad_redirect_uri"}`))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
 
-	_, err := c.AuthTest(context.Background())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "invalid_auth") {
-		t.Errorf("error should surface slack code; got %v", err)
+	_, err := c.ExchangeCode(context.Background(), "x", "https://astropods.com/cb")
+	if err == nil || !strings.Contains(err.Error(), "bad_redirect_uri") {
+		t.Errorf("expected bad_redirect_uri in error; got %v", err)
 	}
 }
 
-// ok:true but missing keys is a malformed response — treat as error so we
-// don't write half-baked rows to slack_identity_mappings.
-func TestClient_AuthTest_MissingKeys(t *testing.T) {
+// Missing identity is malformed — guard against persisting half-baked
+// rows in slack_identity_mappings.
+func TestOAuthClient_ExchangeCode_MissingIdentity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"ok": true, "team": "Acme"}`))
+		_, _ = w.Write([]byte(`{"ok": true, "team": {"id":"T1"}}`))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
 
-	_, err := c.AuthTest(context.Background())
+	_, err := c.ExchangeCode(context.Background(), "x", "https://astropods.com/cb")
 	if err == nil {
-		t.Fatal("expected error for missing team_id/user_id")
+		t.Fatal("expected error for missing authed_user.id")
 	}
 }
 
 // 5xx propagates as a transport error.
-func TestClient_AuthTest_HTTPError(t *testing.T) {
+func TestOAuthClient_ExchangeCode_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusBadGateway)
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
 
-	_, err := c.AuthTest(context.Background())
+	_, err := c.ExchangeCode(context.Background(), "x", "https://astropods.com/cb")
 	if err == nil {
 		t.Fatal("expected error")
 	}

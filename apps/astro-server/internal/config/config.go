@@ -25,6 +25,7 @@ type Config struct {
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
 	S3                   S3Config
 	GitHub               GitHubConfig
+	Slack                SlackConfig
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
 	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
 	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
@@ -144,6 +145,27 @@ type GitHubConfig struct {
 	BuildServiceAccount string
 	// GITHUB_BUILDKIT_CONFIGMAP — ConfigMap in the build namespace containing buildkitd.toml (default: buildkitd-config)
 	BuildKitConfigMap string
+}
+
+// SlackConfig holds Slack identity-link (raw Slack OAuth) configuration.
+//
+// We don't use WorkOS Pipes for slack: Pipes hands back a bot token, but
+// to discover the linker's *human* slack identity we need a user token
+// (slack OAuth's `user_scope`). Pipes' `GetAccessToken` only returns the
+// bot token, so we run the OAuth dance ourselves.
+type SlackConfig struct {
+	// SLACK_CLIENT_ID — slack app credentials from api.slack.com/apps →
+	// Basic Information. Required for the OAuth code exchange.
+	ClientID string
+	// SLACK_CLIENT_SECRET — pair of CLIENT_ID. Used to authenticate the
+	// `oauth.v2.access` call from the callback handler. Treat as a secret.
+	ClientSecret string
+	// SLACK_CALLBACK_URL — base URL the slack OAuth `redirect_uri` is
+	// built from (e.g. https://astropods.com or an ngrok tunnel in local
+	// dev). The `${base}/api/v1/accounts/:account/slack/callback` URL is
+	// built from this value. The slack app must list the same URL under
+	// OAuth & Permissions → Redirect URLs. Falls back to FRONTEND_URL.
+	CallbackURL string
 }
 
 // DeploymentConfig holds deployment-related configuration
@@ -307,6 +329,11 @@ func Load() (*Config, error) {
 			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "as0-builds"),
 			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "build-worker"),
 			BuildKitConfigMap:   getEnv("GITHUB_BUILDKIT_CONFIGMAP", ""),
+		},
+		Slack: SlackConfig{
+			ClientID:     getEnv("SLACK_CLIENT_ID", ""),
+			ClientSecret: getEnv("SLACK_CLIENT_SECRET", ""),
+			CallbackURL:  getEnv("SLACK_CALLBACK_URL", ""),
 		},
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),

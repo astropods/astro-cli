@@ -1442,12 +1442,23 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			)
 		}
 
-		// Account-scoped Slack identity routes. Slack identity is per-user-
-		// per-org via WorkOS Pipes — same shape as the GitHub account-level
-		// routes. The mapping is what lets per-user grants on slack work in
-		// the messaging container's authorization path.
+		// Account-scoped Slack identity routes. Identity link uses raw
+		// slack OAuth (not WorkOS Pipes) because we need the user token
+		// — Pipes only surfaces the bot token, whose auth.test resolves
+		// to the bot user, not the human installer.
+		//
+		// SLACK_CALLBACK_URL is independent of GITHUB_CALLBACK_URL: in
+		// production they're typically the same value, but in dev each
+		// integration may need its own ngrok tunnel registered with a
+		// different OAuth app.
+		slackCallbackBase := cfg.Slack.CallbackURL
+		if slackCallbackBase == "" {
+			slackCallbackBase = cfg.Auth.FrontendURL
+		}
 		slackCfg := handlers.SlackHandlerConfig{
-			WebhookBaseURL: callbackBase,
+			ClientID:       cfg.Slack.ClientID,
+			ClientSecret:   cfg.Slack.ClientSecret,
+			WebhookBaseURL: slackCallbackBase,
 			FrontendURL:    cfg.Auth.FrontendURL,
 		}
 		accountSlackRoutes := protected.Group("/accounts/:account")
@@ -1461,20 +1472,21 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("account", "Account name"),
 			)
 			api.DELETE(accountSlackRoutes, "/slack", "Disconnect Slack identity",
-				handlers.SlackAccountDisconnect(log, pipesClient, slackIdentityStore),
+				handlers.SlackAccountDisconnect(log, slackIdentityStore),
 				oapispec.Tags("Slack"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)
-			api.POST(accountSlackRoutes, "/slack/connect", "Start Slack OAuth via WorkOS Pipes",
-				handlers.SlackAccountConnect(log, pipesClient, slackCfg),
+			api.POST(accountSlackRoutes, "/slack/connect", "Start raw Slack OAuth flow",
+				handlers.SlackAccountConnect(log, slackCfg),
 				oapispec.Tags("Slack"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)
-			// Browser GET from the Pipes OAuth redirect — same auth middleware, no body.
-			api.GET(accountSlackRoutes, "/slack/callback", "WorkOS Pipes Slack OAuth callback",
-				handlers.SlackAccountCallback(log, pipesClient, slackIdentityStore, slackCfg),
+			// Browser GET from slack.com after the user authorizes — same
+			// auth middleware (the session cookie is still present), no body.
+			api.GET(accountSlackRoutes, "/slack/callback", "Slack OAuth callback",
+				handlers.SlackAccountCallback(log, slackIdentityStore, slackCfg),
 				oapispec.Tags("Slack"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
