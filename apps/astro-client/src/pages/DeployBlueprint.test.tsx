@@ -375,6 +375,60 @@ describe('DeployBlueprint page', () => {
       });
     });
 
+    it('shows load error in vault picker when variables API fails', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({ error: 'insufficient permissions for this account' }, { status: 403 }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Could not load variables')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('No variables yet')).not.toBeInTheDocument();
+    });
+
+    it('shows ErrorPanel when variables list fails on deploy form', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({ error: 'insufficient permissions for this account' }, { status: 403 }),
+        ),
+      );
+
+      renderInstall();
+      await waitForForm();
+
+      await waitFor(() => {
+        expect(screen.getByText('Could not load account variables')).toBeInTheDocument();
+        expect(screen.getByText('insufficient permissions for this account')).toBeInTheDocument();
+      });
+    });
+
+    it('shows ErrorPanel with switch-org message when JWT org scope mismatches target account', async () => {
+      const msg = 'session is not scoped to this organization, use switch-org first';
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({ error: msg }, { status: 403 }),
+        ),
+      );
+
+      renderInstall();
+      await waitForForm();
+
+      await waitFor(() => {
+        expect(screen.getByText('Could not load account variables')).toBeInTheDocument();
+        expect(screen.getByText(msg)).toBeInTheDocument();
+      });
+    });
+
     it('inserts vault reference into Slack token field on selection', async () => {
       server.use(
         http.get('/api/v1/accounts/:account/variables', () =>

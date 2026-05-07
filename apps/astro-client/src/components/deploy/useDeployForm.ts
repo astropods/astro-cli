@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces } from "@/lib/api";
+import { ApiRequestError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
@@ -23,6 +24,12 @@ function isWebAuthOidc(auth: TemplateInterfaces['auth'] | undefined): boolean {
 function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
   const parsed = parseVaultToken(value);
   return parsed !== null && !knownNames.has(parsed.name);
+}
+
+function formatVaultVariablesLoadError(err: unknown): string {
+  if (err instanceof ApiRequestError) return err.message;
+  if (err instanceof Error) return err.message;
+  return "Could not load variables for this account.";
 }
 
 export interface DeployFormInitialValues {
@@ -221,7 +228,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (allowedTargetAccounts?.length && !allowedTargetAccounts.includes(next)) return;
     setTargetAccount(next);
   }, [allowedTargetAccounts]);
-  const { data: accountVarsData, isSuccess: accountVarsLoaded } = useAccountVariables(targetAccount);
+  const {
+    data: accountVarsData,
+    isSuccess: accountVarsLoaded,
+    isError: vaultVarsQueryFailed,
+    error: vaultVarsQueryError,
+  } = useAccountVariables(targetAccount);
+  const vaultEntriesLoadError = vaultVarsQueryFailed
+    ? formatVaultVariablesLoadError(vaultVarsQueryError)
+    : null;
   const accountVarNames = useMemo(
     () => new Set(accountVarsData?.variables.map(v => v.name) ?? []),
     [accountVarsData?.variables],
@@ -752,6 +767,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
 
     vaultEntries: accountVarsData?.variables ?? [],
+    vaultEntriesLoadError,
     vaultSettingsUrl: (() => {
       const acct = accounts.find(a => a.name === targetAccount);
       if (!acct || acct.type === 'personal') return '/settings/secrets';

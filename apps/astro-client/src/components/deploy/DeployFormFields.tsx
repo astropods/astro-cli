@@ -90,6 +90,10 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
         <ErrorPanel title={form.deployError.message}>
           {form.deployError.details ?? null}
         </ErrorPanel>
+      ) : form.vaultEntriesLoadError ? (
+        <ErrorPanel title="Could not load account variables">
+          {form.vaultEntriesLoadError}
+        </ErrorPanel>
       ) : null}
 
       {/* Agent name & account */}
@@ -189,6 +193,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           onWebAuthChange={form.setWebAuthEnabled}
           vaultEntries={form.vaultEntries}
           vaultSettingsUrl={form.vaultSettingsUrl}
+          vaultLoadError={form.vaultEntriesLoadError}
         />
       </FormSection>
 
@@ -225,6 +230,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             account={form.targetAccount}
             vaultEntries={form.vaultEntries}
             vaultSettingsUrl={form.vaultSettingsUrl}
+            vaultLoadError={form.vaultEntriesLoadError}
           />
         </FormSection>
       )}
@@ -240,6 +246,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             account={form.targetAccount}
             vaultEntries={form.vaultEntries}
             vaultSettingsUrl={form.vaultSettingsUrl}
+            vaultLoadError={form.vaultEntriesLoadError}
           />
         </FormSection>
       )}

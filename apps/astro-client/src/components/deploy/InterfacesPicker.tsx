@@ -30,6 +30,7 @@ export interface InterfacesPickerProps {
   onWebAuthChange?: (enabled: boolean) => void;
   vaultEntries?: AccountVariable[];
   vaultSettingsUrl?: string;
+  vaultLoadError?: string | null;
 }
 
 export function InterfacesPicker({
@@ -45,6 +46,7 @@ export function InterfacesPicker({
   onWebAuthChange,
   vaultEntries,
   vaultSettingsUrl,
+  vaultLoadError,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
     onChange(selected.includes(id) ? selected.filter((a) => a !== id) : [...selected, id]);
@@ -117,6 +119,7 @@ export function InterfacesPicker({
                     errorKeys={adapterErrorKeys}
                     vaultEntries={vaultEntries}
                     vaultSettingsUrl={vaultSettingsUrl}
+                    vaultLoadError={vaultLoadError}
                   />
                 </div>
               )}
@@ -150,6 +153,7 @@ export function InterfacesPicker({
                   errorKeys={adapterErrorKeys}
                   vaultEntries={vaultEntries}
                   vaultSettingsUrl={vaultSettingsUrl}
+                  vaultLoadError={vaultLoadError}
                 />
               </div>
             )}

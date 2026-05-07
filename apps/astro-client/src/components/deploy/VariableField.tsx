@@ -129,9 +129,10 @@ export interface VariableFieldProps {
   account?: string;
   vaultEntries?: import("@/lib/api").AccountVariable[];
   vaultSettingsUrl?: string;
+  vaultLoadError?: string | null;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -231,14 +232,14 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} />;
   }
 
   // 7. Default — text input
-  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} />;
+  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} />;
 }
 
-function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
+function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
   const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], onChange);
   const [pickerOpen, setPickerOpen] = useState(false);
   const isVaultRef = parseVaultToken(value) !== null;
@@ -270,13 +271,13 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
       </div>
     </div>
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], onChange);
@@ -319,7 +320,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
       </div>
     </div>
   );

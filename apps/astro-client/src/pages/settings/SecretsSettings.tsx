@@ -42,6 +42,8 @@ import { useAuth } from '@/lib/auth'
 import { formatRelativeTime } from '@/lib/deployment-utils'
 import type { VaultEntry } from '@/lib/vault'
 import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
+import { ApiRequestError } from '@/lib/api'
+import { ErrorPanel } from '@/components/ui/status-panel'
 
 export const meta: MetaFunction = () => [{ title: "Secrets - Settings | Astro" }];
 
@@ -123,7 +125,13 @@ export function VaultSettings({ account: accountName }: { account: string }) {
           Loading...
         </div>
       ) : error ? (
-        <p className="text-[13px] text-muted-foreground py-4">Failed to load variables.</p>
+        <ErrorPanel title="Could not load variables">
+          {error instanceof ApiRequestError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : 'Something went wrong.'}
+        </ErrorPanel>
       ) : entries.length === 0 ? (
         <EmptyState onNew={() => setNewDialogOpen(true)} />
       ) : (

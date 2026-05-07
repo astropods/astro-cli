@@ -22,6 +22,8 @@ interface VaultPickerProps {
   entries?: AccountVariable[]
   accountName?: string
   vaultSettingsUrl?: string
+  /** When set, failed vault list fetch — do not show empty-vault copy. */
+  loadError?: string | null
   bestMatchNames?: string[]
   possibleMatchNames?: string[]
   selectedName?: string
@@ -29,7 +31,7 @@ interface VaultPickerProps {
   onOpenChange?: (open: boolean) => void
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange }: VaultPickerProps) {
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = (o: boolean) => { setLocalOpen(o); controlledOnOpenChange?.(o) }
@@ -76,7 +78,18 @@ export function VaultPicker({ onSelect, entries = [], accountName, bestMatchName
           align="end"
           className="z-50 w-[280px] rounded-lg border border-border bg-popover shadow-lg overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
         >
-          {entries.length === 0 ? (
+          {loadError ? (
+            <div className="px-4 py-5 text-center space-y-2">
+              <KeyIcon className="size-5 text-muted-foreground/50 mx-auto" />
+              <p className="text-sm font-medium text-foreground">Could not load variables</p>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap">{loadError}</p>
+              {vaultSettingsUrl ? (
+                <Button size="sm" variant="outline" className="mt-1" asChild>
+                  <a href={vaultSettingsUrl}>Variables settings</a>
+                </Button>
+              ) : null}
+            </div>
+          ) : entries.length === 0 ? (
             <div className="px-4 py-5 text-center">
               <KeyIcon className="size-5 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">No variables yet</p>
