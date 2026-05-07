@@ -799,43 +799,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.QuotaIncreaseListResponse{}),
 				)
 
-				// Account variables
-				api.GET(accountAdmin, "/variables", "List account variables", handlers.ListAccountVariables(log, accountVarsStore),
-					oapispec.Tags("Variables"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.ListAccountVariablesResponse{}),
-				)
-				api.POST(accountAdmin, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, cfg),
-					oapispec.Tags("Variables"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Body(&handlers.CreateAccountVariablesRequest{}),
-					oapispec.Response(200, &handlers.CreateAccountVariablesResponse{}),
-				)
-				api.GET(accountAdmin, "/variables/:varName", "Get account variable", handlers.GetAccountVariable(log, accountVarsStore),
-					oapispec.Tags("Variables"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("varName", "Variable name"),
-					oapispec.Response(200, &accountvars.VariableMetadata{}),
-				)
-				api.PUT(accountAdmin, "/variables/:varName", "Update account variable", handlers.UpdateAccountVariable(log, accountVarsStore, cfg),
-					oapispec.Tags("Variables"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("varName", "Variable name"),
-					oapispec.Body(&handlers.UpdateAccountVariableRequest{}),
-					oapispec.Response(200, nil),
-				)
-				api.DELETE(accountAdmin, "/variables/:varName", "Delete account variable", handlers.DeleteAccountVariable(log, accountVarsStore),
-					oapispec.Tags("Variables"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("varName", "Variable name"),
-					oapispec.Response(200, nil),
-				)
-
 				// Audit log
 				api.GET(accountAdmin, "/audit-log/filters", "List audit log filter options", handlers.ListAuditLogFilters(log, auditStore),
 					oapispec.Tags("Audit"),
@@ -854,6 +817,53 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
+			}
+
+			// Account variables (vault) — WorkOS permissions variable:read / variable:write on owner + admin roles.
+			accountVarsRead := protected.Group("/accounts/:account")
+			accountVarsRead.Use(middleware.ResolveAccount(accountStore))
+			accountVarsRead.Use(middleware.RequireAccountPermission(accountStore, "variable:read"))
+			{
+				api.GET(accountVarsRead, "/variables", "List account variables", handlers.ListAccountVariables(log, accountVarsStore),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ListAccountVariablesResponse{}),
+				)
+				api.GET(accountVarsRead, "/variables/:varName", "Get account variable", handlers.GetAccountVariable(log, accountVarsStore),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("varName", "Variable name"),
+					oapispec.Response(200, &accountvars.VariableMetadata{}),
+				)
+			}
+			accountVarsWrite := protected.Group("/accounts/:account")
+			accountVarsWrite.Use(middleware.ResolveAccount(accountStore))
+			accountVarsWrite.Use(middleware.RequireAccountPermission(accountStore, "variable:write"))
+			{
+				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, cfg),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.CreateAccountVariablesRequest{}),
+					oapispec.Response(200, &handlers.CreateAccountVariablesResponse{}),
+				)
+				api.PUT(accountVarsWrite, "/variables/:varName", "Update account variable", handlers.UpdateAccountVariable(log, accountVarsStore, cfg),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("varName", "Variable name"),
+					oapispec.Body(&handlers.UpdateAccountVariableRequest{}),
+					oapispec.Response(200, nil),
+				)
+				api.DELETE(accountVarsWrite, "/variables/:varName", "Delete account variable", handlers.DeleteAccountVariable(log, accountVarsStore),
+					oapispec.Tags("Variables"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("varName", "Variable name"),
+					oapispec.Response(200, nil),
 				)
 			}
 

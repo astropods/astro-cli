@@ -8,11 +8,11 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 
 ### Roles
 
-| Role   | Slug     | Permissions                                                                                       |
-| ------ | -------- | ------------------------------------------------------------------------------------------------- |
-| Owner  | `owner`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `org:admin` |
-| Admin  | `admin`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`              |
-| Member | `member` | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`                            |
+| Role   | Slug     | Permissions                                                                                                                                    |
+| ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner  | `owner`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `org:admin`, `variable:read`, `variable:write`            |
+| Admin  | `admin`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `variable:read`, `variable:write`                          |
+| Member | `member` | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`                                                                         |
 
 ### Permissions
 
@@ -24,12 +24,14 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 | `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
 | `org:manage`        | Manage members and invitations                         |
 | `org:admin`         | Rename/delete org, billing                             |
+| `variable:read`     | List and read org account vault variables (see vault handlers for secret redaction rules) |
+| `variable:write`    | Create, update, and delete org account vault variables |
 
 ### Setup Steps
 
-1. Go to **WorkOS Dashboard > Organizations > Roles**
-2. Create each role above with the listed permission slugs
-3. Ensure `owner` is set as the default role for organization creators
+1. In **WorkOS Dashboard**, define permission slugs `variable:read` and `variable:write` (exact navigation depends on your AuthKit / Roles UI version).
+2. Go to **WorkOS Dashboard > Organizations > Roles** and configure each role with the permission slugs in the table above. Attach **both** vault permissions only to **owner** and **admin** (members have neither).
+3. Ensure `owner` is set as the default role for organization creators.
 4. Verify that the WorkOS environment variables are set:
    - `WORKOS_API_KEY` — your WorkOS API key
    - `WORKOS_CLIENT_ID` — your WorkOS client ID
@@ -55,6 +57,8 @@ Replaces the old `RequireAccountRole` middleware (`middleware/account.go`). Two 
 | `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
 | `POST /deploy`, `POST /undeploy`, restart, trigger | `deployments:write` | Mutate running agents |
 | `GET .../deployment`, logs, metrics, observability | `deployments:read`  | View running agents   |
+| `GET /accounts/:account/variables`, `GET .../variables/:varName` | `variable:read` | List/read vault variables |
+| `POST/PUT/DELETE .../variables`, `PUT/DELETE .../variables/:varName` | `variable:write` | Create/update/delete vault variables |
 
 ## 3. Organization Account Lifecycle
 
@@ -132,6 +136,11 @@ This allows the frontend to switch between orgs without a full re-login.
 | `POST`   | `/accounts/:account/invitations`      | `org:manage`   | Send invitation      |
 | `DELETE` | `/accounts/:account/invitations/:id`  | `org:manage`   | Revoke invitation    |
 | `PUT`    | `/agents/:account/:name/visibility`   | `agents:write` | Set agent visibility |
+| `GET`    | `/accounts/:account/variables`        | `variable:read` | List vault variables |
+| `GET`    | `/accounts/:account/variables/:varName` | `variable:read` | Get vault variable |
+| `POST`   | `/accounts/:account/variables`       | `variable:write` | Create vault variables |
+| `PUT`    | `/accounts/:account/variables/:varName` | `variable:write` | Update vault variable |
+| `DELETE` | `/accounts/:account/variables/:varName` | `variable:write` | Delete vault variable |
 
 ## 9. New Internal Packages
 

@@ -20,41 +20,84 @@ import (
 func TestRoutePermissionWiring(t *testing.T) {
 	ok := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) }
 
+	baseMember := []string{"agents:read", "agents:write", "deployments:read", "deployments:write"}
+	orgAdminNoVault := []string{"agents:read", "agents:write", "deployments:write", "org:manage"}
+	withVaultRead := append(orgAdminNoVault, "variable:read")
+	withVaultWrite := append(orgAdminNoVault, "variable:write")
+
 	tests := []struct {
-		name        string
-		method      string
-		path        string
-		body        string
-		permissions []string
-		wantCode    int
+		name           string
+		method         string
+		path           string
+		body           string
+		permissions    []string
+		wantCode       int
+		sessionOrgID   string // empty → org_123 (matches resolved account)
 	}{
 		// Member routes require org:manage — member permissions denied
 		{"member_GET_members_denied", "GET", "/api/v1/accounts/myorg/members", "",
-			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden, ""},
 		// Member routes require org:manage — admin permissions allowed
 		{"admin_GET_members_allowed", "GET", "/api/v1/accounts/myorg/members", "",
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
 		// Invitation routes require org:manage — member permissions denied
 		{"member_GET_invitations_denied", "GET", "/api/v1/accounts/myorg/invitations", "",
-			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden, ""},
 		// Invitation routes require org:manage — admin permissions allowed
 		{"admin_GET_invitations_allowed", "GET", "/api/v1/accounts/myorg/invitations", "",
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
 		// Agent write routes require agents:write — member permissions denied
 		{"member_PUT_visibility_denied", "PUT", "/api/v1/agents/myorg/test-agent/visibility", `{}`,
-			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden, ""},
 		// Agent write routes require agents:write — admin permissions allowed
 		{"admin_PUT_visibility_allowed", "PUT", "/api/v1/agents/myorg/test-agent/visibility", `{}`,
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
 		// Account admin routes require org:admin — admin permissions denied
 		{"admin_PUT_rename_denied", "PUT", "/api/v1/accounts/myorg", `{}`,
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden, ""},
 		// Account admin routes require org:admin — owner permissions allowed
 		{"owner_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
+
+		// Vault GET routes require variable:read
+		{"member_GET_variables_denied", "GET", "/api/v1/accounts/myorg/variables", "",
+			baseMember, http.StatusForbidden, ""},
+		{"admin_GET_variables_denied_without_variable_read", "GET", "/api/v1/accounts/myorg/variables", "",
+			orgAdminNoVault, http.StatusForbidden, ""},
+		{"admin_GET_variables_allowed_with_variable_read", "GET", "/api/v1/accounts/myorg/variables", "",
+			withVaultRead, http.StatusOK, ""},
+		{"admin_GET_variable_by_name_allowed_with_variable_read", "GET", "/api/v1/accounts/myorg/variables/MY_KEY", "",
+			withVaultRead, http.StatusOK, ""},
+		{"GET_variables_denied_write_only_jwt", "GET", "/api/v1/accounts/myorg/variables", "",
+			withVaultWrite, http.StatusForbidden, ""},
+
+		{"GET_variables_denied_wrong_org_jwt", "GET", "/api/v1/accounts/myorg/variables", "",
+			withVaultRead, http.StatusForbidden, "org_other"},
+
+		// Vault mutations require variable:write
+		{"member_POST_variables_denied", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
+			baseMember, http.StatusForbidden, ""},
+		{"POST_variables_denied_read_only_jwt", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
+			withVaultRead, http.StatusForbidden, ""},
+		{"POST_variables_allowed_write_only_jwt", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
+			withVaultWrite, http.StatusOK, ""},
+
+		{"member_PUT_variables_denied", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
+			baseMember, http.StatusForbidden, ""},
+		{"PUT_variables_denied_read_only_jwt", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
+			withVaultRead, http.StatusForbidden, ""},
+		{"PUT_variables_allowed_write_only_jwt", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
+			withVaultWrite, http.StatusOK, ""},
+
+		{"member_DELETE_variables_denied", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
+			baseMember, http.StatusForbidden, ""},
+		{"DELETE_variables_denied_read_only_jwt", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
+			withVaultRead, http.StatusForbidden, ""},
+		{"DELETE_variables_allowed_write_only_jwt", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
+			withVaultWrite, http.StatusOK, ""},
 	}
 
 	for _, tt := range tests {
@@ -69,17 +112,19 @@ func TestRoutePermissionWiring(t *testing.T) {
 					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 			router := gin.New()
-			// Inject authenticated user with JWT scoped to the target org
+			sessionOrgID := tt.sessionOrgID
+			if sessionOrgID == "" {
+				sessionOrgID = "org_123"
+			}
 			router.Use(func(c *gin.Context) {
 				c.Set(string(auth.UserContextKey), &auth.User{ID: "caller-1"})
 				c.Set(string(auth.SessionContextKey), &auth.Session{
-					OrganizationID: "org_123",
+					OrganizationID: sessionOrgID,
 					Permissions:    tt.permissions,
 				})
 				c.Next()
 			})
 
-			// Wire route groups exactly as main.go does
 			v1 := router.Group("/api/v1")
 
 			accountAdmin := v1.Group("/accounts/:account")
@@ -101,6 +146,19 @@ func TestRoutePermissionWiring(t *testing.T) {
 			agentWriteRoutes.Use(middleware.ResolveAccount(store))
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(store, "agents:write"))
 			agentWriteRoutes.PUT("/visibility", ok)
+
+			accountVarsRead := v1.Group("/accounts/:account")
+			accountVarsRead.Use(middleware.ResolveAccount(store))
+			accountVarsRead.Use(middleware.RequireAccountPermission(store, "variable:read"))
+			accountVarsRead.GET("/variables", ok)
+			accountVarsRead.GET("/variables/:varName", ok)
+
+			accountVarsWrite := v1.Group("/accounts/:account")
+			accountVarsWrite.Use(middleware.ResolveAccount(store))
+			accountVarsWrite.Use(middleware.RequireAccountPermission(store, "variable:write"))
+			accountVarsWrite.POST("/variables", ok)
+			accountVarsWrite.PUT("/variables/:varName", ok)
+			accountVarsWrite.DELETE("/variables/:varName", ok)
 
 			var body *strings.Reader
 			if tt.body != "" {

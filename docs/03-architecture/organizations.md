@@ -82,7 +82,7 @@ What's relevant for organizations:
   3. WorkOS returns new JWT with:
      - organization_id: org-B
      - role: "admin"
-     - permissions: ["agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage"]
+     - permissions: ["agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage", "variable:read", "variable:write"]
   4. Seal new session → update cookie
   5. Return updated auth response with role + permissions
 
@@ -93,11 +93,11 @@ What's relevant for organizations:
 
 ### Roles and Permissions
 
-| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `org:admin` |
-| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :---------: |
-| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |      Y      |
-| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |      -      |
-| **member** |       Y       |       Y        |         Y          |          Y          |      -       |      -      |
+| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `org:admin` | `variable:read` | `variable:write` |
+| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :---------: | :-------------: | :--------------: |
+| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |      Y      |        Y        |        Y         |
+| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |      -      |        Y        |        Y         |
+| **member** |       Y       |       Y        |         Y          |          Y          |      -       |      -      |        -        |        -         |
 
 Permission slugs map to actions:
 
@@ -109,6 +109,8 @@ Permission slugs map to actions:
 | `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
 | `org:manage`        | Manage members and invitations                         |
 | `org:admin`         | Rename/delete org, billing                             |
+| `variable:read`     | List and read org account vault variables              |
+| `variable:write`    | Create, update, delete org account vault variables     |
 
 ### Authorization Flow
 
@@ -144,6 +146,8 @@ Organization accounts require the session JWT to be scoped to the target org via
 | `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
 | `POST /deploy`, `POST /undeploy`, restart, trigger | `deployments:write` | Mutate running agents |
 | `GET .../deployment`, logs, metrics, observability | `deployments:read`  | View running agents   |
+| `GET .../accounts/:account/variables`, `GET .../variables/:varName` | `variable:read` | List/read vault variables |
+| `POST/PUT/DELETE .../variables`, `PUT/DELETE .../variables/:varName` | `variable:write` | Mutate vault variables |
 
 ## Organization Account Lifecycle
 
@@ -340,6 +344,11 @@ workos_event_cursor (
 | `DELETE` | `.../:account/members/:user_id`     | Required | `org:manage`   | Remove member        |
 | `GET`    | `.../:account/invitations`          | Required | `org:manage`   | List invitations     |
 | `POST`   | `.../:account/invitations`          | Required | `org:manage`   | Send invitation      |
-| `DELETE` | `.../:account/invitations/:id`      | Required | `org:manage`   | Revoke invitation    |
-| `PUT`    | `/agents/:account/:name/visibility` | Required | `agents:write` | Set visibility       |
-| `POST`   | `/auth/switch-org`                  | Session  | -              | Switch org context   |
+| `DELETE` | `.../:account/invitations/:id`      | Required | `org:manage`       | Revoke invitation      |
+| `PUT`    | `/agents/:account/:name/visibility` | Required | `agents:write`     | Set visibility         |
+| `GET`    | `.../:account/variables`            | Required | `variable:read`    | List vault variables   |
+| `GET`    | `.../:account/variables/:varName`   | Required | `variable:read`    | Get vault variable     |
+| `POST`   | `.../:account/variables`            | Required | `variable:write`   | Create vault variables |
+| `PUT`    | `.../:account/variables/:varName`   | Required | `variable:write`   | Update vault variable  |
+| `DELETE` | `.../:account/variables/:varName` | Required | `variable:write`   | Delete vault variable  |
+| `POST`   | `/auth/switch-org`                  | Session  | -                  | Switch org context     |
