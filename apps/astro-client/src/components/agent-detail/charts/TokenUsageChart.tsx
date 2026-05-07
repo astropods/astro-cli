@@ -73,17 +73,11 @@ export function TokenUsageChart({
   colors,
   loading,
 }: TokenUsageChartProps) {
-  const hasData = bars.some((b) => b.inputTokens > 0 || b.outputTokens > 0);
-
   return (
     <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
       {loading ? (
         <div className="flex h-[300px] items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : !hasData ? (
-        <div className="flex h-[300px] items-center justify-center">
-          <p className="text-body-sm text-muted-foreground">No token usage data yet.</p>
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
@@ -113,7 +107,7 @@ export function TokenUsageChart({
       )}
 
       {/* Legend */}
-      {hasData && !loading && (
+      {!loading && (
         <div className="mt-3 flex items-center justify-center gap-5">
           <div className="flex items-center gap-1.5 text-mono-sm text-muted-foreground">
             <span className="size-2 rounded-full" style={{ backgroundColor: colors.inputFill }} />

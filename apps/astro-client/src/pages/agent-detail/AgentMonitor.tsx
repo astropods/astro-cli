@@ -67,10 +67,8 @@ export default function AgentMonitor() {
 
   const totalInput = bars.reduce((s, b) => s + b.inputTokens, 0);
   const totalOutput = bars.reduce((s, b) => s + b.outputTokens, 0);
-  const hasData = totalInput > 0 || totalOutput > 0;
 
   const totalRequests = requestPoints.reduce((s, p) => s + p.requests, 0);
-  const hasRequestData = totalRequests > 0;
 
   // Trace detail panel
   const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
@@ -119,7 +117,7 @@ export default function AgentMonitor() {
           <div className="mb-6 flex items-end justify-between">
             <div>
               <h2 className="text-heading-4 text-foreground">Token Usage</h2>
-              {!isLoading && hasData && (
+              {!isLoading && (
                 <p className="mt-1 text-body-sm text-muted-foreground">
                   {formatCompactNumber(totalInput)} input · {formatCompactNumber(totalOutput)} output
                 </p>
@@ -162,7 +160,7 @@ export default function AgentMonitor() {
           <div className="mt-10">
             <div className="mb-6">
               <h2 className="text-heading-4 text-foreground">Requests &amp; Latency</h2>
-              {!isLoading && hasRequestData && (
+              {!isLoading && (
                 <p className="mt-1 text-body-sm text-muted-foreground">
                   {formatCompactNumber(totalRequests)} total requests
                 </p>

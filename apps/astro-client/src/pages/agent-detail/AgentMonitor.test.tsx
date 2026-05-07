@@ -159,10 +159,14 @@ describe("user views token usage", () => {
     expect(screen.getByText(/850 output/)).toBeInTheDocument();
   });
 
-  it("shows no-data message when metrics are empty", async () => {
+  it("shows zeroed chart when metrics are empty", async () => {
     setupHandlers();
     renderMonitor();
-    expect(await screen.findByText("No token usage data yet.")).toBeInTheDocument();
+    // Chart legend renders even with no data — the chart shows with zero values
+    expect(await screen.findByText("Input tokens")).toBeInTheDocument();
+    expect(screen.getByText("Output tokens")).toBeInTheDocument();
+    // Subtitle still shows with zeroed totals
+    expect(screen.getByText(/0 input/)).toBeInTheDocument();
   });
 });
 
@@ -197,11 +201,16 @@ describe("user views requests and latency", () => {
     expect(within(p95Card).getByText("500ms")).toBeInTheDocument();
   });
 
-  it("shows no-data messages when no requests exist", async () => {
+  it("shows zeroed charts and latency when no requests exist", async () => {
     setupHandlers();
     renderMonitor();
-    expect(await screen.findByText("No request data yet.")).toBeInTheDocument();
-    expect(screen.getByText("No latency data yet.")).toBeInTheDocument();
+    // Request chart legend renders with zero values
+    expect(await screen.findByText("Requests")).toBeInTheDocument();
+    // Subtitle still shows with zeroed totals
+    expect(screen.getByText(/0 total requests/)).toBeInTheDocument();
+    // Latency card shows zeroed metrics instead of empty state
+    expect(screen.getByText("Avg Latency")).toBeInTheDocument();
+    expect(screen.getByText("P95")).toBeInTheDocument();
   });
 });
 

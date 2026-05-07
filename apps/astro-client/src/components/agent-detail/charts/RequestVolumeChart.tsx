@@ -61,19 +61,11 @@ export function RequestVolumeChart({
   colors,
   loading,
 }: RequestVolumeChartProps) {
-  const hasData = points.some((p) => p.requests > 0);
-
   return (
     <div className="flex h-full flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
       {loading ? (
         <div className="flex min-h-[200px] flex-1 items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : !hasData ? (
-        <div className="flex min-h-[200px] flex-1 items-center justify-center">
-          <p className="text-body-sm text-muted-foreground">
-            No request data yet.
-          </p>
         </div>
       ) : (
         <>
