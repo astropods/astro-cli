@@ -101,12 +101,13 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		}
 
 		// Step 4: transitional fallback for deployments that pre-date this
-		// authorization rollout. If the deployment has never written a grant,
-		// allow members of its owning account on any adapter — preserving the
-		// pre-auth behavior. The fallback turns off the moment any grant is
-		// added, so it never widens access for explicitly-configured deployments.
+		// authorization rollout. If the deployment has no grants for *this
+		// adapter*, allow members of its owning account — preserving the
+		// pre-auth behavior. The fallback is scoped per-adapter so writing a
+		// grant on slack doesn't silently lock down web (or vice-versa); it
+		// turns off only for the adapter the owner has started configuring.
 		if !allowed {
-			ownerAllowed, err := tryOwnerFallback(authStore, deploymentID, candidates)
+			ownerAllowed, err := tryOwnerFallback(authStore, deploymentID, adapter, candidates)
 			if err != nil {
 				log.Error("authorize: fallback lookup failed",
 					"deployment_id", deploymentID, "error", err)
@@ -131,15 +132,15 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 }
 
 // tryOwnerFallback implements the transitional "no grants → owner-account
-// access" rule. Returns true only when:
-//   - the deployment has zero grant rows (HasAnyGrants is false), AND
+// access" rule, scoped per-adapter. Returns true only when:
+//   - the deployment has zero grant rows for the requested adapter, AND
 //   - one of the resolved candidate accounts is the deployment's owner.
 //
 // Slack candidates always include the owning account (they're resolved from
 // the deployments row), so this naturally covers slack pre-existing deploys
 // without any extra branching.
-func tryOwnerFallback(authStore *authorizationstore.Store, deploymentID string, candidates []authorizationstore.Subject) (bool, error) {
-	hasAny, err := authStore.HasAnyGrants(deploymentID)
+func tryOwnerFallback(authStore *authorizationstore.Store, deploymentID, adapter string, candidates []authorizationstore.Subject) (bool, error) {
+	hasAny, err := authStore.HasAnyGrants(deploymentID, adapter)
 	if err != nil {
 		return false, err
 	}

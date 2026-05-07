@@ -241,16 +241,16 @@ func TestIsAllowed_DBError_Anyone(t *testing.T) {
 	}
 }
 
-// HasAnyGrants returns true when at least one row exists.
+// HasAnyGrants returns true when at least one row exists for the adapter.
 func TestHasAnyGrants_True(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
-	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1").
+	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
 
-	got, err := store.HasAnyGrants("dep-1")
+	got, err := store.HasAnyGrants("dep-1", "web")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,16 +259,17 @@ func TestHasAnyGrants_True(t *testing.T) {
 	}
 }
 
-// HasAnyGrants returns false when the deployment has no grants.
+// HasAnyGrants returns false when the deployment has no grants for the adapter.
+// A row on a different adapter must not flip this true.
 func TestHasAnyGrants_False(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
-	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1").
+	mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
 		WillReturnError(sql.ErrNoRows)
 
-	got, err := store.HasAnyGrants("dep-1")
+	got, err := store.HasAnyGrants("dep-1", "web")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

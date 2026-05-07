@@ -69,21 +69,22 @@ type Subject struct {
 	ID   string
 }
 
-// HasAnyGrants reports whether the deployment has at least one row in the
-// grants table.
+// HasAnyGrants reports whether the deployment has at least one row for the
+// given adapter in the grants table.
 //
-// Used by the transitional "no grants → owner-account access" fallback: a
-// deployment that has never been touched by the new spec (pre-existing at the
-// time this rollout shipped) gets implicit access for members of its owning
-// account on every adapter, until the owner adds any grant explicitly. Once
-// any row exists, the fallback turns off and only the explicit grants apply.
-func (s *Store) HasAnyGrants(deploymentID string) (bool, error) {
+// Used by the transitional "no grants → owner-account access" fallback,
+// scoped per adapter: a deployment that has never written a grant for this
+// adapter gets implicit access for members of its owning account on that
+// adapter, until the owner adds any grant for it explicitly. Scoping is
+// per-adapter so writing a slack grant doesn't silently flip web into
+// deny-by-default — and vice versa.
+func (s *Store) HasAnyGrants(deploymentID, adapter string) (bool, error) {
 	var found int
 	err := s.db.QueryRow(`
 		SELECT 1 FROM deployment_authorization_grants
-		WHERE deployment_id = $1
+		WHERE deployment_id = $1 AND adapter = $2
 		LIMIT 1
-	`, deploymentID).Scan(&found)
+	`, deploymentID, adapter).Scan(&found)
 	if err == nil {
 		return true, nil
 	}
@@ -247,8 +248,8 @@ func (s *Store) ListGrants(deploymentID string) ([]*Grant, error) {
 // supplied list inside an existing transaction. This is the only writer to
 // the grants table — there is no imperative add/remove API. The deploy
 // flow folds it into the same transaction that creates the deployment
-// row so a grants failure rolls back the deployment instead of leaving it
-// committed with no grants (which would silently engage the no-grants
+// row so a grants failure rolls back the deployment instead of leaving
+// adapters with no rows (which would silently engage the per-adapter
 // owner-fallback and widen access).
 func ReplaceGrantsTx(tx *sql.Tx, deploymentID string, grants []Grant) error {
 	if _, err := tx.Exec(`

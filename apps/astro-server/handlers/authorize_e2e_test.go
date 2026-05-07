@@ -69,12 +69,13 @@ func decodeAllowed(t *testing.T, w *httptest.ResponseRecorder) bool {
 	return body.Allowed
 }
 
-const hasAnyGrantsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tLIMIT 1\n\t"
+const hasAnyGrantsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2\n\t\tLIMIT 1\n\t"
 
-// expectHasGrants queues the fallback's "any grants exist?" query. The
-// fallback short-circuits without doing the owner lookup when grants exist.
-func expectHasGrants(mock sqlmock.Sqlmock, deploymentID string, exists bool) {
-	q := mock.ExpectQuery(hasAnyGrantsQuery).WithArgs(deploymentID)
+// expectHasGrants queues the fallback's per-adapter "any grants exist?" query.
+// The fallback short-circuits without doing the owner lookup when grants for
+// this adapter exist; a row on a different adapter must not trip this.
+func expectHasGrants(mock sqlmock.Sqlmock, deploymentID, adapter string, exists bool) {
+	q := mock.ExpectQuery(hasAnyGrantsQuery).WithArgs(deploymentID, adapter)
 	if exists {
 		q.WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
 	} else {
@@ -131,7 +132,7 @@ func TestAuthorize_AccountGrantNonMember(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string(nil)), pq.Array([]string{"bob"})).
 		WillReturnError(sql.ErrNoRows)
-	expectHasGrants(f.mock, "dep-1", true) // grants exist → fallback off
+	expectHasGrants(f.mock, "dep-1", "web", true) // web grants exist → fallback off
 
 	w := f.call(t, "identity_type=user&identity_id=bob&adapter=web")
 	if w.Code != http.StatusOK {
@@ -184,7 +185,7 @@ func TestAuthorize_AnonymousNoAnyone(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 	// No candidates → MatchesGrant short-circuits to false in-process.
 	// Fallback then asks: any grants? Then: who's the owner?
-	expectHasGrants(f.mock, "dep-1", false)
+	expectHasGrants(f.mock, "dep-1", "web", false)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 
 	w := f.call(t, "adapter=web")
@@ -217,7 +218,8 @@ func TestAuthorize_SlackBotAccountGrant(t *testing.T) {
 	}
 }
 
-// A14: slack, no explicit grant, but other grants exist → denied (fallback off).
+// A14: slack, no explicit grant matches, but a slack grant exists for someone
+// else → denied (per-adapter fallback off because slack has at least one row).
 func TestAuthorize_SlackNoGrantWithOtherGrants(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
@@ -231,7 +233,7 @@ func TestAuthorize_SlackNoGrantWithOtherGrants(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
-	expectHasGrants(f.mock, "dep-1", true)
+	expectHasGrants(f.mock, "dep-1", "slack", true)
 
 	w := f.call(t, "identity_type=slack&identity_id=U123&adapter=slack")
 	if decodeAllowed(t, w) {
@@ -258,8 +260,8 @@ func TestAuthorize_FallbackNoGrants_OwnerAllowed(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-D"}), pq.Array([]string{"alice"})).
 		WillReturnError(sql.ErrNoRows)
-	// fallback: no grants → look up owner → owner == acct-D → alice (member of acct-D) allowed
-	expectHasGrants(f.mock, "dep-1", false)
+	// fallback: no web grants → look up owner → owner == acct-D → alice (member of acct-D) allowed
+	expectHasGrants(f.mock, "dep-1", "web", false)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 
 	w := f.call(t, "identity_type=user&identity_id=alice&adapter=web")
@@ -268,7 +270,7 @@ func TestAuthorize_FallbackNoGrants_OwnerAllowed(t *testing.T) {
 	}
 }
 
-// FALLBACK: deployment has no grants but caller is not in the owner account → denied.
+// FALLBACK: deployment has no web grants but caller is not in the owner account → denied.
 func TestAuthorize_FallbackNoGrants_NonOwnerDenied(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
@@ -282,12 +284,40 @@ func TestAuthorize_FallbackNoGrants_NonOwnerDenied(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-Outside"}), pq.Array([]string{"bob"})).
 		WillReturnError(sql.ErrNoRows)
-	expectHasGrants(f.mock, "dep-1", false)
+	expectHasGrants(f.mock, "dep-1", "web", false)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 
 	w := f.call(t, "identity_type=user&identity_id=bob&adapter=web")
 	if decodeAllowed(t, w) {
 		t.Fatal("expected allowed=false (caller not in owner account)")
+	}
+}
+
+// FALLBACK is per-adapter: a slack grant doesn't disable the web fallback.
+// Reproduces the case where a deployment has only `slack: anyone` configured
+// — owning-account members must still reach the web adapter via the fallback,
+// because the deployment has zero web grant rows.
+func TestAuthorize_FallbackPerAdapter_WebOpenWhenOnlySlackConfigured(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	// anyone short-circuit: scoped to web, so the slack:anyone row is invisible here
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web", pq.Array([]string{"acct-D"}), pq.Array([]string{"alice"})).
+		WillReturnError(sql.ErrNoRows)
+	// Per-adapter HasAnyGrants: web has zero rows even though slack:anyone exists.
+	expectHasGrants(f.mock, "dep-1", "web", false)
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+
+	w := f.call(t, "identity_type=user&identity_id=alice&adapter=web")
+	if !decodeAllowed(t, w) {
+		t.Fatal("expected allowed=true: slack-only configuration must not lock down web for owners")
 	}
 }
 
@@ -306,7 +336,7 @@ func TestAuthorize_FallbackNoGrants_SlackOwnerAllowed(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
-	expectHasGrants(f.mock, "dep-1", false)
+	expectHasGrants(f.mock, "dep-1", "slack", false)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 
 	w := f.call(t, "identity_type=slack&identity_id=U123&adapter=slack")
@@ -368,7 +398,7 @@ func TestAuthorize_SlackWithScope_NoMappingFallsBack(t *testing.T) {
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
-	expectHasGrants(f.mock, "dep-1", true) // grants exist → no fallback
+	expectHasGrants(f.mock, "dep-1", "slack", true) // slack grants exist → no fallback for slack
 
 	w := f.call(t, "identity_type=slack&identity_id=U-unknown&identity_scope=T1&adapter=slack")
 	if w.Code != http.StatusOK {
