@@ -182,6 +182,23 @@ const mergeFormValues = (
   return merged;
 };
 
+/** Stable key for the server template bootstrap POST (identity + deploy pin). */
+function templateBootstrapKey(
+  account: string,
+  name: string,
+  deploymentId: string | undefined,
+  build: string | undefined,
+  revision: number | undefined,
+): string {
+  return [
+    account,
+    name,
+    deploymentId ?? '',
+    build ?? '',
+    revision === undefined ? '' : String(revision),
+  ].join('\0');
+}
+
 /** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
 export function slugToTitle(slug: string): string {
   return slug
@@ -250,26 +267,35 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(
     opts?.initialTemplateResponse ?? null,
   );
-  const fetchedForRef = useRef<string | null>(
-    opts?.initialTemplateResponse ? `${account}/${name}` : null,
+  const lastBootstrapKeyRef = useRef<string | null>(
+    opts?.initialTemplateResponse
+      ? templateBootstrapKey(account, name, opts?.deploymentId, opts?.build, opts?.revision)
+      : null,
   );
   const [fetchError, setFetchError] = useState<Error | null>(null);
 
   useEffect(() => {
-    const key = `${account}/${name}`;
-    if (fetchedForRef.current === key) return;
     if (!account || !name) return;
-    fetchedForRef.current = key;
+
+    const bootstrapKey = templateBootstrapKey(
+      account,
+      name,
+      opts?.deploymentId,
+      opts?.build,
+      opts?.revision,
+    );
+    if (lastBootstrapKeyRef.current === bootstrapKey) return;
+
+    lastBootstrapKeyRef.current = bootstrapKey;
     seededRef.current = false;
     setTemplateResponse(null);
     setFetchError(null);
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
-    if (opts?.revision) body.revision = opts.revision;
-    templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only when agent identity changes
-  }, [account, name]);
+    if (opts?.revision !== undefined) body.revision = opts.revision;
+    void templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
+  }, [account, name, opts?.deploymentId, opts?.build, opts?.revision, templateMutation]);
 
   const templateLoading = !templateResponse && !fetchError;
   const templateError = fetchError;
@@ -360,9 +386,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const body: TemplateRequest = { ...inputs };
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
+    if (opts?.revision !== undefined) body.revision = opts.revision;
     templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
-  }, [opts?.deploymentId, opts?.build]);
+  }, [opts?.deploymentId, opts?.build, opts?.revision]);
 
   // Build the interfaces payload from current form state.
   const buildInterfaces = useCallback((): TemplateInterfaces => ({
@@ -619,6 +646,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     };
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
+    if (opts?.revision !== undefined) req.revision = opts.revision;
     req.finalize = true;
 
     let resp: TemplateResponse;
