@@ -1,20 +1,51 @@
 import type { WorkloadDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Bot, Activity, Database, Brain, Box } from "lucide-react";
+import { Bot, Activity, Database, Brain, Box, Download } from "lucide-react";
 import { ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import { useLastErrorLog } from "@/api/queries/deployments";
 import { Squircle } from "../Squircle";
 
 export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending";
 
-export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatus {
-  if (!workload?.containers || workload.containers.length === 0) return "pending";
-  if (workload.containers.some((c) => c.state === "waiting" || c.state === "terminated")) return "unhealthy";
+export interface PodStatusInfo {
+  status: PodStatus;
+  label: string;
+}
+
+export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatusInfo {
+  if (!workload) return { status: "pending", label: "Starting" };
+
+  if (workload.kind === "Job") return deriveJobStatus(workload.status);
+  if (workload.kind === "CronJob") return deriveCronJobStatus(workload.status);
+
+  if (!workload.containers || workload.containers.length === 0) return { status: "pending", label: "Starting" };
+  if (workload.containers.some((c) => c.state === "waiting" || c.state === "terminated")) return { status: "unhealthy", label: "Error" };
   if (workload.containers.every((c) => c.ready)) {
-    if (isFlapping(workload)) return "warning";
-    return "healthy";
+    if (isFlapping(workload)) return { status: "warning", label: "Degraded" };
+    return { status: "healthy", label: "Online" };
   }
-  return "pending";
+  return { status: "pending", label: "Starting" };
+}
+
+// Job status vocab from the server: Pending / Running / Succeeded / Failed.
+function deriveJobStatus(status?: string): PodStatusInfo {
+  switch (status) {
+    case "Succeeded": return { status: "healthy", label: "Completed" };
+    case "Failed":    return { status: "unhealthy", label: "Failed" };
+    case "Running":   return { status: "healthy", label: "Running" };
+    case "Pending":   return { status: "pending", label: "Pending" };
+    default:          return { status: "pending", label: status || "Pending" };
+  }
+}
+
+// CronJob status vocab from the server: Idle / Active / Suspended.
+function deriveCronJobStatus(status?: string): PodStatusInfo {
+  switch (status) {
+    case "Active":    return { status: "healthy", label: "Running" };
+    case "Idle":      return { status: "healthy", label: "Idle" };
+    case "Suspended": return { status: "warning", label: "Suspended" };
+    default:          return { status: "pending", label: status || "Idle" };
+  }
 }
 
 /**
@@ -22,7 +53,7 @@ export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatus
  * Uses restart count relative to age to compute an approximate rate.
  */
 function isFlapping(workload: WorkloadDetail): boolean {
-  const totalRestarts = workload.containers.reduce((sum, c) => sum + c.restart_count, 0);
+  const totalRestarts = (workload.containers ?? []).reduce((sum, c) => sum + c.restart_count, 0);
   if (totalRestarts < 3) return false;
 
   const ageHours = parseAgeToHours(workload.age);
@@ -48,10 +79,11 @@ function parseAgeToHours(age?: string): number {
 }
 
 function findUnhealthyContainer(workload: WorkloadDetail): string {
-  const unhealthy = workload.containers.find(
+  const containers = workload.containers ?? [];
+  const unhealthy = containers.find(
     (c) => !c.ready || c.state === "waiting" || c.state === "terminated",
   );
-  return unhealthy?.name ?? workload.containers[0]?.name ?? "";
+  return unhealthy?.name ?? containers[0]?.name ?? "";
 }
 
 const STATUS_STYLES: Record<PodStatus, { dot: string; glow: string; label: string }> = {
@@ -90,9 +122,10 @@ const COMPONENT_ICONS: Record<string, IconComponent> = {
   ollama: Brain,
 };
 
-function getComponentIcon(component?: string): IconComponent {
-  if (!component) return Bot;
-  return COMPONENT_ICONS[component.toLowerCase()] ?? Box;
+function getWorkloadIcon(workload: WorkloadDetail): IconComponent {
+  if (workload.kind === "Job" || workload.kind === "CronJob") return Download;
+  if (!workload.component) return Bot;
+  return COMPONENT_ICONS[workload.component.toLowerCase()] ?? Box;
 }
 
 function TileNotice({ color, children }: { color: string; children: React.ReactNode }) {
@@ -107,6 +140,8 @@ function TileNotice({ color, children }: { color: string; children: React.ReactN
 export interface PodTileContentProps {
   name: string;
   status: PodStatus;
+  /** Override the default status label (e.g. "Completed" for finished Jobs). */
+  statusLabel?: string;
   icon?: IconComponent;
   age?: string;
   warningMessage?: string | null;
@@ -117,8 +152,10 @@ export interface PodTileContentProps {
   dimmed?: boolean;
 }
 
-export function PodTileContent({ name, status = "pending", icon: Icon = Box, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
-  const { dot, glow, label } = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
+export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
+  const styles = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
+  const { dot, glow } = styles;
+  const label = statusLabel ?? styles.label;
 
   return (
     <Squircle className={cn("max-w-[300px]", className)} onClick={onClick} selected={selected} dimmed={dimmed}>
@@ -158,7 +195,7 @@ export function PodTile({ workload, deploymentId, className, onClick, selected, 
   // workload is missing so we can still bail out below — see PodGraph for the
   // root-cause fix; this is a defensive backstop for AnimatePresence exits and
   // query refetches that can briefly feed undefined through.
-  const status = derivePodStatus(workload);
+  const { status, label } = derivePodStatus(workload);
   const containerName = workload && status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
     deploymentId,
@@ -168,16 +205,16 @@ export function PodTile({ workload, deploymentId, className, onClick, selected, 
   );
   if (!workload) return null;
   const lastError = errorLogs?.[0]?.message ?? null;
-  const totalRestarts = workload.containers.reduce((sum, c) => sum + c.restart_count, 0);
-  const warningMessage = status === "warning"
-    ? `Restarting frequently (${totalRestarts} restarts)`
+  const warningMessage = status === "warning" && workload.containers
+    ? `Restarting frequently (${workload.containers.reduce((sum, c) => sum + c.restart_count, 0)} restarts)`
     : null;
 
   return (
     <PodTileContent
       name={workload.component || workload.name}
       status={status}
-      icon={getComponentIcon(workload.component)}
+      statusLabel={label}
+      icon={getWorkloadIcon(workload)}
       age={workload.age}
       warningMessage={warningMessage}
       errorMessage={lastError}

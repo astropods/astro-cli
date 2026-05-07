@@ -12,10 +12,10 @@ import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
 
 const STATUS_CONFIG = {
-  healthy: { label: "Online", dot: "bg-green-400", glow: "shadow-[0_0_6px_2px] shadow-green-400/50" },
-  warning: { label: "Degraded", dot: "bg-amber-400", glow: "shadow-[0_0_6px_2px] shadow-amber-400/50" },
-  unhealthy: { label: "Error", dot: "bg-red-400", glow: "shadow-[0_0_6px_2px] shadow-red-400/50" },
-  pending: { label: "Starting", dot: "bg-blue-400", glow: "shadow-[0_0_6px_2px] shadow-blue-400/50" },
+  healthy: { dot: "bg-green-400", glow: "shadow-[0_0_6px_2px] shadow-green-400/50" },
+  warning: { dot: "bg-amber-400", glow: "shadow-[0_0_6px_2px] shadow-amber-400/50" },
+  unhealthy: { dot: "bg-red-400", glow: "shadow-[0_0_6px_2px] shadow-red-400/50" },
+  pending: { dot: "bg-blue-400", glow: "shadow-[0_0_6px_2px] shadow-blue-400/50" },
 } as const;
 
 const TABS = ["General", "Logs", "Events"] as const;
@@ -49,7 +49,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, ac
   const logsVisited = useRef(false);
   if (activeTab === "Logs") logsVisited.current = true;
 
-  const status = derivePodStatus(workload);
+  const { status, label: statusLabel } = derivePodStatus(workload);
   const name = workload.component || workload.name;
 
   return (
@@ -60,7 +60,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, ac
           <h2 className="text-2xl font-normal text-foreground">{name}</h2>
           <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1">
             <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_CONFIG[status].dot, STATUS_CONFIG[status].glow)} />
-            <span className="text-mono-sm text-muted-foreground">{STATUS_CONFIG[status].label}</span>
+            <span className="text-mono-sm text-muted-foreground">{statusLabel}</span>
           </span>
         </div>
         <button
@@ -162,7 +162,7 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
 
   // Group env vars per container, sorted alphabetically within each
   const envByContainer = useMemo(() => {
-    return workload.containers.map((container) => {
+    return (workload.containers ?? []).map((container) => {
       const vars = (container.env ?? []).map((env) => {
         const value = env.value ?? "";
         const source = env.from ?? "static";

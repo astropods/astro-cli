@@ -900,6 +900,169 @@ func TestListAstroDeployments_PrefersNewestRunningPod(t *testing.T) {
 	}
 }
 
+// TestListAstroDeployments_IngestionWorkloads verifies the unified workload
+// model for ingestion: CronJobs and standalone Jobs each surface as their
+// own Workload entry (Kind="CronJob"/"Job"), and CronJob-owned child Jobs
+// attach to their parent's Runs[] rather than appearing as a separate row.
+//
+// This is the user-visible signal that a schedule is configured — before
+// the unification, schedule ingestion was invisible until the first run.
+func TestListAstroDeployments_IngestionWorkloads(t *testing.T) {
+	namespace := "astro-abc123-0"
+	agentKey := "myorg.myagent"
+	build := "build-1"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/deployments") {
+			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/ingresses") {
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/pods") {
+			_, _ = w.Write([]byte(`{"kind":"PodList","apiVersion":"v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/cronjobs") {
+			fmt.Fprintf(w, `{
+				"kind":"CronJobList","apiVersion":"batch/v1","items":[{
+					"metadata":{
+						"name":"myagent-ingestion-daily","namespace":%q,
+						"uid":"cron-uid-1",
+						"creationTimestamp":"2026-01-01T00:00:00Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"ingestion-daily"
+						}
+					},
+					"spec":{"schedule":"0 0 * * *","jobTemplate":{"spec":{"template":{"spec":{"containers":[]}}}}},
+					"status":{"lastScheduleTime":"2026-05-05T00:00:00Z"}
+				}]
+			}`, namespace, agentKey, build)
+			return
+		}
+		if strings.Contains(path, "/jobs") {
+			// Two Jobs:
+			//   - cron child (ownerRef = CronJob/myagent-ingestion-daily) → Runs[]
+			//   - standalone startup Job → its own Workload
+			fmt.Fprintf(w, `{
+				"kind":"JobList","apiVersion":"batch/v1","items":[
+					{
+						"metadata":{
+							"name":"myagent-ingestion-daily-28012345","namespace":%q,
+							"creationTimestamp":"2026-05-05T00:00:00Z",
+							"ownerReferences":[{"apiVersion":"batch/v1","kind":"CronJob","name":"myagent-ingestion-daily","uid":"cron-uid-1","controller":true}],
+							"labels":{
+								"app.kubernetes.io/managed-by":"astro-server",
+								"astro.dev/agent":%q,
+								"app.kubernetes.io/version":%q,
+								"app.kubernetes.io/component":"ingestion-daily"
+							}
+						},
+						"spec":{"completions":1},
+						"status":{"succeeded":1,"startTime":"2026-05-05T00:00:01Z","conditions":[{"type":"Complete","status":"True"}]}
+					},
+					{
+						"metadata":{
+							"name":"myagent-ingestion-bootstrap","namespace":%q,
+							"creationTimestamp":"2026-04-01T00:00:00Z",
+							"labels":{
+								"app.kubernetes.io/managed-by":"astro-server",
+								"astro.dev/agent":%q,
+								"app.kubernetes.io/version":%q,
+								"app.kubernetes.io/component":"ingestion-bootstrap"
+							}
+						},
+						"spec":{"completions":1},
+						"status":{"succeeded":1,"startTime":"2026-04-01T00:00:05Z","conditions":[{"type":"Complete","status":"True"}]}
+					}
+				]
+			}`, namespace, agentKey, build, namespace, agentKey, build)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	k8sClient := newMockK8sClient(handler)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment (stub from CronJob/Job), got %d", len(deps))
+	}
+
+	// Index workloads by name for assertions.
+	byName := map[string]WorkloadDetail{}
+	for _, wl := range deps[0].Workloads {
+		byName[wl.Name] = wl
+	}
+	if len(byName) != 2 {
+		t.Fatalf("expected 2 Workloads (CronJob + standalone Job), got %d: %+v", len(byName), deps[0].Workloads)
+	}
+
+	cron, ok := byName["myagent-ingestion-daily"]
+	if !ok {
+		t.Fatal("expected Workload for the CronJob")
+	}
+	if cron.Kind != "CronJob" {
+		t.Errorf("CronJob workload Kind = %q, want CronJob", cron.Kind)
+	}
+	if cron.Schedule != "0 0 * * *" {
+		t.Errorf("CronJob workload Schedule = %q, want %q", cron.Schedule, "0 0 * * *")
+	}
+	if cron.Status != "Idle" {
+		t.Errorf("CronJob workload Status = %q, want Idle (no active children)", cron.Status)
+	}
+	if cron.StartTime == "" {
+		t.Error("CronJob workload StartTime should be populated from LastScheduleTime")
+	}
+	if len(cron.Runs) != 1 {
+		t.Fatalf("expected 1 Run on the CronJob workload (the child Job), got %d", len(cron.Runs))
+	}
+	run := cron.Runs[0]
+	if run.Name != "myagent-ingestion-daily-28012345" {
+		t.Errorf("Runs[0].Name = %q, want the child Job name", run.Name)
+	}
+	if run.Status != "Succeeded" {
+		t.Errorf("Runs[0].Status = %q, want Succeeded", run.Status)
+	}
+	if run.Completions != "1/1" {
+		t.Errorf("Runs[0].Completions = %q, want 1/1", run.Completions)
+	}
+
+	bootstrap, ok := byName["myagent-ingestion-bootstrap"]
+	if !ok {
+		t.Fatal("expected standalone Job to surface as its own Workload")
+	}
+	if bootstrap.Kind != "Job" {
+		t.Errorf("standalone Job Kind = %q, want Job", bootstrap.Kind)
+	}
+	if bootstrap.Status != "Succeeded" {
+		t.Errorf("standalone Job Status = %q, want Succeeded", bootstrap.Status)
+	}
+	if bootstrap.Completions != "1/1" {
+		t.Errorf("standalone Job Completions = %q, want 1/1", bootstrap.Completions)
+	}
+	if len(bootstrap.Runs) != 0 {
+		t.Errorf("standalone Job should not have Runs[], got %d", len(bootstrap.Runs))
+	}
+	if bootstrap.Schedule != "" {
+		t.Errorf("standalone Job should not have Schedule, got %q", bootstrap.Schedule)
+	}
+}
+
 // TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom verifies that
 // when a container has both an envFrom-resolved key and a direct env entry
 // with the same name, the result has one entry per name with the direct
@@ -981,6 +1144,254 @@ func TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom(t *testing.T) {
 	if bySource["GITHUB_TOKEN"] != "secret:agent-creds" {
 		t.Errorf("GITHUB_TOKEN: expected envFrom source, got %q", bySource["GITHUB_TOKEN"])
 	}
+}
+
+// TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod verifies that
+// Job/CronJob workloads can surface env vars by reading directly from the
+// pod template, so the General tab is populated even when no pod exists
+// (CronJob never fired, Job pod GC'd).
+func TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod(t *testing.T) {
+	const ns = "astro-test-0"
+	cs := fakeKube.NewClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "ingest-creds", Namespace: ns},
+			Data: map[string][]byte{
+				"S3_ACCESS_KEY": []byte("AKIA..."),
+				"S3_SECRET":     []byte("xxx"),
+			},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "ingest-config", Namespace: ns},
+			Data: map[string]string{
+				"BUCKET":   "my-bucket",
+				"INTERVAL": "3600",
+			},
+		},
+	)
+
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "ingest",
+			EnvFrom: []corev1.EnvFromSource{
+				{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-config"}}},
+				{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-creds"}}},
+			},
+			Env: []corev1.EnvVar{
+				{Name: "MODE", Value: "incremental"},
+				{Name: "S3_ACCESS_KEY", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-creds"},
+						Key:                  "S3_ACCESS_KEY",
+					},
+				}},
+			},
+		}},
+		InitContainers: []corev1.Container{{
+			Name: "wait-for-db",
+			Env:  []corev1.EnvVar{{Name: "DB_HOST", Value: "postgres"}},
+		}},
+	}
+
+	got := containersFromSpecWithEnv(context.Background(), cs, ns, podSpec)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 containers (1 main + 1 init), got %d", len(got))
+	}
+
+	byName := map[string]ContainerStatus{}
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+
+	ingest, ok := byName["ingest"]
+	if !ok {
+		t.Fatal("expected 'ingest' container")
+	}
+	envByName := map[string]EnvVar{}
+	for _, ev := range ingest.Env {
+		envByName[ev.Name] = ev
+	}
+
+	// envFrom configmap → values surfaced as-is.
+	if envByName["BUCKET"].Value != "my-bucket" {
+		t.Errorf("BUCKET value = %q, want %q", envByName["BUCKET"].Value, "my-bucket")
+	}
+	if envByName["BUCKET"].From != "configmap:ingest-config" {
+		t.Errorf("BUCKET source = %q, want configmap:ingest-config", envByName["BUCKET"].From)
+	}
+	// envFrom secret → key surfaced, value redacted.
+	if envByName["S3_SECRET"].Value != "••••••••" {
+		t.Errorf("S3_SECRET value = %q, want redacted", envByName["S3_SECRET"].Value)
+	}
+	if envByName["S3_SECRET"].From != "secret:ingest-creds" {
+		t.Errorf("S3_SECRET source = %q, want secret:ingest-creds", envByName["S3_SECRET"].From)
+	}
+	// Direct literal env.
+	if envByName["MODE"].Value != "incremental" {
+		t.Errorf("MODE value = %q, want incremental", envByName["MODE"].Value)
+	}
+	// Direct secretKeyRef wins over envFrom for the same key (slash in source).
+	s3Key := envByName["S3_ACCESS_KEY"]
+	if !strings.Contains(s3Key.From, "/") {
+		t.Errorf("S3_ACCESS_KEY source = %q, want direct secretKeyRef (with '/')", s3Key.From)
+	}
+	if s3Key.Value != "••••••••" {
+		t.Errorf("S3_ACCESS_KEY value = %q, want redacted", s3Key.Value)
+	}
+
+	// InitContainer env is also resolved.
+	wait, ok := byName["wait-for-db"]
+	if !ok {
+		t.Fatal("expected 'wait-for-db' init container")
+	}
+	if len(wait.Env) != 1 || wait.Env[0].Name != "DB_HOST" || wait.Env[0].Value != "postgres" {
+		t.Errorf("init env = %+v, want single DB_HOST=postgres", wait.Env)
+	}
+}
+
+// TestListAstroDeployments_IngestionWorkloadsHaveEnvVars verifies the
+// full listing path: a CronJob and standalone Job whose templates declare
+// env (envFrom secret + direct entries) surface those env vars on the
+// returned WorkloadDetail.Containers, even though no pods exist for them.
+func TestListAstroDeployments_IngestionWorkloadsHaveEnvVars(t *testing.T) {
+	namespace := "astro-env123-0"
+	agentKey := "myorg.envagent"
+	build := "build-1"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		switch {
+		case strings.Contains(path, "/deployments"):
+			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
+		case strings.Contains(path, "/statefulsets"):
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
+		case strings.Contains(path, "/ingresses"):
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+		case strings.HasSuffix(path, "/pods"):
+			_, _ = w.Write([]byte(`{"kind":"PodList","apiVersion":"v1","items":[]}`))
+		case strings.Contains(path, "/secrets/ingest-creds"):
+			fmt.Fprintf(w, `{
+				"kind":"Secret","apiVersion":"v1",
+				"metadata":{"name":"ingest-creds","namespace":%q},
+				"data":{"API_KEY":"c2VjcmV0"}
+			}`, namespace)
+		case strings.Contains(path, "/cronjobs"):
+			fmt.Fprintf(w, `{
+				"kind":"CronJobList","apiVersion":"batch/v1","items":[{
+					"metadata":{
+						"name":"envagent-ingestion-hourly","namespace":%q,
+						"uid":"cron-uid-env-1",
+						"creationTimestamp":"2026-01-01T00:00:00Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"ingestion-hourly"
+						}
+					},
+					"spec":{
+						"schedule":"0 * * * *",
+						"jobTemplate":{"spec":{"template":{"spec":{"containers":[{
+							"name":"ingest",
+							"envFrom":[{"secretRef":{"name":"ingest-creds"}}],
+							"env":[
+								{"name":"MODE","value":"incremental"},
+								{"name":"REGION","value":"us-east-1"}
+							]
+						}]}}}}
+					},
+					"status":{}
+				}]
+			}`, namespace, agentKey, build)
+		case strings.HasSuffix(path, "/jobs"):
+			fmt.Fprintf(w, `{
+				"kind":"JobList","apiVersion":"batch/v1","items":[{
+					"metadata":{
+						"name":"envagent-ingestion-bootstrap","namespace":%q,
+						"creationTimestamp":"2026-04-01T00:00:00Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"ingestion-bootstrap"
+						}
+					},
+					"spec":{
+						"completions":1,
+						"template":{"spec":{"containers":[{
+							"name":"bootstrap",
+							"env":[
+								{"name":"INIT_TARGET","value":"all"}
+							]
+						}]}}
+					},
+					"status":{"succeeded":1,"conditions":[{"type":"Complete","status":"True"}]}
+				}]
+			}`, namespace, agentKey, build)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	k8sClient := newMockK8sClient(handler)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+
+	byName := map[string]WorkloadDetail{}
+	for _, wl := range deps[0].Workloads {
+		byName[wl.Name] = wl
+	}
+
+	cron, ok := byName["envagent-ingestion-hourly"]
+	if !ok {
+		t.Fatal("expected CronJob workload")
+	}
+	if len(cron.Containers) != 1 {
+		t.Fatalf("CronJob containers = %d, want 1", len(cron.Containers))
+	}
+	cronEnv := indexEnv(cron.Containers[0].Env)
+	if cronEnv["MODE"].Value != "incremental" {
+		t.Errorf("CronJob MODE = %q, want incremental", cronEnv["MODE"].Value)
+	}
+	if cronEnv["REGION"].Value != "us-east-1" {
+		t.Errorf("CronJob REGION = %q, want us-east-1", cronEnv["REGION"].Value)
+	}
+	// envFrom secret resolved: key present, value redacted, source attributed.
+	if _, ok := cronEnv["API_KEY"]; !ok {
+		t.Error("CronJob API_KEY should be resolved from envFrom secret")
+	}
+	if cronEnv["API_KEY"].Value != "••••••••" {
+		t.Errorf("CronJob API_KEY value = %q, want redacted", cronEnv["API_KEY"].Value)
+	}
+	if cronEnv["API_KEY"].From != "secret:ingest-creds" {
+		t.Errorf("CronJob API_KEY source = %q, want secret:ingest-creds", cronEnv["API_KEY"].From)
+	}
+
+	job, ok := byName["envagent-ingestion-bootstrap"]
+	if !ok {
+		t.Fatal("expected standalone Job workload")
+	}
+	if len(job.Containers) != 1 {
+		t.Fatalf("Job containers = %d, want 1", len(job.Containers))
+	}
+	jobEnv := indexEnv(job.Containers[0].Env)
+	if jobEnv["INIT_TARGET"].Value != "all" {
+		t.Errorf("Job INIT_TARGET = %q, want all", jobEnv["INIT_TARGET"].Value)
+	}
+}
+
+func indexEnv(env []EnvVar) map[string]EnvVar {
+	out := make(map[string]EnvVar, len(env))
+	for _, ev := range env {
+		out[ev.Name] = ev
+	}
+	return out
 }
 
 func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {

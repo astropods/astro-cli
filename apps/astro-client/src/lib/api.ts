@@ -1350,13 +1350,21 @@ export interface ContainerStatus {
 
 export interface WorkloadDetail {
   name: string;
+  // "Deployment" | "StatefulSet" | "Job" | "CronJob"
   kind: string;
   component: string;
   age: string;
   phase?: string;
   pod_name?: string;
-  containers: ContainerStatus[];
+  containers?: ContainerStatus[];
   urls?: ServiceEndpointInfo[];
+  // Job/CronJob-only fields. Empty for Deployment/StatefulSet — their health
+  // is read from containers[].ready instead.
+  status?: string;
+  schedule?: string;
+  start_time?: string;
+  completions?: string;
+  runs?: JobDetail[];
 }
 
 export interface JobDetail {
@@ -1405,7 +1413,6 @@ export interface AgentDeployment {
   external_urls?: ServiceEndpointInfo[];
   messaging_available?: boolean;
   workloads?: WorkloadDetail[];
-  jobs?: JobDetail[];
 }
 
 export interface DeploymentsListResponse {

@@ -10,10 +10,17 @@ import { deploymentKeys } from './keys';
  *  - After resume: replicas>0 but containers may still report ready:false
  * We keep polling in these windows so the service accordion updates without
  * requiring a hard refresh.
+ *
+ * Scoped to Deployment/StatefulSet — Job/CronJob health lives on `wl.status`,
+ * not `containers[].ready`. Their spec-seeded entries serialize as
+ * `ready: false` whenever a live pod isn't matched (Idle CronJobs, finished
+ * Jobs), which would otherwise trap this query in a 3s refetch loop.
  */
-function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean {
+export function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean {
   if (!dep) return false;
-  const workloads = dep.workloads ?? [];
+  const workloads = (dep.workloads ?? []).filter(
+    (wl) => wl.kind === "Deployment" || wl.kind === "StatefulSet",
+  );
   if (dep.replicas === 0) {
     return workloads.some((wl) => (wl.containers ?? []).some((c) => c.ready));
   }

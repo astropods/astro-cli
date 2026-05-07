@@ -1001,19 +1001,42 @@ type ContainerStatus struct {
 	Env          []EnvVar `json:"env,omitempty"`
 }
 
-// WorkloadDetail represents a k8s workload (Deployment, StatefulSet, etc.)
+// WorkloadDetail represents a k8s workload — Deployment, StatefulSet, Job
+// (one-shot ingestion / startup), or CronJob (scheduled ingestion).
+//
+// Field population by Kind:
+//   - Deployment / StatefulSet: Phase, PodName, Containers, URLs
+//   - Job:                       Status, StartTime, Completions, Containers
+//                                (from the executing pod, when present)
+//   - CronJob:                   Status, Schedule, StartTime (last fire),
+//                                Runs (child Jobs)
 type WorkloadDetail struct {
-	Name       string                `json:"name"`      // k8s resource name
-	Kind       string                `json:"kind"`      // "Deployment" or "StatefulSet"
-	Component  string                `json:"component"` // from app.kubernetes.io/component label
-	Age        string                `json:"age"`
+	Name      string `json:"name"`      // k8s resource name
+	Kind      string `json:"kind"`      // "Deployment", "StatefulSet", "Job", "CronJob"
+	Component string `json:"component"` // from app.kubernetes.io/component label
+	Age       string `json:"age"`
+
+	// Long-running workload fields (Deployment / StatefulSet)
 	Phase      string                `json:"phase,omitempty"`    // k8s pod phase (Running, Pending, Succeeded, Failed, Unknown)
 	PodName    string                `json:"pod_name,omitempty"` // name of the representative pod (for restarts)
 	Containers []ContainerStatus     `json:"containers"`
 	URLs       []ServiceEndpointInfo `json:"urls,omitempty"`
+
+	// Batch workload fields. Status carries the Job/CronJob-flavored vocab:
+	//   Job:     Pending / Running / Succeeded / Failed
+	//   CronJob: Idle / Active / Suspended
+	// Long-running kinds leave Status empty — their health is read from
+	// Containers[].Ready instead.
+	Status      string      `json:"status,omitempty"`
+	Schedule    string      `json:"schedule,omitempty"`     // cron expression (CronJob only)
+	StartTime   string      `json:"start_time,omitempty"`   // Job: pod start. CronJob: last schedule time.
+	Completions string      `json:"completions,omitempty"`  // "succeeded/desired" (Job only)
+	Runs        []JobDetail `json:"runs,omitempty"`         // CronJob children, oldest-first
 }
 
-// JobDetail represents details about a single K8s Job (e.g. ingestion run)
+// JobDetail represents a single K8s Job execution — used both for standalone
+// (startup) Jobs surfaced as their own Workload run and for CronJob children
+// listed under Workload.Runs.
 type JobDetail struct {
 	Name        string `json:"name"`
 	Status      string `json:"status"` // "Running", "Succeeded", "Failed", "Pending"
@@ -1066,7 +1089,6 @@ type AgentDeployment struct {
 	ExternalURLs       []ServiceEndpointInfo `json:"external_urls,omitempty"`
 	MessagingAvailable bool                  `json:"messaging_available,omitempty"`
 	Workloads          []WorkloadDetail      `json:"workloads,omitempty"`
-	Jobs               []JobDetail           `json:"jobs,omitempty"`
 }
 
 // CountDeployments returns a handler that returns the number of visible deployments for an account.
@@ -1858,7 +1880,64 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		info.Workloads = append(info.Workloads, wl)
 	}
 
-	// List Jobs (e.g. ingestion runs) for the namespace
+	// List CronJobs first so we can route CronJob-owned Jobs into the
+	// matching Workload's Runs slice in the loop below.
+	cronJobList, err := clientset.BatchV1().CronJobs(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		cronJobList = &batchv1.CronJobList{} // non-critical, continue without cronjobs
+	}
+
+	// cronWorkloadIdx points from a CronJob's K8s name to its Workload entry,
+	// so child Jobs can append themselves to Runs[] without re-scanning.
+	type cronWorkloadRef struct {
+		info *AgentDeployment
+		idx  int
+	}
+	cronWorkloadIdx := make(map[string]cronWorkloadRef)
+
+	for _, cj := range cronJobList.Items {
+		agentKey := cj.Labels[deployment.LabelKeyAgent]
+		version := cj.Labels["app.kubernetes.io/version"]
+		component := cj.Labels["app.kubernetes.io/component"]
+		if agentKey == "" {
+			continue
+		}
+
+		key := agentKey + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			info = &AgentDeployment{
+				BuildID:          version,
+				Namespace:        namespace,
+				Status:           "Running",
+				CreatedAt:        cj.CreationTimestamp.Format(time.RFC3339),
+				Components:       []string{},
+				ManualIngestions: manualIngestions,
+			}
+			agentDeployments[key] = info
+		}
+
+		wl := WorkloadDetail{
+			Name:       cj.Name,
+			Kind:       "CronJob",
+			Component:  component,
+			Age:        formatAge(cj.CreationTimestamp.Time),
+			Status:     cronJobStatus(&cj),
+			Schedule:   cj.Spec.Schedule,
+			Containers: containersFromSpecWithEnv(ctx, clientset, namespace, cj.Spec.JobTemplate.Spec.Template.Spec),
+		}
+		if cj.Status.LastScheduleTime != nil {
+			wl.StartTime = cj.Status.LastScheduleTime.Format(time.RFC3339)
+		}
+		info.Workloads = append(info.Workloads, wl)
+		cronWorkloadIdx[cj.Name] = cronWorkloadRef{info: info, idx: len(info.Workloads) - 1}
+	}
+
+	// List Jobs and route each one based on ownerReferences:
+	//   - owned by a CronJob → append as a JobDetail to that CronJob's Runs[]
+	//   - standalone (startup ingestion) → create its own Kind="Job" Workload
 	jobList, err := clientset.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
@@ -1866,7 +1945,6 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		jobList = &batchv1.JobList{} // non-critical, continue without jobs
 	}
 
-	// Attach Jobs to their respective agent deployments (and create entries for job-only agents)
 	for _, job := range jobList.Items {
 		agentKey := job.Labels[deployment.LabelKeyAgent]
 		version := job.Labels["app.kubernetes.io/version"]
@@ -1875,10 +1953,36 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			continue
 		}
 
+		desired := int32(1)
+		if job.Spec.Completions != nil {
+			desired = *job.Spec.Completions
+		}
+		runDetail := JobDetail{
+			Name:        job.Name,
+			Component:   component,
+			Age:         formatAge(job.CreationTimestamp.Time),
+			Completions: fmt.Sprintf("%d/%d", job.Status.Succeeded, desired),
+			Status:      jobStatus(&job),
+		}
+		if job.Status.StartTime != nil {
+			runDetail.StartTime = job.Status.StartTime.Format(time.RFC3339)
+		}
+
+		// CronJob-owned Job: attach as a Run to the parent Workload.
+		if parent := cronJobOwner(job.OwnerReferences); parent != "" {
+			if ref, ok := cronWorkloadIdx[parent]; ok {
+				ref.info.Workloads[ref.idx].Runs = append(ref.info.Workloads[ref.idx].Runs, runDetail)
+				continue
+			}
+			// Parent CronJob wasn't listed (e.g. label-mismatched or pruned).
+			// Fall through and surface the orphan Job as its own Workload so
+			// it's still visible.
+		}
+
+		// Standalone Job → its own Workload row.
 		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
-			// Job exists but no Deployment entry — create a stub so it's visible
 			info = &AgentDeployment{
 				BuildID:          version,
 				Namespace:        namespace,
@@ -1889,28 +1993,16 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 			agentDeployments[key] = info
 		}
-
-		jobDetail := JobDetail{
-			Name:      job.Name,
-			Component: component,
-			Age:       formatAge(job.CreationTimestamp.Time),
-		}
-
-		if job.Status.StartTime != nil {
-			jobDetail.StartTime = job.Status.StartTime.Format(time.RFC3339)
-		}
-
-		// Derive completions string
-		desired := int32(1)
-		if job.Spec.Completions != nil {
-			desired = *job.Spec.Completions
-		}
-		jobDetail.Completions = fmt.Sprintf("%d/%d", job.Status.Succeeded, desired)
-
-		// Derive status from conditions and counters
-		jobDetail.Status = jobStatus(&job)
-
-		info.Jobs = append(info.Jobs, jobDetail)
+		info.Workloads = append(info.Workloads, WorkloadDetail{
+			Name:        job.Name,
+			Kind:        "Job",
+			Component:   component,
+			Age:         runDetail.Age,
+			Status:      runDetail.Status,
+			StartTime:   runDetail.StartTime,
+			Completions: runDetail.Completions,
+			Containers:  containersFromSpecWithEnv(ctx, clientset, namespace, job.Spec.Template.Spec),
+		})
 	}
 
 	// Index pods by agent key + component for matching to workloads.
@@ -2069,6 +2161,23 @@ func containersFromSpec(podSpec corev1.PodSpec) []ContainerStatus {
 	return out
 }
 
+// containersFromSpecWithEnv mirrors containersFromSpec but also resolves env vars
+// directly from the pod template, without requiring a live pod. Used for Jobs and
+// CronJobs where the pod may have been GC'd or never run yet — env wiring is
+// identical to what would land on a pod, so the workload's own template is the
+// authoritative source.
+func containersFromSpecWithEnv(ctx context.Context, clientset kubernetes.Interface, ns string, podSpec corev1.PodSpec) []ContainerStatus {
+	envByContainer := resolvePodSpecEnv(ctx, clientset, ns, podSpec)
+	out := make([]ContainerStatus, 0, len(podSpec.Containers)+len(podSpec.InitContainers))
+	for _, c := range podSpec.Containers {
+		out = append(out, ContainerStatus{Name: c.Name, Env: envByContainer[c.Name]})
+	}
+	for _, c := range podSpec.InitContainers {
+		out = append(out, ContainerStatus{Name: c.Name, Env: envByContainer[c.Name]})
+	}
+	return out
+}
+
 // enrichContainerStatuses merges runtime status from a pod into the spec-seeded container list.
 // For each container in base, if a matching runtime status exists it updates the runtime fields
 // (State, Ready, RestartCount, Reason, Message, Env) in-place. Containers present in base but
@@ -2090,12 +2199,12 @@ func enrichContainerStatuses(specContainers, podContainers []ContainerStatus) []
 	return result
 }
 
-// buildContainerStatuses extracts container statuses and env vars from a k8s pod.
-// It resolves envFrom references (ConfigMaps and Secrets) into individual key-value pairs.
-func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface, pod corev1.Pod) []ContainerStatus {
-	ns := pod.Namespace
-
-	// Cache resolved ConfigMaps and Secrets to avoid duplicate fetches.
+// resolvePodSpecEnv resolves the full env list for each container in a PodSpec,
+// mirroring K8s runtime precedence: envFrom is resolved first, then direct env
+// entries overlay (a direct entry with the same name as an envFrom-resolved key
+// wins). Secret values are redacted; only keys are surfaced. Returns a map keyed
+// by container name covering both Containers and InitContainers.
+func resolvePodSpecEnv(ctx context.Context, clientset kubernetes.Interface, ns string, podSpec corev1.PodSpec) map[string][]EnvVar {
 	cmCache := map[string]map[string]string{}
 	secCache := map[string]map[string]string{}
 
@@ -2141,13 +2250,8 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 		return result
 	}
 
-	// Build per-container env, mirroring K8s runtime precedence: envFrom is
-	// resolved first, then direct env entries overlay (a direct entry with
-	// the same name as an envFrom-resolved key wins). Returning one entry
-	// per name keeps the API contract honest and frees callers from having
-	// to dedupe.
-	specContainers := map[string][]EnvVar{}
-	for _, sc := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
+	out := map[string][]EnvVar{}
+	for _, sc := range append(podSpec.Containers, podSpec.InitContainers...) {
 		byName := map[string]EnvVar{}
 		order := []string{}
 		put := func(ev EnvVar) {
@@ -2202,8 +2306,15 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 		for _, name := range order {
 			envVars = append(envVars, byName[name])
 		}
-		specContainers[sc.Name] = envVars
+		out[sc.Name] = envVars
 	}
+	return out
+}
+
+// buildContainerStatuses extracts container statuses and env vars from a k8s pod.
+// It resolves envFrom references (ConfigMaps and Secrets) into individual key-value pairs.
+func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface, pod corev1.Pod) []ContainerStatus {
+	envByContainer := resolvePodSpecEnv(ctx, clientset, pod.Namespace, pod.Spec)
 
 	var containers []ContainerStatus
 	for _, cs := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
@@ -2211,7 +2322,7 @@ func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface,
 			Name:         cs.Name,
 			Ready:        cs.Ready,
 			RestartCount: cs.RestartCount,
-			Env:          specContainers[cs.Name],
+			Env:          envByContainer[cs.Name],
 		}
 		switch {
 		case cs.State.Running != nil:
@@ -2261,6 +2372,32 @@ func jobStatus(job *batchv1.Job) string {
 		return "Running"
 	}
 	return "Pending"
+}
+
+// cronJobStatus reports Suspended when explicitly suspended, Active when at
+// least one child Job is currently running, and Idle otherwise (scheduled but
+// nothing in-flight). This is distinct from jobStatus's vocabulary because a
+// CronJob has no "Succeeded"/"Failed" terminal state — its children do.
+func cronJobStatus(cj *batchv1.CronJob) string {
+	if cj.Spec.Suspend != nil && *cj.Spec.Suspend {
+		return "Suspended"
+	}
+	if len(cj.Status.Active) > 0 {
+		return "Active"
+	}
+	return "Idle"
+}
+
+// cronJobOwner returns the name of the CronJob that owns a Job, or "" if the
+// Job is standalone. K8s sets a single batch/v1 CronJob ownerRef on every
+// child Job, so we don't need to walk the chain.
+func cronJobOwner(refs []metav1.OwnerReference) string {
+	for _, r := range refs {
+		if r.Kind == "CronJob" {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 // RestartDeployment triggers a rolling restart of all Deployments and StatefulSets for an agent
