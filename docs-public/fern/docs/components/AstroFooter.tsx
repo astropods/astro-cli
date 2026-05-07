@@ -12,9 +12,26 @@ export default function AstroFooter() {
   };
 
   const handleCookiePreferences = () => {
-    if (typeof window !== 'undefined' && (window as any).transcend) {
-      (window as any).transcend.showConsentManager();
-    }
+    if (typeof window === 'undefined' || !(window as any).transcend) return;
+    // Transcend admin "UI View State" is set to Hidden, which no-ops a no-args
+    // showConsentManager() call. Pass an explicit viewState to bypass Hidden.
+    // US-safe default (CCPA/CPRA-compliant) if airgap hasn't resolved at click time.
+    let viewState = 'AcceptOrRejectAllOrMoreChoices';
+    try {
+      const airgap = (window as any).airgap;
+      const regimes = airgap && typeof airgap.getRegimes === 'function'
+        ? airgap.getRegimes()
+        : undefined;
+      if (regimes !== undefined) {
+        const regimeList = Array.isArray(regimes) ? regimes : [...regimes];
+        const isUS = regimeList.some((r: unknown) => {
+          const u = String(r).toUpperCase();
+          return u === 'US' || u.indexOf('US-') === 0;
+        });
+        viewState = isUS ? 'AcceptOrRejectAllOrMoreChoices' : 'CompleteOptionsToggles';
+      }
+    } catch (_err) { /* fall back to US-safe default */ }
+    (window as any).transcend.showConsentManager({ viewState });
   };
 
   return (

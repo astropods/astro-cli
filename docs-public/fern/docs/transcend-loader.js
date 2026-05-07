@@ -31,6 +31,7 @@
     // Required attributes per Postman team
     script.setAttribute('data-cfasync', 'false');
     script.setAttribute('data-local-sync', 'allow-network-observable');
+    script.setAttribute('data-site', 'astropods.com');
     script.setAttribute('data-more-choices-view', 'CompleteOptionsToggles');
 
     script.onload = function() {
