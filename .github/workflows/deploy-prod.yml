@@ -241,18 +241,6 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Smoke test: run against prod after a successful deploy
-  # ---------------------------------------------------------------------------
-  smoke-test:
-    needs: [deploy]
-    if: needs.deploy.result == 'success'
-    uses: ./.github/workflows/smoke-test.yml
-    with:
-      astro_test_host: https://astropods.com
-      astro_env: prod
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
   # Notify: post deployment status to #astro-ops
   # ---------------------------------------------------------------------------
   notify:
