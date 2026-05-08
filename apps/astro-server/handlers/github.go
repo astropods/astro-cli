@@ -100,14 +100,27 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 		if err == nil {
 			// Fetch the GitHub login to include in the response so the frontend
 			// can display "{login} connected" without a separate API call.
-			login := ""
-			if gh := githubclient.New(existingToken.AccessToken); gh != nil {
-				if l, loginErr := gh.GetLogin(c.Request.Context()); loginErr == nil {
-					login = l
-				}
+			// If GitHub rejects the token with 401, treat it as needing re-auth.
+			gh := githubclient.New(existingToken.AccessToken)
+			login, loginErr := gh.GetLogin(c.Request.Context())
+			if loginErr == nil {
+				c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
+				return
 			}
-			c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
-			return
+			if !errors.Is(loginErr, githubclient.ErrUnauthorized) {
+				c.JSON(http.StatusOK, gin.H{"connected": true})
+				return
+			}
+			// Stale token — delete the dead connection so WorkOS will accept
+			// a new authorization request, then fall through to get the OAuth URL.
+			if delErr := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
+				Provider:       "github",
+				UserID:         session.UserID,
+				OrganizationID: session.OrganizationID,
+			}); delErr != nil {
+				log.Warn("github: failed to clear stale connection before re-auth", "error", delErr)
+			}
+			err = pipes.ErrNeedsReauthorization
 		}
 
 		if !errors.Is(err, pipes.ErrNeedsReauthorization) && !errors.Is(err, pipes.ErrNotInstalled) {
@@ -139,7 +152,7 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 // GitHubAccountCallback handles GET /api/v1/accounts/:account/github/callback.
 // WorkOS redirects here after GitHub OAuth. Reads redirect_to from the query string
 // and sends the browser back to the frontend wizard with ?github_connected=true.
-func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig) gin.HandlerFunc {
+func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := middleware.GetSession(c)
 		if !ok {
@@ -163,6 +176,8 @@ func GitHubAccountCallback(log *logger.Logger, pipesClient *pipes.Client, cfg Gi
 			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?github_error=token_unavailable")
 			return
 		}
+
+		_ = cache.Invalidate(c.Request.Context(), githubOrgsCachePrefix+session.UserID)
 
 		// Fetch the GitHub login to pass to the frontend so it can display "{login} connected"
 		// without a separate API call. Best-effort — omit if it fails.
@@ -220,6 +235,10 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client, cache
 		if orgs == nil {
 			orgs, err = gh.GetOrgs(c.Request.Context())
 			if err != nil {
+				if errors.Is(err, githubclient.ErrUnauthorized) {
+					c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+					return
+				}
 				log.Error("github: get orgs for repo search, falling back to personal repos only", "error", err)
 				orgs = nil
 			} else {
@@ -231,6 +250,10 @@ func GitHubAccountListRepos(log *logger.Logger, pipesClient *pipes.Client, cache
 
 		repos, err := gh.SearchRepos(c.Request.Context(), strings.TrimSpace(c.Query("q")), strings.TrimSpace(c.Query("login")), orgs)
 		if err != nil {
+			if errors.Is(err, githubclient.ErrUnauthorized) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+				return
+			}
 			log.Error("github: search account repos", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search GitHub repos"})
 			return
@@ -484,14 +507,18 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 			return
 		}
 
-		resp := gin.H{"connected": true}
-		if gh := githubclient.New(token.AccessToken); gh != nil {
-			login, loginErr := gh.GetLogin(c.Request.Context())
-			if loginErr != nil {
-				log.Warn("github: failed to fetch login for account status", "error", loginErr)
-			} else if login != "" {
-				resp["github_login"] = login
+		gh := githubclient.New(token.AccessToken)
+		login, loginErr := gh.GetLogin(c.Request.Context())
+		if loginErr != nil {
+			if errors.Is(loginErr, githubclient.ErrUnauthorized) {
+				c.JSON(http.StatusOK, gin.H{"connected": false})
+				return
 			}
+			log.Warn("github: failed to fetch login for account status", "error", loginErr)
+		}
+		resp := gin.H{"connected": true}
+		if login != "" {
+			resp["github_login"] = login
 		}
 		c.JSON(http.StatusOK, resp)
 	}

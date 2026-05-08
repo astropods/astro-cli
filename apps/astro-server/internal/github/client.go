@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrUnauthorized is returned when the GitHub API rejects the token with 401.
+var ErrUnauthorized = errors.New("github: unauthorized")
 
 const apiBase = "https://api.github.com"
 
@@ -309,6 +313,9 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("%w: GET %s returned %d: %s", ErrUnauthorized, path, resp.StatusCode, body)
+		}
 		return fmt.Errorf("github: GET %s returned %d: %s", path, resp.StatusCode, body)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)

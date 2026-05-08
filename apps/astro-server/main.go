@@ -1443,7 +1443,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			)
 			// Callback is a browser GET from the OAuth redirect — same auth middleware, no body
 			api.GET(accountGitHubRoutes, "/github/callback", "Account-level GitHub OAuth callback",
-				handlers.GitHubAccountCallback(log, pipesClient, githubCfg),
+				handlers.GitHubAccountCallback(log, pipesClient, githubCfg, k8sCache),
 				oapispec.Tags("GitHub"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -316,6 +317,38 @@ func TestGitHubAccountStatus_Unauthenticated(t *testing.T) {
 	}
 	if resp["error"] != "not authenticated" {
 		t.Errorf("expected 'not authenticated' error, got %v", resp["error"])
+	}
+}
+
+// TestGitHubAccountStatus_StaleToken verifies that when WorkOS returns a token but
+// GitHub rejects it with 401, the status endpoint returns connected: false so the
+// frontend prompts reconnect rather than showing a bare "@" with no login.
+func TestGitHubAccountStatus_StaleToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	restore := installStaleGitHubTokenStub(t)
+	defer restore()
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/api/v1/accounts/:account/github", GitHubAccountStatus(logger.New("error", "json"), pipes.New("fake-workos-key")))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["connected"] != false {
+		t.Errorf("expected connected: false for stale token, got %v", resp["connected"])
+	}
+	if _, ok := resp["github_login"]; ok {
+		t.Errorf("expected no github_login in response, got %v", resp["github_login"])
 	}
 }
 
@@ -1019,6 +1052,251 @@ func TestGitHubAccountDisconnect_TokenError_DeletesWebhookRow(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet SQL expectations (DeleteIfNoConnections did not run): %v", err)
+	}
+}
+
+// installStaleGitHubTokenStub returns a stub where WorkOS hands back a valid token
+// but all GitHub API calls respond 401 — simulating a token that WorkOS cached but
+// GitHub has already revoked.
+func installStaleGitHubTokenStub(t *testing.T) func() {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": "stale-token",
+				"scopes":       []string{"repo"},
+			},
+		})
+	})
+	respond401 := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials","status":"401"}`))
+	}
+	mux.HandleFunc("/user", respond401)
+	mux.HandleFunc("/user/", respond401)
+
+	srv := httptest.NewServer(mux)
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	return func() {
+		http.DefaultTransport = old
+		srv.Close()
+	}
+}
+
+// mapCache is an in-memory k8scache.Cache for tests.
+type mapCache map[string][]byte
+
+func (m mapCache) Get(_ context.Context, key string) ([]byte, bool) {
+	v, ok := m[key]
+	return v, ok
+}
+func (m mapCache) Set(_ context.Context, key string, data []byte, _ time.Duration) error {
+	m[key] = data
+	return nil
+}
+func (m mapCache) Invalidate(_ context.Context, key string) error {
+	delete(m, key)
+	return nil
+}
+
+// TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL verifies that when WorkOS
+// returns a token but GitHub rejects it with 401, the connect endpoint clears the
+// stale WorkOS connection and returns a fresh OAuth URL instead of connected: true.
+func TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var deleteHits atomic.Int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": "stale-token",
+				"scopes":       []string{"repo"},
+			},
+		})
+	})
+	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials","status":"401"}`))
+	})
+	mux.HandleFunc("/user_management/users/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleteHits.Add(1)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/data-integrations/github/authorize", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": "https://github.com/login/oauth/authorize?fake=1"})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	defer func() { http.DefaultTransport = old }()
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
+		c.Next()
+	})
+	router.POST("/api/v1/accounts/:account/github/connect",
+		GitHubAccountConnect(logger.New("error", "json"), pipes.New("fake-workos-key"),
+			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai", FrontendURL: "https://app.astropods.ai"}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/testaccount/github/connect",
+		strings.NewReader(`{"redirect_to":"/new/custom"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["connected"] == true {
+		t.Errorf("expected redirect_url, got connected: true — stale token was not detected")
+	}
+	if resp["redirect_url"] == "" || resp["redirect_url"] == nil {
+		t.Errorf("expected a redirect_url for OAuth re-auth, got none: %v", resp)
+	}
+	if deleteHits.Load() != 1 {
+		t.Errorf("expected 1 WorkOS DELETE to clear stale connection, got %d", deleteHits.Load())
+	}
+}
+
+// TestGitHubAccountListRepos_StaleToken_OrgsReturns401 verifies that when WorkOS
+// returns a token but GitHub rejects it with 401 on the orgs call, the handler
+// returns 422 github_not_connected instead of 500.
+func TestGitHubAccountListRepos_StaleToken_OrgsReturns401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	restore := installStaleGitHubTokenStub(t)
+	defer restore()
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/api/v1/accounts/:account/github/repos",
+		GitHubAccountListRepos(logger.New("error", "json"), pipes.New("fake-workos-key"), k8scache.NoopCache{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/repos?q=", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["error"] != "github_not_connected" {
+		t.Errorf("expected github_not_connected error, got %v", resp["error"])
+	}
+}
+
+// TestGitHubAccountListRepos_StaleToken_SearchReturns401 verifies that when orgs
+// are cached (GetOrgs is skipped) but GitHub rejects the token with 401 during
+// SearchRepos, the handler returns 422 github_not_connected instead of 500.
+func TestGitHubAccountListRepos_StaleToken_SearchReturns401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	restore := installStaleGitHubTokenStub(t)
+	defer restore()
+
+	cache := mapCache{}
+	orgsJSON, _ := json.Marshal([]string{"myorg"})
+	cache[githubOrgsCachePrefix+"user-1"] = orgsJSON
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/api/v1/accounts/:account/github/repos",
+		GitHubAccountListRepos(logger.New("error", "json"), pipes.New("fake-workos-key"), cache))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/repos?q=", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["error"] != "github_not_connected" {
+		t.Errorf("expected github_not_connected error, got %v", resp["error"])
+	}
+}
+
+// TestGitHubAccountCallback_InvalidatesOrgsCache verifies that a successful OAuth
+// callback evicts any cached org list for the user so stale orgs from a prior
+// GitHub account can't persist after reconnect.
+func TestGitHubAccountCallback_InvalidatesOrgsCache(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Stub: WorkOS token endpoint returns a valid token; GitHub /user returns a login.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": "fresh-token",
+				"scopes":       []string{"repo"},
+			},
+		})
+	})
+	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"login": "octocat"})
+	})
+	srv := httptest.NewServer(mux)
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	defer func() {
+		http.DefaultTransport = old
+		srv.Close()
+	}()
+
+	orgsJSON, _ := json.Marshal([]string{"old-org"})
+	cache := mapCache{githubOrgsCachePrefix + "user-1": orgsJSON}
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/github/callback", GitHubAccountCallback(
+		logger.New("error", "json"),
+		pipes.New("fake-workos-key"),
+		GitHubHandlerConfig{FrontendURL: "https://app.example.com"},
+		cache,
+	))
+
+	req := httptest.NewRequest(http.MethodGet, "/github/callback?redirect_to=/new/custom", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := cache[githubOrgsCachePrefix+"user-1"]; ok {
+		t.Error("expected orgs cache entry to be evicted after callback, but it still exists")
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "github_connected=true") {
+		t.Errorf("expected redirect to contain github_connected=true, got %s", loc)
 	}
 }
 
