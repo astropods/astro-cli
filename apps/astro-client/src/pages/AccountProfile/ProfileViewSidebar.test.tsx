@@ -158,6 +158,36 @@ describe('ProfileViewSidebar optional meta fields', () => {
   });
 });
 
+// ── Early adopter badge ───────────────────────────────────────────────────────
+
+describe('ProfileViewSidebar early adopter badge', () => {
+  it('shows the badge when account_number is within the first 1000', () => {
+    renderWithProviders(
+      <ProfileViewSidebar {...defaultProps} data={{ ...baseAccount, account_number: 42 }} />,
+    );
+    expect(screen.getByText('Early adopter')).toBeInTheDocument();
+  });
+
+  it('shows the account number on the badge', () => {
+    renderWithProviders(
+      <ProfileViewSidebar {...defaultProps} data={{ ...baseAccount, account_number: 42 }} />,
+    );
+    expect(screen.getByText('#42')).toBeInTheDocument();
+  });
+
+  it('hides the badge when account_number exceeds 1000', () => {
+    renderWithProviders(
+      <ProfileViewSidebar {...defaultProps} data={{ ...baseAccount, account_number: 1001 }} />,
+    );
+    expect(screen.queryByText('Early adopter')).not.toBeInTheDocument();
+  });
+
+  it('hides the badge when account_number is absent', () => {
+    renderWithProviders(<ProfileViewSidebar {...defaultProps} />);
+    expect(screen.queryByText('Early adopter')).not.toBeInTheDocument();
+  });
+});
+
 // ── Organization links ────────────────────────────────────────────────────────
 
 describe('ProfileViewSidebar organization links', () => {
@@ -171,8 +201,8 @@ describe('ProfileViewSidebar organization links', () => {
         ]}
       />,
     );
-    expect(screen.getByTitle('Acme Corp').closest('a')).toHaveAttribute('href', '/acme');
-    expect(screen.getByTitle('Widget Co').closest('a')).toHaveAttribute('href', '/widget-co');
+    expect(screen.getByRole('link', { name: /acme corp/i })).toHaveAttribute('href', '/acme');
+    expect(screen.getByRole('link', { name: /widget co/i })).toHaveAttribute('href', '/widget-co');
   });
 
   it('does not render the Organizations section when orgs is empty', () => {

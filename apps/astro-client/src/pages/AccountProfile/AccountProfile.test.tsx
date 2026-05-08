@@ -285,9 +285,8 @@ describe('AccountProfile organization links', () => {
     renderProfile('/testuser');
 
     await waitFor(() => {
-      const orgLink = screen.getByTitle('Acme Corp');
       // React Router <Link> renders as <a> with an href that does not trigger full reload
-      expect(orgLink.closest('a')).toHaveAttribute('href', '/acme-corp');
+      expect(screen.getByRole('link', { name: /acme corp/i })).toHaveAttribute('href', '/acme-corp');
     });
   });
 });

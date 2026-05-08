@@ -28,6 +28,11 @@ const defaultProps = {
   onVisibilityChange: vi.fn(),
   sort: 'newest' as BlueprintSort,
   onSortChange: vi.fn(),
+  // Reorder defaults
+  reorderMode: 'idle' as const,
+  hasCustomOrder: false,
+  onEnterReorder: vi.fn(),
+  onSaveReorder: vi.fn(),
 };
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -71,7 +76,6 @@ describe('BlueprintsTab visibility filter', () => {
     renderWithProviders(
       <BlueprintsTab {...defaultProps} blueprints={[]} isInternalView />,
     );
-    // Trigger label when "all" is selected
     expect(screen.getByRole('button', { name: /visibility/i })).toBeInTheDocument();
   });
 
@@ -116,5 +120,165 @@ describe('BlueprintsTab sort', () => {
     await user.click(screen.getByRole('button', { name: /newest/i }));
     await user.click(screen.getByRole('menuitem', { name: /name a/i }));
     expect(onSortChange).toHaveBeenCalledWith('name');
+  });
+});
+
+// ── Customize order button ────────────────────────────────────────────────────
+
+describe('BlueprintsTab customize order', () => {
+  it('shows "Customize order" button for owner in internal view', () => {
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner isInternalView />,
+    );
+    expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
+  });
+
+  it('hides "Customize order" button for visitor', () => {
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner={false} />,
+    );
+    expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
+  });
+
+  it('hides "Customize order" button in external view', () => {
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner isInternalView={false} />,
+    );
+    expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
+  });
+
+  it('still shows "Customize order" when a custom order is already saved', () => {
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[]} hasCustomOrder />,
+    );
+    expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
+  });
+
+  it('calls onEnterReorder when "Customize order" is clicked', async () => {
+    const user = userEvent.setup();
+    const onEnterReorder = vi.fn();
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[]} onEnterReorder={onEnterReorder} />,
+    );
+    await user.click(screen.getByRole('button', { name: /customize order/i }));
+    expect(onEnterReorder).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Editing mode ──────────────────────────────────────────────────────────────
+
+const blueprintsForReorder = [
+  makeBlueprint('alpha'),
+  makeBlueprint('beta'),
+  makeBlueprint('gamma'),
+];
+
+describe('BlueprintsTab editing mode', () => {
+  it('shows "Save changes" button when reorderMode is editing', () => {
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={blueprintsForReorder}
+        reorderMode="editing"
+      />,
+    );
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument();
+    // No cancel button — Taylor's UX has no cancel
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+  });
+
+  it('hides search/sort controls in editing mode', () => {
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={blueprintsForReorder}
+        reorderMode="editing"
+      />,
+    );
+    expect(screen.queryByPlaceholderText(/search blueprints/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /newest/i })).not.toBeInTheDocument();
+  });
+
+  it('renders all blueprints as sortable cards in editing mode', () => {
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={blueprintsForReorder}
+        reorderMode="editing"
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'gamma' })).toBeInTheDocument();
+  });
+
+  it('calls onSaveReorder with blueprint names when "Save changes" is clicked', async () => {
+    const user = userEvent.setup();
+    const onSaveReorder = vi.fn();
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={blueprintsForReorder}
+        reorderMode="editing"
+        onSaveReorder={onSaveReorder}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+    expect(onSaveReorder).toHaveBeenCalledOnce();
+    expect(onSaveReorder).toHaveBeenCalledWith(['alpha', 'beta', 'gamma']);
+  });
+
+  it('shows "Saved" confirmation when reorderMode is saved', () => {
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={blueprintsForReorder}
+        reorderMode="saved"
+      />,
+    );
+    expect(screen.getByRole('button', { name: /saved/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /saved/i })).toBeDisabled();
+    // No cancel button in saved state either
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+  });
+});
+
+// ── Grip handles ──────────────────────────────────────────────────────────────
+// Grips only appear in editing mode (SortableBlueprintCard); idle mode shows no grip.
+
+describe('BlueprintsTab grip handles', () => {
+  it('does not show grip hints in idle mode', () => {
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={[makeBlueprint('alpha'), makeBlueprint('beta')]}
+        isOwner
+        isInternalView
+      />,
+    );
+    expect(screen.queryByTestId('grip-hint')).not.toBeInTheDocument();
+  });
+});
+
+// ── localStorage persistence (via parent IndividualProfile) ──────────────────
+// These tests verify that IndividualProfile correctly loads/saves custom order.
+// The actual persistence is tested at the IndividualProfile level.
+
+describe('BlueprintsTab onEnterReorder resets filters', () => {
+  it('clicking "Customize order" calls onEnterReorder which resets filters in parent', async () => {
+    const user = userEvent.setup();
+    const onEnterReorder = vi.fn();
+    renderWithProviders(
+      <BlueprintsTab
+        {...defaultProps}
+        blueprints={[makeBlueprint('alpha')]}
+        search="foo"
+        sort="name"
+        onEnterReorder={onEnterReorder}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /customize order/i }));
+    // The actual filter reset is done by the parent — we just verify the callback fires
+    expect(onEnterReorder).toHaveBeenCalledOnce();
   });
 });

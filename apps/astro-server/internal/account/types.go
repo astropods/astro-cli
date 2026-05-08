@@ -24,6 +24,7 @@ type Account struct {
 	Pronouns             string           `json:"pronouns,omitempty"`
 	Website              string           `json:"website,omitempty"`
 	SocialLinks          []string         `json:"social_links"`
+	BlueprintOrder       []string         `json:"blueprint_order"`
 }
 
 // AccountMember represents a user's membership in an account

@@ -1,7 +1,11 @@
 import { useId } from "react";
 
+interface EarlyAdopterBadgeProps {
+  accountNumber?: number;
+}
+
 /** Zigzag badge shown for early adopters (account_number ≤ 1000). */
-export function EarlyAdopterBadge() {
+export function EarlyAdopterBadge({ accountNumber }: EarlyAdopterBadgeProps) {
   const id = useId();
   // useId includes colons which are invalid in SVG ids — strip them
   const gradId = `ea-grad-${id.replace(/:/g, "")}`;
@@ -36,8 +40,11 @@ export function EarlyAdopterBadge() {
         />
       </svg>
       {/* Brand indigo — intentional raw color, not a semantic token */}
-      <span className="relative z-10 px-5 py-1.5 text-center text-label font-mono" style={{ color: "#6D5BD0" }}>
+      <span className="relative z-10 px-5 py-1.5 text-center text-label font-mono flex items-center gap-1.5" style={{ color: "#6D5BD0" }}>
         Early adopter
+        {accountNumber != null && (
+          <span style={{ opacity: 0.6 }}>#{accountNumber}</span>
+        )}
       </span>
     </span>
   );

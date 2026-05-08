@@ -634,7 +634,7 @@ func TestUpdateAccount_SocialLinksAccepted(t *testing.T) {
 var fullAccountColumns = []string{
 	"id", "name", "type", "workos_org_id", "deleted_at",
 	"created_at", "updated_at", "display_name", "avatar_colors",
-	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
+	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
 }
 
 func expectGetByName(mock sqlmock.Sqlmock, name, id string) {
@@ -642,7 +642,7 @@ func expectGetByName(mock sqlmock.Sqlmock, name, id string) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs(name).
 		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
-			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 }
 
 func expectGetFirstMemberUserID(mock sqlmock.Sqlmock, accountID, userID string) {
@@ -664,15 +664,11 @@ func TestGetAccountOrgs_Success(t *testing.T) {
 	expectGetByName(mock, "taylor", "acct-1")
 	expectGetFirstMemberUserID(mock, "acct-1", "user-1")
 
-	orgColumns := []string{
-		"id", "name", "type", "workos_org_id", "deleted_at",
-		"created_at", "updated_at", "display_name", "avatar_colors",
-		"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
-	}
+	orgColumns := fullAccountColumns
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows(orgColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -769,7 +765,7 @@ func TestGetAccountOrgs_OrgAccountReturns404(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("astro-inc").
 		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -815,5 +811,55 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 	// Should still return 200 despite undeploy failure (best-effort)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 despite undeploy failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- blueprint_order handler tests ---
+
+func TestUpdateAccount_BlueprintOrderAccepted(t *testing.T) {
+	router, mock := setupUpdateAccountRouter()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE accounts SET display_name`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO account_profile`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := `{"display_name":"Test","blueprint_order":["code-reviewer","slack-bot","data-pipeline"]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestUpdateAccount_BlueprintOrderEmpty(t *testing.T) {
+	router, mock := setupUpdateAccountRouter()
+
+	// No display_name → store verifies account exists then upserts profile only
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM accounts`).
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectExec(`INSERT INTO account_profile`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	// Empty slice is valid — clears the saved order
+	body := `{"blueprint_order":[]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
 	}
 }

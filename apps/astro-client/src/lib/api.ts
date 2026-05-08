@@ -42,6 +42,7 @@ export interface AccountPublic {
   pronouns?: string;
   website?: string;
   social_links?: string[];
+  blueprint_order?: string[];
   avatar_colors?: AvatarColors;
 }
 
@@ -318,7 +319,7 @@ class ApiClient {
 
   async updateAccountProfile(
     account: string,
-    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[] },
+    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] },
   ): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       `/api/v1/accounts/${encodeURIComponent(account)}`,

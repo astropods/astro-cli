@@ -71,7 +71,7 @@ export function TabFilterDropdown<T extends string>({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={minWidth}>
         {options.map((opt) => (
-          <DropdownMenuItem key={opt.value} onSelect={() => onChange(opt.value)} className="gap-2">
+          <DropdownMenuItem key={opt.value} onSelect={() => onChange(opt.value)} className="gap-2 py-1 text-body-sm">
             {value === opt.value ? <Check className="size-3.5" /> : <span className="size-3.5" />}
             {opt.label}
           </DropdownMenuItem>

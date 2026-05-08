@@ -26,6 +26,7 @@ CREATE TABLE public.account_profile (
     pronouns varchar(50),
     website varchar(255),
     social_links text[] NOT NULL DEFAULT '{}',
+    blueprint_order text[] NOT NULL DEFAULT '{}',
     CONSTRAINT account_profile_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_profile_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

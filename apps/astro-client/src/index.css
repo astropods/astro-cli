@@ -378,3 +378,31 @@ html.dark .sbdocs-preview {
 .dark .sbdocs-expandable {
   border-color: var(--border) !important;
 }
+
+/* Blueprint card drag affordance */
+@keyframes card-wiggle {
+  0%   { transform: rotate(0deg); }
+  20%  { transform: rotate(-0.7deg) translateY(-1px); }
+  40%  { transform: rotate(0.7deg) translateY(-1px); }
+  60%  { transform: rotate(-0.4deg); }
+  80%  { transform: rotate(0.2deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.card-draggable:hover {
+  animation: card-wiggle 0.4s ease forwards;
+}
+
+@keyframes card-edit-entrance {
+  0%   { transform: rotate(0deg) translateY(0); }
+  18%  { transform: rotate(-1.4deg) translateY(-3px); }
+  36%  { transform: rotate(1.4deg) translateY(-3px); }
+  52%  { transform: rotate(-0.9deg) translateY(-1px); }
+  68%  { transform: rotate(0.9deg) translateY(-1px); }
+  82%  { transform: rotate(-0.3deg); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+
+.card-entering-edit {
+  animation: card-edit-entrance 0.5s ease both;
+}

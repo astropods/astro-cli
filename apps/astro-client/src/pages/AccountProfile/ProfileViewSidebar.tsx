@@ -95,6 +95,7 @@ export function ProfileViewSidebar({
   ];
 
   return (
+    <TooltipProvider delayDuration={400}>
     <div className="relative z-10 flex flex-col gap-6 px-6 py-7 h-full overflow-y-auto">
       {/* Avatar + identity */}
       <div className="flex flex-col gap-2">
@@ -104,14 +105,12 @@ export function ProfileViewSidebar({
           <p className="text-body text-muted-foreground font-mono mt-0.5">@{data.name}</p>
           {data.account_number != null && data.account_number <= 1000 && (
             <div className="mt-2">
-              <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <EarlyAdopterBadge />
-                  </TooltipTrigger>
-                  <TooltipContent>One of the first 1,000 users on Astro</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <EarlyAdopterBadge accountNumber={data.account_number} />
+                </TooltipTrigger>
+                <TooltipContent>One of the first 1,000 users on Astro</TooltipContent>
+              </Tooltip>
             </div>
           )}
         </div>
@@ -184,18 +183,24 @@ export function ProfileViewSidebar({
             <p className="text-label uppercase text-muted-foreground">Organizations</p>
             <div className="flex flex-wrap gap-2">
               {orgs.map((org) => (
-                <Link key={org.name} to={`/${org.name}`} title={org.display_name ?? org.name}>
-                  <UserAvatar
-                    handle={org.name}
-                    name={org.display_name ?? org.name}
-                    className="size-9 rounded-[6px] transition-opacity hover:opacity-80"
-                  />
-                </Link>
+                <Tooltip key={org.name}>
+                  <TooltipTrigger asChild>
+                    <Link to={`/${org.name}`}>
+                      <UserAvatar
+                        handle={org.name}
+                        name={org.display_name ?? org.name}
+                        className="size-9 rounded-[6px] transition-opacity hover:opacity-80"
+                      />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>{org.display_name ?? org.name}</TooltipContent>
+                </Tooltip>
               ))}
             </div>
           </div>
         </>
       )}
     </div>
+    </TooltipProvider>
   );
 }

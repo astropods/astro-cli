@@ -43,22 +43,23 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID            string             `json:"id"`
-	Name          string             `json:"name"`
-	Type          string             `json:"type"`
-	DisplayName   string             `json:"display_name"`
-	Owner         *AccountOwner      `json:"owner,omitempty"`
-	Invitations   []org.InviteResult `json:"invitations,omitempty"`
-	CreatedAt     string             `json:"created_at"`
-	UpdatedAt     string             `json:"updated_at"`
-	AccountNumber *int               `json:"account_number,omitempty"`
-	Bio           string             `json:"bio,omitempty"`
-	Location      string             `json:"location,omitempty"`
-	Email         string             `json:"email,omitempty"`
-	LocalTimezone string             `json:"local_timezone,omitempty"`
-	Pronouns      string             `json:"pronouns,omitempty"`
-	Website       string             `json:"website,omitempty"`
-	SocialLinks   []string           `json:"social_links"`
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Type           string             `json:"type"`
+	DisplayName    string             `json:"display_name"`
+	Owner          *AccountOwner      `json:"owner,omitempty"`
+	Invitations    []org.InviteResult `json:"invitations,omitempty"`
+	CreatedAt      string             `json:"created_at"`
+	UpdatedAt      string             `json:"updated_at"`
+	AccountNumber  *int               `json:"account_number,omitempty"`
+	Bio            string             `json:"bio,omitempty"`
+	Location       string             `json:"location,omitempty"`
+	Email          string             `json:"email,omitempty"`
+	LocalTimezone  string             `json:"local_timezone,omitempty"`
+	Pronouns       string             `json:"pronouns,omitempty"`
+	Website        string             `json:"website,omitempty"`
+	SocialLinks    []string           `json:"social_links"`
+	BlueprintOrder []string           `json:"blueprint_order,omitempty"`
 }
 
 // AccountOrgResponse represents an org account in the profile orgs list.
@@ -298,21 +299,23 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 		if socialLinks == nil {
 			socialLinks = []string{}
 		}
+
 		resp := AccountResponse{
-			ID:            acct.ID,
-			Name:          acct.Name,
-			Type:          acct.Type,
-			DisplayName:   acct.DisplayName,
-			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			AccountNumber: acct.AccountNumber,
-			Bio:           acct.Bio,
-			Location:      acct.Location,
-			Email:         acct.Email,
-			LocalTimezone: acct.LocalTimezone,
-			Pronouns:      acct.Pronouns,
-			Website:       acct.Website,
-			SocialLinks:   socialLinks,
+			ID:             acct.ID,
+			Name:           acct.Name,
+			Type:           acct.Type,
+			DisplayName:    acct.DisplayName,
+			CreatedAt:      acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:      acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			AccountNumber:  acct.AccountNumber,
+			Bio:            acct.Bio,
+			Location:       acct.Location,
+			Email:          acct.Email,
+			LocalTimezone:  acct.LocalTimezone,
+			Pronouns:       acct.Pronouns,
+			Website:        acct.Website,
+			SocialLinks:    socialLinks,
+			BlueprintOrder: acct.BlueprintOrder,
 		}
 
 		// Best-effort: look up owner profile for personal accounts
@@ -391,14 +394,15 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 // UpdateAccountRequest represents the request body for updating account fields.
 // Profile fields use pointer/PATCH semantics: omitting a field leaves the existing value unchanged.
 type UpdateAccountRequest struct {
-	DisplayName   string    `json:"display_name"`
-	Bio           *string   `json:"bio"`
-	Location      *string   `json:"location"`
-	Email         *string   `json:"email"`
-	LocalTimezone *string   `json:"local_timezone"`
-	Pronouns      *string   `json:"pronouns"`
-	Website       *string   `json:"website"`
-	SocialLinks   *[]string `json:"social_links"`
+	DisplayName    string    `json:"display_name"`
+	Bio            *string   `json:"bio"`
+	Location       *string   `json:"location"`
+	Email          *string   `json:"email"`
+	LocalTimezone  *string   `json:"local_timezone"`
+	Pronouns       *string   `json:"pronouns"`
+	Website        *string   `json:"website"`
+	SocialLinks    *[]string `json:"social_links"`
+	BlueprintOrder *[]string `json:"blueprint_order"`
 }
 
 // UpdateAccount handles PATCH /api/v1/accounts/:account (admin only)
@@ -478,8 +482,14 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 				}
 			}
 		}
+		if req.BlueprintOrder != nil {
+			if len(*req.BlueprintOrder) > 200 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "blueprint_order may contain at most 200 entries"})
+				return
+			}
+		}
 
-		if err := accountStore.UpdateProfile(acct.ID, req.DisplayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks); err != nil {
+		if err := accountStore.UpdateProfile(acct.ID, req.DisplayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
 			log.Error("Failed to update account profile", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return

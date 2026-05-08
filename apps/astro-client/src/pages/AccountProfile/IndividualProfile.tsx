@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useParams } from "react-router";
 import type { Route } from "./+types/AccountProfile";
-import { useAccount, useAccountOrgs } from "@/api/queries/accounts";
+import { useAccount, useAccountOrgs, useUpdateAccountProfile } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
@@ -14,7 +14,7 @@ import { ProfileEditSidebar } from "./ProfileEditSidebar";
 import { ProfileViewSidebar } from "./ProfileViewSidebar";
 import { BlueprintsTab } from "./BlueprintsTab";
 import { AgentsTab } from "./AgentsTab";
-import type { VisibilityFilter, BlueprintSort } from "./BlueprintsTab";
+import type { VisibilityFilter, BlueprintSort, ReorderMode } from "./BlueprintsTab";
 import type { AgentSort } from "./AgentsTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -74,6 +74,11 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
   const [bpVisibility, setBpVisibility] = useState<VisibilityFilter>("all");
   const [bpSort, setBpSort] = useState<BlueprintSort>("newest");
 
+  // ── Blueprint reorder ─────────────────────────────────────────────────────
+  const updateProfile = useUpdateAccountProfile();
+  const [bpReorderMode, setBpReorderMode] = useState<ReorderMode>("idle");
+  const [bpCustomOrder, setBpCustomOrder] = useState<string[] | null>(null);
+
   // ── Agent filters ─────────────────────────────────────────────────────────
   const [agentSearch, setAgentSearch] = useState("");
   const [agentSort, setAgentSort] = useState<AgentSort>("modified");
@@ -91,6 +96,37 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
   const rawBlueprints = useMemo(() => blueprintsData?.agents ?? [], [blueprintsData]);
   const rawDeployments = useMemo(() => deploymentsData?.deployments ?? [], [deploymentsData]);
 
+  // ── Seed custom blueprint order from profile ──────────────────────────────
+  useEffect(() => {
+    if (data?.blueprint_order) setBpCustomOrder(data.blueprint_order);
+  }, [data?.blueprint_order]);
+
+  // ── Reorder handlers ──────────────────────────────────────────────────────
+  const handleEnterReorder = useCallback(() => {
+    // Reset all filters so reordering operates on the full set
+    setBpSearch("");
+    setBpVisibility("all");
+    setBpSort("newest");
+    setBpReorderMode("editing");
+  }, []);
+
+  const handleSaveReorder = useCallback((names: string[]) => {
+    if (!data?.name) return;
+    const prevOrder = bpCustomOrder;
+    setBpCustomOrder(names);
+    setBpReorderMode("saved");
+    updateProfile.mutate(
+      { account: data.name, blueprint_order: names },
+      {
+        onSuccess: () => setTimeout(() => setBpReorderMode("idle"), 1500),
+        onError: () => {
+          setBpCustomOrder(prevOrder);
+          setBpReorderMode("editing");
+        },
+      },
+    );
+  }, [data?.name, bpCustomOrder, updateProfile]);
+
   // ── Blueprint filtering + sorting ─────────────────────────────────────────
   const visibleBlueprints = useMemo(() => {
     let list = effectiveViewMode === "external"
@@ -106,7 +142,18 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
       list = list.filter((bp) => bp.name.toLowerCase().includes(q));
     }
 
-    if (bpSort === "newest") {
+    if (bpSort === "newest" && bpCustomOrder) {
+      // Apply saved custom order; new blueprints not in order fall to end by newest
+      const orderMap = new Map(bpCustomOrder.map((name, i) => [name, i]));
+      list = [...list].sort((a, b) => {
+        const ai = orderMap.get(a.name) ?? Infinity;
+        const bi = orderMap.get(b.name) ?? Infinity;
+        if (ai !== bi) return ai - bi;
+        const latestA = a.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
+        const latestB = b.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
+        return latestB.localeCompare(latestA);
+      });
+    } else if (bpSort === "newest") {
       list = [...list].sort((a, b) => {
         const latestA = a.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
         const latestB = b.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
@@ -119,7 +166,7 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
     }
 
     return list;
-  }, [rawBlueprints, effectiveViewMode, bpVisibility, bpSearch, bpSort]);
+  }, [rawBlueprints, effectiveViewMode, bpVisibility, bpSearch, bpSort, bpCustomOrder]);
 
   // ── Agent filtering + sorting ─────────────────────────────────────────────
   const visibleDeployments = useMemo(() => {
@@ -236,6 +283,10 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
               onVisibilityChange={setBpVisibility}
               sort={bpSort}
               onSortChange={setBpSort}
+              reorderMode={bpReorderMode}
+              hasCustomOrder={bpCustomOrder !== null}
+              onEnterReorder={handleEnterReorder}
+              onSaveReorder={handleSaveReorder}
             />
           )}
           {resolvedTab === "agents" && effectiveViewMode === "internal" && (
