@@ -608,7 +608,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 	}
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB, billing *openmeter.BillingStateManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -659,6 +659,16 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			}
 			if err := queue.InsertPrivateLinkDeleteJob(c.Request.Context(), ks.ID, endpointID); err != nil {
 				log.Error("Failed to enqueue PrivateLink delete job", "error", err, "store_id", ks.ID)
+			}
+		}
+
+		// No CASCADE: billing row outlives the store for the heartbeat's final-period emission.
+		// Block on error — without stopped_at the final period is never emitted.
+		if billing != nil && ks.Mode != knowledgestore.ModeExternal {
+			if err := billing.StopKnowledgeBilling(c.Request.Context(), ks.ID, time.Now()); err != nil {
+				log.Error("Failed to record knowledge billing stop, aborting delete", "error", err, "store_id", ks.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record final usage, please retry"})
+				return
 			}
 		}
 

@@ -28,6 +28,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // ReconcileArgs are the job arguments for the reconcile worker.
@@ -46,6 +47,7 @@ type ReconcileWorker struct {
 	dynClient dynamic.Interface
 	queue     *Queue
 	log       *logger.Logger
+	billing   *openmeter.BillingStateManager
 }
 
 func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs]) error {
@@ -235,6 +237,9 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 				w.log.Error("Reconcile: failed to mark scaled down", "error", err, "deployment_id", dep.ID)
 			} else {
 				w.log.Info("Reconcile: marked KEDA-scaled-down", "deployment_id", dep.ID, "namespace", dep.Namespace)
+				if w.billing != nil {
+					go w.billing.StopBilling(context.Background(), dep.ID, time.Now()) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
+				}
 			}
 			continue
 		}

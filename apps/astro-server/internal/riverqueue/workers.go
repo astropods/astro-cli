@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // addWorkers registers all River workers into the registry.
@@ -18,10 +19,13 @@ import (
 func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker) {
 	log := cfg.Logger
 
+	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
+
 	river.AddWorker(workers, &OpenmeterWorker{
 		omClient: cfg.OMClient,
 		db:       cfg.DB,
 		log:      log,
+		billing:  billing,
 	})
 	log.Info("river: registered worker", "worker", "OpenmeterWorker", "period", "5m")
 
@@ -66,11 +70,11 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		}
 	}
 
-	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
+	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "DeployWorker")
-	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, ksStore: knowledgestore.NewStore(cfg.DB), log: log, cache: cfg.K8sCache})
+	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, ksStore: knowledgestore.NewStore(cfg.DB), log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
-	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
+	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
 
 	var dynClient dynamic.Interface
@@ -135,6 +139,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		k8s:       cfg.K8sClient,
 		dynClient: dynClient,
 		log:       cfg.Logger,
+		billing:   billing,
 		// queue is set after client creation in New()
 	}
 	river.AddWorker(workers, rw)
@@ -145,6 +150,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		ksStore: ksStoreForWorkers,
 		k8s:     cfg.K8sClient,
 		log:     cfg.Logger,
+		billing: billing,
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 

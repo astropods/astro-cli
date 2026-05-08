@@ -189,16 +189,6 @@ func storageToGB(s string) float64 {
 // knowledgeCU calculates compute units for a knowledge store based on its provider's
 // default resource requests. Same formula as deployment compute: CU = max(cpu, mem/2).
 func knowledgeCU(provider string) float64 {
-	type resources struct{ cpu, memory string }
-	defaults := map[string]resources{
-		"postgres": {"250m", "256Mi"},
-		"redis":    {"50m", "64Mi"},
-		"qdrant":   {"250m", "512Mi"},
-		"neo4j":    {"500m", "512Mi"},
-	}
-	r, ok := defaults[provider]
-	if !ok {
-		r = resources{"100m", "128Mi"}
-	}
+	r := knowledgeProviderResourceStrings(provider)
 	return math.Max(parseCPU(r.cpu), parseMemory(r.memory)/2)
 }

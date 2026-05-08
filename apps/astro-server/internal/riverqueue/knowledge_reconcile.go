@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // KnowledgeReconcileArgs are the job arguments for the knowledge store reconciler.
@@ -32,6 +33,7 @@ type KnowledgeReconcileWorker struct {
 	ksStore *knowledgestore.Store
 	k8s     k8s.ClusterClient
 	log     *logger.Logger
+	billing *openmeter.BillingStateManager
 }
 
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
@@ -86,6 +88,11 @@ func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
 			w.log.Error("KnowledgeReconcile: failed to mark store ready",
 				"error", err, "store_id", ks.ID)
 			continue
+		}
+
+		// Start event-driven knowledge compute billing.
+		if w.billing != nil && ks.Mode == knowledgestore.ModeManaged {
+			go w.billing.StartKnowledgeBilling(context.Background(), ks.ID, ks.AccountID, ks.Name, ks.Provider) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
 		}
 
 		w.log.Info("KnowledgeReconcile: store ready", "store_id", ks.ID, "provider", ks.Provider)

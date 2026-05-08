@@ -617,6 +617,40 @@ CREATE TABLE public.deployment_authorization_grants (
 
 CREATE INDEX idx_deployment_authorization_grants_deployment ON public.deployment_authorization_grants(deployment_id);
 
+-- Billing state tables for event-driven compute metering.
+-- Tracks what has been billed so inline events and the heartbeat reconciler
+-- can calculate fractional CU-hours without double-counting.
+
+CREATE TABLE public.deployment_billing_state (
+    deployment_id   varchar(11) NOT NULL,
+    component       varchar     NOT NULL,
+    billing_active  boolean     NOT NULL DEFAULT false,
+    last_emitted_at timestamptz NOT NULL DEFAULT now(),
+    stopped_at      timestamptz NULL,
+    cpu_request     varchar     NOT NULL DEFAULT '',
+    memory_request  varchar     NOT NULL DEFAULT '',
+    replicas        int         NOT NULL DEFAULT 1,
+    CONSTRAINT deployment_billing_state_pkey PRIMARY KEY (deployment_id, component),
+    CONSTRAINT deployment_billing_state_deployment_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_billing_state_active ON public.deployment_billing_state(billing_active) WHERE billing_active = true;
+
+-- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
+-- can emit the final period after deletion without losing data.
+CREATE TABLE public.knowledge_billing_state (
+    knowledge_store_id varchar(11) NOT NULL,
+    billing_active     boolean     NOT NULL DEFAULT false,
+    last_emitted_at    timestamptz NOT NULL DEFAULT now(),
+    stopped_at         timestamptz NULL,
+    account_id         varchar     NOT NULL DEFAULT '',
+    name               varchar     NOT NULL DEFAULT '',
+    provider           varchar     NOT NULL,
+    CONSTRAINT knowledge_billing_state_pkey PRIMARY KEY (knowledge_store_id)
+);
+
+CREATE INDEX idx_knowledge_billing_state_active ON public.knowledge_billing_state(billing_active) WHERE billing_active = true;
+
 -- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
 -- when the user connects their Slack account via WorkOS Pipes — the link
 -- handler exchanges the Pipes-issued access token for the slack identity via

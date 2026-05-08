@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // DeployArgs are the job arguments for the deploy worker.
@@ -48,6 +49,7 @@ type DeployWorker struct {
 	store    *deploymentstore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
+	billing  *openmeter.BillingStateManager
 }
 
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
@@ -112,6 +114,17 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
 		return fmt.Errorf("set active: %w", err)
 	}
+
+	// Start event-driven compute billing for all workloads in this deployment.
+	if w.billing != nil {
+		workloads, err := workloadInfoFromStore(w.store, dep.ID)
+		if err != nil {
+			w.log.Error("Failed to load workloads for billing, heartbeat will recover", "error", err, "deployment_id", dep.ID)
+		} else {
+			go w.billing.StartBilling(context.Background(), dep.ID, workloads) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
+		}
+	}
+
 	return nil
 }
 
@@ -120,4 +133,27 @@ func statusOrNil(dep *deploymentstore.Deployment) string {
 		return "<nil>"
 	}
 	return dep.Status
+}
+
+// workloadInfoFromStore reads normalized workloads for a deployment and converts
+// them to billing WorkloadInfo entries.
+func workloadInfoFromStore(store *deploymentstore.Store, deploymentID string) ([]openmeter.WorkloadInfo, error) {
+	workloads, err := store.GetWorkloads(deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	infos := make([]openmeter.WorkloadInfo, 0, len(workloads))
+	for _, w := range workloads {
+		component := w.ComponentKind
+		if w.ComponentKey != "" {
+			component += "/" + w.ComponentKey
+		}
+		infos = append(infos, openmeter.WorkloadInfo{
+			Component:     component,
+			CPURequest:    w.CPURequest,
+			MemoryRequest: w.MemoryRequest,
+			Replicas:      w.Replicas,
+		})
+	}
+	return infos, nil
 }

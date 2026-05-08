@@ -327,7 +327,7 @@ func TestDeleteKnowledgeStore_NotFound(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(sqlmock.NewRows(knowledgeColumns))
@@ -345,7 +345,7 @@ func TestDeleteKnowledgeStore_NoK8s(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -691,7 +691,7 @@ func TestDeleteKnowledgeStore_ExternalSkipsK8s(t *testing.T) {
 	log := logger.New("error", "json")
 
 	// Pass nil for k8sClient — if the handler tried to use it for an external store, it would panic.
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))

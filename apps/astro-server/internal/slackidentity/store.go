@@ -42,7 +42,7 @@ func NewStore(db *sql.DB) *Store {
 
 // Mapping is one row in slack_identity_mappings. OrganizationID is
 // stored as SQL NULL when empty; display fields
-// (TeamName/TeamDomain/SlackUsername) are stored as '' when blank.
+// (TeamName/TeamDomain/SlackUsername) are stored as ” when blank.
 type Mapping struct {
 	TeamID         string
 	SlackUserID    string

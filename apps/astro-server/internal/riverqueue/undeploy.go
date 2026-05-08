@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/riverqueue/river"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // UndeployArgs are the job arguments for the undeploy worker.
@@ -35,6 +37,7 @@ type UndeployWorker struct {
 	ksStore  *knowledgestore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
+	billing  *openmeter.BillingStateManager
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {
@@ -78,6 +81,11 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 
 	if err := w.store.MarkUndeployedByID(dep.ID); err != nil {
 		w.log.Warn("Failed to set undeployed_at", "error", err, "deployment_id", dep.ID)
+	}
+
+	// Record billing stop — heartbeat emits the final CU-hours on its next tick.
+	if w.billing != nil {
+		go w.billing.StopBilling(context.Background(), dep.ID, time.Now()) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
 	}
 
 	return nil

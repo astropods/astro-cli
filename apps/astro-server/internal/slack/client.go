@@ -229,11 +229,11 @@ func (c *OAuthClient) TeamInfo(ctx context.Context, userToken string) (TeamInfo,
 			Name   string `json:"name"`
 			Domain string `json:"domain"`
 			Icon   struct {
-				Image34         string `json:"image_34,omitempty"`
-				Image44         string `json:"image_44,omitempty"`
-				Image68         string `json:"image_68,omitempty"`
-				Image88         string `json:"image_88,omitempty"`
-				ImageDefault    bool   `json:"image_default,omitempty"`
+				Image34      string `json:"image_34,omitempty"`
+				Image44      string `json:"image_44,omitempty"`
+				Image68      string `json:"image_68,omitempty"`
+				Image88      string `json:"image_88,omitempty"`
+				ImageDefault bool   `json:"image_default,omitempty"`
 			} `json:"icon"`
 		} `json:"team"`
 	}

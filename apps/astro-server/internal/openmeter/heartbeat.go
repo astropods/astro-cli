@@ -17,17 +17,19 @@ const heartbeatInterval = 5 * time.Minute
 
 // Heartbeat emits periodic metering events for active deployments and agent counts.
 type Heartbeat struct {
-	client *Client
-	db     *sql.DB
-	log    *logger.Logger
+	client  *Client
+	db      *sql.DB
+	log     *logger.Logger
+	billing *BillingStateManager
 }
 
 // NewHeartbeat creates a new metering heartbeat.
-func NewHeartbeat(client *Client, db *sql.DB, log *logger.Logger) *Heartbeat {
+func NewHeartbeat(client *Client, db *sql.DB, log *logger.Logger, billing *BillingStateManager) *Heartbeat {
 	return &Heartbeat{
-		client: client,
-		db:     db,
-		log:    log,
+		client:  client,
+		db:      db,
+		log:     log,
+		billing: billing,
 	}
 }
 
@@ -86,8 +88,13 @@ type containerUsage struct {
 }
 
 // emitComputeUsage calculates CU-hours per container for each active deployment and emits compute_usage events.
-// Reads from normalized deployment_workloads table, falling back to JSON parsing for old deployments.
+// When a BillingStateManager is attached, delegates to delta-based reconciliation. Otherwise falls back
+// to the legacy full-interval approach (reads from normalized deployment_workloads table or JSON parsing).
 func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
+	if h.billing != nil {
+		h.billing.RunBillingCycle(ctx)
+		return
+	}
 	intervalHours := heartbeatInterval.Hours()
 	var events []CloudEvent
 
@@ -493,9 +500,13 @@ func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
 }
 
 // emitKnowledgeCompute emits knowledge_compute_usage events per managed+ready store.
-// CU is derived from per-provider default resource requests using the same formula as
-// deployment compute: CU = max(cpu_cores, memory_gb / 2).
+// When a BillingStateManager is attached, delegates to delta-based reconciliation. Otherwise
+// uses the legacy full-interval approach with per-provider default resource requests.
 func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
+	if h.billing != nil {
+		h.billing.RunKnowledgeBillingCycle(ctx)
+		return
+	}
 	intervalHours := heartbeatInterval.Hours()
 	rows, err := h.db.QueryContext(ctx, `
 		SELECT account_id, name, provider

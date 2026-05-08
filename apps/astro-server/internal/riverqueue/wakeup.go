@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // WakeUpArgs are the job arguments for the wakeup worker.
@@ -33,6 +34,7 @@ type WakeUpWorker struct {
 	store    *deploymentstore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
+	billing  *openmeter.BillingStateManager
 }
 
 func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) error {
@@ -69,6 +71,16 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
 		return fmt.Errorf("set active: %w", err)
+	}
+
+	// Resume event-driven compute billing after wakeup.
+	if w.billing != nil {
+		workloads, err := workloadInfoFromStore(w.store, dep.ID)
+		if err != nil {
+			w.log.Error("Failed to load workloads for billing, heartbeat will recover", "error", err, "deployment_id", dep.ID)
+		} else {
+			go w.billing.StartBilling(context.Background(), dep.ID, workloads) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
+		}
 	}
 
 	return nil

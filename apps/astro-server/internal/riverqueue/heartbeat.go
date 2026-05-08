@@ -21,10 +21,11 @@ type OpenmeterWorker struct {
 	omClient *openmeter.Client
 	db       *sql.DB
 	log      *logger.Logger
+	billing  *openmeter.BillingStateManager
 }
 
 func (w *OpenmeterWorker) Work(ctx context.Context, _ *river.Job[OpenmeterArgs]) error {
-	hb := openmeter.NewHeartbeat(w.omClient, w.db, w.log)
+	hb := openmeter.NewHeartbeat(w.omClient, w.db, w.log, w.billing)
 	hb.Tick(ctx)
 	return nil
 }
