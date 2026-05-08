@@ -11,16 +11,17 @@ export const meta: MetaFunction = ({ params }) => [
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const accountName = params.account ?? "";
-  if (!accountName) return { account: null, blueprints: null, orgs: null, deployments: null };
+  if (!accountName) return { account: null, blueprints: null, orgs: null, deployments: null, hearts: null };
 
-  const [account, blueprints, orgs] = await Promise.all([
+  const [account, blueprints, orgs, hearts] = await Promise.all([
     api.getAccount(accountName).catch(() => null),
     api.listAccountBlueprints(accountName).catch(() => null),
     api.getAccountOrgs(accountName).catch(() => null),
+    api.listHearted(accountName).catch(() => null),
   ]);
   const deployments = await api.listDeployments(accountName).catch(() => null);
 
-  return { account, blueprints, orgs, deployments };
+  return { account, blueprints, orgs, deployments, hearts };
 }
 
 export default function AccountProfile({ loaderData }: Route.ComponentProps) {

@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type Blueprint, type BlueprintsListResponse } from '../../lib/api';
-import { blueprintKeys } from './keys';
+import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
+import { api, type Blueprint, type BlueprintsListResponse, type HeartedListResponse } from '../../lib/api';
+import { blueprintKeys, heartKeys } from './keys';
 
 function patchBlueprint(blueprint: Blueprint, hearted: boolean, heartCount: number): Blueprint {
   return { ...blueprint, hearted, heart_count: heartCount };
@@ -10,6 +10,30 @@ type Snapshot = {
   detail: Blueprint | undefined;
   lists: { key: readonly unknown[]; data: BlueprintsListResponse | undefined }[];
 };
+
+export function useHeartToggleInList() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, name }: { account: string; name: string }) =>
+      api.toggleHeart(account, name),
+    onSettled: (_data, _err, { account, name }) => {
+      queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, name) });
+    },
+  });
+}
+
+export function useHeartedBlueprints(
+  account: string,
+  cursor?: string,
+  options?: Pick<UseQueryOptions<HeartedListResponse>, 'initialData' | 'enabled'>,
+) {
+  return useQuery({
+    queryKey: [...heartKeys.byAccount(account), cursor ?? ''],
+    queryFn: () => api.listHearted(account, cursor),
+    initialDataUpdatedAt: options?.initialData ? 0 : undefined,
+    ...options,
+  });
+}
 
 export function useToggleHeart(account: string, name: string) {
   const queryClient = useQueryClient();
@@ -68,6 +92,7 @@ export function useToggleHeart(account: string, name: string) {
       for (const key of listKeys) {
         queryClient.invalidateQueries({ queryKey: key });
       }
+      queryClient.invalidateQueries({ queryKey: heartKeys.all });
     },
   });
 }

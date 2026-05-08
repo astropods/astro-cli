@@ -170,7 +170,7 @@ func TestListHearted_EmptyList(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user-1"))
 
-	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "hearted_at"}
+	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "deploy_count", "hearted_at", "description"}
 	heartMock.ExpectQuery("SELECT owner.name").
 		WithArgs("user-1", 21).
 		WillReturnRows(sqlmock.NewRows(heartCols))
@@ -205,11 +205,11 @@ func TestListHearted_WithResults(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user-1"))
 
 	now := time.Now()
-	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "hearted_at"}
+	heartCols := []string{"account", "name", "visibility", "avatar_colors", "heart_count", "deploy_count", "hearted_at", "description"}
 	heartMock.ExpectQuery("SELECT owner.name").
 		WithArgs("user-1", 21).
 		WillReturnRows(sqlmock.NewRows(heartCols).
-			AddRow("someorg", "cool-agent", "public", nil, 5, now))
+			AddRow("someorg", "cool-agent", "public", nil, 5, 3, now, "A cool agent"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/hearts", nil)
 	rec := httptest.NewRecorder()

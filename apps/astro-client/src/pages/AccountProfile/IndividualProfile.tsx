@@ -5,6 +5,7 @@ import { useAccount, useAccountOrgs, useUpdateAccountProfile } from "@/api/queri
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
+import { useHeartedBlueprints } from "@/api/queries/hearts";
 import { PageContainer } from "@/components/PageLayout";
 import { GradientGridWash } from "@/components/GradientGridWash";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,15 @@ import { ProfileEditSidebar } from "./ProfileEditSidebar";
 import { ProfileViewSidebar } from "./ProfileViewSidebar";
 import { BlueprintsTab } from "./BlueprintsTab";
 import { AgentsTab } from "./AgentsTab";
+import { HeartsTab } from "./HeartsTab";
 import type { VisibilityFilter, BlueprintSort, ReorderMode } from "./BlueprintsTab";
 import type { AgentSort } from "./AgentsTab";
+import type { HeartSort } from "./HeartsTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ViewMode = "internal" | "external";
-type Tab = "blueprints" | "agents";
+type Tab = "blueprints" | "agents" | "hearts";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,6 +85,14 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
   // ── Agent filters ─────────────────────────────────────────────────────────
   const [agentSearch, setAgentSearch] = useState("");
   const [agentSort, setAgentSort] = useState<AgentSort>("modified");
+
+  // ── Hearts filters ────────────────────────────────────────────────────────
+  const [heartSearch, setHeartSearch] = useState("");
+  const [heartSort, setHeartSort] = useState<HeartSort>("newest");
+  const { data: heartsData } = useHeartedBlueprints(data?.name ?? "", undefined, {
+    enabled: !!data,
+    initialData: loaderData.hearts ?? undefined,
+  });
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data: deploymentsData } = useDeployments(data?.name ?? "", isOwner, {
@@ -201,8 +212,8 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
     );
   }
 
-  // In external view, force back to blueprints tab (agents tab is hidden)
-  const resolvedTab: Tab = effectiveViewMode === "external" ? "blueprints" : activeTab;
+  // In external view, agents tab is hidden — redirect to blueprints if it was active
+  const resolvedTab: Tab = effectiveViewMode === "external" && activeTab === "agents" ? "blueprints" : activeTab;
 
   return (
     <PageContainer
@@ -267,6 +278,14 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
               )}
             </TabButton>
           )}
+          <TabButton active={resolvedTab === "hearts"} onClick={() => setActiveTab("hearts")}>
+            Hearts
+            {heartsData && heartsData.items.length > 0 && (
+              <span className="ml-1.5 text-faint-foreground font-normal">
+                {heartsData.items.length}{heartsData.next_cursor ? "+" : ""}
+              </span>
+            )}
+          </TabButton>
         </div>
 
         {/* Tab content */}
@@ -297,6 +316,16 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
               onSearchChange={setAgentSearch}
               sort={agentSort}
               onSortChange={setAgentSort}
+            />
+          )}
+          {resolvedTab === "hearts" && (
+            <HeartsTab
+              accountName={data.name}
+              isOwner={isOwner}
+              search={heartSearch}
+              onSearchChange={setHeartSearch}
+              sort={heartSort}
+              onSortChange={setHeartSort}
             />
           )}
         </div>

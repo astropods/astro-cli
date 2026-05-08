@@ -18,6 +18,11 @@ export const blueprintKeys = {
   detail: (account: string, name: string) => ['agents', account, name] as const,
 };
 
+export const heartKeys = {
+  all: ['hearts'] as const,
+  byAccount: (account: string) => ['hearts', account] as const,
+};
+
 export const observabilityKeys = {
   metrics: (deploymentId: string, window?: string) =>
     ['observability', 'metrics', deploymentId, window] as const,

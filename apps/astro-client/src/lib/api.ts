@@ -647,6 +647,12 @@ class ApiClient {
     );
   }
 
+  async listHearted(account: string, cursor?: string): Promise<HeartedListResponse> {
+    const params = new URLSearchParams({ limit: '20' });
+    if (cursor) params.set('cursor', cursor);
+    return this.request(`/api/v1/accounts/${encodeURIComponent(account)}/hearts?${params}`);
+  }
+
   async getAccountUsage(
     account: string,
     params?: { from?: string; to?: string },
@@ -1111,6 +1117,22 @@ export interface Blueprint {
 export interface BlueprintsListResponse {
   agents: Blueprint[];
   count: number;
+}
+
+export interface HeartedAgent {
+  account: string;
+  name: string;
+  visibility: string;
+  avatar_colors?: AvatarColors;
+  heart_count: number;
+  deploy_count: number;
+  hearted_at: string;
+  description?: string;
+}
+
+export interface HeartedListResponse {
+  items: HeartedAgent[];
+  next_cursor?: string;
 }
 
 export interface DeploymentVariable {

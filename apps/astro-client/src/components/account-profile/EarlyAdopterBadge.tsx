@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface EarlyAdopterBadgeProps {
   accountNumber?: number;
@@ -11,6 +12,9 @@ export function EarlyAdopterBadge({ accountNumber }: EarlyAdopterBadgeProps) {
   const gradId = `ea-grad-${id.replace(/:/g, "")}`;
 
   return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
     <span className="relative inline-flex items-center justify-center cursor-default">
       <svg
         className="absolute inset-0 h-full w-full"
@@ -47,5 +51,11 @@ export function EarlyAdopterBadge({ accountNumber }: EarlyAdopterBadgeProps) {
         )}
       </span>
     </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          One of the first 1,000 accounts on Astro
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

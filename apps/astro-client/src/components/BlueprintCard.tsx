@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, ArchiveBoxIcon, ArrowRightIcon, HeartIcon as HeartOutlineIcon } from "@heroicons/react/24/outline";
+import { HeartIcon as HeartSolidIcon } from "@heroicons/react/24/solid";
 import { BlueprintIdentity } from "./BlueprintIdentity";
 import { UserAvatar } from "./UserAvatar";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
@@ -110,6 +111,9 @@ export interface BlueprintCardProps {
   isDraft?: boolean;
   /** When provided, shows a three-dot menu with an archive option. */
   onArchive?: () => void;
+  /** When provided, shows a heart toggle button. isHearted controls solid vs outline. */
+  onHeartToggle?: () => void;
+  isHearted?: boolean;
   /** When provided, displays this author in the card footer instead of the owner account. */
   author?: BlueprintAuthor;
 }
@@ -127,6 +131,8 @@ export function BlueprintCard({
   heartCount,
   isDraft = false,
   onArchive,
+  onHeartToggle,
+  isHearted = false,
   author,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -351,6 +357,23 @@ export function BlueprintCard({
             </DropdownMenu>
           </div>
         )}
+        {onHeartToggle && (
+          <div
+            className={cn("absolute top-3 z-[2]", onArchive ? "right-11" : "right-3")}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHeartToggle(); }}
+          >
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center rounded-sm transition-colors hover:bg-accent cursor-pointer"
+              aria-label={isHearted ? "Remove from hearts" : "Add to hearts"}
+            >
+              {isHearted
+                ? <HeartSolidIcon className="h-4 w-4 text-destructive" />
+                : <HeartOutlineIcon className="h-4 w-4 text-muted-foreground" />
+              }
+            </button>
+          </div>
+        )}
         <div className="relative z-[1] flex flex-1 items-start gap-3 p-4 pb-3" style={contentShadowStyle}>
           <BlueprintIdentity
             account={account}
@@ -359,7 +382,7 @@ export function BlueprintCard({
             url={avatarUrl}
             className="size-9 shrink-0 overflow-hidden border-[0.5px] border-slate-100 dark:border-white/20 rounded-[3px]"
           />
-          <div className={cn("flex min-w-0 flex-1 flex-col gap-1", onArchive ? "pr-8" : "pr-1")}>
+          <div className={cn("flex min-w-0 flex-1 flex-col gap-1 min-h-[83px]", (onArchive || onHeartToggle) ? "pr-8" : "pr-1")}>
             <h3 className={cn(
               "flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors",
               hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-primary dark:group-hover:text-indigo-400"

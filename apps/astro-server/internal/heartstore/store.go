@@ -78,7 +78,9 @@ type HeartedAgent struct {
 	Visibility   string           `json:"visibility"`
 	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
 	HeartCount   int              `json:"heart_count"`
+	DeployCount  int64            `json:"deploy_count"`
 	HeartedAt    time.Time        `json:"hearted_at"`
+	Description  string           `json:"description,omitempty"`
 }
 
 // ListHearted returns blueprints hearted by the given user, ordered by hearted_at desc.
@@ -87,27 +89,30 @@ func (s *Store) ListHearted(ctx context.Context, userID string, pageSize int, cu
 	var rows *sql.Rows
 	var err error
 
+	const heartedQuery = `
+		SELECT owner.name, a.name, a.visibility, a.avatar_colors,
+		       (SELECT COUNT(*) FROM agent_hearts h2 WHERE h2.account_id = a.account_id AND h2.agent_name = a.name),
+		       (SELECT COUNT(*) FROM deployments d WHERE d.account_id = a.account_id AND d.agent_name = a.name),
+		       ah.created_at,
+		       COALESCE(v.agent_card_json::jsonb ->> 'description', '')
+		FROM agent_hearts ah
+		JOIN agents a ON a.account_id = ah.account_id AND a.name = ah.agent_name
+		JOIN accounts owner ON owner.id = a.account_id
+		LEFT JOIN LATERAL (
+			SELECT agent_card_json FROM agent_versions
+			WHERE account_id = a.account_id AND name = a.name
+			ORDER BY published_at DESC LIMIT 1
+		) v ON true
+		WHERE ah.user_id = $1 AND a.archived_at IS NULL AND a.visibility = 'public'`
+
 	if cursor == "" {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT owner.name, a.name, a.visibility, a.avatar_colors,
-			       (SELECT COUNT(*) FROM agent_hearts h2 WHERE h2.account_id = a.account_id AND h2.agent_name = a.name),
-			       ah.created_at
-			FROM agent_hearts ah
-			JOIN agents a ON a.account_id = ah.account_id AND a.name = ah.agent_name
-			JOIN accounts owner ON owner.id = a.account_id
-			WHERE ah.user_id = $1 AND a.archived_at IS NULL AND a.visibility = 'public'
+		rows, err = s.db.QueryContext(ctx, heartedQuery+`
 			ORDER BY ah.created_at DESC
 			LIMIT $2
 		`, userID, pageSize+1)
 	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT owner.name, a.name, a.visibility, a.avatar_colors,
-			       (SELECT COUNT(*) FROM agent_hearts h2 WHERE h2.account_id = a.account_id AND h2.agent_name = a.name),
-			       ah.created_at
-			FROM agent_hearts ah
-			JOIN agents a ON a.account_id = ah.account_id AND a.name = ah.agent_name
-			JOIN accounts owner ON owner.id = a.account_id
-			WHERE ah.user_id = $1 AND a.archived_at IS NULL AND a.visibility = 'public' AND ah.created_at < $2
+		rows, err = s.db.QueryContext(ctx, heartedQuery+`
+			AND ah.created_at < $2
 			ORDER BY ah.created_at DESC
 			LIMIT $3
 		`, userID, cursor, pageSize+1)
@@ -121,7 +126,7 @@ func (s *Store) ListHearted(ctx context.Context, userID string, pageSize int, cu
 	for rows.Next() {
 		var item HeartedAgent
 		var avatarColors []byte
-		if err := rows.Scan(&item.Account, &item.Name, &item.Visibility, &avatarColors, &item.HeartCount, &item.HeartedAt); err != nil {
+		if err := rows.Scan(&item.Account, &item.Name, &item.Visibility, &avatarColors, &item.HeartCount, &item.DeployCount, &item.HeartedAt, &item.Description); err != nil {
 			return nil, "", fmt.Errorf("scan hearted agent: %w", err)
 		}
 		if avatarColors != nil {
