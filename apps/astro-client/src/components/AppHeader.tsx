@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dashboardPath, explorePath } from "@/lib/routes";
+import { dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -132,7 +132,7 @@ export function AppHeader() {
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [...publicNav, { label: "Agents", to: dashboardPath }]
+    ? [...publicNav, { label: "Agents", to: dashboardPath }, { label: "Knowledge", to: knowledgePath }]
     : [...publicNav];
 
   if (isMobile) {

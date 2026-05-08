@@ -10,38 +10,28 @@ import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
+const STEPS = [
+  "Validating credentials",
+  "Testing connection",
+  "Saving configuration",
+  "Verifying access",
+  "Finalizing",
+];
+
 export function ProvisioningStage({
   account,
   storeName,
   provider,
-  mode,
   onReady,
   onError,
 }: {
   account: string;
   storeName: string;
   provider: KnowledgeProvider;
-  mode: "managed" | "external";
   onReady: (store: KnowledgeStore) => void;
   onError: (error: string) => void;
 }) {
   const { data: store } = useKnowledgeStore(account, storeName);
-
-  const MANAGED_STEPS = [
-    "Assigning resources",
-    "Downloading database engine",
-    "Database engine ready",
-    "Preparing store",
-    "Store starting up",
-  ];
-  const EXTERNAL_STEPS = [
-    "Validating credentials",
-    "Testing connection",
-    "Saving configuration",
-    "Verifying access",
-    "Finalizing",
-  ];
-  const steps = mode === "managed" ? MANAGED_STEPS : EXTERNAL_STEPS;
 
   useEffect(() => {
     if (!store) return;
@@ -56,17 +46,13 @@ export function ProvisioningStage({
     return <PendingAcceptanceStage store={store} />;
   }
 
-  const completedCount = Math.min(store?.events?.length ?? 0, steps.length);
-  const heading = mode === "managed" ? "Setting up your store" : "Connecting your store";
-  const subtitle = mode === "managed"
-    ? "This may take a few moments."
-    : "Verifying connectivity and saving credentials.";
+  const completedCount = Math.min(store?.events?.length ?? 0, STEPS.length);
 
   return (
     <div className="mx-auto max-w-lg">
       <div className="mb-8 text-center">
-        <h2 className="text-heading-1 text-foreground">{heading}</h2>
-        <p className="mt-1 text-body text-muted-foreground">{subtitle}</p>
+        <h2 className="text-heading-1 text-foreground">Connecting your store</h2>
+        <p className="mt-1 text-body text-muted-foreground">Verifying connectivity and saving credentials.</p>
       </div>
 
       <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
@@ -79,21 +65,21 @@ export function ProvisioningStage({
             <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Tag color={mode === "managed" ? "blue" : "default"}>{mode === "managed" ? "Managed" : "External"}</Tag>
+            <Tag color="default">External</Tag>
             <StatusBadge color="warning" indicator spinning>Provisioning</StatusBadge>
           </div>
         </div>
       </div>
 
       <div className="mt-4 rounded-lg border border-border bg-white dark:bg-surface overflow-hidden">
-        {steps.map((step, i) => {
+        {STEPS.map((step, i) => {
           const isDone = i < completedCount;
           const isActive = i === completedCount;
           const isPending = i > completedCount;
           return (
             <div
               key={step}
-              className={`flex items-center gap-3 px-4 py-3 transition-opacity duration-500 ${i < steps.length - 1 ? "border-b border-border/60" : ""} ${isPending ? "opacity-35" : "opacity-100"}`}
+              className={`flex items-center gap-3 px-4 py-3 transition-opacity duration-500 ${i < STEPS.length - 1 ? "border-b border-border/60" : ""} ${isPending ? "opacity-35" : "opacity-100"}`}
             >
               <div className="shrink-0">
                 {isDone && (
