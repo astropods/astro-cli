@@ -244,15 +244,76 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("parse spec YAML: %w", err)))
 	}
 
-	// Set the agent image using the proxy registry format so it follows the same
-	// resolveImage path as a CLI push: {proxyHost}/{accountID}/{agentName}:{buildID}
+	// Replace build blocks with resolved image references so the registered spec
+	// passes deployment validation. Mirrors transformSpecForRegistry in the CLI.
 	if proxyHost := w.cfg.Deployment.ProxyRegistryHost; proxyHost != "" {
+		imageRef := func(name string) string {
+			return fmt.Sprintf("%s/%s/%s:%s", proxyHost, conn.AccountID, name, args.BuildID)
+		}
+
+		// agent.build → agent.image
 		agentMap, _ := specMap["agent"].(map[string]any)
 		if agentMap == nil {
 			agentMap = map[string]any{}
 			specMap["agent"] = agentMap
 		}
-		agentMap["image"] = fmt.Sprintf("%s/%s/%s:%s", proxyHost, conn.AccountID, agentName, args.BuildID)
+		agentMap["image"] = imageRef(agentName)
+
+		// knowledge.*.container.build → knowledge.*.container.image
+		if knowledge, ok := specMap["knowledge"].(map[string]any); ok {
+			for name, data := range knowledge {
+				if item, ok := data.(map[string]any); ok {
+					if container, ok := item["container"].(map[string]any); ok {
+						if _, hasBuild := container["build"]; hasBuild {
+							delete(container, "build")
+							container["image"] = imageRef(fmt.Sprintf("%s-knowledge-%s", agentName, name))
+						}
+					}
+				}
+			}
+		}
+
+		// models.*.container.build → models.*.container.image
+		if models, ok := specMap["models"].(map[string]any); ok {
+			for name, data := range models {
+				if model, ok := data.(map[string]any); ok {
+					if container, ok := model["container"].(map[string]any); ok {
+						if _, hasBuild := container["build"]; hasBuild {
+							delete(container, "build")
+							container["image"] = imageRef(fmt.Sprintf("%s-model-%s", agentName, name))
+						}
+					}
+				}
+			}
+		}
+
+		// integrations.*.container.build → integrations.*.container.image
+		if integrations, ok := specMap["integrations"].(map[string]any); ok {
+			for name, data := range integrations {
+				if item, ok := data.(map[string]any); ok {
+					if container, ok := item["container"].(map[string]any); ok {
+						if _, hasBuild := container["build"]; hasBuild {
+							delete(container, "build")
+							container["image"] = imageRef(fmt.Sprintf("%s-integration-%s", agentName, name))
+						}
+					}
+				}
+			}
+		}
+
+		// ingestion.*.container.build → ingestion.*.container.image
+		if ingestion, ok := specMap["ingestion"].(map[string]any); ok {
+			for name, data := range ingestion {
+				if item, ok := data.(map[string]any); ok {
+					if container, ok := item["container"].(map[string]any); ok {
+						if _, hasBuild := container["build"]; hasBuild {
+							delete(container, "build")
+							container["image"] = imageRef(fmt.Sprintf("%s-ingestion-%s", agentName, name))
+						}
+					}
+				}
+			}
+		}
 	}
 
 	w.updateStep(dbCtx, args.BuildRecordID, "registering")
