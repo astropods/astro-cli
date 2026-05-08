@@ -188,7 +188,10 @@ type DeploymentConfig struct {
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
 	// Knowledge store public host domain (e.g., knowledge.astropods.ai)
 	// Public stores get a hostname: {name}.{account}.{KnowledgeDomain}
-	KnowledgeDomain       string // KNOWLEDGE_DOMAIN
+	KnowledgeDomain string // KNOWLEDGE_DOMAIN
+	// KnowledgeAllowManagedCreate enables POST /api/v1/accounts/:account/knowledge (platform-provisioned stores).
+	// When false (default), only POST .../knowledge/connect is accepted.
+	KnowledgeAllowManagedCreate bool // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
 	IngestionACMCertARN   string // ACM certificate ARN for ingestion wildcard cert
 	IngestionALBGroupName string // ALB group name for ingestion ALB (separate from agents)
 	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
@@ -264,6 +267,7 @@ func Load() (*Config, error) {
 			IngestionACMCertARN:           getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:         getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			KnowledgeDomain:               getEnv("KNOWLEDGE_DOMAIN", ""),
+			KnowledgeAllowManagedCreate:   getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
 			PodSubnetCIDRs:                getEnvSlice("POD_SUBNET_CIDRS", nil),
 			KMSKeyARN:                     getEnv("KMS_KEY_ARN", ""),
 			ManagedAnthropicAPIKey:        getEnv("MANAGED_ANTHROPIC_API_KEY", ""),

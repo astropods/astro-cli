@@ -72,10 +72,36 @@ func setupKS() (*gin.Engine, *knowledgestore.Store, sqlmock.Sqlmock) {
 }
 
 func minimalCfg() *config.Config {
-	return &config.Config{}
+	return &config.Config{
+		Deployment: config.DeploymentConfig{
+			// Handler tests exercise managed provisioning paths; production defaults to false via config.Load().
+			KnowledgeAllowManagedCreate: true,
+		},
+	}
 }
 
 // --- CreateKnowledgeStore ---
+
+func TestCreateKnowledgeStore_ManagedProvisioningDisabled(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	cfg := &config.Config{} // KnowledgeAllowManagedCreate defaults false
+	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, cfg, nil, nil))
+
+	body := `{"name":"pg-main","provider":"postgres"}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
 
 func TestCreateKnowledgeStore_InvalidProvider(t *testing.T) {
 	router, ksStore, _ := setupKS()

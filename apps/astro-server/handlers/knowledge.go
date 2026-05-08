@@ -218,6 +218,11 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
+		if !cfg.Deployment.KnowledgeAllowManagedCreate {
+			c.JSON(http.StatusForbidden, gin.H{"error": "managed knowledge store creation is disabled; connect your existing database via POST /api/v1/accounts/{account}/knowledge/connect"})
+			return
+		}
+
 		storeID := deployid.New()
 		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
 

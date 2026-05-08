@@ -896,6 +896,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(202, &handlers.KnowledgeResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(403, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
 				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, omClient, db),
