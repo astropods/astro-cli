@@ -155,7 +155,7 @@ func tryOwnerFallback(authStore *authorizationstore.Store, deploymentID, adapter
 		return false, err
 	}
 	for _, c := range candidates {
-		if c.Type == authorizationstore.SubjectTypeAccount && c.ID == ownerAccountID {
+		if c.Type == authorizationstore.SubjectTypeOrg && c.ID == ownerAccountID {
 			return true, nil
 		}
 	}
@@ -186,7 +186,7 @@ func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackide
 		out := make([]authorizationstore.Subject, 0, 1+len(accountIDs))
 		out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeUser, ID: identityID})
 		for _, aid := range accountIDs {
-			out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeAccount, ID: aid})
+			out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeOrg, ID: aid})
 		}
 		return out, nil
 
@@ -200,7 +200,7 @@ func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackide
 			return nil, err
 		}
 		out := []authorizationstore.Subject{
-			{Type: authorizationstore.SubjectTypeAccount, ID: accountID},
+			{Type: authorizationstore.SubjectTypeOrg, ID: accountID},
 		}
 		// When the messaging container forwards a team_id, try to resolve
 		// the slack user to a linked WorkOS user. Mapping miss is benign —
@@ -228,7 +228,7 @@ func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackide
 						continue
 					}
 					out = append(out, authorizationstore.Subject{
-						Type: authorizationstore.SubjectTypeAccount,
+						Type: authorizationstore.SubjectTypeOrg,
 						ID:   aid,
 					})
 				}

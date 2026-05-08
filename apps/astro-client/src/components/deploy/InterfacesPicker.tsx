@@ -1,13 +1,12 @@
 import type { ReactNode } from "react";
 import { AlertCircle, Check, Globe } from "lucide-react";
-import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 import { Slack } from "@/components/ui/svgs/slack";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
-import type { AccountVariable } from "@/lib/api";
+import { GrantsEditor } from "./GrantsEditor";
+import type { AccountVariable, AuthGrant } from "@/lib/api";
 
 /** Brand icons manage their own color; generic icons inherit from parent. */
 const ADAPTER_ICONS: Record<string, { icon: ReactNode; isBrand?: boolean }> = {
@@ -26,8 +25,13 @@ export interface InterfacesPickerProps {
   adapterErrorKeys?: string[];
   /** Controls where adapter credential fields render for each adapter id. */
   credentialLayoutByAdapter?: Record<string, "below" | "inline-card">;
-  webAuthEnabled?: boolean;
-  onWebAuthChange?: (enabled: boolean) => void;
+  /** Auth grants per adapter — when present, a grants editor renders inside the adapter card. */
+  webGrants?: AuthGrant[];
+  onWebGrantsChange?: (grants: AuthGrant[]) => void;
+  slackGrants?: AuthGrant[];
+  onSlackGrantsChange?: (grants: AuthGrant[]) => void;
+  /** Target account name — used by GrantsEditor to scope the user picker to that account's members. */
+  targetAccount?: string;
   vaultEntries?: AccountVariable[];
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
@@ -42,8 +46,11 @@ export function InterfacesPicker({
   showError,
   adapterErrorKeys,
   credentialLayoutByAdapter,
-  webAuthEnabled,
-  onWebAuthChange,
+  webGrants,
+  onWebGrantsChange,
+  slackGrants,
+  onSlackGrantsChange,
+  targetAccount,
   vaultEntries,
   vaultSettingsUrl,
   vaultLoadError,
@@ -63,15 +70,20 @@ export function InterfacesPicker({
         const credentialLayout = credentialLayoutByAdapter?.[adapter.id] ?? "below";
         const hasInlineCredentials = hasCredentials && credentialLayout === "inline-card";
         const hasBelowCredentials = hasCredentials && credentialLayout === "below";
-        const hasWebAuthToggle = adapter.id === "web" && isSelected && onWebAuthChange !== undefined;
+        const hasGrantsEditor = isSelected && (
+          (adapter.id === "web" && onWebGrantsChange !== undefined) ||
+          (adapter.id === "slack" && onSlackGrantsChange !== undefined)
+        );
+        const grantsForAdapter = adapter.id === "web" ? webGrants : slackGrants;
+        const onGrantsChangeForAdapter = adapter.id === "web" ? onWebGrantsChange : onSlackGrantsChange;
+        const hasInlineSection = hasInlineCredentials || hasGrantsEditor;
 
         return (
           <div key={adapter.id}>
             <div
               className={cn(
-                (hasInlineCredentials || hasWebAuthToggle) &&
-                  "rounded-[6px] border transition-[border-color,background-color]",
-                (hasInlineCredentials || hasWebAuthToggle) &&
+                hasInlineSection && "rounded-[6px] border transition-[border-color,background-color]",
+                hasInlineSection &&
                   (isSelected
                     ? "border-primary/40 bg-primary/5"
                     : "border-border bg-transparent"),
@@ -83,8 +95,8 @@ export function InterfacesPicker({
                 onClick={() => toggle(adapter.id)}
                 className={cn(
                   "w-full flex items-center gap-4 py-3 px-3 rounded-[6px] border text-left cursor-pointer transition-[border-color,background-color]",
-                  (hasInlineCredentials || hasWebAuthToggle) && "border-none bg-transparent hover:bg-transparent",
-                  !(hasInlineCredentials || hasWebAuthToggle) &&
+                  hasInlineSection && "border-none bg-transparent hover:bg-transparent",
+                  !hasInlineSection &&
                     (isSelected
                       ? "border-primary/40 bg-primary/5"
                       : "border-border bg-transparent hover:bg-slate-200/50"),
@@ -110,39 +122,54 @@ export function InterfacesPicker({
                   {isSelected && <Check size={14} strokeWidth={3} className="text-primary-foreground" />}
                 </div>
               </button>
-              {hasInlineCredentials && (
-                <div className={cn("border-t border-primary/20 bg-surface px-6 py-3", !hasWebAuthToggle && "rounded-b-[6px]")}>
-                  <VariableFields
-                    variables={credentialEntries}
-                    values={adapterCredentials}
-                    onChange={onAdapterCredentialsChange}
-                    errorKeys={adapterErrorKeys}
-                    vaultEntries={vaultEntries}
-                    vaultSettingsUrl={vaultSettingsUrl}
-                    vaultLoadError={vaultLoadError}
-                  />
-                </div>
-              )}
-              {hasWebAuthToggle && (
-                <div className="border-t border-primary/20 rounded-b-[6px] bg-surface px-6 py-3">
-                  <div className="flex items-center justify-between">
-                    <label htmlFor={`${adapter.id}-require-auth`} className="cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheckIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div>
-                          <p className="text-[13px] font-medium text-foreground select-none">Require authentication</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">Restrict access to signed-in users only</p>
-                        </div>
-                      </div>
-                    </label>
-                    <Switch
-                      id={`${adapter.id}-require-auth`}
-                      checked={webAuthEnabled ?? false}
-                      onCheckedChange={onWebAuthChange}
+              {(() => {
+                // Slack puts access control above the bot/app token credentials —
+                // who can use the bot is the more important first decision.
+                // Web shows credentials first (there usually aren't any) then grants.
+                const grantsFirst = adapter.id === "slack";
+                const credsBlock = hasInlineCredentials ? (
+                  <div
+                    key="creds"
+                    className={cn(
+                      "border-t border-primary/20 bg-surface px-6 py-3",
+                      ((grantsFirst && !hasInlineCredentials) ||
+                        (!grantsFirst && !hasGrantsEditor)) &&
+                        "rounded-b-[6px]",
+                      // Last block in the stack rounds its bottom corners.
+                      grantsFirst && "rounded-b-[6px]",
+                    )}
+                  >
+                    <VariableFields
+                      variables={credentialEntries}
+                      values={adapterCredentials}
+                      onChange={onAdapterCredentialsChange}
+                      errorKeys={adapterErrorKeys}
+                      vaultEntries={vaultEntries}
+                      vaultSettingsUrl={vaultSettingsUrl}
+                      vaultLoadError={vaultLoadError}
                     />
                   </div>
-                </div>
-              )}
+                ) : null;
+                const grantsBlock = hasGrantsEditor ? (
+                  <div
+                    key="grants"
+                    className={cn(
+                      "border-t border-primary/20 bg-surface px-6 py-3",
+                      // Last block in the stack rounds its bottom corners.
+                      !grantsFirst && "rounded-b-[6px]",
+                      grantsFirst && !hasInlineCredentials && "rounded-b-[6px]",
+                    )}
+                  >
+                    <GrantsEditor
+                      adapter={adapter.id as "web" | "slack"}
+                      grants={grantsForAdapter ?? []}
+                      onChange={onGrantsChangeForAdapter!}
+                      targetAccount={targetAccount}
+                    />
+                  </div>
+                ) : null;
+                return grantsFirst ? [grantsBlock, credsBlock] : [credsBlock, grantsBlock];
+              })()}
             </div>
             {hasBelowCredentials && (
               <div className="pt-4 pb-4 pl-6">

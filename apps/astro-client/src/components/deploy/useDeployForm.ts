@@ -3,7 +3,7 @@ import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces } from "@/lib/api";
+import type { Account, DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces, AuthGrant } from "@/lib/api";
 import { ApiRequestError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
@@ -15,10 +15,6 @@ import { computeFormDefaults } from "./computeFormDefaults";
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
   return parsed ? { ref: parsed.name } : { value: raw };
-}
-
-function isWebAuthOidc(auth: TemplateInterfaces['auth'] | undefined): boolean {
-  return auth?.web?.type === "oidc";
 }
 
 function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
@@ -39,7 +35,8 @@ export interface DeployFormInitialValues {
   adapterCredentials?: Record<string, string>;
   targetAccount?: string;
   ingestionSchedules?: Record<string, string>;
-  webAuthEnabled?: boolean;
+  webGrants?: AuthGrant[];
+  slackGrants?: AuthGrant[];
 }
 
 export interface UseDeployFormOptions {
@@ -104,7 +101,8 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
 
   const adapters = respInterfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
-  const webAuthEnabled = isWebAuthOidc(respInterfaces?.auth);
+  const webGrants = respInterfaces?.auth?.web?.grants ?? [];
+  const slackGrants = respInterfaces?.auth?.slack?.grants ?? [];
 
   const ingestionSchedules: Record<string, string> = respSchedules ?? {};
   if (!respSchedules && template.ingestion) {
@@ -122,7 +120,8 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     selectedAdapters,
     adapterCredentials,
     ingestionSchedules,
-    webAuthEnabled,
+    webGrants,
+    slackGrants,
   };
 }
 
@@ -199,6 +198,42 @@ function templateBootstrapKey(
   ].join('\0');
 }
 
+/** Default grants for a fresh deploy:
+ *   - personal account → grant the deploying user, so it's accessible to them on day one
+ *   - organization     → grant all org members, matching the legacy owner-fallback
+ *   - anything else    → no defaults
+ *  `targetAccountName` is the account *name* (handle), matching how the form stores it. */
+export function defaultGrantsForAccount(
+  targetAccountName: string,
+  accounts: Account[],
+  userId: string | undefined,
+): AuthGrant[] {
+  if (!targetAccountName) return [];
+  const acct = accounts.find((a) => a.name === targetAccountName);
+  if (!acct) return [];
+  if (acct.type === "organization") return [{ org: acct.id }];
+  if (acct.type === "personal" && userId) return [{ user_id: userId }];
+  return [];
+}
+
+/** Stable string key for an auth grant, used for comparison and React lists. */
+export function grantKey(g: AuthGrant): string {
+  if (g.anyone) return 'anyone';
+  if (g.user_id) return `user:${g.user_id}`;
+  if (g.org) return `org:${g.org}`;
+  return 'unset';
+}
+
+/** Count add+remove diffs between two grant lists, order-insensitive. */
+function diffGrants(current: AuthGrant[], initial: AuthGrant[]): number {
+  const a = new Set(current.map(grantKey));
+  const b = new Set(initial.map(grantKey));
+  let count = 0;
+  for (const k of a) if (!b.has(k)) count++;
+  for (const k of b) if (!a.has(k)) count++;
+  return count;
+}
+
 /** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
 export function slugToTitle(slug: string): string {
   return slug
@@ -222,7 +257,7 @@ export interface FormErrors {
 // --- Hook ---
 
 export function useDeployForm(account: string, name: string, opts?: UseDeployFormOptions) {
-  const { accounts, personalAccount } = useAuth();
+  const { accounts, personalAccount, user } = useAuth();
   const iv = opts?.initialValues;
   const allowedTargetAccounts = opts?.allowedTargetAccounts;
   const selectableAccounts = useMemo(() => {
@@ -319,7 +354,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
   const [selectedAdapters, setSelectedAdaptersRaw] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
-  const [webAuthEnabled, setWebAuthEnabled] = useState<boolean>(computedDefaults.webAuthEnabled ?? false);
+  const [webGrants, setWebGrants] = useState<AuthGrant[]>(computedDefaults.webGrants ?? []);
+  const [slackGrants, setSlackGrants] = useState<AuthGrant[]>(computedDefaults.slackGrants ?? []);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
   const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>({});
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
@@ -340,7 +376,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setSelectedAdaptersRaw(v.selectedAdapters ?? ["web"]);
     setAdapterCredentials(v.adapterCredentials ?? {});
     setIngestionSchedules(v.ingestionSchedules ?? {});
-    setWebAuthEnabled(v.webAuthEnabled ?? false);
+    setWebGrants(v.webGrants ?? []);
+    setSlackGrants(v.slackGrants ?? []);
     if (v.targetAccount !== undefined) {
       setTargetAccount(v.targetAccount);
     }
@@ -365,6 +402,20 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         setKnowledgeBindingsRaw(prefilled);
       }
     }
+    // Fresh-deploy defaults: when there's no existing deployment to configure
+    // and the template returned no grants, seed with a sensible owner-scoped
+    // grant so the form doesn't start in the "no one has access" state.
+    const isFreshDeploy = !opts?.deploymentId && !iv;
+    const defaultGrants = isFreshDeploy
+      ? defaultGrantsForAccount(extracted.targetAccount ?? "", accounts, user?.id)
+      : [];
+    const seededWebGrants = extracted.webGrants && extracted.webGrants.length > 0
+      ? extracted.webGrants
+      : defaultGrants;
+    const seededSlackGrants = extracted.slackGrants && extracted.slackGrants.length > 0
+      ? extracted.slackGrants
+      : defaultGrants;
+
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
       targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",
@@ -372,7 +423,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       selectedAdapters: iv?.selectedAdapters ?? extracted.selectedAdapters ?? ["web"],
       adapterCredentials: { ...extracted.adapterCredentials, ...(iv?.adapterCredentials ?? {}) },
       ingestionSchedules: { ...extracted.ingestionSchedules, ...(iv?.ingestionSchedules ?? {}) },
-      webAuthEnabled: iv?.webAuthEnabled ?? extracted.webAuthEnabled ?? false,
+      webGrants: iv?.webGrants ?? seededWebGrants,
+      slackGrants: iv?.slackGrants ?? seededSlackGrants,
     };
 
     setInitialValues(merged);
@@ -391,22 +443,36 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
   }, [opts?.deploymentId, opts?.build, opts?.revision]);
 
-  // Build the interfaces payload from current form state.
-  const buildInterfaces = useCallback((): TemplateInterfaces => ({
-    adapters: selectedAdapters,
-    auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined,
-  }), [selectedAdapters, webAuthEnabled]);
+  // Build the interfaces payload from current form state. Web auth is always
+  // OIDC when web is selected; grants are emitted only for selected adapters
+  // so deselecting an adapter doesn't push stale grants to the server.
+  const buildInterfaces = useCallback((): TemplateInterfaces => {
+    const auth: TemplateInterfaces['auth'] = {};
+    if (selectedAdapters.includes('web')) {
+      auth.web = { type: 'oidc', grants: webGrants };
+    }
+    if (selectedAdapters.includes('slack')) {
+      auth.slack = { grants: slackGrants };
+    }
+    return {
+      adapters: selectedAdapters,
+      auth: auth.web || auth.slack ? auth : undefined,
+    };
+  }, [selectedAdapters, webGrants, slackGrants]);
 
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   // bindings.knowledge is always emitted (even when empty) — see setKnowledgeBindings for why.
   const setSelectedAdapters = useCallback((adapters: string[]) => {
     setSelectedAdaptersRaw(adapters);
+    const auth: TemplateInterfaces['auth'] = {};
+    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: webGrants };
+    if (adapters.includes('slack')) auth.slack = { grants: slackGrants };
     reshapeTemplate({
-      interfaces: { adapters, auth: webAuthEnabled ? { web: { type: "oidc" } } : undefined },
+      interfaces: { adapters, auth: auth.web || auth.slack ? auth : undefined },
       bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     });
-  }, [reshapeTemplate, webAuthEnabled, knowledgeBindings]);
+  }, [reshapeTemplate, webGrants, slackGrants, knowledgeBindings]);
 
   // Filter empty-string ARNs — an entry with value "" means "not bound".
   const nonEmptyBindings = (b: Record<string, string>): Record<string, string> => {
@@ -742,14 +808,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       if (knowledgeBindings[k]) deployCount++;
     }
 
-    // Web auth toggle
-    if (webAuthEnabled !== (initialValues.webAuthEnabled ?? false)) deployCount++;
+    // Auth grants — count adds/removes per adapter
+    deployCount += diffGrants(webGrants, initialValues.webGrants ?? []);
+    deployCount += diffGrants(slackGrants, initialValues.slackGrants ?? []);
 
     const deployChanged = deployCount > 0;
     const changeCount = (nameChanged ? 1 : 0) + deployCount;
 
     return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
-  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webAuthEnabled, ingestionSchedules, knowledgeBindings]);
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, ingestionSchedules, knowledgeBindings]);
 
   const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
 
@@ -777,8 +844,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     adapterDisplayFields,
     adapterCredentials,
     setAdapterCredentials,
-    webAuthEnabled,
-    setWebAuthEnabled,
+    webGrants,
+    setWebGrants,
+    slackGrants,
+    setSlackGrants,
 
     variableValues,
     setVariableValues,

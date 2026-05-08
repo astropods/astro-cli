@@ -64,10 +64,11 @@ export function computeFormDefaults(
     }
   }
 
-  // Web auth — prefer response-level interfaces, fall back to template
+  // Auth grants — prefer response-level interfaces, fall back to template
   const auth = respInterfaces?.auth
     ?? (template.interfaces as Record<string, unknown> | undefined)?.auth as TemplateInterfaces['auth'] | undefined;
-  const webAuthEnabled = auth?.web?.type === "oidc";
+  const webGrants = auth?.web?.grants ?? [];
+  const slackGrants = auth?.slack?.grants ?? [];
 
   return {
     deployName,
@@ -75,7 +76,8 @@ export function computeFormDefaults(
     selectedAdapters: ["web"],
     adapterCredentials,
     ingestionSchedules,
-    webAuthEnabled,
+    webGrants,
+    slackGrants,
   };
 }
 

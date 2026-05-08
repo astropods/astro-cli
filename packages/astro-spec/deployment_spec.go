@@ -24,14 +24,14 @@ type AstroDeploymentSpec struct {
 // is implied by where the grant lives (interfaces.auth.web.grants vs
 // interfaces.auth.slack.grants), not carried on the grant itself.
 //
-// Exactly one of AccountID, UserID, or Anyone must be set:
-//   - AccountID — any member of this account is allowed.
-//   - UserID    — this specific WorkOS user is allowed (web only).
-//   - Anyone    — anyone hitting the adapter is allowed (web only).
+// Exactly one of Org, UserID, or Anyone must be set:
+//   - Org    — any member of this organization (account) is allowed.
+//   - UserID — this specific WorkOS user is allowed (web only).
+//   - Anyone — anyone hitting the adapter is allowed.
 type DeploymentAuthorizationGrant struct {
-	AccountID string `json:"account_id,omitempty" yaml:"account_id,omitempty"`
-	UserID    string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
-	Anyone    bool   `json:"anyone,omitempty" yaml:"anyone,omitempty"`
+	Org    string `json:"org,omitempty" yaml:"org,omitempty"`
+	UserID string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+	Anyone bool   `json:"anyone,omitempty" yaml:"anyone,omitempty"`
 }
 
 // Endpoint represents a named network endpoint on a component.

@@ -23,7 +23,8 @@ describe("computeFormDefaults", () => {
     expect(result.variableValues).toBeUndefined();
     expect(result.adapterCredentials).toBeUndefined();
     expect(result.ingestionSchedules).toBeUndefined();
-    expect(result.webAuthEnabled).toBeUndefined();
+    expect(result.webGrants).toBeUndefined();
+    expect(result.slackGrants).toBeUndefined();
   });
 
   it("returns sensible defaults when template is undefined", () => {
@@ -289,33 +290,49 @@ describe("computeFormDefaults", () => {
     expect(result.ingestionSchedules).toEqual({});
   });
 
-  // --- Web auth ---
+  // --- Auth grants ---
 
-  it("detects OIDC web auth from template interfaces", () => {
+  it("seeds webGrants from template interfaces auth", () => {
     const tpl = makeTemplate({
       variables: {},
       interfaces: {
-        auth: { web: { type: "oidc" } },
+        auth: { web: { grants: [{ user_id: "user_123" }, { anyone: true }] } },
         adapters: ["web"],
       },
     });
     const result = computeFormDefaults(tpl, "my-agent");
-    expect(result.webAuthEnabled).toBe(true);
+    expect(result.webGrants).toEqual([{ user_id: "user_123" }, { anyone: true }]);
+    expect(result.slackGrants).toEqual([]);
   });
 
-  it("returns false for web auth when not OIDC", () => {
+  it("seeds slackGrants from template interfaces auth", () => {
+    const tpl = makeTemplate({
+      variables: {},
+      interfaces: {
+        auth: { slack: { grants: [{ anyone: true }] } },
+        adapters: ["web", "slack"],
+      },
+    });
+    const result = computeFormDefaults(tpl, "my-agent");
+    expect(result.slackGrants).toEqual([{ anyone: true }]);
+    expect(result.webGrants).toEqual([]);
+  });
+
+  it("returns empty grants when interfaces has no auth", () => {
     const tpl = makeTemplate({
       variables: {},
       interfaces: { adapters: ["web"] },
     });
     const result = computeFormDefaults(tpl, "my-agent");
-    expect(result.webAuthEnabled).toBe(false);
+    expect(result.webGrants).toEqual([]);
+    expect(result.slackGrants).toEqual([]);
   });
 
-  it("returns false for web auth when no interfaces", () => {
+  it("returns empty grants when no interfaces", () => {
     const tpl = makeTemplate({ variables: {}, interfaces: undefined });
     const result = computeFormDefaults(tpl, "my-agent");
-    expect(result.webAuthEnabled).toBe(false);
+    expect(result.webGrants).toEqual([]);
+    expect(result.slackGrants).toEqual([]);
   });
 
   // --- Template with no variables ---
@@ -370,6 +387,7 @@ describe("computeFormDefaults", () => {
       "SLACK_CONFIG.actionable_reactions": "ticket",
     });
     expect(result.ingestionSchedules).toEqual({ nightly: "0 2 * * *" });
-    expect(result.webAuthEnabled).toBe(true);
+    expect(result.webGrants).toEqual([]);
+    expect(result.slackGrants).toEqual([]);
   });
 });

@@ -23,8 +23,8 @@ const (
 	// owning account (looked up from the deployments row).
 	IdentityTypeSlack = "slack"
 
-	// SubjectTypeAccount: any member of the named account is allowed.
-	SubjectTypeAccount = "account"
+	// SubjectTypeOrg: any member of the named organization (account) is allowed.
+	SubjectTypeOrg = "org"
 	// SubjectTypeUser: this specific WorkOS user is allowed. Web-only — the
 	// schema enforces user_web_only_check, since slack identity is opaque
 	// and resolves to the owning account, never to a WorkOS user.
@@ -52,9 +52,9 @@ func NewStore(db *sql.DB) *Store {
 // Grant is a single row in deployment_authorization_grants.
 //
 // SubjectID's meaning depends on SubjectType:
-//   - SubjectTypeAccount → accounts.id (uuid as text)
-//   - SubjectTypeUser    → workos_user_id
-//   - SubjectTypeAnyone  → empty string
+//   - SubjectTypeOrg    → accounts.id (uuid as text)
+//   - SubjectTypeUser   → workos_user_id
+//   - SubjectTypeAnyone → empty string
 type Grant struct {
 	DeploymentID string `json:"deployment_id"`
 	SubjectType  string `json:"subject_type"`
@@ -65,7 +65,7 @@ type Grant struct {
 // Subject identifies one candidate the principal resolves to. Authorization
 // passes if any candidate matches a grant for the deployment + adapter.
 type Subject struct {
-	Type string // SubjectTypeAccount or SubjectTypeUser
+	Type string // SubjectTypeOrg or SubjectTypeUser
 	ID   string
 }
 
@@ -125,11 +125,11 @@ func (s *Store) MatchesGrant(deploymentID string, candidates []Subject, adapter 
 	if len(candidates) == 0 {
 		return false, nil
 	}
-	var accountIDs, userIDs []string
+	var orgIDs, userIDs []string
 	for _, c := range candidates {
 		switch c.Type {
-		case SubjectTypeAccount:
-			accountIDs = append(accountIDs, c.ID)
+		case SubjectTypeOrg:
+			orgIDs = append(orgIDs, c.ID)
 		case SubjectTypeUser:
 			userIDs = append(userIDs, c.ID)
 		}
@@ -141,12 +141,12 @@ func (s *Store) MatchesGrant(deploymentID string, candidates []Subject, adapter 
 		WHERE deployment_id = $1
 		  AND adapter = $2
 		  AND (
-		    (subject_type = 'account' AND subject_id = ANY($3))
+		    (subject_type = 'org' AND subject_id = ANY($3))
 		    OR
 		    (subject_type = 'user' AND subject_id = ANY($4))
 		  )
 		LIMIT 1
-	`, deploymentID, adapter, pq.Array(accountIDs), pq.Array(userIDs)).Scan(&found)
+	`, deploymentID, adapter, pq.Array(orgIDs), pq.Array(userIDs)).Scan(&found)
 	if err == nil {
 		return true, nil
 	}

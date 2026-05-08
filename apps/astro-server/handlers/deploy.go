@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"sync"
+
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
@@ -38,7 +40,6 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
-	"sync"
 
 	"golang.org/x/sync/errgroup"
 	batchv1 "k8s.io/api/batch/v1"
@@ -3390,7 +3391,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 // on a fresh deploy. The deployer always gets a user grant under web. When
 // slack is in the adapter list, an `anyone` grant is seeded under slack so the
 // channel is reachable out of the box — slack identity resolves to the owner
-// account regardless of grant shape, so `anyone` and `account_id: <owner>`
+// account regardless of grant shape, so `anyone` and `org: <owner>`
 // collapse to the same effective scope (anyone in the bot's workspace).
 //
 // Existing grants in the template (e.g. coming from the agent's astropods.yml)
@@ -3525,7 +3526,7 @@ func buildAuthorizationGrants(deploymentID string, auth *spec.DeploymentInterfac
 	return grants
 }
 
-// specGrantToStore translates a spec-shape grant (account_id|user_id|anyone)
+// specGrantToStore translates a spec-shape grant (org|user_id|anyone)
 // into the store's polymorphic (subject_type, subject_id) shape. Adapter is
 // supplied by the caller since it's implied by the parent block in the spec.
 //
@@ -3541,8 +3542,8 @@ func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant, 
 		out.SubjectType = authorizationstore.SubjectTypeUser
 		out.SubjectID = g.UserID
 	default:
-		out.SubjectType = authorizationstore.SubjectTypeAccount
-		out.SubjectID = g.AccountID
+		out.SubjectType = authorizationstore.SubjectTypeOrg
+		out.SubjectID = g.Org
 	}
 	return out
 }
@@ -3557,14 +3558,14 @@ func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationG
 		out.Anyone = true
 	case authorizationstore.SubjectTypeUser:
 		out.UserID = g.SubjectID
-	case authorizationstore.SubjectTypeAccount:
-		out.AccountID = g.SubjectID
+	case authorizationstore.SubjectTypeOrg:
+		out.Org = g.SubjectID
 	}
 	return out
 }
 
 // validateAuthorizationSpec checks that every grant has exactly one subject
-// (account/user/anyone) and that slack grants are account-scoped only.
+// (org/user/anyone) and that slack grants are org-scoped only.
 // Returns a list of human-readable error strings, empty when the block is
 // valid.
 func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
@@ -3579,7 +3580,7 @@ func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 			prefix := fmt.Sprintf("interfaces.auth.%s.grants[%d]", adapter, i)
 
 			subjectCount := 0
-			if g.AccountID != "" {
+			if g.Org != "" {
 				subjectCount++
 			}
 			if g.UserID != "" {
@@ -3590,11 +3591,11 @@ func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 			}
 			switch subjectCount {
 			case 0:
-				errs = append(errs, prefix+": exactly one of account_id, user_id, anyone is required")
+				errs = append(errs, prefix+": exactly one of org, user_id, anyone is required")
 			case 1:
 				// ok
 			default:
-				errs = append(errs, prefix+": only one of account_id, user_id, anyone may be set")
+				errs = append(errs, prefix+": only one of org, user_id, anyone may be set")
 			}
 
 			// user grants on slack are now allowed: the messaging container
@@ -3611,8 +3612,8 @@ func validateAuthorizationSpec(auth *spec.DeploymentInterfacesAuth) []string {
 				key += "anyone:"
 			case g.UserID != "":
 				key += "user:" + g.UserID
-			case g.AccountID != "":
-				key += "account:" + g.AccountID
+			case g.Org != "":
+				key += "org:" + g.Org
 			}
 			if _, dup := seen[key]; dup {
 				errs = append(errs, prefix+": duplicate grant")

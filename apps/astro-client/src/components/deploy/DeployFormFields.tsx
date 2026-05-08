@@ -189,8 +189,11 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           showError={!!form.errors.adapters}
           adapterErrorKeys={form.errors.adapterCredentials}
           credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
-          webAuthEnabled={form.webAuthEnabled}
-          onWebAuthChange={form.setWebAuthEnabled}
+          webGrants={form.webGrants}
+          onWebGrantsChange={form.setWebGrants}
+          slackGrants={form.slackGrants}
+          onSlackGrantsChange={form.setSlackGrants}
+          targetAccount={form.targetAccount}
           vaultEntries={form.vaultEntries}
           vaultSettingsUrl={form.vaultSettingsUrl}
           vaultLoadError={form.vaultEntriesLoadError}

@@ -405,12 +405,12 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     expect(result.current.errors.ingestionSchedules).toBeUndefined();
   });
 
-  it('populates web auth default on first render', () => {
+  it('seeds webGrants from response interfaces auth', () => {
     const tpl: DeploymentTemplate = {
       ...mockTemplate,
       variables: {},
       interfaces: {
-        auth: { web: { type: 'oidc' } },
+        auth: { web: { grants: [{ user_id: 'user_xyz' }] } },
         adapters: ['web'],
       },
     };
@@ -425,7 +425,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
       { wrapper },
     );
 
-    expect(result.current.webAuthEnabled).toBe(true);
+    expect(result.current.webGrants).toEqual([{ user_id: 'user_xyz' }]);
   });
 
   it('handles null template gracefully (loader failure)', () => {
@@ -642,16 +642,17 @@ describe('computeInitialValues', () => {
     expect(result.selectedAdapters).toEqual(['web']);
   });
 
-  it('reads webAuthEnabled from response interfaces auth', () => {
+  it('reads webGrants from response interfaces auth', () => {
     const tpl = makeTemplate({});
-    const result = computeInitialValues(tpl, 'acme', { adapters: ['web'], auth: { web: { type: 'oidc' } } });
-    expect(result.webAuthEnabled).toBe(true);
+    const result = computeInitialValues(tpl, 'acme', { adapters: ['web'], auth: { web: { grants: [{ user_id: 'u1' }] } } });
+    expect(result.webGrants).toEqual([{ user_id: 'u1' }]);
   });
 
-  it('webAuthEnabled is false when response interfaces has no auth', () => {
+  it('webGrants is empty when response interfaces has no auth', () => {
     const tpl = makeTemplate({});
     const result = computeInitialValues(tpl, 'acme', { adapters: ['web'] });
-    expect(result.webAuthEnabled).toBe(false);
+    expect(result.webGrants).toEqual([]);
+    expect(result.slackGrants).toEqual([]);
   });
 
   it('decomposes object variable into sub-field adapter credentials', () => {

@@ -77,6 +77,10 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
   const isUserScrolled = useRef(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
+  // useVirtualizer returns non-memoizable functions; React Compiler will
+  // automatically skip memoizing this component. Disable the rule explicitly
+  // so the lint output stays clean.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: filtered.length,
     getScrollElement: () => scrollRef.current,

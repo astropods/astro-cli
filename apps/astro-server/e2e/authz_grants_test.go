@@ -101,7 +101,7 @@ func TestE2E_AuthzGrants_AtomicWrite_GrantsFailureRollsBackDeployment(t *testing
 }
 
 // Schema CHECK: anyone under slack is now legal — collapses to the same
-// scope as account_id:<owner> for slack since slack identity always
+// scope as org:<owner> for slack since slack identity always
 // resolves to the bot's owning account.
 func TestE2E_AuthzGrants_SchemaCheck_AnyoneOnSlackAccepted(t *testing.T) {
 	db := testDB(t)
@@ -140,10 +140,10 @@ func TestE2E_AuthzGrants_SchemaCheck_UserOnSlackAccepted(t *testing.T) {
 	}
 }
 
-// Schema CHECK: account on slack is legal (the conventional case — the
+// Schema CHECK: org on slack is legal (the conventional case — the
 // bot's owning account is the only thing the server resolves slack
 // identity to).
-func TestE2E_AuthzGrants_SchemaCheck_AccountOnSlackAccepted(t *testing.T) {
+func TestE2E_AuthzGrants_SchemaCheck_OrgOnSlackAccepted(t *testing.T) {
 	db := testDB(t)
 	depID := seedDeploymentForGrantsTest(t, db)
 	accountID := ensureTestAccount(t, db)
@@ -154,9 +154,9 @@ func TestE2E_AuthzGrants_SchemaCheck_AccountOnSlackAccepted(t *testing.T) {
 	if _, err := db.Exec(`
 		INSERT INTO deployment_authorization_grants
 		    (deployment_id, subject_type, subject_id, adapter)
-		VALUES ($1, 'account', $2, 'slack')
+		VALUES ($1, 'org', $2, 'slack')
 	`, depID, accountID); err != nil {
-		t.Errorf("account+slack INSERT was rejected: %v", err)
+		t.Errorf("org+slack INSERT was rejected: %v", err)
 	}
 }
 

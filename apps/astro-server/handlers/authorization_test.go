@@ -23,12 +23,12 @@ func TestValidateAuth_NoSubject(t *testing.T) {
 	}
 }
 
-// C1: account_id + user_id together → reject.
+// C1: org + user_id together → reject.
 func TestValidateAuth_AccountAndUser(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
-				{AccountID: "acct-1", UserID: "alice"},
+				{Org: "acct-1", UserID: "alice"},
 			},
 		},
 	})
@@ -37,12 +37,12 @@ func TestValidateAuth_AccountAndUser(t *testing.T) {
 	}
 }
 
-// C2: account_id + anyone together → reject.
+// C2: org + anyone together → reject.
 func TestValidateAuth_AccountAndAnyone(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
-				{AccountID: "acct-1", Anyone: true},
+				{Org: "acct-1", Anyone: true},
 			},
 		},
 	})
@@ -81,7 +81,7 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 	}
 }
 
-// C6: anyone under slack.grants → accepted (collapses to account_id:<owner>
+// C6: anyone under slack.grants → accepted (collapses to org:<owner>
 // for slack since the bot is per-account; this is the seeded fresh-deploy
 // default for slack-enabled deployments).
 func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
@@ -102,8 +102,8 @@ func TestValidateAuth_Duplicate(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
-				{AccountID: "acct-1"},
-				{AccountID: "acct-1"},
+				{Org: "acct-1"},
+				{Org: "acct-1"},
 			},
 		},
 	})
@@ -117,14 +117,14 @@ func TestValidateAuth_ValidMix(t *testing.T) {
 	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
-				{AccountID: "acct-1"},
+				{Org: "acct-1"},
 				{UserID: "alice"},
 				{Anyone: true},
 			},
 		},
 		Slack: &spec.DeploymentSlackAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
-				{AccountID: "acct-1"},
+				{Org: "acct-1"},
 			},
 		},
 	})
@@ -266,14 +266,14 @@ func TestEnsureSlackAnyoneGrant_WebGrantsOnly(t *testing.T) {
 }
 
 // Existing slack grants must be preserved — do not overwrite a user's
-// account_id-scoped slack grant with anyone.
+// org-scoped slack grant with anyone.
 func TestEnsureSlackAnyoneGrant_PreservesExistingSlackGrants(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Auth: &spec.DeploymentInterfacesAuth{
 				Slack: &spec.DeploymentSlackAuth{
-					Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "acct-1"}},
+					Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
 				},
 			},
 		},
@@ -282,8 +282,8 @@ func TestEnsureSlackAnyoneGrant_PreservesExistingSlackGrants(t *testing.T) {
 	if len(ds.Interfaces.Auth.Slack.Grants) != 1 {
 		t.Fatalf("expected one slack grant, got %+v", ds.Interfaces.Auth.Slack.Grants)
 	}
-	if ds.Interfaces.Auth.Slack.Grants[0].AccountID != "acct-1" {
-		t.Errorf("expected existing account grant preserved, got %+v", ds.Interfaces.Auth.Slack.Grants[0])
+	if ds.Interfaces.Auth.Slack.Grants[0].Org != "acct-1" {
+		t.Errorf("expected existing org grant preserved, got %+v", ds.Interfaces.Auth.Slack.Grants[0])
 	}
 }
 
@@ -324,22 +324,22 @@ func TestMergeAuthorizationFromStore(t *testing.T) {
 	mock.ExpectQuery("\n\t\tSELECT deployment_id, subject_type, subject_id, adapter\n\t\tFROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tORDER BY subject_type, subject_id, adapter\n\t").
 		WithArgs("dep-1").
 		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "subject_type", "subject_id", "adapter"}).
-			AddRow("dep-1", "account", "acct-1", "slack").
+			AddRow("dep-1", "org", "acct-1", "slack").
 			AddRow("dep-1", "anyone", "", "web").
 			AddRow("dep-1", "user", "alice", "web"))
 
 	auth := &spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{AccountID: "stale"}},
+			Grants: []spec.DeploymentAuthorizationGrant{{Org: "stale"}},
 		},
 	}
 	mergeAuthorizationFromStore(log, store, "dep-1", auth)
 
 	// Stored order is (subject_type, subject_id, adapter):
-	// account/acct-1/slack → goes under Slack;
+	// org/acct-1/slack → goes under Slack;
 	// anyone//web and user/alice/web → go under Web.
-	if auth.Slack == nil || len(auth.Slack.Grants) != 1 || auth.Slack.Grants[0].AccountID != "acct-1" {
-		t.Fatalf("expected one slack account grant, got %+v", auth.Slack)
+	if auth.Slack == nil || len(auth.Slack.Grants) != 1 || auth.Slack.Grants[0].Org != "acct-1" {
+		t.Fatalf("expected one slack org grant, got %+v", auth.Slack)
 	}
 	if auth.Web == nil || len(auth.Web.Grants) != 2 {
 		t.Fatalf("expected two web grants, got %+v", auth.Web)
@@ -363,10 +363,10 @@ func TestSpecGrantToStore(t *testing.T) {
 		}
 	}{
 		{
-			name:    "account",
-			in:      spec.DeploymentAuthorizationGrant{AccountID: "acct-1"},
+			name:    "org",
+			in:      spec.DeploymentAuthorizationGrant{Org: "acct-1"},
 			adapter: "web",
-			want:    struct{ subjectType, subjectID string }{"account", "acct-1"},
+			want:    struct{ subjectType, subjectID string }{"org", "acct-1"},
 		},
 		{
 			name:    "user",

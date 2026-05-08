@@ -1250,9 +1250,30 @@ export interface TemplateResponse {
   signature?: string;
 }
 
+/** Authorization grant — exactly one of org, user_id, or anyone must be set.
+ *  Slack rejects user_id (slack identity is opaque). */
+export interface AuthGrant {
+  /** Organization (account) ID — any current member of this org is allowed. */
+  org?: string;
+  user_id?: string;
+  anyone?: boolean;
+}
+
+export interface WebAuthConfig {
+  type?: string;
+  grants?: AuthGrant[];
+}
+
+export interface SlackAuthConfig {
+  grants?: AuthGrant[];
+}
+
 export interface TemplateInterfaces {
   adapters: string[];
-  auth?: { web?: { type?: string } };
+  auth?: {
+    web?: WebAuthConfig;
+    slack?: SlackAuthConfig;
+  };
 }
 
 

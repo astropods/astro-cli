@@ -21,7 +21,7 @@ func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock, *sql.DB) {
 
 const (
 	anyoneQuery   = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t"
-	subjectsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'account' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t"
+	subjectsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t"
 )
 
 // expectAnyoneMiss queues the anyone-short-circuit query returning no rows.
@@ -100,7 +100,7 @@ func TestIsAllowed_AccountGrantMatch(t *testing.T) {
 
 	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{
 		{Type: SubjectTypeUser, ID: "alice"},
-		{Type: SubjectTypeAccount, ID: "acct-1"},
+		{Type: SubjectTypeOrg, ID: "acct-1"},
 	}, "web")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -147,7 +147,7 @@ func TestIsAllowed_NoMatch(t *testing.T) {
 
 	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{
 		{Type: SubjectTypeUser, ID: "bob"},
-		{Type: SubjectTypeAccount, ID: "acct-1"},
+		{Type: SubjectTypeOrg, ID: "acct-1"},
 	}, "web")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,7 +189,7 @@ func TestIsAllowed_SlackNoGrant(t *testing.T) {
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
 
-	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{{Type: SubjectTypeAccount, ID: "acct-D"}}, "slack")
+	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{{Type: SubjectTypeOrg, ID: "acct-D"}}, "slack")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestIsAllowed_SlackAccountGrant(t *testing.T) {
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
 
-	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{{Type: SubjectTypeAccount, ID: "acct-D"}}, "slack")
+	allowed, err := isAllowedTestHelper(store, "dep-1", []Subject{{Type: SubjectTypeOrg, ID: "acct-D"}}, "slack")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestListGrants(t *testing.T) {
 	mock.ExpectQuery("\n\t\tSELECT deployment_id, subject_type, subject_id, adapter\n\t\tFROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tORDER BY subject_type, subject_id, adapter\n\t").
 		WithArgs("dep-1").
 		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "subject_type", "subject_id", "adapter"}).
-			AddRow("dep-1", "account", "acct-1", "web").
+			AddRow("dep-1", "org", "acct-1", "web").
 			AddRow("dep-1", "anyone", "", "web").
 			AddRow("dep-1", "user", "alice", "web"))
 
@@ -378,7 +378,7 @@ func TestListGrants(t *testing.T) {
 	if len(grants) != 3 {
 		t.Fatalf("expected 3 grants, got %d", len(grants))
 	}
-	if grants[0].SubjectType != "account" || grants[1].SubjectType != "anyone" || grants[2].SubjectType != "user" {
+	if grants[0].SubjectType != "org" || grants[1].SubjectType != "anyone" || grants[2].SubjectType != "user" {
 		t.Fatalf("unexpected ordering: %+v", grants)
 	}
 }

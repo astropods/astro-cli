@@ -85,34 +85,38 @@ test.describe("adapter toggle UX", () => {
   });
 });
 
-test.describe("web auth toggle UX", () => {
-  test("auth toggle is visible under web adapter and defaults to checked when template has oidc", async ({ page }) => {
+test.describe("auth grants UX", () => {
+  test("grants editor renders under web adapter with a 'Specific user…' option", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
-    // Web adapter should be selected by default — auth toggle should be visible
-    await expect(page.getByText("Require authentication")).toBeVisible();
+    // Web adapter is selected by default — grants editor should be visible.
+    await expect(page.getByText("Grant access")).toBeVisible();
 
-    // Template has auth.web.type=oidc, so toggle should be checked
-    const authSwitch = page.locator("button[role=switch]").filter({ has: page.locator("[id*='require-auth']") });
-    // The switch with id containing 'require-auth' should exist
-    const requireAuthSwitch = page.locator("[id*='require-auth']");
-    await expect(requireAuthSwitch).toBeVisible();
+    // Web's add-grant menu offers a per-user grant.
+    await page.getByRole("button", { name: /add access/i }).click();
+    await expect(page.getByRole("menuitem", { name: /specific user/i })).toBeVisible();
   });
 
-  test("auth toggle disappears when web adapter is deselected", async ({ page }) => {
+  test("slack-only selection shows grants editor with a 'Specific user…' option", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
-    await expect(page.getByText("Require authentication")).toBeVisible();
+    await expect(page.getByText("Grant access")).toBeVisible();
 
-    // Deselect web, select only Slack
+    // Deselect web, select only Slack.
     await page.locator("button[aria-pressed]", { hasText: /web/i }).click();
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
-    // Auth toggle should disappear (it's only on web)
-    await expect(page.getByText("Require authentication")).not.toBeVisible();
+    // Grants editor still visible (slack has its own).
+    await expect(page.getByText("Grant access")).toBeVisible();
+
+    // Slack's add-grant menu offers per-user grants too — slack identities
+    // resolve to the linked WorkOS user server-side, so user grants apply.
+    await page.getByRole("button", { name: /add access/i }).click();
+    await expect(page.getByRole("menuitem", { name: /anyone/i })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /specific user/i })).toBeVisible();
   });
 });
