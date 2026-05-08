@@ -102,19 +102,18 @@ describe('AccountProfile loading and error states', () => {
   });
 });
 
-// ── Owner vs visitor heading ─────────────────────────────────────────────────
+// ── Owner vs visitor view mode ───────────────────────────────────────────────
 
-describe('AccountProfile blueprint section heading', () => {
-  it('shows "My Blueprints" when the viewer owns the profile', async () => {
-    // mockAuthContext.accounts contains { name: 'testuser' } so testuser IS the owner
+describe('AccountProfile view mode toggle', () => {
+  it('shows the "View as visitor" button for the owner', async () => {
     renderProfile('/testuser');
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'My Blueprints' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /view as visitor/i })).toBeInTheDocument();
     });
   });
 
-  it('shows "Blueprints" when the viewer does not own the profile', async () => {
+  it('hides the "View as visitor" button for a visitor', async () => {
     server.use(
       http.get('/api/v1/accounts/otheruser', () =>
         HttpResponse.json(otherAccount),
@@ -124,8 +123,33 @@ describe('AccountProfile blueprint section heading', () => {
     renderProfile('/otheruser');
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Blueprints' })).toBeInTheDocument();
+      // Wait for the profile to load (sidebar shows display name)
+      expect(screen.getByRole('heading', { name: 'Other User' })).toBeInTheDocument();
     });
+    expect(screen.queryByRole('button', { name: /view as visitor/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the Agents tab for the owner in internal view', async () => {
+    renderProfile('/testuser');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^agents/i })).toBeInTheDocument();
+    });
+  });
+
+  it('hides the Agents tab for a visitor', async () => {
+    server.use(
+      http.get('/api/v1/accounts/otheruser', () =>
+        HttpResponse.json(otherAccount),
+      ),
+    );
+
+    renderProfile('/otheruser');
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Other User' })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /^agents/i })).not.toBeInTheDocument();
   });
 });
 
@@ -202,8 +226,8 @@ describe('AccountProfile edit profile button', () => {
     renderProfile('/otheruser');
 
     await waitFor(() => {
-      // Wait for the page to finish loading (heading present)
-      expect(screen.getByRole('heading', { name: 'Blueprints' })).toBeInTheDocument();
+      // Wait for the profile to finish loading (sidebar heading present)
+      expect(screen.getByRole('heading', { name: 'Other User' })).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /edit profile/i })).not.toBeInTheDocument();
   });
@@ -224,7 +248,8 @@ describe('AccountProfile agents stat', () => {
     renderProfile('/testuser');
 
     await waitFor(() => {
-      expect(screen.getByText('Agents')).toBeInTheDocument();
+      // sidebar stat label for owner
+      expect(screen.getAllByText('Agents').length).toBeGreaterThan(0);
     });
   });
 
@@ -238,7 +263,8 @@ describe('AccountProfile agents stat', () => {
     renderProfile('/otheruser');
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Blueprints' })).toBeInTheDocument();
+      // Wait for the profile to finish loading (sidebar heading present)
+      expect(screen.getByRole('heading', { name: 'Other User' })).toBeInTheDocument();
     });
     expect(screen.queryByText('Agents')).not.toBeInTheDocument();
   });

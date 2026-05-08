@@ -61,13 +61,16 @@ test("archive blueprint from account profile: dialog, confirm, POST fires", asyn
   // Account profile lists blueprints with archive button for the owner
   await page.goto(`/${ACCOUNT}`, { waitUntil: "domcontentloaded" });
 
-  // Wait for blueprint cards to render (name appears in both card title and description — use first())
+  // Wait for blueprint cards to render
   await expect(page.getByText("code-reviewer").first()).toBeVisible({ timeout: 15_000 });
 
-  // Open the options dropdown for code-reviewer card
-  const blueprintCard = page.locator("[aria-label='Blueprint options']").first();
-  await expect(blueprintCard).toBeVisible({ timeout: 5_000 });
-  await blueprintCard.click();
+  // Open the options dropdown specifically for the code-reviewer card.
+  // Sort by "newest" puts blueprints with more versions first, so we cannot
+  // rely on .first() across all [aria-label='Blueprint options'] buttons.
+  const codeReviewerCard = page.locator(`a[href$="/${ACCOUNT}/code-reviewer"]`);
+  const blueprintOptionsBtn = codeReviewerCard.locator("[aria-label='Blueprint options']");
+  await expect(blueprintOptionsBtn).toBeVisible({ timeout: 5_000 });
+  await blueprintOptionsBtn.click();
 
   // Click "Archive" in the dropdown
   await page.getByRole("menuitem", { name: /^archive$/i }).click();

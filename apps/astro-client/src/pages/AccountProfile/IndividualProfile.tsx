@@ -1,16 +1,47 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams } from "react-router";
 import type { Route } from "./+types/AccountProfile";
 import { useAccount, useAccountOrgs } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
-import { BlueprintCard } from "@/components/BlueprintCard";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { getBlueprintDescription } from "@/lib/blueprint-utils";
 import { PageContainer } from "@/components/PageLayout";
 import { GradientGridWash } from "@/components/GradientGridWash";
+import { Button } from "@/components/ui/button";
+import { Eye } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ProfileEditSidebar } from "./ProfileEditSidebar";
 import { ProfileViewSidebar } from "./ProfileViewSidebar";
+import { BlueprintsTab } from "./BlueprintsTab";
+import { AgentsTab } from "./AgentsTab";
+import type { VisibilityFilter, BlueprintSort } from "./BlueprintsTab";
+import type { AgentSort } from "./AgentsTab";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type ViewMode = "internal" | "external";
+type Tab = "blueprints" | "agents";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "pb-3 text-body border-b-2 -mb-px transition-colors cursor-pointer",
+        active
+          ? "border-primary text-foreground font-semibold"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── IndividualProfile ─────────────────────────────────────────────────────────
 
 interface IndividualProfileProps {
   loaderData: Route.ComponentProps["loaderData"];
@@ -25,11 +56,29 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
   const { data: orgsData } = useAccountOrgs(account ?? "", {
     initialData: loaderData.orgs ?? undefined,
   });
-  const [editOpen, setEditOpen] = useState(false);
 
   const isOwner = isAuthenticated && accounts.some((a) => a.name === data?.name);
-  const orgs = orgsData?.orgs ?? [];
 
+  // ── View mode ──────────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<ViewMode>("internal");
+  const effectiveViewMode: ViewMode = isOwner ? viewMode : "external";
+
+  // ── Sidebar edit ──────────────────────────────────────────────────────────
+  const [editOpen, setEditOpen] = useState(false);
+
+  // ── Tab ───────────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<Tab>("blueprints");
+
+  // ── Blueprint filters ─────────────────────────────────────────────────────
+  const [bpSearch, setBpSearch] = useState("");
+  const [bpVisibility, setBpVisibility] = useState<VisibilityFilter>("all");
+  const [bpSort, setBpSort] = useState<BlueprintSort>("newest");
+
+  // ── Agent filters ─────────────────────────────────────────────────────────
+  const [agentSearch, setAgentSearch] = useState("");
+  const [agentSort, setAgentSort] = useState<AgentSort>("modified");
+
+  // ── Data ──────────────────────────────────────────────────────────────────
   const { data: deploymentsData } = useDeployments(data?.name ?? "", isOwner, {
     initialData: loaderData.deployments ?? undefined,
   });
@@ -37,6 +86,65 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
     enabled: !!data,
     initialData: loaderData.blueprints ?? undefined,
   });
+
+  const orgs = orgsData?.orgs ?? [];
+  const rawBlueprints = useMemo(() => blueprintsData?.agents ?? [], [blueprintsData]);
+  const rawDeployments = useMemo(() => deploymentsData?.deployments ?? [], [deploymentsData]);
+
+  // ── Blueprint filtering + sorting ─────────────────────────────────────────
+  const visibleBlueprints = useMemo(() => {
+    let list = effectiveViewMode === "external"
+      ? rawBlueprints.filter((bp) => bp.visibility === "public")
+      : rawBlueprints;
+
+    if (effectiveViewMode === "internal" && bpVisibility !== "all") {
+      list = list.filter((bp) => bp.visibility === bpVisibility);
+    }
+
+    if (bpSearch.trim()) {
+      const q = bpSearch.toLowerCase();
+      list = list.filter((bp) => bp.name.toLowerCase().includes(q));
+    }
+
+    if (bpSort === "newest") {
+      list = [...list].sort((a, b) => {
+        const latestA = a.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
+        const latestB = b.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
+        return latestB.localeCompare(latestA);
+      });
+    } else if (bpSort === "name") {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    } else if (bpSort === "deployed") {
+      list = [...list].sort((a, b) => (b.metrics?.deploy_count ?? 0) - (a.metrics?.deploy_count ?? 0));
+    }
+
+    return list;
+  }, [rawBlueprints, effectiveViewMode, bpVisibility, bpSearch, bpSort]);
+
+  // ── Agent filtering + sorting ─────────────────────────────────────────────
+  const visibleDeployments = useMemo(() => {
+    let list = rawDeployments;
+
+    if (agentSearch.trim()) {
+      const q = agentSearch.toLowerCase();
+      list = list.filter((d) =>
+        d.name.toLowerCase().includes(q) ||
+        (d.display_name ?? "").toLowerCase().includes(q),
+      );
+    }
+
+    if (agentSort === "modified") {
+      list = [...list].sort((a, b) => {
+        const aDate = a.updated_at || a.created_at;
+        const bDate = b.updated_at || b.created_at;
+        return bDate.localeCompare(aDate);
+      });
+    } else if (agentSort === "name") {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return list;
+  }, [rawDeployments, agentSearch, agentSort]);
 
   if (!data) {
     return (
@@ -46,11 +154,8 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
     );
   }
 
-  const rawBlueprints = blueprintsData?.agents ?? [];
-  const deployments = deploymentsData?.deployments ?? [];
-  const visibleBlueprints = isOwner
-    ? rawBlueprints
-    : rawBlueprints.filter((bp) => bp.visibility === "public");
+  // In external view, force back to blueprints tab (agents tab is hidden)
+  const resolvedTab: Tab = effectiveViewMode === "external" ? "blueprints" : activeTab;
 
   return (
     <PageContainer
@@ -65,43 +170,85 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
       }
     >
       <aside className="w-72 shrink-0 border-r border-border overflow-hidden">
-        {editOpen ? (
+        {editOpen && effectiveViewMode === "internal" ? (
           <ProfileEditSidebar data={data} onClose={() => setEditOpen(false)} />
         ) : (
           <ProfileViewSidebar
             data={data}
             isOwner={isOwner}
-            blueprintCount={visibleBlueprints.length}
-            deploymentCount={deployments.length}
+            blueprintCount={rawBlueprints.filter((bp) => effectiveViewMode === "external" ? bp.visibility === "public" : true).length}
+            deploymentCount={rawDeployments.length}
             orgs={orgs}
-            onEditOpen={() => setEditOpen(true)}
+            onEditOpen={effectiveViewMode === "internal" ? () => setEditOpen(true) : undefined}
           />
         )}
       </aside>
 
-      <main className="relative flex flex-1 min-w-0 flex-col gap-5 px-8 py-7">
-        <h2 className="text-heading-2 text-foreground">
-          {isOwner ? "My Blueprints" : "Blueprints"}
-        </h2>
-        {visibleBlueprints.length === 0 ? (
-          <p className="text-body text-muted-foreground">No blueprints published yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {visibleBlueprints.map((agent) => (
-              <BlueprintCard
-                key={agent.name}
-                slug={`${data.name}/${agent.name}`}
-                account={data.name}
-                name={agent.name}
-                description={getBlueprintDescription(agent)}
-                visibility={agent.visibility}
-                avatarColors={agent.avatar_colors}
-                deployCount={agent.metrics?.deploy_count}
-                onArchive={isOwner ? () => {} : undefined}
-              />
-            ))}
+      <main className="relative flex flex-1 min-w-0 flex-col min-h-0">
+        {/* View mode toggle */}
+        {isOwner && (
+          <div className="flex items-center justify-end px-8 pt-5 pb-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode((v) => v === "internal" ? "external" : "internal")}
+              className="gap-1.5"
+            >
+              <Eye className="size-3.5" />
+              {effectiveViewMode === "internal" ? "View as visitor" : "Back to owner view"}
+            </Button>
           </div>
         )}
+
+        {/* Tab bar */}
+        <div className="flex items-end gap-5 px-8 pt-5 border-b border-border">
+          <TabButton active={resolvedTab === "blueprints"} onClick={() => setActiveTab("blueprints")}>
+            Blueprints
+            {rawBlueprints.length > 0 && (
+              <span className="ml-1.5 text-faint-foreground font-normal">
+                {effectiveViewMode === "external"
+                  ? rawBlueprints.filter((bp) => bp.visibility === "public").length
+                  : rawBlueprints.length}
+              </span>
+            )}
+          </TabButton>
+          {effectiveViewMode === "internal" && (
+            <TabButton active={resolvedTab === "agents"} onClick={() => setActiveTab("agents")}>
+              Agents
+              {rawDeployments.length > 0 && (
+                <span className="ml-1.5 text-faint-foreground font-normal">{rawDeployments.length}</span>
+              )}
+            </TabButton>
+          )}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          {resolvedTab === "blueprints" && (
+            <BlueprintsTab
+              blueprints={visibleBlueprints}
+              accountName={data.name}
+              isOwner={isOwner}
+              isInternalView={effectiveViewMode === "internal"}
+              search={bpSearch}
+              onSearchChange={setBpSearch}
+              visibility={bpVisibility}
+              onVisibilityChange={setBpVisibility}
+              sort={bpSort}
+              onSortChange={setBpSort}
+            />
+          )}
+          {resolvedTab === "agents" && effectiveViewMode === "internal" && (
+            <AgentsTab
+              deployments={visibleDeployments}
+              accountName={data.name}
+              search={agentSearch}
+              onSearchChange={setAgentSearch}
+              sort={agentSort}
+              onSortChange={setAgentSort}
+            />
+          )}
+        </div>
       </main>
     </PageContainer>
   );

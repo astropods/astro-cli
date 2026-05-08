@@ -51,7 +51,7 @@ interface ProfileViewSidebarProps {
   blueprintCount: number;
   deploymentCount: number;
   orgs: AccountOrg[];
-  onEditOpen: () => void;
+  onEditOpen?: () => void;
 }
 
 export function ProfileViewSidebar({
@@ -117,7 +117,7 @@ export function ProfileViewSidebar({
         </div>
       </div>
 
-      {isOwner && (
+      {isOwner && onEditOpen && (
         <Button variant="outline" size="sm" className="w-full" onClick={onEditOpen}>
           Edit profile
         </Button>
