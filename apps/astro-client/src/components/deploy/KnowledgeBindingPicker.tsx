@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { Package } from "lucide-react";
 import {
   Select,
@@ -8,9 +9,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeStore, KnowledgeBindingInfo, KnowledgeProvider } from "@/lib/api";
+import { newKnowledgePath } from "@/lib/routes";
 
 export interface KnowledgeBindingPickerProps {
   entries: Record<string, { provider?: string; binding?: string }>;
@@ -76,8 +79,7 @@ function KnowledgeBindingEntry({
     (s) => s.provider === provider && s.status === "ready"
   );
   const rawArn = binding || entry.binding || "";
-  const isBound = rawArn !== "";
-  const [mode, setMode] = useState<"new" | "existing">(isBound ? "existing" : "new");
+  const [mode, setMode] = useState<"local" | "shared">("shared");
 
   return (
     <div className="px-5 py-4">
@@ -101,41 +103,62 @@ function KnowledgeBindingEntry({
           value={mode}
           onValueChange={(value) => {
             if (!value) return;
-            const next = value as "new" | "existing";
+            const next = value as "local" | "shared";
             setMode(next);
-            if (next === "new") {
+            if (next === "local") {
               onBind(null);
             }
           }}
           className="shrink-0 [&_button]:cursor-pointer"
         >
-          <ToggleGroupItem value="new">Built in</ToggleGroupItem>
-          <ToggleGroupItem value="existing">Existing</ToggleGroupItem>
+          <ToggleGroupItem
+            value="local"
+            title="Runs database workloads alongside this deployment (provisioned with the agent). Does not use an account-registered knowledge store."
+          >
+            Local
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="shared"
+            title="Uses a knowledge store already connected to this account—the same database can back multiple deployments."
+          >
+            Shared
+          </ToggleGroupItem>
         </ToggleGroup>
       </div>
 
-      {mode === "existing" && (
+      {mode === "shared" && (
         <div className="mt-4 pl-[52px]">
-          <Select
-            value={rawArn || undefined}
-            onValueChange={(value) => onBind(value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a store" />
-            </SelectTrigger>
-            <SelectContent>
-              {compatibleStores.map((store) => (
-                <SelectItem key={store.arn} value={store.arn}>
-                  {store.name}
-                </SelectItem>
-              ))}
-              {compatibleStores.length === 0 && (
-                <SelectItem value="__empty__" disabled>
-                  No compatible stores
-                </SelectItem>
-              )}
-            </SelectContent>
-          </Select>
+          {compatibleStores.length === 0 && !rawArn ? (
+            <div className="rounded-[6px] border border-dashed border-border bg-muted/30 px-4 py-3">
+              <p className="text-[13px] text-muted-foreground">
+                No connected stores match this database type yet.
+              </p>
+              <Button variant="outline" size="sm" className="mt-3" asChild>
+                <Link to={newKnowledgePath}>Add store</Link>
+              </Button>
+            </div>
+          ) : (
+            <Select
+              value={rawArn || undefined}
+              onValueChange={(value) => onBind(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a store" />
+              </SelectTrigger>
+              <SelectContent>
+                {compatibleStores.map((store) => (
+                  <SelectItem key={store.arn} value={store.arn}>
+                    {store.name}
+                  </SelectItem>
+                ))}
+                {rawArn && !compatibleStores.some((s) => s.arn === rawArn) && (
+                  <SelectItem value={rawArn}>
+                    {resolvedBinding?.name ?? rawArn}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       )}
     </div>

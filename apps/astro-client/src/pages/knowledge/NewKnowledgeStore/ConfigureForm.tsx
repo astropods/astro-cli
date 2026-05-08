@@ -1,10 +1,9 @@
-import { useState, useMemo, useCallback, useReducer } from "react";
+import { useState, useMemo, useCallback, useReducer, type ReactNode } from "react";
 import { Link } from "react-router";
-import { ExclamationTriangleIcon, GlobeAltIcon } from "@heroicons/react/24/outline";
+import { ExclamationTriangleIcon, GlobeAltIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
@@ -181,35 +180,13 @@ export function ConfigureForm({
                 {name && nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
               </div>
 
-              <div
-                className={cn(
-                  "overflow-hidden rounded-[6px] border transition-[border-color,background-color]",
-                  privateLink ? "border-primary/40 bg-primary/5" : "border-border bg-transparent",
-                )}
-              >
-                <div className="flex items-center gap-4 px-5 py-4">
-                  <div
-                    className={cn(
-                      "flex size-9 shrink-0 items-center justify-center rounded-sm transition-colors",
-                      privateLink ? "bg-primary/10 text-primary" : "bg-stone-200 text-muted-foreground",
-                    )}
-                  >
-                    <GlobeAltIcon className="size-5" />
-                  </div>
-                  <div className="flex flex-1 min-w-0 flex-col gap-0.5">
-                    <span className="text-[13px] font-medium text-foreground">PrivateLink</span>
-                    <span className="text-[12px] text-muted-foreground">
-                      Connect via AWS PrivateLink. Traffic stays off the public internet.
-                    </span>
-                  </div>
-                  <Switch checked={connectionFields.privateLink} onCheckedChange={(v) => setConnectionFields((f) => ({ ...f, privateLink: v }))} />
-                </div>
-
-                <div
-                  className={cn(
-                    "border-t bg-surface px-5 py-4 transition-colors",
-                    privateLink ? "border-primary/20" : "border-border",
-                  )}
+              <div className="space-y-2" role="radiogroup" aria-label="Connection path">
+                <KnowledgeFormRadioRow
+                  selected={!privateLink}
+                  onSelect={() => setConnectionFields((f) => ({ ...f, privateLink: false }))}
+                  icon={<GlobeAltIcon className="h-5 w-5" />}
+                  title="Public"
+                  description="Connect using a hostname or IP reachable over the public internet (or your usual network path)."
                 >
                   <div className="grid grid-cols-[1fr_auto] gap-3">
                     <div>
@@ -221,7 +198,6 @@ export function ConfigureForm({
                         onChange={(e) => setConnectionFields((f) => ({ ...f, host: e.target.value }))}
                         autoComplete="off"
                       />
-                      {privateLink && host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
                     </div>
                     {fields.includes("port") && (
                       <div className="w-24">
@@ -239,26 +215,59 @@ export function ConfigureForm({
                       </div>
                     )}
                   </div>
-
-                  {!privateLink && (
-                    <label className="mt-4 flex cursor-pointer items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={connectionFields.skipHealthCheck}
-                        onChange={(e) => setConnectionFields((f) => ({ ...f, skipHealthCheck: e.target.checked }))}
-                        className="mt-0.5 size-4 shrink-0 accent-primary"
+                  <label className="mt-4 flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={connectionFields.skipHealthCheck}
+                      onChange={(e) => setConnectionFields((f) => ({ ...f, skipHealthCheck: e.target.checked }))}
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground select-none">
+                        Skip connection test
+                      </span>
+                      <span className="text-[12px] text-muted-foreground">
+                        Save credentials without verifying Astro can reach the database.
+                      </span>
+                    </div>
+                  </label>
+                </KnowledgeFormRadioRow>
+                <KnowledgeFormRadioRow
+                  selected={privateLink}
+                  onSelect={() => setConnectionFields((f) => ({ ...f, privateLink: true }))}
+                  icon={<LockClosedIcon className="h-5 w-5" />}
+                  title="AWS PrivateLink"
+                  description="Connect through AWS PrivateLink with your VPC endpoint service name. Traffic stays off the public internet."
+                >
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <div>
+                      <Label htmlFor="ks-host" size="md">{hostLabel}</Label>
+                      <Input
+                        id="ks-host"
+                        placeholder={hostPlaceholder}
+                        value={connectionFields.host}
+                        onChange={(e) => setConnectionFields((f) => ({ ...f, host: e.target.value }))}
+                        autoComplete="off"
                       />
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[13px] font-medium text-foreground select-none">
-                          Skip connection test
-                        </span>
-                        <span className="text-[12px] text-muted-foreground">
-                          Save credentials without verifying Astro can reach the database.
-                        </span>
+                      {host && hostError && <p className="mt-1 text-xs text-destructive">{hostError}</p>}
+                    </div>
+                    {fields.includes("port") && (
+                      <div className="w-24">
+                        <Label htmlFor="ks-port" size="md">Port</Label>
+                        <Input
+                          id="ks-port"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          placeholder={String(PROVIDER_PORTS[provider] ?? 5432)}
+                          value={connectionFields.port}
+                          onChange={(e) => setConnectionFields((f) => ({ ...f, port: e.target.value }))}
+                          autoComplete="off"
+                        />
                       </div>
-                    </label>
-                  )}
-                </div>
+                    )}
+                  </div>
+                </KnowledgeFormRadioRow>
               </div>
 
               {fields.includes("database") && (
@@ -331,6 +340,77 @@ export function ConfigureForm({
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function KnowledgeFormRadioRow({
+  selected,
+  onSelect,
+  icon,
+  title,
+  description,
+  children,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  icon?: ReactNode;
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  const hasNested = selected && children !== undefined;
+  return (
+    <div
+      className={cn(
+        hasNested && "rounded-[6px] border transition-[border-color,background-color]",
+        hasNested && "border-primary/40 bg-primary/5",
+      )}
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        onClick={onSelect}
+        className={cn(
+          "flex w-full items-center gap-4 rounded-[6px] border px-3 py-3 text-left cursor-pointer transition-[border-color,background-color]",
+          hasNested && "border-none bg-transparent hover:bg-transparent",
+          !hasNested &&
+            (selected
+              ? "border-primary/40 bg-primary/5"
+              : "border-border bg-transparent hover:bg-slate-200/50"),
+        )}
+      >
+        {icon && (
+          <div
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-sm transition-colors",
+              selected ? "bg-primary/10 text-primary" : "bg-slate-200 text-muted-foreground",
+            )}
+            aria-hidden
+          >
+            {icon}
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-[13px] font-medium text-foreground">{title}</span>
+          <span className="text-[11px] text-muted-foreground">{description}</span>
+        </div>
+        <div
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+            selected ? "border-primary bg-background" : "border-input bg-background",
+          )}
+          aria-hidden
+        >
+          {selected && <div className="h-2.5 w-2.5 rounded-full bg-primary" />}
+        </div>
+      </button>
+      {hasNested && (
+        <div className="rounded-b-[6px] border-t border-primary/20 bg-surface px-6 py-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

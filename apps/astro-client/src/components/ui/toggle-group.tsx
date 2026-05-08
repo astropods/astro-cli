@@ -41,7 +41,13 @@ function ToggleGroup({
       setIndicator((prev) => ({ ...prev, ready: false }));
       return;
     }
-    setIndicator({ left: activeEl.offsetLeft, width: activeEl.offsetWidth, ready: true });
+    const rootRect = root.getBoundingClientRect();
+    const activeRect = activeEl.getBoundingClientRect();
+    setIndicator({
+      left: activeRect.left - rootRect.left,
+      width: activeRect.width,
+      ready: true,
+    });
   }, [activeValue, children, variant]);
 
   return (
