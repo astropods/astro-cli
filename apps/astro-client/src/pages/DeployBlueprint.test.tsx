@@ -162,6 +162,111 @@ describe('DeployBlueprint page', () => {
       const payload = capturedRequests[0] as DeploymentSpec;
       expect(payload.target.account).toBe('source-org');
     });
+
+    // Regression: deploying a public blueprint owned by a different account
+    // was looking up vault variables under the BLUEPRINT owner's account
+    // because the seeding effect overwrote the user's personal-account
+    // default with the blueprint's URL/source account. The variables call,
+    // the picker contents, and the deploy target must all resolve to the
+    // deploying user's account, not the blueprint owner.
+    it('routes vault lookup and deploy target to the deploying user, not the blueprint owner', async () => {
+      const publicBlueprint: Blueprint = {
+        name: 'shared-agent',
+        account: 'acme',
+        registry: 'registry.example.com',
+        visibility: 'public',
+        versions: [
+          { build_id: 'shared-build-1', spec: {}, published_at: '2026-04-25T12:00:00Z' },
+        ],
+      };
+      const variablesCalls: string[] = [];
+      const capturedDeploys: DeploymentSpec[] = [];
+
+      server.use(
+        http.get('/api/v1/agents/:account/:name', ({ params }) => {
+          if (params.account === 'acme' && params.name === 'shared-agent') {
+            return HttpResponse.json(publicBlueprint);
+          }
+          return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+        }),
+        http.post('/api/v1/agents/:account/:name/deployment-template', async ({ params, request }) => {
+          if (params.account !== 'acme' || params.name !== 'shared-agent') {
+            return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+          }
+          const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
+          const tmpl = {
+            ...mockTemplate,
+            source: { ...mockTemplate.source, account: 'acme', name: 'shared-agent' },
+          };
+          return HttpResponse.json(wrapTemplateResponse(tmpl, body));
+        }),
+        http.get('/api/v1/accounts/:account/variables', ({ params }) => {
+          variablesCalls.push(params.account as string);
+          return HttpResponse.json({
+            variables: params.account === 'mattcolozzo'
+              ? [{ name: 'MY_PERSONAL_KEY', description: 'My key', secret: true }]
+              : [{ name: 'ACME_OWNER_KEY', description: 'Acme key', secret: true }],
+          });
+        }),
+        http.post('/api/v1/deploy', async ({ request }) => {
+          capturedDeploys.push((await request.json()) as DeploymentSpec);
+          return HttpResponse.json({
+            status: 'deployed',
+            deployment_id: 'dep-shared-1',
+            name: 'shared-agent',
+            build_id: 'shared-build-1',
+            k8s_namespace: 'mattcolozzo-shared',
+            deployed_at: new Date().toISOString(),
+            resources: [],
+          });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstall({
+        account: 'acme',
+        agent: 'shared-agent',
+        auth: {
+          ...mockAuthContext,
+          // User has only their personal account — they are NOT a member of
+          // the blueprint owner ("acme"). This is the realistic public-blueprint
+          // deploy scenario.
+          accounts: [
+            { id: 'acct-personal', name: 'mattcolozzo', type: 'personal' },
+          ],
+        },
+      });
+      await waitForForm();
+
+      // The variables endpoint must be keyed off the deploying user, never
+      // the blueprint's owning account.
+      await waitFor(() => {
+        expect(variablesCalls.length).toBeGreaterThan(0);
+      });
+      expect(variablesCalls).toContain('mattcolozzo');
+      expect(variablesCalls).not.toContain('acme');
+
+      // The picker should surface the user's variables only.
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+      await waitFor(() => {
+        expect(screen.getByText('MY_PERSONAL_KEY')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('ACME_OWNER_KEY')).not.toBeInTheDocument();
+
+      // Close the picker by pressing Escape so the underlying form is interactive.
+      await user.keyboard('{Escape}');
+
+      // And the deploy submission must target the user's account.
+      await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
+
+      await waitFor(() => {
+        expect(capturedDeploys).toHaveLength(1);
+      });
+      expect(capturedDeploys[0].target.account).toBe('mattcolozzo');
+      expect(capturedDeploys[0].source?.account).toBe('acme');
+    });
   });
 
   // ── Template Error ──────────────────────────────────────────────────

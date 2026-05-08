@@ -364,11 +364,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Applies a set of form values to all state variables at once.
   // Used by both the initial seeding effect and `reset()`.
   //
-  // targetAccount is part of the seeded set: extracted.targetAccount comes
-  // from the URL/owning account, and silently dropping it caused redeploys
-  // from the configure page to fall back to personalAccount.name, which the
-  // server rejects as a cross-account private deploy ("source agent not
-  // found") whenever the URL account differs from the user's personal one.
+  // targetAccount is only set when explicitly provided: callers that need to
+  // lock the picker to a specific account (configure page redeploys, private
+  // blueprint deploys) pass `allowedTargetAccounts` instead. Seeding from the
+  // blueprint/source account here would override the user's personal-account
+  // default for public blueprint deploys and cause the vault variables lookup
+  // to query the blueprint owner's account.
   const applyValues = (v: DeployFormInitialValues) => {
     // deployName uses || because "" should fall through to the slugToTitle fallback
     setDeployName(v.deployName || slugToTitle(name));
@@ -418,7 +419,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
-      targetAccount: iv?.targetAccount ?? extracted.targetAccount ?? "",
+      // Don't seed from extracted.targetAccount (the blueprint/source account):
+      // for public blueprint deploys the user's personal-account default must
+      // win so vault variables are looked up under the deploying user's account.
+      // Account locking for redeploy/private-blueprint flows is handled by
+      // `allowedTargetAccounts` instead.
+      targetAccount: iv?.targetAccount,
       variableValues: { ...extracted.variableValues, ...(iv?.variableValues ?? {}) },
       selectedAdapters: iv?.selectedAdapters ?? extracted.selectedAdapters ?? ["web"],
       adapterCredentials: { ...extracted.adapterCredentials, ...(iv?.adapterCredentials ?? {}) },
