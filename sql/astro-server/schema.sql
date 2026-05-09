@@ -144,7 +144,7 @@ CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, age
 
 CREATE INDEX idx_deployments_source_account_agent ON public.deployments(source_account_id, agent_name) WHERE source_account_id IS NOT NULL;
 
-CREATE UNIQUE INDEX idx_deployments_active_display_name ON public.deployments(account_id, display_name) WHERE status = 'active' AND display_name != '';
+CREATE UNIQUE INDEX idx_deployments_live_display_name ON public.deployments(account_id, display_name) WHERE status <> 'undeployed' AND display_name <> '';
 
 -- Normalized deployment spec tables (Phase 1: dual-write alongside deployment_spec_json)
 

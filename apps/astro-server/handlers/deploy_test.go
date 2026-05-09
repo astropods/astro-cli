@@ -2416,6 +2416,50 @@ func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
 // deployableSpec builds a JSON deployment spec that matches the template the server
 // generates from the agent spec `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}` with RegistryURL "123456789.dkr.ecr.us-east-1.amazonaws.com"
 // and Environment "test". The caller can optionally set deploymentID to test the in-place update path.
+func deployableSpecWithDeploymentIDAndDisplayName(deploymentID, displayName string) string {
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
+		"target": {"runtime": "kubernetes", "deployment_id": %q, "display_name": %q},
+		"agent": {
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%%", "max_surge": "25%%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "langfuse"}
+	}`, deploymentID, displayName)
+}
+
+func deployableSpecWithDisplayName(displayName string) string {
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
+		"target": {"runtime": "kubernetes", "display_name": %q},
+		"agent": {
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%%", "max_surge": "25%%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "langfuse"}
+	}`, displayName)
+}
+
 func deployableSpec(deploymentID string) string {
 	targetExtra := ""
 	if deploymentID != "" {
@@ -2469,19 +2513,12 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 
 	expectDeployPrep(accountMock, indexMock)
 
-	// No deployment_id in spec → new deployment path.
-	// No display name lookup needed (empty display_name).
-	// No existing deployment lookup (GetActiveDeployment returns no rows).
-	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment
-						WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
+	// No deployment_id in spec and no display_name → new deployment path with
+	// a fresh id + derived namespace. prepareDeployment performs no lookup
+	// queries on this path.
 
 	// SaveDeploymentPending transaction
 	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
@@ -2693,6 +2730,72 @@ func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for inactive deployment, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A redeploy via Target.DeploymentID that renames the row into a name owned
+// by a *different* live row must also 409 — the constraint fires on the
+// UPDATE inside UpdateDeploymentPending, and the handler's translation must
+// cover that path too, not just SaveDeploymentPending.
+func TestDeploy_DisplayNameCollision_RenameRejected(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	depID := "existing-dep-id"
+	now := time.Now()
+
+	// GetDeploymentByID returns the row being redeployed (different display_name).
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, "acct-1", "my-agent", "build-1", "astro-existing",
+			"Original Name", `{}`, "active", now, nil))
+
+	// IsMember check for deployment's account.
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// UpdateDeploymentPending opens a tx, reads next revision, then runs the
+	// UPDATE which trips the partial unique index.
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"next_revision"}).AddRow(2))
+	deployMock.ExpectQuery(`UPDATE deployments`).
+		WillReturnError(&pq.Error{Code: "23505", Constraint: "idx_deployments_live_display_name"})
+	deployMock.ExpectRollback()
+
+	body := deployableSpecWithDeploymentIDAndDisplayName(depID, "Owned Name")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for rename collision, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A new deploy (no Target.DeploymentID) whose display_name collides with an
+// existing live deployment must 409. Enforcement is at the DB layer —
+// SaveDeploymentPending's INSERT trips the partial unique index — so the
+// test wires the INSERT to return the canonical pq unique_violation.
+func TestDeploy_DisplayNameCollision_NewDeployRejected(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WillReturnError(&pq.Error{Code: "23505", Constraint: "idx_deployments_live_display_name"})
+	deployMock.ExpectRollback()
+
+	body := deployableSpecWithDisplayName("My Agent")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for display_name collision, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -3020,15 +3123,7 @@ func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
 
 	expectDeployPrep(accountMock, indexMock)
 
-	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment — no existing
-						WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
-
 	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
@@ -3091,15 +3186,7 @@ func TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs(t *testing.T) {
 	// regenerated template has matching interfaces.image for EnforceEditable.
 	expectDeployPrepMessaging(accountMock, indexMock)
 
-	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment — no existing
-						WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
-
 	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
@@ -3445,15 +3532,7 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 
 	expectDeployPrepWithIngestion(accountMock, indexMock)
 
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
-
 	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",

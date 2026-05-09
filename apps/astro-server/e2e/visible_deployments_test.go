@@ -173,7 +173,7 @@ func TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim(t *testi
 				ID:          deployid.New(),
 				AccountID:   accountID,
 				AgentName:   tc.agentName,
-				DisplayName: "Test Bot",
+				DisplayName: "Test Bot " + tc.agentName,
 				BuildID:     "b-" + tc.agentName,
 				Namespace:   "ns-" + tc.agentName,
 				SpecJSON:    `{"spec":"deployment/v1"}`,

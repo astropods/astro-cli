@@ -3,6 +3,7 @@ package deploymentstore
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -78,43 +79,150 @@ func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	}
 }
 
-func TestSaveDeployment_Redeploy(t *testing.T) {
+// Two SaveDeploymentPending calls with the same (account_id, display_name)
+// while the prior row is still live must collide on the partial unique
+// index — surfaced as ErrDuplicateDisplayName. Redeploys go through
+// UpdateDeploymentPending, not a second insert.
+func TestSaveDeployment_DuplicateDisplayName_Rejected(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
 	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "agent-b",
-		DisplayName: "Agent B", BuildID: "build-1", Namespace: "ns-test",
+		DisplayName: "Agent B", BuildID: "build-1", Namespace: "ns-test-1",
 		SpecJSON: `{"spec":"v1"}`,
 	}, nil)
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
 	}
-	// Mark first as active so the second deploy will mark it as undeployed
 	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
 
-	d2, err := store.SaveDeploymentPending(SaveDeploymentParams{
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "agent-b",
-		DisplayName: "Agent B", BuildID: "build-2", Namespace: "ns-test",
+		DisplayName: "Agent B", BuildID: "build-2", Namespace: "ns-test-2",
 		SpecJSON: `{"spec":"v2"}`,
 	}, nil)
-	if err != nil {
-		t.Fatalf("second deploy failed: %v", err)
+	if !errors.Is(err, ErrDuplicateDisplayName) {
+		t.Fatalf("expected ErrDuplicateDisplayName, got %v", err)
 	}
 
-	if d2.Status != "pending" {
-		t.Errorf("new deployment should be pending, got %q", d2.Status)
-	}
-
-	// Check that first deployment is now undeployed
-	var status string
-	err = db.QueryRow("SELECT status FROM deployments WHERE id = $1", d1.ID).Scan(&status)
-	if err != nil {
+	// First row must remain active and untouched — the writer's prior
+	// supersede block (which set undeployed_at on collision) is gone, so a
+	// failed insert must not flip status or stamp undeployed_at.
+	var (
+		status       string
+		undeployedAt sql.NullTime
+	)
+	if err := db.QueryRow(
+		"SELECT status, undeployed_at FROM deployments WHERE id = $1", d1.ID,
+	).Scan(&status, &undeployedAt); err != nil {
 		t.Fatalf("failed to query first deployment: %v", err)
 	}
-	if status != "undeployed" {
-		t.Errorf("first deployment should be 'undeployed', got %q", status)
+	if status != "active" {
+		t.Errorf("first deployment should remain 'active', got %q", status)
+	}
+	if undeployedAt.Valid {
+		t.Errorf("first deployment should have NULL undeployed_at, got %v", undeployedAt.Time)
+	}
+}
+
+// The broadened partial unique index covers every status except
+// 'undeployed', so two pending rows can no longer slip past — the case the
+// old WHERE status='active' index missed and the schema change is meant to
+// fix.
+func TestSaveDeployment_DuplicateDisplayName_PendingCollision(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// First insert lands as 'pending' — leave it there. Pre-fix this would
+	// not have collided; post-fix the broadened index rejects.
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-pending-collision",
+		DisplayName: "Pending Agent", BuildID: "build-1", Namespace: "ns-pc-1",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("first deploy failed: %v", err)
+	}
+
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-pending-collision",
+		DisplayName: "Pending Agent", BuildID: "build-2", Namespace: "ns-pc-2",
+		SpecJSON: `{"spec":"v2"}`,
+	}, nil)
+	if !errors.Is(err, ErrDuplicateDisplayName) {
+		t.Fatalf("expected ErrDuplicateDisplayName for pending collision, got %v", err)
+	}
+}
+
+// UpdateDeploymentPending must surface the same 23505 → ErrDuplicateDisplayName
+// translation. A redeploy that renames into a name owned by a different live
+// row should reject; pre-fix this would have returned a generic 500 because
+// only SaveDeploymentPending translated the constraint violation.
+func TestUpdateDeployment_RenameCollision_Rejected(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Row A — owns display_name "Owned Name".
+	depA, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-rename-a",
+		DisplayName: "Owned Name", BuildID: "build-1", Namespace: "ns-rename-a",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("save A failed: %v", err)
+	}
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", depA.ID)
+
+	// Row B — distinct display_name; needs a real revision row so
+	// UpdateDeploymentPending's MAX(revision)+1 lookup succeeds.
+	depB, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-rename-b",
+		DisplayName: "Free Name", BuildID: "build-1", Namespace: "ns-rename-b",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("save B failed: %v", err)
+	}
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", depB.ID)
+
+	// Redeploy B and rename into A's name — must reject.
+	_, err = store.UpdateDeploymentPending(SaveDeploymentParams{
+		ID: depB.ID, AccountID: accountID, AgentName: "agent-rename-b",
+		DisplayName: "Owned Name", BuildID: "build-2", Namespace: "ns-rename-b",
+		SpecJSON: `{"spec":"v2"}`,
+	}, nil)
+	if !errors.Is(err, ErrDuplicateDisplayName) {
+		t.Fatalf("expected ErrDuplicateDisplayName for rename collision, got %v", err)
+	}
+}
+
+// Once the first row is undeployed, the (account_id, display_name) slot is
+// free again and a fresh deploy with the same name succeeds.
+func TestSaveDeployment_DisplayNameReusableAfterUndeploy(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-b2",
+		DisplayName: "Agent B2", BuildID: "build-1", Namespace: "ns-test-1",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("first deploy failed: %v", err)
+	}
+	_, _ = db.Exec("UPDATE deployments SET status = 'undeployed' WHERE id = $1", d1.ID)
+
+	if _, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-b2",
+		DisplayName: "Agent B2", BuildID: "build-2", Namespace: "ns-test-2",
+		SpecJSON: `{"spec":"v2"}`,
+	}, nil); err != nil {
+		t.Fatalf("second deploy after undeploy should succeed, got %v", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -393,25 +394,16 @@ func prepareDeployment(
 
 	displayName := submittedSpec.Target.DisplayName
 
-	// Check display name uniqueness within the account (if non-empty)
-	if displayName != "" && deployStore != nil {
-		existing, lookupErr := deployStore.GetActiveDeploymentByDisplayName(targetAcct.ID, displayName)
-		if lookupErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check display name uniqueness"})
-			return nil, false
-		}
-		// Allow redeploy: same agent + same display name is a redeploy, not a conflict
-		if existing != nil && existing.AgentName != agentName {
-			c.JSON(http.StatusConflict, gin.H{"error": "display_name already in use by another active deployment"})
-			return nil, false
-		}
-	}
-
-	// Resolve namespace: reuse existing if this is a redeploy, otherwise generate new
+	// Resolve identity. The deployment id is the only handle for "redeploy this
+	// thing" — it is what binds a row to its K8s namespace forever. Without an
+	// explicit Target.DeploymentID, every deploy is a brand-new row with a
+	// fresh id and a namespace derived from that id. display_name uniqueness
+	// is enforced atomically by the (account_id, display_name) partial unique
+	// index at INSERT time — surfaced below as a 409 — so no pre-check is
+	// needed here.
 	var k8sNamespace, deploymentID string
 	var isUpdate bool
 	if submittedSpec.Target.DeploymentID != "" && deployStore != nil {
-		// Explicit deployment_id: in-place update
 		existing, _ := deployStore.GetDeploymentByID(submittedSpec.Target.DeploymentID)
 		if existing == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found for given deployment_id"})
@@ -429,24 +421,8 @@ func prepareDeployment(
 		k8sNamespace = existing.Namespace
 		isUpdate = true
 	}
-	if k8sNamespace == "" && displayName != "" && deployStore != nil {
-		existing, _ := deployStore.GetActiveDeploymentByDisplayName(targetAcct.ID, displayName)
-		if existing != nil {
-			// Redeploy — reuse namespace
-			k8sNamespace = existing.Namespace
-			deploymentID = deployid.New()
-		}
-	}
-	if k8sNamespace == "" && deployStore != nil {
-		// Check for single active deployment of this agent (backward compat)
-		existing, _ := deployStore.GetActiveDeployment(targetAcct.ID, agentName)
-		if existing != nil && displayName == "" {
-			k8sNamespace = existing.Namespace
-			deploymentID = deployid.New()
-		}
-	}
+
 	if k8sNamespace == "" {
-		// New deployment — generate UUID-based namespace
 		deploymentID = deployid.New()
 		k8sNamespace = deploymentNamespace(deploymentID)
 	}
@@ -727,6 +703,10 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			_, storeErr = deployStore.SaveDeploymentPending(params, txFn)
 		}
 		if storeErr != nil {
+			if errors.Is(storeErr, deploymentstore.ErrDuplicateDisplayName) {
+				c.JSON(http.StatusConflict, gin.H{"error": storeErr.Error()})
+				return
+			}
 			log.Error("Failed to save deployment record", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
