@@ -38,6 +38,8 @@ function makeBucket(overrides?: Partial<MetricsBucket>): MetricsBucket {
     trace_count: 5,
     avg_latency_ms: 250,
     p95_latency_ms: 500,
+    min_latency_ms: 100,
+    max_latency_ms: 600,
     input_tokens: 1000,
     output_tokens: 800,
     error_count: 0,
@@ -208,9 +210,9 @@ describe("user views requests and latency", () => {
     expect(await screen.findByText("Requests")).toBeInTheDocument();
     // Subtitle still shows with zeroed totals
     expect(screen.getByText(/0 total requests/)).toBeInTheDocument();
-    // Latency card shows zeroed metrics instead of empty state
+    // Latency card shows the empty state when there are no requests
     expect(screen.getByText("Avg Latency")).toBeInTheDocument();
-    expect(screen.getByText("P95")).toBeInTheDocument();
+    expect(screen.getByText("No requests in this range")).toBeInTheDocument();
   });
 });
 

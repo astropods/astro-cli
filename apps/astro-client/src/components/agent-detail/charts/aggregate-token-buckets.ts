@@ -28,10 +28,23 @@ interface DayAccumulator {
   latencyWeightedSum: number;
   /** Max p95 seen across buckets in the day. */
   p95Max: number;
+  /** Min latency observed across buckets in the day (Infinity until first sample). */
+  minLatency: number;
+  /** Max latency observed across buckets in the day. */
+  maxLatency: number;
 }
 
 function emptyDay(): DayAccumulator {
-  return { input: 0, output: 0, requests: 0, errors: 0, latencyWeightedSum: 0, p95Max: 0 };
+  return {
+    input: 0,
+    output: 0,
+    requests: 0,
+    errors: 0,
+    latencyWeightedSum: 0,
+    p95Max: 0,
+    minLatency: Infinity,
+    maxLatency: 0,
+  };
 }
 
 /**
@@ -49,6 +62,12 @@ function groupByLocalDay(buckets: MetricsBucket[]): Map<string, DayAccumulator> 
     acc.errors += b.error_count;
     acc.latencyWeightedSum += (b.avg_latency_ms || 0) * b.trace_count;
     acc.p95Max = Math.max(acc.p95Max, b.p95_latency_ms || 0);
+    if (b.trace_count > 0 && b.min_latency_ms > 0) {
+      acc.minLatency = Math.min(acc.minLatency, b.min_latency_ms);
+    }
+    if (b.trace_count > 0) {
+      acc.maxLatency = Math.max(acc.maxLatency, b.max_latency_ms || 0);
+    }
     if (!byDay.has(key)) byDay.set(key, acc);
   }
 
@@ -100,12 +119,16 @@ export function aggregateRequestsByLocalDay(
   return dayKeysForRange(days).map((key) => {
     const data = byDay.get(key);
     const requests = data?.requests ?? 0;
+    const minLatency =
+      data && data.minLatency !== Infinity ? data.minLatency : 0;
     return {
       label: formatDateLabel(key),
       requests,
       errors: data?.errors ?? 0,
       avgLatencyMs: requests > 0 ? data!.latencyWeightedSum / requests : 0,
       p95LatencyMs: data?.p95Max ?? 0,
+      minLatencyMs: minLatency,
+      maxLatencyMs: data?.maxLatency ?? 0,
     };
   });
 }

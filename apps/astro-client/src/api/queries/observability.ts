@@ -81,3 +81,21 @@ export function useObservabilityTraces(
     refetchOnWindowFocus: false,
   });
 }
+
+export function useObservabilityTraceDetail(
+  deploymentId: string,
+  traceId: string | null | undefined,
+  opts?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.traceDetail(deploymentId, traceId ?? ''),
+    queryFn: () => api.getObservabilityTraceDetail(deploymentId, traceId!),
+    enabled: (opts?.enabled ?? true) && !!deploymentId && !!traceId,
+    // Trace details are immutable once written, so a longer staleTime keeps the
+    // panel snappy when navigating between traces.
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 30,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}

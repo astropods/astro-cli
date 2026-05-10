@@ -633,6 +633,15 @@ class ApiClient {
     );
   }
 
+  async getObservabilityTraceDetail(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<TraceDetailResponse> {
+    return this.request<TraceDetailResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces/${encodeURIComponent(traceId)}`
+    );
+  }
+
   async archiveBlueprint(account: string, name: string): Promise<void> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
@@ -1539,6 +1548,8 @@ export interface MetricsBucket {
   trace_count: number;
   avg_latency_ms: number;
   p95_latency_ms: number;
+  min_latency_ms: number;
+  max_latency_ms: number;
   input_tokens: number;
   output_tokens: number;
   error_count: number;
@@ -1586,6 +1597,71 @@ export interface ObservabilityTracesResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export type ObservationType = 'span' | 'generation' | 'event';
+
+export type ObservationLevel = 'debug' | 'default' | 'warning' | 'error';
+
+export interface ObservationUsage {
+  input: number;
+  output: number;
+  total: number;
+  unit?: string;
+}
+
+export interface TraceObservation {
+  id: string;
+  parent_id?: string;
+  type: ObservationType;
+  name: string;
+  start_time: string;
+  end_time?: string;
+  latency_ms: number;
+  level?: ObservationLevel;
+  status_message?: string;
+  input?: unknown;
+  output?: unknown;
+  metadata?: Record<string, unknown>;
+  cost?: number;
+  model?: string;
+  model_parameters?: Record<string, unknown>;
+  usage?: ObservationUsage;
+}
+
+export interface TraceScore {
+  id: string;
+  name: string;
+  value: number;
+  string_value?: string;
+  data_type?: 'numeric' | 'categorical' | 'boolean' | string;
+  comment?: string;
+  observation_id?: string;
+  source?: string;
+  created_at?: string;
+}
+
+export interface TraceDetail {
+  trace_id: string;
+  name: string;
+  timestamp: string;
+  latency_ms: number;
+  total_cost: number;
+  input: unknown;
+  output: unknown;
+  session_id?: string;
+  user_id?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  environment?: string;
+  release?: string;
+  version?: string;
+}
+
+export interface TraceDetailResponse {
+  trace: TraceDetail;
+  observations: TraceObservation[];
+  scores: TraceScore[];
 }
 
 export interface TriggerIngestionResponse {

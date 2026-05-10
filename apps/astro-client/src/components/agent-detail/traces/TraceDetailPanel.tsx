@@ -1,143 +1,95 @@
-import { useState } from "react";
-import { X, ChevronUp, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-import { StyledMarkdown } from "@/components/StyledMarkdown";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import type { TraceEntry } from "@/lib/api";
-import { STATUS_CONFIG, normalizeStatus, formatTimestamp, formatLatency, formatCost } from "./trace-utils";
+import { useObservabilityTraceDetail } from "@/api/queries/observability";
 
-/**
- * Normalize trace content into a markdown-friendly string.
- * Objects and JSON strings get wrapped in a fenced code block;
- * plain text / markdown passes through as-is.
- */
-function formatContent(value: unknown): string {
-  if (value == null) return "";
-
-  // Already an object — pretty-print as JSON code block
-  if (typeof value === "object") {
-    try {
-      return "```json\n" + JSON.stringify(value, null, 2) + "\n```";
-    } catch {
-      return String(value);
-    }
-  }
-
-  const str = String(value);
-  if (!str) return "";
-
-  // Try to detect JSON strings and format them
-  const trimmed = str.trim();
-  if (
-    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-    (trimmed.startsWith("[") && trimmed.endsWith("]"))
-  ) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return "```json\n" + JSON.stringify(parsed, null, 2) + "\n```";
-    } catch {
-      // Not valid JSON, fall through
-    }
-  }
-
-  return str;
+function hasContent(v: unknown): boolean {
+  if (v == null) return false;
+  if (typeof v === "string") return v.length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v as object).length > 0;
+  return true;
 }
-
-// ---------------------------------------------------------------------------
-// Collapsible section
-// ---------------------------------------------------------------------------
-
-function ContentSection({
-  label,
-  content,
-  defaultOpen = true,
-}: {
-  label: string;
-  content: string;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const { copy, copied } = useCopyToClipboard();
-  const text = formatContent(content);
-
-  return (
-    <section className="overflow-hidden rounded-md border border-border/40">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-white/3"
-      >
-        <ChevronRight
-          className={cn(
-            "size-3.5 text-muted-foreground transition-transform",
-            open && "rotate-90",
-          )}
-        />
-        <span className="text-body-sm font-medium text-foreground">{label}</span>
-        {text && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              void copy(text);
-            }}
-            className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {copied ? (
-              <>
-                <Check className="size-3 text-primary" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="size-3" />
-                Copy
-              </>
-            )}
-          </button>
-        )}
-      </button>
-
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-out"
-        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          {text ? (
-            <div className="border-t border-border/40 px-4 py-3 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-sm [&>div>*:first-child]:mt-0 [&>div>*:last-child]:mb-0">
-              <StyledMarkdown>{text}</StyledMarkdown>
-            </div>
-          ) : (
-            <div className="border-t border-border/40 px-4 py-3">
-              <p className="text-body-sm text-muted-foreground">No content.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Panel
-// ---------------------------------------------------------------------------
+import { TracePanelHeader } from "./detail/TracePanelHeader";
+import { TraceMetaGrid } from "./detail/TraceMetaGrid";
+import { TraceTabs, type TraceTab } from "./detail/TraceTabs";
+import { TraceOverviewTab } from "./detail/TraceOverviewTab";
+import { ObservationTree } from "./detail/ObservationTree";
+import { ObservationDetail } from "./detail/ObservationDetail";
 
 export interface TraceDetailPanelProps {
+  deploymentId: string;
   trace: TraceEntry;
   onClose: () => void;
   canGoPrev?: boolean;
   canGoNext?: boolean;
   onNavigate?: (dir: "prev" | "next") => void;
+  /** When true the panel renders content for full-width mode (wider grids). */
+  expanded?: boolean;
+  /** When provided, the header renders a maximize/restore button. */
+  onToggleExpanded?: () => void;
 }
 
 export function TraceDetailPanel({
+  deploymentId,
   trace,
   onClose,
   canGoPrev,
   canGoNext,
   onNavigate,
+  expanded,
+  onToggleExpanded,
 }: TraceDetailPanelProps) {
-  const status = normalizeStatus(trace.status);
-  const cfg = STATUS_CONFIG[status];
+  const [tab, setTab] = useState<TraceTab>("trace");
+  const [selectedObsId, setSelectedObsId] = useState<string | null>(null);
+
+  const { data, isLoading, isError } = useObservabilityTraceDetail(
+    deploymentId,
+    trace.trace_id,
+  );
+
+  // Reset transient state when navigating to a different trace.
+  useEffect(() => {
+    setSelectedObsId(null);
+    setTab("trace");
+  }, [trace.trace_id]);
+
+  const observations = useMemo(() => data?.observations ?? [], [data?.observations]);
+  const scores = useMemo(() => data?.scores ?? [], [data?.scores]);
+
+  const selectedObservation = useMemo(
+    () => observations.find((o) => o.id === selectedObsId) ?? null,
+    [observations, selectedObsId],
+  );
+
+  // Header / metadata tiles use the list entry as the canonical source — it
+  // always has the right values and lets the panel render instantly without
+  // waiting for the detail fetch. The detail endpoint enriches with body
+  // content, tags, session, and the rest.
+  const traceForDisplay = useMemo(() => {
+    const base = data?.trace;
+    return {
+      trace_id: trace.trace_id,
+      name: trace.name,
+      timestamp: trace.timestamp,
+      latency_ms: trace.latency_ms,
+      total_cost: trace.total_cost ?? base?.total_cost ?? 0,
+      input: hasContent(base?.input) ? base!.input : trace.input,
+      output: hasContent(base?.output) ? base!.output : trace.output,
+      session_id: base?.session_id,
+      user_id: base?.user_id,
+      tags: base?.tags,
+      metadata: base?.metadata,
+      environment: base?.environment,
+      release: base?.release,
+      version: base?.version,
+    };
+  }, [data?.trace, trace]);
+
+  const totalTokens = useMemo(() => {
+    if (trace.total_tokens) return trace.total_tokens;
+    return observations.reduce((sum, o) => sum + (o.usage?.total ?? 0), 0);
+  }, [trace.total_tokens, observations]);
 
   return (
     <div
@@ -145,77 +97,91 @@ export function TraceDetailPanel({
       aria-label="Trace details"
       className="flex h-full w-full flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-heading-4 text-foreground">
-            {formatTimestamp(trace.timestamp, true)}
-          </h3>
-          <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/40">
-            {trace.trace_id}
-          </p>
-        </div>
+      <TracePanelHeader
+        timestamp={traceForDisplay.timestamp}
+        traceId={traceForDisplay.trace_id}
+        onClose={onClose}
+        canGoPrev={canGoPrev}
+        canGoNext={canGoNext}
+        onNavigate={onNavigate}
+        expanded={expanded}
+        onToggleExpanded={onToggleExpanded}
+      />
 
-        <div className="flex shrink-0 items-center gap-1">
-          {onNavigate && (
-            <>
-              <button
-                onClick={() => onNavigate("prev")}
-                disabled={!canGoPrev}
-                aria-label="Previous trace"
-                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-              >
-                <ChevronUp className="size-4" />
-              </button>
-              <button
-                onClick={() => onNavigate("next")}
-                disabled={!canGoNext}
-                aria-label="Next trace"
-                className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-              >
-                <ChevronDown className="size-4" />
-              </button>
-            </>
-          )}
-          <button
-            onClick={onClose}
-            aria-label="Close trace"
-            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
+      <TraceMetaGrid
+        status={trace.status}
+        latencyMs={traceForDisplay.latency_ms}
+        totalCost={traceForDisplay.total_cost}
+        totalTokens={totalTokens}
+      />
 
-      {/* Metadata */}
-      <div className="border-b border-border px-4 py-3">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="flex flex-col items-start gap-1">
-            <span className="text-mono-sm text-muted-foreground/60">Status</span>
-            <span
-              className="inline-flex items-center gap-[5px] rounded border pl-[6px] pr-[10px] py-1 font-mono text-label font-normal tracking-[0.06em]"
-              style={{ background: cfg.bg, borderColor: cfg.bdr, color: cfg.fg }}
-            >
-              {cfg.label}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-mono-sm text-muted-foreground/60">Latency</span>
-            <span className="font-mono text-body-sm text-foreground">{formatLatency(trace.latency_ms)}</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-mono-sm text-muted-foreground/60">Cost</span>
-            <span className="font-mono text-body-sm text-foreground">{formatCost(trace.total_cost)}</span>
-          </div>
-        </div>
-      </div>
+      <TraceTabs
+        active={tab}
+        onChange={(t) => {
+          setTab(t);
+          if (t === "trace") setSelectedObsId(null);
+        }}
+        observationCount={observations.length}
+      />
 
-      {/* Content */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex flex-col gap-3">
-          <ContentSection label="Input" content={trace.input} />
-          <ContentSection label="Output" content={trace.output} />
-        </div>
+        {tab === "trace" && (
+          <TraceOverviewTab
+            trace={traceForDisplay}
+            scores={scores}
+          />
+        )}
+
+        {tab === "tree" && (
+          <>
+            {isLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {isError && !isLoading && (
+              <p className="px-2 py-4 text-body-sm text-muted-foreground">
+                Failed to load observations.
+              </p>
+            )}
+            {!isLoading && !isError &&
+              (expanded ? (
+                <div className="flex h-full min-h-0 gap-4">
+                  <div className="min-w-0 flex-1 overflow-y-auto pr-1">
+                    <ObservationTree
+                      observations={observations}
+                      selectedId={selectedObsId}
+                      onSelect={setSelectedObsId}
+                      showTimeline
+                    />
+                  </div>
+                  <div className="min-w-0 flex-[1.4] overflow-y-auto border-l border-border/40 pl-4">
+                    {selectedObservation ? (
+                      <ObservationDetail
+                        observation={selectedObservation}
+                        onBack={() => setSelectedObsId(null)}
+                      />
+                    ) : (
+                      <p className="px-2 py-8 text-center text-body-sm text-muted-foreground">
+                        Select an observation to view its details.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : selectedObservation ? (
+                <ObservationDetail
+                  observation={selectedObservation}
+                  onBack={() => setSelectedObsId(null)}
+                />
+              ) : (
+                <ObservationTree
+                  observations={observations}
+                  selectedId={selectedObsId}
+                  onSelect={setSelectedObsId}
+                />
+              ))}
+          </>
+        )}
       </div>
     </div>
   );

@@ -14,10 +14,17 @@ function computeLatencyStats(points: RequestVolumePoint[]) {
   const weightedAvg =
     active.reduce((s, p) => s + p.avgLatencyMs * p.requests, 0) / totalRequests;
   const peakP95 = Math.max(...active.map((p) => p.p95LatencyMs));
-  const minAvg = Math.min(...active.map((p) => p.avgLatencyMs));
-  const maxAvg = Math.max(...active.map((p) => p.avgLatencyMs));
+  const minLatency = Math.min(
+    ...active.map((p) => p.minLatencyMs).filter((v) => v > 0),
+  );
+  const maxLatency = Math.max(...active.map((p) => p.maxLatencyMs));
 
-  return { weightedAvg, peakP95, minAvg, maxAvg };
+  return {
+    weightedAvg,
+    peakP95,
+    minLatency: Number.isFinite(minLatency) ? minLatency : 0,
+    maxLatency,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -36,16 +43,18 @@ export function LatencyCard({
   loading,
 }: LatencyCardProps) {
   const stats = computeLatencyStats(points);
-  const avg = stats?.weightedAvg ?? 0;
-  const p95 = stats?.peakP95 ?? 0;
-  const minAvg = stats?.minAvg ?? 0;
-  const maxAvg = stats?.maxAvg ?? 0;
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
       {loading ? (
         <div className="flex min-h-[200px] flex-1 items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : stats === null ? (
+        <div className="flex min-h-[200px] flex-1 flex-col items-center justify-center gap-1">
+          <p className="text-mono-sm text-muted-foreground">Avg Latency</p>
+          <p className="font-mono text-2xl text-muted-foreground">&mdash;</p>
+          <p className="mt-1 text-body-sm text-muted-foreground">No requests in this range</p>
         </div>
       ) : (
         <div className="flex flex-1 flex-col">
@@ -56,7 +65,7 @@ export function LatencyCard({
               className="mt-1 font-mono text-4xl font-semibold tracking-tight"
               style={{ color: colors.inputFill }}
             >
-              {formatLatency(avg)}
+              {formatLatency(stats.weightedAvg)}
             </p>
           </div>
 
@@ -64,19 +73,23 @@ export function LatencyCard({
           <div className="my-4 border-t border-border/60" />
 
           {/* Secondary metrics */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col items-center gap-0.5">
-              <p className="text-mono-sm text-muted-foreground">P95</p>
+              <p className="text-mono-sm text-muted-foreground">Min</p>
               <p className="font-mono text-lg font-medium text-foreground">
-                {formatLatency(p95)}
+                {formatLatency(stats.minLatency)}
               </p>
             </div>
             <div className="flex flex-col items-center gap-0.5">
-              <p className="text-mono-sm text-muted-foreground">Range</p>
+              <p className="text-mono-sm text-muted-foreground">P95</p>
               <p className="font-mono text-lg font-medium text-foreground">
-                {formatLatency(minAvg)}
-                <span className="mx-1 text-muted-foreground">&ndash;</span>
-                {formatLatency(maxAvg)}
+                {formatLatency(stats.peakP95)}
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-0.5">
+              <p className="text-mono-sm text-muted-foreground">Max</p>
+              <p className="font-mono text-lg font-medium text-foreground">
+                {formatLatency(stats.maxLatency)}
               </p>
             </div>
           </div>

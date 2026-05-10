@@ -209,6 +209,9 @@ type MetricsBucket struct {
 	Timestamp    string  `json:"timestamp"`
 	TraceCount   int     `json:"trace_count"`
 	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	P95LatencyMs float64 `json:"p95_latency_ms"`
+	MinLatencyMs float64 `json:"min_latency_ms"`
+	MaxLatencyMs float64 `json:"max_latency_ms"`
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
 	ErrorCount   int     `json:"error_count"`
@@ -260,6 +263,73 @@ type TraceEntry struct {
 	Input     string  `json:"input"`
 	Output    string  `json:"output"`
 	Timestamp string  `json:"timestamp"`
+}
+
+// TraceDetail describes a trace's full content, including the conversation
+// metadata (session/user/tags/release) plus environment fields used for filtering.
+type TraceDetail struct {
+	TraceID     string         `json:"trace_id"`
+	Name        string         `json:"name"`
+	Timestamp   string         `json:"timestamp"`
+	LatencyMs   float64        `json:"latency_ms"`
+	TotalCost   float64        `json:"total_cost"`
+	Input       any            `json:"input"`
+	Output      any            `json:"output"`
+	SessionID   string         `json:"session_id,omitempty"`
+	UserID      string         `json:"user_id,omitempty"`
+	Tags        []string       `json:"tags,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Environment string         `json:"environment,omitempty"`
+	Release     string         `json:"release,omitempty"`
+	Version     string         `json:"version,omitempty"`
+}
+
+// ObservationUsage holds token usage for a generation observation.
+type ObservationUsage struct {
+	Input  int    `json:"input"`
+	Output int    `json:"output"`
+	Total  int    `json:"total"`
+	Unit   string `json:"unit,omitempty"`
+}
+
+// Observation describes a single span / generation / event within a trace.
+type Observation struct {
+	ID              string            `json:"id"`
+	ParentID        string            `json:"parent_id,omitempty"`
+	Type            string            `json:"type"` // span | generation | event
+	Name            string            `json:"name"`
+	StartTime       string            `json:"start_time"`
+	EndTime         string            `json:"end_time,omitempty"`
+	LatencyMs       float64           `json:"latency_ms"`
+	Level           string            `json:"level,omitempty"`
+	StatusMessage   string            `json:"status_message,omitempty"`
+	Input           any               `json:"input,omitempty"`
+	Output          any               `json:"output,omitempty"`
+	Metadata        map[string]any    `json:"metadata,omitempty"`
+	Cost            float64           `json:"cost,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	ModelParameters map[string]any    `json:"model_parameters,omitempty"`
+	Usage           *ObservationUsage `json:"usage,omitempty"`
+}
+
+// Score is a Langfuse evaluation score attached to a trace.
+type Score struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Value         float64 `json:"value"`
+	StringValue   string  `json:"string_value,omitempty"`
+	DataType      string  `json:"data_type,omitempty"`
+	Comment       string  `json:"comment,omitempty"`
+	ObservationID string  `json:"observation_id,omitempty"`
+	Source        string  `json:"source,omitempty"`
+	CreatedAt     string  `json:"created_at,omitempty"`
+}
+
+// TraceDetailResponse is returned by the trace detail endpoint.
+type TraceDetailResponse struct {
+	Trace        TraceDetail   `json:"trace"`
+	Observations []Observation `json:"observations"`
+	Scores       []Score       `json:"scores"`
 }
 
 // ObservabilityTracesResponse is returned by the traces endpoint.

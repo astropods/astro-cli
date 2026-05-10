@@ -92,9 +92,11 @@ export default function AgentMonitor() {
   const { ref: outerRef, width: outerWidth } = useContainerSize();
 
   const OVERLAY_THRESHOLD = 900;
-  const PANEL_WIDTH_REM = 29; // 28rem panel + 1rem gap
+  const PANEL_WIDTH_REM = 41; // 40rem panel + 1rem gap
   const panelOpen = selectedTrace !== null;
   const shouldOverlay = outerWidth > 0 && outerWidth < OVERLAY_THRESHOLD;
+  const [panelExpanded, setPanelExpanded] = useState(false);
+  const isFullWidth = panelExpanded || shouldOverlay;
 
   return (
     <div ref={outerRef} className="relative z-10 flex flex-1 overflow-hidden pt-16">
@@ -102,7 +104,7 @@ export default function AgentMonitor() {
       <div
         className="relative z-10 min-h-0 flex-1 overflow-y-auto transition-[padding] duration-300 ease-out"
         style={{
-          paddingRight: panelOpen && !shouldOverlay ? `${PANEL_WIDTH_REM}rem` : undefined,
+          paddingRight: panelOpen && !isFullWidth ? `${PANEL_WIDTH_REM}rem` : undefined,
           maskImage: "linear-gradient(to bottom, transparent, black 2rem)",
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
@@ -204,20 +206,23 @@ export default function AgentMonitor() {
       {/* Trace detail panel */}
       <div
         className={cn(
-          "absolute z-20 transition-transform duration-300 ease-out",
-          shouldOverlay
+          "absolute z-20 transition-[transform,inset,width] duration-300 ease-out",
+          isFullWidth
             ? "inset-3 top-20"
-            : "bottom-3 right-3 top-20 w-[28rem]",
+            : "bottom-3 right-3 top-20 w-[40rem]",
         )}
         style={{ transform: panelOpen ? "translateX(0)" : "translateX(calc(100% + 0.75rem))" }}
       >
         {selectedTrace && (
           <TraceDetailPanel
+            deploymentId={deploymentId}
             trace={selectedTrace}
             onClose={() => setSelectedTrace(null)}
             canGoPrev={selectedIndex > 0}
             canGoNext={selectedIndex < allTraces.length - 1}
             onNavigate={handleNavigate}
+            expanded={panelExpanded}
+            onToggleExpanded={shouldOverlay ? undefined : () => setPanelExpanded((v) => !v)}
           />
         )}
       </div>

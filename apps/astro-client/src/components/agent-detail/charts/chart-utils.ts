@@ -16,6 +16,8 @@ export interface RequestVolumePoint {
   errors: number;
   avgLatencyMs: number;
   p95LatencyMs: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
 }
 
 export interface ChartColors {

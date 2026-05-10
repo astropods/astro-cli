@@ -1349,6 +1349,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
+			api.GET(protected, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("traceId", "Trace ID"),
+				oapispec.Response(200, &handlers.TraceDetailResponse{}),
+			)
 			// Account-scoped observability (aggregates across all account deployments)
 			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, langfuseStore),
 				oapispec.Tags("Observability"),

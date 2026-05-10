@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -168,38 +171,85 @@ func GetLangfuseMetrics(
 			return
 		}
 
-		q := langfuse.MetricsQuery{
+		filters := []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + lctx.DeploymentID}},
+		}
+		timeDim := &langfuse.TimeDimension{Granularity: granularity}
+		fromTS := c.Query("start_time")
+		toTS := c.Query("end_time")
+
+		obsQ := langfuse.MetricsQuery{
 			View: "observations",
 			Metrics: []langfuse.MetricsQueryField{
 				{Measure: "inputTokens", Aggregation: "sum"},
 				{Measure: "outputTokens", Aggregation: "sum"},
 				{Measure: "count", Aggregation: "count"},
 			},
-			TimeDimension: &langfuse.TimeDimension{Granularity: granularity},
-			Filters: []langfuse.MetricsFilter{
-				{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + lctx.DeploymentID}},
-			},
-			FromTimestamp: c.Query("start_time"),
-			ToTimestamp:   c.Query("end_time"),
+			TimeDimension: timeDim,
+			Filters:       filters,
+			FromTimestamp: fromTS,
+			ToTimestamp:   toTS,
 		}
 
-		resp, err := lctx.Client.GetMetrics(q)
+		obsResp, err := lctx.Client.GetMetrics(obsQ)
 		if err != nil {
 			log.Error("Failed to get Langfuse metrics", "error", err, "granularity", granularity)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
 			return
 		}
 
-		buckets := make([]gin.H, 0, len(resp.Data))
-		for _, row := range resp.Data {
+		// Latency comes from the traces view — observation latency would
+		// include sub-spans, which understates request duration.
+		traceQ := langfuse.MetricsQuery{
+			View: "traces",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "latency", Aggregation: "avg"},
+				{Measure: "latency", Aggregation: "p95"},
+				{Measure: "latency", Aggregation: "min"},
+				{Measure: "latency", Aggregation: "max"},
+			},
+			TimeDimension: timeDim,
+			Filters:       filters,
+			FromTimestamp: fromTS,
+			ToTimestamp:   toTS,
+		}
+
+		type latencyAgg struct{ avg, p95, min, max float64 }
+		traceResp, terr := lctx.Client.GetMetrics(traceQ)
+		latencyByTS := map[string]latencyAgg{}
+		if terr != nil {
+			log.Warn("Failed to get Langfuse trace latency metrics — bucket latency will be zero", "error", terr)
+		} else {
+			for _, row := range traceResp.Data {
+				ts, _ := row[langfuseTimeDimensionKey].(string)
+				if ts == "" {
+					continue
+				}
+				// Langfuse's metrics API returns latency in milliseconds
+				// (unlike the per-trace REST endpoint, which uses seconds).
+				latencyByTS[ts] = latencyAgg{
+					avg: toFloat(row["avg_latency"]),
+					p95: toFloat(row["p95_latency"]),
+					min: toFloat(row["min_latency"]),
+					max: toFloat(row["max_latency"]),
+				}
+			}
+		}
+
+		buckets := make([]gin.H, 0, len(obsResp.Data))
+		for _, row := range obsResp.Data {
 			ts, _ := row[langfuseTimeDimensionKey].(string)
 			if ts == "" {
 				continue
 			}
+			lat := latencyByTS[ts]
 			buckets = append(buckets, gin.H{
 				"timestamp":      ts,
 				"trace_count":    toInt(row["count_count"]),
-				"avg_latency_ms": 0,
+				"avg_latency_ms": math.Round(lat.avg*100) / 100,
+				"p95_latency_ms": math.Round(lat.p95*100) / 100,
+				"min_latency_ms": math.Round(lat.min*100) / 100,
+				"max_latency_ms": math.Round(lat.max*100) / 100,
 				"input_tokens":   toInt(row["sum_inputTokens"]),
 				"output_tokens":  toInt(row["sum_outputTokens"]),
 				"error_count":    0,
@@ -222,6 +272,19 @@ func toInt(v any) int {
 	case string:
 		i, _ := strconv.Atoi(n)
 		return i
+	default:
+		return 0
+	}
+}
+
+// toFloat converts a metrics response value (may be string, float64, or nil from JSON) to float64.
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
 	default:
 		return 0
 	}
@@ -308,6 +371,136 @@ func GetLangfuseTraces(
 			"offset": (traces.Meta.Page - 1) * traces.Meta.Limit,
 		})
 	}
+}
+
+// GetLangfuseTraceDetail returns a single trace with its observations and scores.
+// GET /api/v1/deployments/:id/observability/traces/:traceId
+func GetLangfuseTraceDetail(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		traceID := c.Param("traceId")
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing traceId"})
+			return
+		}
+
+		detail, err := lctx.Client.GetTrace(traceID)
+		if err != nil {
+			if errors.Is(err, langfuse.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
+				return
+			}
+			log.Error("Failed to get Langfuse trace detail", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse trace"})
+			return
+		}
+
+		// Verify the trace actually belongs to this deployment via tag (defense
+		// in depth: the URL is account-scoped through resolveLangfuseContext,
+		// but a malicious caller could pass a traceId from another project).
+		if !traceHasDeploymentTag(detail.Tags, lctx.DeploymentID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"trace":        projectTrace(detail),
+			"observations": projectObservations(detail.Observations),
+			"scores":       projectScores(detail.Scores),
+		})
+	}
+}
+
+// traceHasDeploymentTag checks whether the trace was tagged with this deployment.
+func traceHasDeploymentTag(tags []string, deploymentID string) bool {
+	return slices.Contains(tags, "deployment:"+deploymentID)
+}
+
+// projectTrace flattens a Langfuse trace into our stable response shape.
+func projectTrace(t *langfuse.TraceDetail) gin.H {
+	return gin.H{
+		"trace_id":    t.ID,
+		"name":        t.Name,
+		"timestamp":   t.CreatedAt,
+		"latency_ms":  t.Latency * 1000, // langfuse trace latency is seconds
+		"total_cost":  t.TotalCost,
+		"input":       t.Input,
+		"output":      t.Output,
+		"session_id":  t.SessionID,
+		"user_id":     t.UserID,
+		"tags":        t.Tags,
+		"metadata":    t.Metadata,
+		"environment": t.Environment,
+		"release":     t.Release,
+		"version":     t.Version,
+	}
+}
+
+// projectObservations normalizes observations to a flat client-friendly shape.
+func projectObservations(obs []langfuse.Observation) []gin.H {
+	out := make([]gin.H, 0, len(obs))
+	for _, o := range obs {
+		row := gin.H{
+			"id":             o.ID,
+			"parent_id":      o.ParentObservationID,
+			"type":           strings.ToLower(o.Type),
+			"name":           o.Name,
+			"start_time":     o.StartTime,
+			"end_time":       o.EndTime,
+			"latency_ms":     o.Latency * 1000, // langfuse observation latency is seconds
+			"level":          strings.ToLower(o.Level),
+			"status_message": o.StatusMessage,
+			"input":          o.Input,
+			"output":         o.Output,
+			"metadata":       o.Metadata,
+			"cost":           o.CalculatedTotalCost,
+		}
+		if o.Model != "" {
+			row["model"] = o.Model
+		}
+		if len(o.ModelParameters) > 0 {
+			row["model_parameters"] = o.ModelParameters
+		}
+		if o.Usage != nil {
+			row["usage"] = gin.H{
+				"input":  o.Usage.Input,
+				"output": o.Usage.Output,
+				"total":  o.Usage.Total,
+				"unit":   o.Usage.Unit,
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// projectScores normalizes scores to a flat client-friendly shape.
+func projectScores(scores []langfuse.Score) []gin.H {
+	out := make([]gin.H, 0, len(scores))
+	for _, s := range scores {
+		out = append(out, gin.H{
+			"id":             s.ID,
+			"name":           s.Name,
+			"value":          s.Value,
+			"string_value":   s.StringValue,
+			"data_type":      strings.ToLower(s.DataType),
+			"comment":        s.Comment,
+			"observation_id": s.ObservationID,
+			"source":         s.Source,
+			"created_at":     s.CreatedAt,
+		})
+	}
+	return out
 }
 
 // computeLangfuseSummary aggregates Langfuse traces into summary statistics

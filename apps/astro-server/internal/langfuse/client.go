@@ -3,12 +3,18 @@ package langfuse
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
 )
+
+// ErrNotFound is returned when Langfuse responds with 404 — i.e. the
+// resource (trace, project, etc.) does not exist. Callers can use
+// errors.Is to distinguish a missing resource from an upstream failure.
+var ErrNotFound = errors.New("langfuse: not found")
 
 // Client communicates with the Langfuse REST API for reading traces and metrics.
 type Client struct {
@@ -52,6 +58,62 @@ type TracesResponse struct {
 		TotalItems int `json:"totalItems"`
 		TotalPages int `json:"totalPages"`
 	} `json:"meta"`
+}
+
+// Observation represents a Langfuse observation (span / generation / event).
+type Observation struct {
+	ID                  string         `json:"id"`
+	TraceID             string         `json:"traceId"`
+	ParentObservationID string         `json:"parentObservationId"`
+	Type                string         `json:"type"` // SPAN | GENERATION | EVENT
+	Name                string         `json:"name"`
+	StartTime           string         `json:"startTime"`
+	EndTime             string         `json:"endTime"`
+	Latency             float64        `json:"latency"` // seconds
+	Model               string         `json:"model"`
+	ModelParameters     map[string]any `json:"modelParameters"`
+	Input               any            `json:"input"`
+	Output              any            `json:"output"`
+	Metadata            map[string]any `json:"metadata"`
+	Level               string         `json:"level"` // DEBUG | DEFAULT | WARNING | ERROR
+	StatusMessage       string         `json:"statusMessage"`
+	Usage               *Usage         `json:"usage"`
+	CalculatedTotalCost float64        `json:"calculatedTotalCost"`
+}
+
+// Usage represents token usage attached to a generation.
+type Usage struct {
+	Input  int    `json:"input"`
+	Output int    `json:"output"`
+	Total  int    `json:"total"`
+	Unit   string `json:"unit"`
+}
+
+// Score represents a Langfuse evaluation score on a trace.
+type Score struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Value         float64 `json:"value"`
+	StringValue   string  `json:"stringValue"`
+	DataType      string  `json:"dataType"` // NUMERIC | CATEGORICAL | BOOLEAN
+	Comment       string  `json:"comment"`
+	ObservationID string  `json:"observationId"`
+	Source        string  `json:"source"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+// TraceDetail is the response shape from GET /api/public/traces/{traceId}.
+// Langfuse embeds observations and scores inline.
+type TraceDetail struct {
+	Trace
+	Observations []Observation `json:"observations"`
+	Scores       []Score       `json:"scores"`
+	UserID       string        `json:"userId"`
+	Release      string        `json:"release"`
+	Version      string        `json:"version"`
+	Environment  string        `json:"environment"`
+	Bookmarked   bool          `json:"bookmarked"`
+	ExternalID   string        `json:"externalId"`
 }
 
 // DailyMetricUsage holds per-model token usage within a daily metric.
@@ -119,6 +181,15 @@ func (c *Client) GetTraces(deploymentID, startTime, endTime string, limit, offse
 
 	var result TracesResponse
 	if err := c.doGet("/api/public/traces", params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetTrace returns a single trace with its full observations and scores.
+func (c *Client) GetTrace(traceID string) (*TraceDetail, error) {
+	var result TraceDetail
+	if err := c.doGet("/api/public/traces/"+url.PathEscape(traceID), nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -222,6 +293,10 @@ func (c *Client) doGet(path string, params url.Values, out any) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%w: %s", ErrNotFound, string(body))
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("langfuse: unexpected status %d: %s", resp.StatusCode, string(body))

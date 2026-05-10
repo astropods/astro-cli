@@ -11,6 +11,7 @@ import type {
   UndeployResponse,
   ObservabilitySummaryResponse,
   ObservabilityTracesResponse,
+  TraceDetailResponse,
   AccountObservabilitySummaryResponse,
   AccountUsageResponse,
   AccountMembersResponse,
@@ -393,6 +394,23 @@ export const handlers = [
       total: 0,
       limit: 1,
       offset: 0,
+    });
+  }),
+
+  // GET /api/v1/deployments/:id/observability/traces/:traceId
+  http.get('/api/v1/deployments/:id/observability/traces/:traceId', ({ params }) => {
+    return HttpResponse.json<TraceDetailResponse>({
+      trace: {
+        trace_id: String(params.traceId),
+        name: 'mock-trace',
+        timestamp: new Date().toISOString(),
+        latency_ms: 0,
+        total_cost: 0,
+        input: '',
+        output: '',
+      },
+      observations: [],
+      scores: [],
     });
   }),
 
