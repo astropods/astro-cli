@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Package } from "lucide-react";
+import { Database, Package } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
@@ -79,7 +80,8 @@ function KnowledgeBindingEntry({
     (s) => s.provider === provider && s.status === "ready"
   );
   const rawArn = binding || entry.binding || "";
-  const [mode, setMode] = useState<"local" | "shared">("shared");
+  const [explicitlyShared, setExplicitlyShared] = useState(false);
+  const mode: "local" | "shared" = rawArn || explicitlyShared ? "shared" : "local";
 
   return (
     <div className="px-5 py-4">
@@ -104,36 +106,52 @@ function KnowledgeBindingEntry({
           onValueChange={(value) => {
             if (!value) return;
             const next = value as "local" | "shared";
-            setMode(next);
             if (next === "local") {
+              setExplicitlyShared(false);
               onBind(null);
+            } else {
+              setExplicitlyShared(true);
             }
           }}
           className="shrink-0 [&_button]:cursor-pointer"
         >
-          <ToggleGroupItem
-            value="local"
-            title="Runs database workloads alongside this deployment (provisioned with the agent). Does not use an account-registered knowledge store."
-          >
-            Local
-          </ToggleGroupItem>
-          <ToggleGroupItem
-            value="shared"
-            title="Uses a knowledge store already connected to this account—the same database can back multiple deployments."
-          >
-            Shared
-          </ToggleGroupItem>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem value="shared">Shared</ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                Uses a knowledge store already connected to this account—the same database can back multiple deployments.
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ToggleGroupItem value="local">Local</ToggleGroupItem>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                Runs database workloads alongside this deployment (provisioned with the agent). Does not use an account-registered knowledge store.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </ToggleGroup>
       </div>
 
       {mode === "shared" && (
         <div className="mt-4 pl-[52px]">
           {compatibleStores.length === 0 && !rawArn ? (
-            <div className="rounded-[6px] border border-dashed border-border bg-muted/30 px-4 py-3">
-              <p className="text-[13px] text-muted-foreground">
-                No connected stores match this database type yet.
-              </p>
-              <Button variant="outline" size="sm" className="mt-3" asChild>
+            <div className="flex items-center gap-3 rounded-[6px] border border-dashed border-border bg-muted/30 px-3.5 py-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-card">
+                <Database className="size-4.5 text-muted-foreground" strokeWidth={1.5} />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="text-[13px] font-medium text-foreground">
+                  No {providerLabel ?? "compatible"} knowledge stores connected
+                </p>
+                <p className="text-[12px] text-muted-foreground">
+                  Connect one to share it across deployments, or stay on Local.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" className="shrink-0" asChild>
                 <Link to={newKnowledgePath}>Add store</Link>
               </Button>
             </div>

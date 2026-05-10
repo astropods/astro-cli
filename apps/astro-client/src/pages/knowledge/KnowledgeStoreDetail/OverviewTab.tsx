@@ -55,7 +55,7 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
                 <Bot className="size-10 text-muted-foreground" />
                 <p className="mt-3 text-body-sm text-foreground font-medium">No agents are bound to this store yet.</p>
                 <p className="mt-1 text-body-sm text-muted-foreground">
-                  Add a <code className="font-mono text-mono-sm">knowledge</code> block in your astropods.yml to bind an agent.
+                  Select this store as a shared database when deploying an agent.
                 </p>
               </div>
             )}

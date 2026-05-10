@@ -56,6 +56,7 @@ export function SettingsPanel({ store, account }: { store: KnowledgeStore; accou
         onOpenChange={setDeleteOpen}
         storeName={store.name}
         account={account}
+        boundAgents={store.bound_agents}
         onDeleted={() => navigate(knowledgePath)}
       />
     </div>

@@ -78,6 +78,7 @@ export function DeploymentTile({
   const commitUrl = repoFullName && commitSha
     ? `https://github.com/${repoFullName}/commit/${commitSha}`
     : undefined;
+  const errorMessage = status === "error" ? deployment?.error_message : undefined;
 
   return (
     <div
@@ -125,6 +126,14 @@ export function DeploymentTile({
         <span className="shrink-0 font-mono">{shortBuild}</span>
         <span className="shrink-0">{formatRelativeTime(deployedAt)}</span>
       </div>
+      {errorMessage && (
+        <p
+          className="mt-1 whitespace-pre-line break-words text-mono-sm"
+          style={{ color: colors.badgeText }}
+        >
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 }

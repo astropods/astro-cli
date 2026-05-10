@@ -1,14 +1,26 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDeleteKnowledgeStore } from "@/api/queries/knowledge";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
+import type { BoundAgent } from "@/lib/api";
 
 interface DeleteKnowledgeStoreDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   storeName: string;
   account: string;
+  boundAgents?: BoundAgent[];
   onDeleted?: () => void;
 }
 
@@ -17,10 +29,41 @@ export function DeleteKnowledgeStoreDialog({
   onOpenChange,
   storeName,
   account,
+  boundAgents,
   onDeleted,
 }: DeleteKnowledgeStoreDialogProps) {
   const [confirmation, setConfirmation] = useState("");
   const remove = useDeleteKnowledgeStore(account);
+
+  const blockingAgents = boundAgents ?? [];
+  if (blockingAgents.length > 0) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Can&rsquo;t delete &ldquo;{storeName}&rdquo;</DialogTitle>
+            <DialogDescription>
+              This store is bound to {blockingAgents.length === 1 ? "an active agent" : `${blockingAgents.length} active agents`}.
+              Remove the bindings before deleting.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 overflow-y-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-body-sm">
+            {blockingAgents.map((a) => (
+              <li key={`${a.deployment_id}:${a.knowledge_name}`} className="flex items-baseline justify-between gap-3 py-0.5">
+                <span className="truncate text-foreground">{a.display_name || a.agent_name}</span>
+                <span className="shrink-0 font-mono text-mono-sm text-muted-foreground">{a.knowledge_name}</span>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const is409 = remove.isError && (remove.error as unknown as { status?: number })?.status === 409;
 
@@ -33,7 +76,6 @@ export function DeleteKnowledgeStoreDialog({
         <>
           This will permanently delete the store and all its data.{" "}
           <span className="font-semibold text-destructive">This action cannot be undone.</span>
-          {" "}If this store has active agent bindings, deletion will be blocked.
         </>
       }
       checkboxLabel={

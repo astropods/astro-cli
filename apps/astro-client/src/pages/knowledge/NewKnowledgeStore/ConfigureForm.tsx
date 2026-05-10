@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useReducer, type ReactNode } from "react";
-import { Link } from "react-router";
-import { ExclamationTriangleIcon, GlobeAltIcon, LockClosedIcon } from "@heroicons/react/24/outline";
+import { Link, useNavigate } from "react-router";
+import { CheckIcon, ExclamationTriangleIcon, GlobeAltIcon, InformationCircleIcon, LockClosedIcon, Square2StackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -17,13 +18,11 @@ import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ProvisioningStage } from "./ProvisioningStage";
-import { SuccessStage } from "./SuccessStage";
 
 type FormState =
   | { step: "form" }
   | { step: "creating" }
   | { step: "provisioning"; submittedName: string }
-  | { step: "success"; store: KnowledgeStore }
   | { step: "error"; submittedName: string; error: string };
 
 export function ConfigureForm({
@@ -33,6 +32,7 @@ export function ConfigureForm({
   provider: KnowledgeProvider;
   account: string;
 }) {
+  const navigate = useNavigate();
   const [formState, dispatch] = useReducer((_: FormState, next: FormState) => next, { step: "form" });
 
   const [name, setName] = useState("");
@@ -73,15 +73,15 @@ export function ConfigureForm({
 
   function onMutationSuccess(store: KnowledgeStore) {
     if (store.status === "ready") {
-      dispatch({ step: "success", store });
+      navigate(knowledgeDetailPath(store.name), { replace: true });
     } else {
       dispatch({ step: "provisioning", submittedName: store.name });
     }
   }
 
   const handleProvisionReady = useCallback((store: KnowledgeStore) => {
-    dispatch({ step: "success", store });
-  }, []);
+    navigate(knowledgeDetailPath(store.name), { replace: true });
+  }, [navigate]);
 
   const handleProvisionError = useCallback((error: string, submittedName: string) => {
     dispatch({ step: "error", submittedName, error });
@@ -154,10 +154,6 @@ export function ConfigureForm({
     );
   }
 
-  if (formState.step === "success") {
-    return <SuccessStage store={formState.store} />;
-  }
-
   return (
     <div className="mx-auto max-w-xl">
       <form onSubmit={handleSubmit}>
@@ -215,6 +211,7 @@ export function ConfigureForm({
                       </div>
                     )}
                   </div>
+                  <NatGatewayHint />
                   <label className="mt-4 flex cursor-pointer items-start gap-2">
                     <input
                       type="checkbox"
@@ -341,6 +338,46 @@ export function ConfigureForm({
         </div>
       </form>
     </div>
+  );
+}
+
+const NAT_GATEWAY_IPS = ["3.213.168.251/32", "13.222.89.6/32"];
+
+function NatGatewayHint() {
+  return (
+    <div className="mt-3 flex items-start gap-2 text-[12px] text-muted-foreground">
+      <InformationCircleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <span>If your database restricts inbound traffic, allowlist</span>
+        {NAT_GATEWAY_IPS.map((ip, i) => (
+          <span key={ip} className="flex items-center gap-1">
+            <CopyableIp ip={ip} />
+            {i < NAT_GATEWAY_IPS.length - 1 && <span>and</span>}
+          </span>
+        ))}
+        <span>.</span>
+      </div>
+    </div>
+  );
+}
+
+function CopyableIp({ ip }: { ip: string }) {
+  const { copy, copied } = useCopyToClipboard();
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(ip)}
+      title={copied ? "Copied!" : "Copy"}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-[4px] border px-1.5 py-0.5 text-mono-sm transition-colors cursor-pointer",
+        copied
+          ? "border-success/40 bg-success/10 text-success"
+          : "border-border bg-card text-foreground hover:bg-muted-foreground/10",
+      )}
+    >
+      <code>{ip}</code>
+      {copied ? <CheckIcon className="size-3" /> : <Square2StackIcon className="size-3 opacity-60" />}
+    </button>
   );
 }
 

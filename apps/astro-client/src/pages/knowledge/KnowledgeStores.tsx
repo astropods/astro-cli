@@ -208,6 +208,7 @@ function KnowledgeStoresContent() {
           onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}
           storeName={deleteTarget.name}
           account={userAccount}
+          boundAgents={deleteTarget.bound_agents}
           onDeleted={() => setDeleteTarget(null)}
         />
       )}

@@ -14,15 +14,16 @@ export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
   postgres: 5432,
   qdrant: 6333,
   redis: 6379,
-  neo4j: 7474,
+  neo4j: 7687, // Bolt port — drivers use Bolt, not HTTP (7474)
   pinecone: null, // no port field
   mysql: 3306,
 };
 
 // Only providers available for new store creation.
-// Others (qdrant, neo4j, pinecone, mysql) are disabled for now — will be re-enabled later.
-export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
-export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
+// Pinecone is SaaS-only (Cloud provider) so it's not offered in managed mode.
+// Others (qdrant, mysql) are disabled for now — will be re-enabled later.
+export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis", "neo4j"];
+export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis", "neo4j", "pinecone"];
 
 /** Which credential fields to show for each provider in the connect dialog. */
 export const PROVIDER_FIELDS: Record<KnowledgeProvider, string[]> = {
@@ -92,7 +93,7 @@ export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
 };
 
 /** Providers available for new store creation. To enable a provider, add it here. */
-export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis"];
+export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis", "neo4j", "pinecone"];
 export const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
 
 export const STORAGE_OPTIONS: { value: string; label: string }[] = [
