@@ -8,7 +8,6 @@ import (
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
-	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -156,173 +155,45 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		}
 	}
 
-	w.updateStep(dbCtx, args.BuildRecordID, "fetching-spec")
-	astroSpec, specYAML, err := githubbuild.FetchAstroSpec(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA)
-	if err != nil {
-		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("fetch astropods.yml: %w", err))
-	}
-	if specYAML == "" {
-		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("astropods.yml not found in repo at commit %s", args.CommitSHA[:min(7, len(args.CommitSHA))])))
-	}
-
 	agentName := conn.AgentName
 	local := w.cfg.Deployment.K8sClientMode == "local"
-	builds := githubbuild.CollectComponentBuilds(astroSpec, agentName)
 
-	log.Info("Starting BuildKit builds", "repo", conn.RepoFullName, "components", len(builds), "local", local)
+	pipeline := githubbuild.NewGitHubBuildPipeline(ctx, githubbuild.GitHubBuildConfig{
+		Token:       token.AccessToken,
+		RepoName:    conn.RepoFullName,
+		CommitSHA:   args.CommitSHA,
+		AgentName:   agentName,
+		BuildID:     args.BuildID,
+		AccountID:   conn.AccountID,
+		ProxyHost:   w.cfg.Deployment.ProxyRegistryHost,
+		RegistryURL: w.cfg.Deployment.RegistryURL,
+		Local:       local,
+		Builder:     w.builder,
+		GHStore:     w.ghStore,
+		AgentIndex:  w.agentIndex,
+		RecordID:    args.BuildRecordID,
+		Log:         w.log,
+	})
 
-	// Create component records upfront so the UI can show all components immediately.
-	componentIDs := make(map[string]int64, len(builds))
-	for _, cb := range builds {
-		jobName := fmt.Sprintf("build-%s-%s", args.BuildID, cb.Suffix)
-		id, err := w.ghStore.CreateBuildComponent(dbCtx, args.BuildRecordID, cb.Suffix, jobName)
-		if err != nil {
-			log.Error("failed to create build component record", "component", cb.Suffix, "error", err)
-		} else {
-			componentIDs[cb.Suffix] = id
+	if err := pipeline.
+		FetchSpec().
+		CollectComponents().
+		CreateComponentRecords().
+		RunBuildJobs().
+		FetchReadme().
+		TransformSpec().
+		StripSecrets().
+		Register().
+		Err(); err != nil {
+		// Classify the error for River retry/cancel semantics
+		if errors.Is(err, context.Canceled) {
+			return w.cancel(dbCtx, args.BuildRecordID)
 		}
-	}
-
-	for i, cb := range builds {
-		compID := componentIDs[cb.Suffix]
-		w.updateStep(dbCtx, args.BuildRecordID, fmt.Sprintf("building (%d/%d: %s)", i+1, len(builds), cb.Suffix))
-
-		if compID > 0 {
-			_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "building")
+		var pe githubbuild.PermanentError
+		if errors.As(err, &pe) {
+			return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(err))
 		}
-
-		jobName := fmt.Sprintf("build-%s-%s", args.BuildID, cb.Suffix)
-		var destination string
-		if !local {
-			destination = w.builder.ECRImagePath(conn.AccountID, cb.Name, args.BuildID)
-		}
-		log.Info("Building component", "component", cb.Suffix, "destination", destination, "progress", fmt.Sprintf("%d/%d", i+1, len(builds)))
-		if destination != "" {
-			if err := w.builder.EnsureRepository(ctx, destination); err != nil {
-				log.Error("failed to ensure ECR repository", "error", err)
-				if compID > 0 {
-					_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "failed")
-				}
-				_ = w.ghStore.FailPendingBuildComponents(dbCtx, args.BuildRecordID)
-				return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("ensure ECR repo: %w", err))
-			}
-		}
-		buildLogs, err := w.builder.RunJob(ctx, jobName, token.AccessToken, conn.RepoFullName, args.CommitSHA, cb.Build, destination)
-
-		// Persist logs regardless of outcome (truncate to 512KB).
-		if compID > 0 && buildLogs != "" {
-			if len(buildLogs) > 512*1024 {
-				buildLogs = buildLogs[:512*1024]
-			}
-			_ = w.ghStore.SaveBuildComponentLogs(dbCtx, compID, buildLogs)
-		}
-
-		if err != nil {
-			if compID > 0 {
-				_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "failed")
-			}
-			_ = w.ghStore.FailPendingBuildComponents(dbCtx, args.BuildRecordID)
-			if errors.Is(err, context.Canceled) {
-				return w.cancel(dbCtx, args.BuildRecordID)
-			}
-			var bfe githubbuild.BuildFailedError
-			if errors.As(err, &bfe) {
-				return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("build %s: %w", cb.Suffix, err)))
-			}
-			return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("build %s: %w", cb.Suffix, err))
-		}
-
-		if compID > 0 {
-			_ = w.ghStore.UpdateBuildComponentStatus(dbCtx, compID, "succeeded")
-		}
-	}
-
-	readme, _ := githubbuild.FetchFileContent(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, "AGENT.md")
-
-	var specMap map[string]any
-	if err := yaml.Unmarshal([]byte(specYAML), &specMap); err != nil {
-		return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(fmt.Errorf("parse spec YAML: %w", err)))
-	}
-
-	// Replace build blocks with resolved image references so the registered spec
-	// passes deployment validation. Mirrors transformSpecForRegistry in the CLI.
-	if proxyHost := w.cfg.Deployment.ProxyRegistryHost; proxyHost != "" {
-		imageRef := func(name string) string {
-			return fmt.Sprintf("%s/%s/%s:%s", proxyHost, conn.AccountID, name, args.BuildID)
-		}
-
-		// agent.build → agent.image
-		agentMap, _ := specMap["agent"].(map[string]any)
-		if agentMap == nil {
-			agentMap = map[string]any{}
-			specMap["agent"] = agentMap
-		}
-		agentMap["image"] = imageRef(agentName)
-
-		// knowledge.*.container.build → knowledge.*.container.image
-		if knowledge, ok := specMap["knowledge"].(map[string]any); ok {
-			for name, data := range knowledge {
-				if item, ok := data.(map[string]any); ok {
-					if container, ok := item["container"].(map[string]any); ok {
-						if _, hasBuild := container["build"]; hasBuild {
-							delete(container, "build")
-							container["image"] = imageRef(fmt.Sprintf("%s-knowledge-%s", agentName, name))
-						}
-					}
-				}
-			}
-		}
-
-		// models.*.container.build → models.*.container.image
-		if models, ok := specMap["models"].(map[string]any); ok {
-			for name, data := range models {
-				if model, ok := data.(map[string]any); ok {
-					if container, ok := model["container"].(map[string]any); ok {
-						if _, hasBuild := container["build"]; hasBuild {
-							delete(container, "build")
-							container["image"] = imageRef(fmt.Sprintf("%s-model-%s", agentName, name))
-						}
-					}
-				}
-			}
-		}
-
-		// integrations.*.container.build → integrations.*.container.image
-		if integrations, ok := specMap["integrations"].(map[string]any); ok {
-			for name, data := range integrations {
-				if item, ok := data.(map[string]any); ok {
-					if container, ok := item["container"].(map[string]any); ok {
-						if _, hasBuild := container["build"]; hasBuild {
-							delete(container, "build")
-							container["image"] = imageRef(fmt.Sprintf("%s-integration-%s", agentName, name))
-						}
-					}
-				}
-			}
-		}
-
-		// ingestion.*.container.build → ingestion.*.container.image
-		if ingestion, ok := specMap["ingestion"].(map[string]any); ok {
-			for name, data := range ingestion {
-				if item, ok := data.(map[string]any); ok {
-					if container, ok := item["container"].(map[string]any); ok {
-						if _, hasBuild := container["build"]; hasBuild {
-							delete(container, "build")
-							container["image"] = imageRef(fmt.Sprintf("%s-ingestion-%s", agentName, name))
-						}
-					}
-				}
-			}
-		}
-	}
-
-	w.updateStep(dbCtx, args.BuildRecordID, "registering")
-	if err := w.agentIndex.Register(
-		conn.AccountID, agentName, args.BuildID,
-		w.cfg.Deployment.RegistryURL, conn.AccountID,
-		specMap, readme, githubbuild.BuildAgentCardJSON(readme, specMap), "[]",
-	); err != nil {
-		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("register agent: %w", err))
+		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, err)
 	}
 
 	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "registered", ""); err != nil {
@@ -330,12 +201,6 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	}
 	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
 	return nil
-}
-
-func (w *GitHubBuildWorker) updateStep(ctx context.Context, buildRecordID, step string) {
-	if err := w.ghStore.UpdateBuildStep(ctx, buildRecordID, step); err != nil {
-		w.log.Error("failed to update build step", "step", step, "error", err)
-	}
 }
 
 // cancel marks the build as cancelled (superseded by a newer push) and tells River not to retry.

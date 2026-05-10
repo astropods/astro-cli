@@ -251,15 +251,15 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL())
-	return runPush(cmd.Context(), at, pushConfig{
-		specPath:   specPath,
-		agentName:  agentName,
-		skipBuild:  noBuild,
-		skipPush:   skipPush,
-		platform:   platform,
-		visibility: vis,
-		yes:        yes,
-		verbose:    verbose,
+	return runPush(cmd.Context(), at, PushPipelineConfig{
+		SpecPath:   specPath,
+		AgentName:  agentName,
+		SkipBuild:  noBuild,
+		SkipPush:   skipPush,
+		Platform:   platform,
+		Visibility: vis,
+		Yes:        yes,
+		Verbose:    verbose,
 	})
 }
 

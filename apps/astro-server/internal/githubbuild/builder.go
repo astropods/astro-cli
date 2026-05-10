@@ -42,6 +42,14 @@ type BuildFailedError struct{ Cause error }
 func (e BuildFailedError) Error() string { return e.Cause.Error() }
 func (e BuildFailedError) Unwrap() error { return e.Cause }
 
+// PermanentError wraps an error that should never be retried (e.g. spec not
+// found, YAML parse error, build code failure). Pipeline steps wrap permanent
+// failures with this type; the River worker uses it to choose JobCancel vs retry.
+type PermanentError struct{ Err error }
+
+func (e PermanentError) Error() string { return e.Err.Error() }
+func (e PermanentError) Unwrap() error { return e.Err }
+
 // ecrAPI is the subset of the ECR client used by EnsureRepository.
 type ecrAPI interface {
 	DescribeRepositories(ctx context.Context, params *ecr.DescribeRepositoriesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeRepositoriesOutput, error)

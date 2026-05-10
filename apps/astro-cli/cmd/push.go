@@ -16,8 +16,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
@@ -46,281 +44,54 @@ func pushRegistryURL() string {
 	return auth.RegistryURLFromServerURL(buildinfo.DefaultServerURL)
 }
 
-// pushConfig holds all parameters for a push operation.
-type pushConfig struct {
-	specPath   string
-	agentName  string
-	skipBuild  bool
-	skipPush   bool
-	platform   string
-	visibility Visibility // VisibilityPublic, VisibilityPrivate, or VisibilityUnset (preserve existing)
-	yes        bool       // skip interactive confirmation prompts
-	verbose    bool
-}
+// runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
+func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error {
+	serverURL := pushBaseURL()
+	registryURL := pushRegistryURL()
 
-// runPush assumes the spec in cfg.specPath is valid; callers must validate before invoking.
-func runPush(ctx context.Context, at AccountToken, cfg pushConfig) error {
-	workingDir := filepath.Dir(cfg.specPath)
-
-	effectiveServerURL := pushBaseURL()
-	effectiveRegistryURL := pushRegistryURL()
-
-	if cfg.verbose {
-		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, effectiveServerURL, colorReset)
-		fmt.Printf("%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, effectiveRegistryURL, colorReset)
+	if cfg.Verbose {
+		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, serverURL, colorReset)
+		fmt.Printf("%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, registryURL, colorReset)
 	}
 
-	if effectiveRegistryURL == "" {
+	if registryURL == "" {
 		return fmt.Errorf("registry URL required: run '%s login'", buildinfo.BinaryName)
 	}
-
-	if effectiveServerURL == "" {
+	if serverURL == "" {
 		return fmt.Errorf("server URL required: run '%s login'", buildinfo.BinaryName)
 	}
 
-	astroSpec, err := spec.ParseSpec(cfg.specPath)
-	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
-	}
-	warnDeprecatedMetaFields(cfg.specPath, workingDir)
-
-	tag := generateBuildID()
-
-	registryHost, err := getRegistryHost(effectiveRegistryURL)
+	registryHost, err := getRegistryHost(registryURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	agentName := cfg.agentName
+	// Fill in fields resolved at push time
+	cfg.RegistryHost = registryHost
+	cfg.Account = at.Account
+	cfg.Token = at.Token
 
-	fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, colorCyan, at.Account, colorReset, tag)
+	pipeline := NewPushPipeline(ctx, cfg)
 
-	imagesPushed := 0
+	fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n",
+		colorCyan, colorReset, colorBold, cfg.AgentName, colorReset,
+		colorCyan, at.Account, colorReset, pipeline.Tag())
 
-	if !cfg.skipBuild {
-		printStep("Building images")
-		fmt.Println()
-		if err := runBuild(ctx, cfg.specPath, agentName, tag, []string{cfg.platform}, false, cfg.verbose, false); err != nil {
-			return fmt.Errorf("build failed: %w", err)
-		}
+	if err := pipeline.
+		ParseSpec().
+		CollectComponents().
+		Build().
+		Push().
+		TransformSpec().
+		StripSecrets().
+		LoadReadme().
+		ResolveVisibility().
+		Register().
+		Err(); err != nil {
+		return err
 	}
 
-	if !cfg.skipPush {
-		localImageName := platformImageTag(agentName, tag, cfg.platform)
-		remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, agentName, tag)
-
-		printPushStart("agent", agentName)
-		size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
-		if err != nil {
-			printPushComplete(false, 0)
-			return fmt.Errorf("failed to push agent image: %w", err)
-		}
-		printPushComplete(true, size)
-		imagesPushed++
-
-		for modelName, model := range astroSpec.Models {
-			if model.Container != nil && model.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
-
-				printPushStart("model", modelName)
-				localImageName := platformImageTag(baseName, tag, cfg.platform)
-				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
-				if err != nil {
-					printPushComplete(false, 0)
-					return fmt.Errorf("failed to push model %s: %w", modelName, err)
-				}
-				printPushComplete(true, size)
-
-				imagesPushed++
-			}
-		}
-
-		for knowledgeName, knowledge := range astroSpec.Knowledge {
-			container := knowledge.ResolvedContainer()
-			if container.Build != nil {
-				baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
-
-				printPushStart("knowledge", knowledgeName)
-				localImageName := platformImageTag(baseName, tag, cfg.platform)
-				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
-				if err != nil {
-					printPushComplete(false, 0)
-					return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
-				}
-				printPushComplete(true, size)
-				imagesPushed++
-			}
-		}
-
-		for toolName, tool := range astroSpec.Integrations {
-			if tool.Container != nil && tool.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
-
-				printPushStart("integration", toolName)
-				localImageName := platformImageTag(baseName, tag, cfg.platform)
-				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
-				if err != nil {
-					printPushComplete(false, 0)
-					return fmt.Errorf("failed to push integration %s: %w", toolName, err)
-				}
-				printPushComplete(true, size)
-				imagesPushed++
-			}
-		}
-
-		for ingestionName, ingestion := range astroSpec.Ingestion {
-			if ingestion.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag)
-
-				printPushStart("ingestion", ingestionName)
-				localImageName := platformImageTag(baseName, tag, cfg.platform)
-				size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, at.Token)
-				if err != nil {
-					printPushComplete(false, 0)
-					return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
-				}
-				printPushComplete(true, size)
-				imagesPushed++
-			}
-		}
-	} else {
-		fmt.Printf("%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
-
-		if cfg.skipPush && !cfg.skipBuild {
-			dockerCli, err := newDockerClient()
-			if err != nil {
-				return err
-			}
-
-			retag := func(local, remote string) error {
-				if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: local, Target: remote}); err != nil {
-					return fmt.Errorf("failed to retag %s → %s: %w", local, remote, err)
-				}
-				fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
-				return nil
-			}
-
-			if err := retag(
-				platformImageTag(agentName, tag, cfg.platform),
-				fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, agentName, tag),
-			); err != nil {
-				return err
-			}
-
-			for modelName, model := range astroSpec.Models {
-				if model.Container != nil && model.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
-					if err := retag(
-						platformImageTag(baseName, tag, cfg.platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
-					); err != nil {
-						return err
-					}
-				}
-			}
-
-			for knowledgeName, knowledge := range astroSpec.Knowledge {
-				container := knowledge.ResolvedContainer()
-				if container.Build != nil {
-					baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
-					if err := retag(
-						platformImageTag(baseName, tag, cfg.platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
-					); err != nil {
-						return err
-					}
-				}
-			}
-
-			for toolName, tool := range astroSpec.Integrations {
-				if tool.Container != nil && tool.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
-					if err := retag(
-						platformImageTag(baseName, tag, cfg.platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
-					); err != nil {
-						return err
-					}
-				}
-			}
-
-			for ingestionName, ingestion := range astroSpec.Ingestion {
-				if ingestion.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
-					if err := retag(
-						platformImageTag(baseName, tag, cfg.platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, at.Account, baseName, tag),
-					); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-
-	fmt.Println()
-
-	visibility := VisibilityPrivate
-	if cfg.visibility != VisibilityUnset {
-		visibility = cfg.visibility
-	}
-
-	readmeContent := ""
-	readmePath := filepath.Join(workingDir, "AGENT.md")
-	if readmeData, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
-		readmeContent = string(readmeData)
-	}
-
-	serverAgent := getAgentFromServer(effectiveServerURL, at.Account, agentName, false, at.Token)
-
-	if serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic) && cfg.visibility != VisibilityPrivate {
-		visibility = VisibilityPublic
-	}
-
-	needsConfirm := (visibility == VisibilityPublic && (!serverAgent.Exists || serverAgent.Visibility != string(VisibilityPublic))) ||
-		(cfg.visibility == VisibilityPrivate && serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic))
-	if needsConfirm && !cfg.yes {
-		if !confirmVisibilityChange(serverAgent.Visibility, string(visibility)) {
-			return fmt.Errorf("push cancelled")
-		}
-	}
-
-	printStep("Registering agent with server...")
-	registryPath := fmt.Sprintf("%s/%s", registryHost, at.Account)
-	if err := registerAgent(effectiveServerURL, agentName, tag, registryPath, cfg.specPath, tag, readmeContent, string(visibility), cfg.verbose, false, at.Token); err != nil {
-		printStepFail()
-		return fmt.Errorf("registration failed: %w", err)
-	} else {
-		printStepDone("")
-	}
-
-	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(buildinfo.DefaultServerURL, "/"), at.Account, agentName)
-
-	bold := lipgloss.NewStyle().Bold(true)
-	dim := lipgloss.NewStyle().Faint(true)
-	link := lipgloss.NewStyle().Foreground(theme.Primary).Underline(true)
-
-	var lines []string
-	lines = append(lines, bold.Render("✓ Pushed successfully!"))
-	lines = append(lines, dim.Render("Blueprint is "+string(visibility)))
-	lines = append(lines, "")
-	lines = append(lines, "  "+bold.Render(agentName)+"  "+dim.Render("tag "+tag))
-	lines = append(lines, "  "+dim.Render("View online → ")+link.Render(agentURL))
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(theme.Primary).
-		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
-
-	fmt.Println()
-	fmt.Println(box)
-	fmt.Println()
-
+	pipeline.PrintSuccess()
 	return nil
 }
 
@@ -371,32 +142,31 @@ func getRegistryHost(registryURL string) (string, error) {
 	return u.Host, nil
 }
 
-// registerAgent registers the agent spec with the astro-server
+// registerAgent registers the agent spec with the astro-server.
+// It reads the spec from disk, transforms build→image, strips secrets, and POSTs.
+// Kept for backward compatibility with existing tests; new code should use the PushPipeline.
 func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool, tokenOverride string) error {
-	// Read and parse spec file
 	specData, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to read spec file: %w", err)
 	}
-
-	// Parse YAML spec
-	var specObj map[string]interface{}
+	var specObj map[string]any
 	if err := yaml.Unmarshal(specData, &specObj); err != nil {
 		return fmt.Errorf("failed to parse spec YAML: %w", err)
 	}
-
-	// Transform spec: replace build sections with actual image references
-	specObj = transformSpecForRegistry(specObj, registry, agentName, pushTag)
-
-	// Strip default values from secret inputs so credentials are not stored in the registry
-	stripSecretDefaults(specObj)
-
-	// Marshal back to YAML
+	spec.TransformSpecForRegistry(specObj, agentName, func(imageName string) string {
+		return fmt.Sprintf("%s/%s:%s", registry, imageName, pushTag)
+	})
+	spec.StripSecretDefaults(specObj)
 	transformedSpecData, err := yaml.Marshal(specObj)
 	if err != nil {
 		return fmt.Errorf("failed to marshal transformed spec: %w", err)
 	}
+	return registerAgentWithServer(serverURL, agentName, buildID, registry, string(transformedSpecData), readme, visibility, verbose, skipAuth, tokenOverride)
+}
 
+// registerAgentWithServer sends the already-transformed spec content to the server.
+func registerAgentWithServer(serverURL, agentName, buildID, registry, specContent, readme, visibility string, verbose bool, skipAuth bool, tokenOverride string) error {
 	// Extract account name from registry path (registryHost/accountName)
 	accountName := ""
 	registryParts := strings.Split(registry, "/")
@@ -404,11 +174,11 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		accountName = registryParts[len(registryParts)-1]
 	}
 
-	// Prepare request payload (name comes from URL now, not body)
+	// Prepare request payload
 	payload := map[string]string{
 		"build_id":     buildID,
 		"registry":     registry,
-		"spec_content": string(transformedSpecData),
+		"spec_content": specContent,
 		"readme":       readme,
 	}
 	if visibility != "" {
@@ -445,19 +215,18 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		} else if err := auth.AddAuthHeader(context.Background(), req, buildinfo.BinaryName); err != nil {
 			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
 		}
-		if verbose {
-			authHeader := req.Header.Get("Authorization")
-			if authHeader != "" {
-				// Show first/last few chars of token for debugging
-				token := strings.TrimPrefix(authHeader, "Bearer ")
-				if len(token) > 20 {
-					log.Printf("   Auth: Bearer %s...%s (len=%d)", token[:10], token[len(token)-5:], len(token)) //nolint:gosec
-				} else {
-					log.Printf("   Auth: Bearer <short token, len=%d>", len(token)) //nolint:gosec
-				}
+	}
+	if verbose {
+		authHeader := req.Header.Get("Authorization")
+		if authHeader != "" {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if len(token) > 20 {
+				log.Printf("   Auth: Bearer %s...%s (len=%d)", token[:10], token[len(token)-5:], len(token)) //nolint:gosec
 			} else {
-				log.Printf("   Auth: WARNING - no Authorization header set!") //nolint:gosec
+				log.Printf("   Auth: Bearer <short token, len=%d>", len(token)) //nolint:gosec
 			}
+		} else {
+			log.Printf("   Auth: WARNING - no Authorization header set!") //nolint:gosec
 		}
 	}
 
@@ -668,151 +437,3 @@ func confirmVisibilityChange(current, desired string) bool {
 	return confirmed
 }
 
-// transformSpecForRegistry replaces build sections with actual image references
-func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {
-	// Use the resolved agentName (override or stripped spec name) so the stored
-	// spec is consistent with the registration URL and registry image references.
-	if _, ok := specObj["name"].(string); ok {
-		specObj["name"] = agentName
-	}
-
-	// Replace agent.build with agent.image
-	if agent, ok := specObj["agent"].(map[string]interface{}); ok {
-		if _, hasBuild := agent["build"]; hasBuild {
-			delete(agent, "build")
-			agent["image"] = fmt.Sprintf("%s/%s:%s", registry, agentName, tag)
-		}
-	}
-
-	// Replace models.*.container.build with models.*.container.image
-	if models, ok := specObj["models"].(map[string]interface{}); ok {
-		for modelName, modelData := range models {
-			if model, ok := modelData.(map[string]interface{}); ok {
-				if container, ok := model["container"].(map[string]interface{}); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = fmt.Sprintf("%s/%s-model-%s:%s", registry, agentName, modelName, tag)
-					}
-				}
-			}
-		}
-	}
-
-	// Replace knowledge.*.container.build with knowledge.*.container.image
-	if knowledge, ok := specObj["knowledge"].(map[string]interface{}); ok {
-		for knowledgeName, knowledgeData := range knowledge {
-			if knowledgeItem, ok := knowledgeData.(map[string]interface{}); ok {
-				if container, ok := knowledgeItem["container"].(map[string]interface{}); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = fmt.Sprintf("%s/%s-knowledge-%s:%s", registry, agentName, knowledgeName, tag)
-					}
-				}
-			}
-		}
-	}
-
-	// Replace tools.*.container.build with tools.*.container.image
-	if tools, ok := specObj["integrations"].(map[string]interface{}); ok {
-		for toolName, toolData := range tools {
-			if tool, ok := toolData.(map[string]interface{}); ok {
-				if container, ok := tool["container"].(map[string]interface{}); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = fmt.Sprintf("%s/%s-tool-%s:%s", registry, agentName, toolName, tag)
-					}
-				}
-			}
-		}
-	}
-
-	// Replace ingestion.*.container.build with ingestion.*.container.image
-	if ingestion, ok := specObj["ingestion"].(map[string]interface{}); ok {
-		for ingestionName, ingestionData := range ingestion {
-			if ingestionItem, ok := ingestionData.(map[string]interface{}); ok {
-				if container, ok := ingestionItem["container"].(map[string]interface{}); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = fmt.Sprintf("%s/%s-ingestion-%s:%s", registry, agentName, ingestionName, tag)
-					}
-				}
-			}
-		}
-	}
-
-	// Replace interfaces.*.service.build with interfaces.*.service.image
-	if interfaces, ok := specObj["interfaces"].(map[string]interface{}); ok {
-		for ifaceName, ifaceData := range interfaces {
-			if iface, ok := ifaceData.(map[string]interface{}); ok {
-				if service, ok := iface["service"].(map[string]interface{}); ok {
-					if _, hasBuild := service["build"]; hasBuild {
-						delete(service, "build")
-						service["image"] = fmt.Sprintf("%s/%s-interface-%s:%s", registry, agentName, ifaceName, tag)
-					}
-				}
-			}
-		}
-	}
-
-	return specObj
-}
-
-// stripSecretDefaults removes default values from secret inputs across all spec
-// sections so credentials are not stored in the registry. Operates on the raw
-// map representation (same pattern as transformSpecForRegistry).
-func stripSecretDefaults(specObj map[string]interface{}) {
-	// Top-level inputs (map[string]input)
-	if inputs, ok := specObj["inputs"].(map[string]interface{}); ok {
-		for _, inputData := range inputs {
-			stripSecretInputDefault(inputData)
-		}
-	}
-
-	// Agent inputs (list)
-	if agent, ok := specObj["agent"].(map[string]interface{}); ok {
-		stripSecretInputList(agent["inputs"])
-	}
-
-	// Models/knowledge/tools/ingestion — each entry may have an inputs list
-	for _, section := range []string{"models", "knowledge", "integrations", "ingestion"} {
-		if entries, ok := specObj[section].(map[string]interface{}); ok {
-			for _, entryData := range entries {
-				if entry, ok := entryData.(map[string]interface{}); ok {
-					stripSecretInputList(entry["inputs"])
-				}
-			}
-		}
-	}
-
-	// Providers — variables list
-	if providers, ok := specObj["providers"].(map[string]interface{}); ok {
-		for _, provData := range providers {
-			if prov, ok := provData.(map[string]interface{}); ok {
-				stripSecretInputList(prov["variables"])
-			}
-		}
-	}
-}
-
-// stripSecretInputList strips defaults from a YAML list of inputs ([]interface{}).
-func stripSecretInputList(v interface{}) {
-	list, ok := v.([]interface{})
-	if !ok {
-		return
-	}
-	for _, item := range list {
-		stripSecretInputDefault(item)
-	}
-}
-
-// stripSecretInputDefault removes the "default" field from a single input map
-// if it has secret: true.
-func stripSecretInputDefault(v interface{}) {
-	input, ok := v.(map[string]interface{})
-	if !ok {
-		return
-	}
-	if secret, _ := input["secret"].(bool); secret {
-		delete(input, "default")
-	}
-}

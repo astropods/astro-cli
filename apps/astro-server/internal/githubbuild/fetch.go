@@ -25,55 +25,18 @@ type ComponentBuild struct {
 	Build  spec.BuildConfig
 }
 
-// CollectComponentBuilds returns one entry per component that has a build block,
-// mirroring the components that astro push builds.
+// CollectComponentBuilds returns one entry per component that has a build block.
+// Delegates to the shared spec.CollectComponents for canonical naming and iteration.
 func CollectComponentBuilds(astroSpec *spec.AstroSpec, agentName string) []ComponentBuild {
-	var builds []ComponentBuild
-
-	agentBuild := spec.BuildConfig{}
-	if astroSpec.Agent.Build != nil {
-		agentBuild = *astroSpec.Agent.Build
+	components := spec.CollectComponents(astroSpec, agentName)
+	builds := make([]ComponentBuild, 0, len(components))
+	for _, c := range components {
+		builds = append(builds, ComponentBuild{
+			Suffix: c.Suffix(),
+			Name:   c.ImageName,
+			Build:  *c.Build,
+		})
 	}
-	builds = append(builds, ComponentBuild{"agent", agentName, agentBuild})
-
-	for modelName, model := range astroSpec.Models {
-		if model.Container != nil && model.Container.Build != nil {
-			builds = append(builds, ComponentBuild{
-				"model-" + modelName,
-				fmt.Sprintf("%s-model-%s", agentName, modelName),
-				*model.Container.Build,
-			})
-		}
-	}
-	for knowledgeName, knowledge := range astroSpec.Knowledge {
-		c := knowledge.ResolvedContainer()
-		if c.Build != nil {
-			builds = append(builds, ComponentBuild{
-				"knowledge-" + knowledgeName,
-				fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName),
-				*c.Build,
-			})
-		}
-	}
-	for toolName, tool := range astroSpec.Integrations {
-		if tool.Container != nil && tool.Container.Build != nil {
-			builds = append(builds, ComponentBuild{
-				"integration-" + toolName,
-				fmt.Sprintf("%s-integration-%s", agentName, toolName),
-				*tool.Container.Build,
-			})
-		}
-	}
-	for ingestionName, ingestion := range astroSpec.Ingestion {
-		if ingestion.Container.Build != nil {
-			builds = append(builds, ComponentBuild{
-				"ingestion-" + ingestionName,
-				fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName),
-				*ingestion.Container.Build,
-			})
-		}
-	}
-
 	return builds
 }
 
