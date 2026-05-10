@@ -64,6 +64,38 @@ describe('ProfileEditSidebar field pre-population', () => {
   });
 });
 
+// ── Display name validation ───────────────────────────────────────────────────
+
+describe('ProfileEditSidebar display name validation', () => {
+  it('Save button is enabled when display name is pre-filled', () => {
+    renderWithProviders(
+      <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
+  });
+
+  it('Save button is disabled and error appears when display name is cleared', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
+    );
+    await user.clear(screen.getByDisplayValue('Test User'));
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    expect(screen.getByText("Display name can't be empty")).toBeInTheDocument();
+  });
+
+  it('Save button re-enables after typing a name back in', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
+    );
+    await user.clear(screen.getByDisplayValue('Test User'));
+    await user.type(screen.getByPlaceholderText('Display name'), 'New Name');
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
+    expect(screen.queryByText("Display name can't be empty")).not.toBeInTheDocument();
+  });
+});
+
 // ── Close button ──────────────────────────────────────────────────────────────
 
 describe('ProfileEditSidebar close button', () => {

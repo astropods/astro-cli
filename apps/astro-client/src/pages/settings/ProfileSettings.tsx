@@ -130,6 +130,7 @@ function ProfileForm({ account, personalAccountName, refresh }: ProfileFormProps
   const [socialLinks, setSocialLinks] = useState(() => toSocialLinks(account.social_links));
 
   const isSaving = updateProfile.isPending || updateAccountProfile.isPending;
+  const displayNameEmpty = displayName.trim() === "";
 
   const isDirty =
     displayName !== (account.display_name ?? "") ||
@@ -141,9 +142,7 @@ function ProfileForm({ account, personalAccountName, refresh }: ProfileFormProps
     socialLinks.some((v, i) => v !== ((account.social_links ?? [])[i] ?? ""));
 
   const handleSave = async () => {
-    if (displayName.trim()) {
-      await updateProfile.mutateAsync({ display_name: displayName });
-    }
+    await updateProfile.mutateAsync({ display_name: displayName });
     await updateAccountProfile.mutateAsync({
       account: personalAccountName,
       bio,
@@ -162,7 +161,10 @@ function ProfileForm({ account, personalAccountName, refresh }: ProfileFormProps
       <div className="flex flex-col gap-6 min-w-0 flex-1">
       <div className="max-w-sm">
         <Label size="md">Display name</Label>
-        <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={DISPLAY_NAME_MAX_LENGTH} />
+        <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={DISPLAY_NAME_MAX_LENGTH} aria-invalid={displayNameEmpty} />
+        {displayNameEmpty && (
+          <p className="mt-1 text-sm text-destructive">Display name can't be empty</p>
+        )}
       </div>
 
       <div className="max-w-sm">
@@ -223,7 +225,7 @@ function ProfileForm({ account, personalAccountName, refresh }: ProfileFormProps
       </div>
 
       <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={isSaving || !isDirty}>
+        <Button onClick={handleSave} disabled={isSaving || !isDirty || displayNameEmpty}>
           {isSaving && <Loader2 size={14} className="spinner-delayed" />}
           Save changes
         </Button>
@@ -243,7 +245,7 @@ function ProfileForm({ account, personalAccountName, refresh }: ProfileFormProps
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function ProfileSettings() {
-  const { personalAccount, refresh } = useAuth();
+  const { personalAccount, refreshUserData } = useAuth();
   const { data: account } = useAccount(personalAccount?.name ?? "");
 
   if (!personalAccount || !account) return null;
@@ -256,7 +258,7 @@ export default function ProfileSettings() {
           <Link to={`/${personalAccount.name}`}>View profile</Link>
         </Button>
       </div>
-      <ProfileForm key={personalAccount.name} account={account} personalAccountName={personalAccount.name} refresh={refresh} />
+      <ProfileForm key={personalAccount.name} account={account} personalAccountName={personalAccount.name} refresh={refreshUserData} />
     </>
   );
 }

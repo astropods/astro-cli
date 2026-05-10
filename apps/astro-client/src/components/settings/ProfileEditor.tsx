@@ -43,7 +43,7 @@ export function ProfileEditor({
   isSaving,
   readOnly,
 }: ProfileEditorProps) {
-  const { refresh } = useAuth();
+  const { refreshUserData } = useAuth();
   const uploadAvatar = useUploadAvatar();
   const [displayName, setDisplayName] = useState(currentDisplayName);
   const [savedName, setSavedName] = useState(currentDisplayName);
@@ -137,7 +137,7 @@ export function ProfileEditor({
           isPending={uploadAvatar.isPending}
           title={avatarDialogTitle}
           onSuccess={() => {
-            refresh();
+            refreshUserData();
             flash();
           }}
         />

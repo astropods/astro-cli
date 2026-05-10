@@ -114,15 +114,14 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
     return promise;
   }, [updateFromResponse]);
 
-  const refresh = useCallback(async () => {
+  const doRefreshSession = useCallback(async (opts: { isRefresh: boolean }) => {
     try {
       const response = await api.refreshSession();
-      updateFromResponse(response, { isRefresh: true });
+      updateFromResponse(response, opts);
     } catch (err) {
       // Network failures (e.g. offline) — don't log the user out, the next
       // visibility/focus event will retry.
       if (err instanceof TypeError) return;
-
       // Server-confirmed errors — mark as unauthenticated so ProtectedLayout
       // redirects to login without flashing an error banner.
       setState({
@@ -131,6 +130,13 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
       });
     }
   }, [updateFromResponse]);
+
+  const refresh = useCallback(() => doRefreshSession({ isRefresh: true }), [doRefreshSession]);
+
+  // Refreshes user/account data (display name, avatar, etc.) without bumping
+  // refreshVersion, so QueryAuthSync does not invalidate all queries.
+  // Use this after profile edits instead of refresh().
+  const refreshUserData = useCallback(() => doRefreshSession({ isRefresh: false }), [doRefreshSession]);
 
   const switchOrg = useCallback(async (organizationId: string) => {
     try {
@@ -197,6 +203,7 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
     login,
     logout,
     refresh,
+    refreshUserData,
     checkAuth,
     switchOrg,
     hydrateAuth,

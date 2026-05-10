@@ -24,7 +24,7 @@ export const meta: MetaFunction = () => [{ title: "General - Organization Settin
 
 function ProfileSection({ readOnly }: { readOnly?: boolean }) {
   const { orgSlug = "" } = useParams();
-  const { accounts, refresh } = useAuth();
+  const { accounts, refreshUserData } = useAuth();
   const org = accounts.find((a) => a.name === orgSlug);
   const updateDisplayName = useUpdateAccountDisplayName();
 
@@ -37,7 +37,7 @@ function ProfileSection({ readOnly }: { readOnly?: boolean }) {
       avatarDialogTitle="Upload organization image"
       onSave={async (displayName) => {
         await updateDisplayName.mutateAsync({ account: orgSlug, displayName });
-        refresh();
+        await refreshUserData();
       }}
       isSaving={updateDisplayName.isPending}
       readOnly={readOnly}

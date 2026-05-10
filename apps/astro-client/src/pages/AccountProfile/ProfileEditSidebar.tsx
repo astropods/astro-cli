@@ -24,7 +24,7 @@ interface ProfileEditSidebarProps {
 }
 
 export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
-  const { refresh } = useAuth();
+  const { refreshUserData } = useAuth();
   const updateProfile = useUpdateProfile(data.name);
   const updateAccountProfile = useUpdateAccountProfile();
   const uploadAvatar = useUploadAvatar();
@@ -43,11 +43,10 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
   });
 
   const isSaving = updateProfile.isPending || updateAccountProfile.isPending;
+  const displayNameEmpty = displayName.trim() === "";
 
   async function handleSave() {
-    if (displayName.trim()) {
-      await updateProfile.mutateAsync({ display_name: displayName });
-    }
+    await updateProfile.mutateAsync({ display_name: displayName });
     await updateAccountProfile.mutateAsync({
       account: data.name,
       bio,
@@ -58,7 +57,7 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
       social_links: socialLinks.filter((s) => s.trim() !== ""),
       local_timezone: "",
     });
-    refresh();
+    await refreshUserData();
     onClose();
   }
 
@@ -90,7 +89,7 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
         }}
         isPending={uploadAvatar.isPending}
         title="Upload profile image"
-        onSuccess={() => refresh()}
+        onSuccess={() => refreshUserData()}
       />
 
       <div className="flex flex-col gap-4">
@@ -101,8 +100,11 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={DISPLAY_NAME_MAX_LENGTH}
             placeholder="Display name"
-            className="h-8 text-body-sm"
+            className={cn("h-8 text-body-sm", displayNameEmpty && "border-destructive focus-visible:ring-destructive/20")}
           />
+          {displayNameEmpty && (
+            <p className="mt-1 text-[11px] text-destructive">Display name can't be empty</p>
+          )}
         </div>
         <div>
           <div className="flex items-baseline justify-between mb-1">
@@ -160,7 +162,7 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
       </div>
 
       <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={isSaving}>
+        <Button size="sm" onClick={handleSave} disabled={isSaving || displayNameEmpty}>
           {isSaving && <Loader2 className="size-3.5 animate-spin" />}
           Save
         </Button>

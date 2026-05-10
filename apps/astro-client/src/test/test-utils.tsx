@@ -83,6 +83,7 @@ export const mockAuthContext: AuthContextType = {
   login: () => {},
   logout: () => {},
   refresh: async () => {},
+  refreshUserData: async () => {},
   checkAuth: async () => {},
   switchOrg: async () => {},
   hydrateAuth: () => {},
