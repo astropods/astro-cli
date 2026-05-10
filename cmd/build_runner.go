@@ -56,161 +56,66 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 		return err
 	}
 
-	imagesBuilt := 0
-
-	// Build agent container
+	// Validate that agent has either a build or image
 	if astroSpec.Agent.Build == nil && astroSpec.Agent.Image == "" {
 		return fmt.Errorf("agent.build or agent.image must be specified in spec")
 	}
 
-	if astroSpec.Agent.Build != nil {
-		baseName := agentName
-		contextPath := filepath.Join(workingDir, astroSpec.Agent.Build.Context)
-		dockerfile := astroSpec.Agent.Build.Dockerfile
+	components := spec.CollectComponents(astroSpec, agentName)
+	imagesBuilt := 0
+
+	for _, comp := range components {
+		contextPath := filepath.Join(workingDir, comp.Build.Context)
+		dockerfile := comp.Build.Dockerfile
 		if dockerfile == "" {
 			dockerfile = "Dockerfile"
 		}
 
 		for _, plat := range platforms {
-			platTag := platformImageTag(baseName, tag, plat)
+			platTag := platformImageTag(comp.ImageName, tag, plat)
 			if !quiet {
-				fmt.Printf("%s→%s Building %s[agent %s]%s %s%s%s", colorCyan, colorReset, colorDim, plat, colorReset, colorBold, platTag, colorReset)
+				fmt.Printf("%s→%s Building %s[%s %s]%s %s%s%s", colorCyan, colorReset, colorDim, comp.Kind, plat, colorReset, colorBold, platTag, colorReset)
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Agent.Build.Args, astroSpec.Agent.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, comp.Build.Args, comp.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
-				return fmt.Errorf("failed to build agent image for %s: %w", plat, err)
+				return fmt.Errorf("failed to build %s for %s: %w", comp.Suffix(), plat, err)
 			}
 
 			imagesBuilt++
 		}
-	} else if astroSpec.Agent.Image != "" && !quiet {
-		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Agent.Image, colorReset)
 	}
 
-	// Build custom model containers (those with build config)
-	for name, model := range astroSpec.Models {
-		if model.Container != nil && model.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-model-%s", agentName, name)
-			contextPath := filepath.Join(workingDir, model.Container.Build.Context)
-			dockerfile := model.Container.Build.Dockerfile
-			if dockerfile == "" {
-				dockerfile = "Dockerfile"
-			}
-
-			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, tag, plat)
-				if !quiet {
-					fmt.Printf("%s→%s Building %s[model: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
+	// Print skip messages for image-only components
+	if !quiet {
+		if astroSpec.Agent.Build == nil && astroSpec.Agent.Image != "" {
+			fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Agent.Image, colorReset)
+		}
+		for name, model := range astroSpec.Models {
+			if model.Container == nil || model.Container.Build == nil {
+				resolved := model.ResolvedContainer()
+				if resolved.Image != "" {
+					fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, resolved.Image, colorReset)
 				}
-
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, model.Container.Build.Args, model.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
-					if !quiet {
-						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
-					}
-					return fmt.Errorf("failed to build model %s for %s: %w", name, plat, err)
-				}
-
-				imagesBuilt++
-			}
-		} else {
-			resolved := model.ResolvedContainer()
-			if resolved.Image != "" && !quiet {
-				fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, resolved.Image, colorReset)
 			}
 		}
-	}
-
-	// Build custom knowledge store containers (those with build config)
-	for name, knowledge := range astroSpec.Knowledge {
-		container := knowledge.ResolvedContainer()
-		if container.Build != nil {
-			baseName := fmt.Sprintf("%s-knowledge-%s", agentName, name)
-			contextPath := filepath.Join(workingDir, container.Build.Context)
-			dockerfile := container.Build.Dockerfile
-			if dockerfile == "" {
-				dockerfile = "Dockerfile"
+		for name, knowledge := range astroSpec.Knowledge {
+			container := knowledge.ResolvedContainer()
+			if container.Build == nil && container.Image != "" {
+				fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, container.Image, colorReset)
 			}
-
-			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, tag, plat)
-				if !quiet {
-					fmt.Printf("%s→%s Building %s[knowledge: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
-				}
-
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, container.Build.Args, container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
-					if !quiet {
-						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
-					}
-					return fmt.Errorf("failed to build knowledge store %s for %s: %w", name, plat, err)
-				}
-
-				imagesBuilt++
-			}
-		} else if container.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, container.Image, colorReset)
 		}
-	}
-
-	// Build custom integration containers (those with build config)
-	for name, tool := range astroSpec.Integrations {
-		if tool.Container != nil && tool.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-tool-%s", agentName, name)
-			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)
-			dockerfile := tool.Container.Build.Dockerfile
-			if dockerfile == "" {
-				dockerfile = "Dockerfile"
+		for name, tool := range astroSpec.Integrations {
+			if (tool.Container == nil || tool.Container.Build == nil) && tool.Container != nil && tool.Container.Image != "" {
+				fmt.Printf("%s→%s Skipping %s[integration: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 			}
-
-			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, tag, plat)
-				if !quiet {
-					fmt.Printf("%s→%s Building %s[tool: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
-				}
-
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
-					if !quiet {
-						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
-					}
-					return fmt.Errorf("failed to build integration %s for %s: %w", name, plat, err)
-				}
-
-				imagesBuilt++
-			}
-		} else if tool.Container != nil && tool.Container.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[tool: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 		}
-	}
-
-	// Build custom ingestion containers (those with build config)
-	for name, ingestion := range astroSpec.Ingestion {
-		if ingestion.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-ingestion-%s", agentName, name)
-			contextPath := filepath.Join(workingDir, ingestion.Container.Build.Context)
-			dockerfile := ingestion.Container.Build.Dockerfile
-			if dockerfile == "" {
-				dockerfile = "Dockerfile"
+		for name, ingestion := range astroSpec.Ingestion {
+			if ingestion.Container.Build == nil && ingestion.Container.Image != "" {
+				fmt.Printf("%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, ingestion.Container.Image, colorReset)
 			}
-
-			for _, plat := range platforms {
-				platTag := platformImageTag(baseName, tag, plat)
-				if !quiet {
-					fmt.Printf("%s→%s Building %s[ingestion: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
-				}
-
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, ingestion.Container.Build.Args, ingestion.Container.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
-					if !quiet {
-						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
-					}
-					return fmt.Errorf("failed to build ingestion %s for %s: %w", name, plat, err)
-				}
-
-				imagesBuilt++
-			}
-		} else if ingestion.Container.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, ingestion.Container.Image, colorReset)
 		}
 	}
 

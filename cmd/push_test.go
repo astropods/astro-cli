@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 func TestPushRegistryURL(t *testing.T) {
@@ -271,7 +272,7 @@ func TestStripSecretDefaults(t *testing.T) {
 		},
 	}
 
-	stripSecretDefaults(specObj)
+	spec.StripSecretDefaults(specObj)
 
 	// Secret input default should be stripped
 	apiKey := specObj["inputs"].(map[string]interface{})["api_key"].(map[string]interface{})
@@ -776,14 +777,16 @@ func TestTransformSpecForRegistry_UsesAgentName(t *testing.T) {
 				},
 			}
 
-			result := transformSpecForRegistry(specObj, "registry.example.com/ns", tt.agentName, "tag1")
+			result := spec.TransformSpecForRegistry(specObj, tt.agentName, func(imageName string) string {
+				return fmt.Sprintf("registry.example.com/ns/%s:tag1", imageName)
+			})
 
 			gotName, ok := result["name"].(string)
 			if !ok {
 				t.Fatal("expected name to be a string")
 			}
 			if gotName != tt.expectedName {
-				t.Errorf("transformSpecForRegistry() name = %q, want %q", gotName, tt.expectedName)
+				t.Errorf("TransformSpecForRegistry() name = %q, want %q", gotName, tt.expectedName)
 			}
 		})
 	}
