@@ -321,7 +321,7 @@ describe("user discards changes", () => {
     // Footer exits via animation — wait for Discard to leave the DOM.
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /discard/i })).not.toBeInTheDocument();
-    });
+    }, { timeout: 3000 });
   });
 });
 

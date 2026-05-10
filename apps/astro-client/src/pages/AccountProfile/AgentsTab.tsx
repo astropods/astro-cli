@@ -3,6 +3,7 @@ import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath } from "@/lib/routes";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
+import { EyeOff } from "lucide-react";
 
 export type AgentSort = "modified" | "name";
 
@@ -35,6 +36,11 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
           options={SORT_OPTIONS}
           triggerLabel={sortLabel}
         />
+
+        <span className="ml-auto flex items-center gap-1.5 text-body-sm text-faint-foreground shrink-0">
+          <EyeOff className="size-3.5" />
+          Only visible to you
+        </span>
       </div>
 
       {deployments.length === 0 ? (

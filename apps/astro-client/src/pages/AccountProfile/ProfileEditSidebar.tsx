@@ -143,7 +143,7 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
         </div>
         <div>
           <p className="text-body-sm text-muted-foreground mb-1">Website</p>
-          <div className={cn("flex items-center px-0", inputBase, inputFocusWithin)}>
+          <div className={cn(inputBase, inputFocusWithin, "flex items-center px-0")}>
             <span className="shrink-0 pl-3 pr-2 text-muted-foreground text-body-sm select-none">https://</span>
             <span className="shrink-0 select-none text-border">|</span>
             <Input

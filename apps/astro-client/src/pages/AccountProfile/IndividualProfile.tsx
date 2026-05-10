@@ -88,7 +88,7 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
 
   // ── Hearts filters ────────────────────────────────────────────────────────
   const [heartSearch, setHeartSearch] = useState("");
-  const [heartSort, setHeartSort] = useState<HeartSort>("newest");
+  const [heartSort, setHeartSort] = useState<HeartSort>("popular");
   const { data: heartsData } = useHeartedBlueprints(data?.name ?? "", undefined, {
     enabled: !!data,
     initialData: loaderData.hearts ?? undefined,
@@ -243,23 +243,19 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
       </aside>
 
       <main className="relative flex flex-1 min-w-0 flex-col min-h-0">
-        {/* View mode toggle */}
-        {isOwner && (
-          <div className="flex items-center justify-end px-8 pt-5 pb-0">
+        {/* Tab bar */}
+        <div className="flex items-end gap-5 px-8 pt-5 border-b border-border">
+          {isOwner && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setViewMode((v) => v === "internal" ? "external" : "internal")}
-              className="gap-1.5"
+              className="gap-1.5 mb-2 ml-auto order-last shrink-0"
             >
               <Eye className="size-3.5" />
               {effectiveViewMode === "internal" ? "View as visitor" : "Back to owner view"}
             </Button>
-          </div>
-        )}
-
-        {/* Tab bar */}
-        <div className="flex items-end gap-5 px-8 pt-5 border-b border-border">
+          )}
           <TabButton active={resolvedTab === "blueprints"} onClick={() => setActiveTab("blueprints")}>
             Blueprints
             {rawBlueprints.length > 0 && (
@@ -294,6 +290,7 @@ export function IndividualProfile({ loaderData }: IndividualProfileProps) {
             <BlueprintsTab
               blueprints={visibleBlueprints}
               accountName={data.name}
+              displayName={data.display_name || data.name}
               isOwner={isOwner}
               isInternalView={effectiveViewMode === "internal"}
               search={bpSearch}

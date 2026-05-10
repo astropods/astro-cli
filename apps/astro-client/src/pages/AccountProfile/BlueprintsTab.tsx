@@ -16,12 +16,15 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Check } from "lucide-react";
+import { GripVertical, Check, Plus, Telescope } from "lucide-react";
+import { AgentMascots } from "@/components/AgentMascots";
+import { explorePath } from "@/lib/routes";
 import type { Blueprint } from "@/lib/api";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
 import { Button } from "@/components/ui/button";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
+import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
 
 export type VisibilityFilter = "all" | "public" | "private";
@@ -139,6 +142,7 @@ function SortableBlueprintCard({
 interface BlueprintsTabProps {
   blueprints: Blueprint[];
   accountName: string;
+  displayName?: string;
   isOwner: boolean;
   isInternalView: boolean;
   search: string;
@@ -156,6 +160,7 @@ interface BlueprintsTabProps {
 export function BlueprintsTab({
   blueprints,
   accountName,
+  displayName,
   isOwner,
   isInternalView,
   search,
@@ -165,13 +170,11 @@ export function BlueprintsTab({
   sort,
   onSortChange,
   reorderMode,
-  hasCustomOrder,
   onEnterReorder,
   onSaveReorder,
 }: BlueprintsTabProps) {
   const isEditing = reorderMode === "editing";
   const isSaved = reorderMode === "saved";
-  const isIdle = reorderMode === "idle";
 
   const hasFilters = search.trim() !== "" || visibility !== "all" || sort !== "newest";
   const visibilityLabel = visibility === "all" ? "Visibility" : visibility === "public" ? "Public" : "Private";
@@ -202,28 +205,26 @@ export function BlueprintsTab({
     <div className="flex flex-col gap-5">
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
-        {isIdle && (
-          <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints…" />
-        )}
+        <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints…" disabled={isEditing} />
 
-        {isIdle && isInternalView && (
+        {isInternalView && (
           <TabFilterDropdown
             value={visibility}
             onChange={onVisibilityChange}
             options={VISIBILITY_OPTIONS}
             triggerLabel={visibilityLabel}
             minWidth="min-w-32"
+            disabled={isEditing}
           />
         )}
 
-        {isIdle && (
-          <TabFilterDropdown
-            value={sort}
-            onChange={onSortChange}
-            options={SORT_OPTIONS}
-            triggerLabel={sortLabel}
-          />
-        )}
+        <TabFilterDropdown
+          value={sort}
+          onChange={onSortChange}
+          options={SORT_OPTIONS}
+          triggerLabel={sortLabel}
+          disabled={isEditing}
+        />
 
         {isOwner && isInternalView && (
           isEditing ? (
@@ -231,7 +232,7 @@ export function BlueprintsTab({
               Save changes
             </Button>
           ) : isSaved ? (
-            <Button variant="ghost" size="sm" className="ml-auto gap-1.5 text-primary" disabled>
+            <Button variant="ghost" size="sm" className="ml-auto gap-1.5 text-success pointer-events-none">
               <Check className="size-3.5" />Saved
             </Button>
           ) : (
@@ -239,7 +240,7 @@ export function BlueprintsTab({
               variant="outline"
               size="sm"
               onClick={onEnterReorder}
-              className={cn("ml-auto", hasCustomOrder && "border-primary/50 text-primary hover:text-primary")}
+              className="ml-auto"
             >
               Customize order
             </Button>
@@ -249,9 +250,22 @@ export function BlueprintsTab({
 
       {/* Grid */}
       {blueprints.length === 0 ? (
-        <p className="text-body text-muted-foreground">
-          {hasFilters ? "No blueprints match your filters." : "No blueprints published yet."}
-        </p>
+        <EmptyState
+          variant="card"
+          icon={<AgentMascots size={36} />}
+          title={hasFilters ? "No blueprints match your filters." : isInternalView ? "No blueprints published yet." : `${displayName || accountName} has no public blueprints yet.`}
+          {...(!hasFilters && {
+            actions: [
+              ...(isOwner && isInternalView ? [
+                { label: "Create blueprint", to: "/new/custom", icon: <Plus className="size-4" /> },
+              ] : []),
+              { label: "Explore community", to: explorePath, icon: <Telescope className="size-4" strokeWidth={1.5} />, variant: "outline" as const },
+            ],
+            ...(isOwner && isInternalView && {
+              description: "Blueprints define what your agent does. Create one to get started.",
+            }),
+          })}
+        />
       ) : isEditing ? (
         <DndContext
           sensors={sensors}

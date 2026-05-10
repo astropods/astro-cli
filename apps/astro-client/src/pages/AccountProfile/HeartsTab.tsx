@@ -4,10 +4,9 @@ import { BlueprintCard } from "@/components/BlueprintCard";
 import { useHeartedBlueprints, useHeartToggleInList } from "@/api/queries/hearts";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
 
-export type HeartSort = "newest" | "name" | "popular";
+export type HeartSort = "popular" | "name";
 
 const SORT_OPTIONS: { value: HeartSort; label: string }[] = [
-  { value: "newest", label: "Date hearted" },
   { value: "popular", label: "Most hearts" },
   { value: "name", label: "Name A–Z" },
 ];
@@ -56,8 +55,8 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
     });
   }, [heartToggle]);
 
-  const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Date hearted";
-  const hasFilters = search.trim() !== "" || sort !== "newest";
+  const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Most hearts";
+  const hasFilters = search.trim() !== "" || sort !== "popular";
 
   const items = data?.items ?? [];
 

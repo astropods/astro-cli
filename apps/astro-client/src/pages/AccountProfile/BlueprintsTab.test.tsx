@@ -187,7 +187,7 @@ describe('BlueprintsTab editing mode', () => {
     expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
-  it('hides search/sort controls in editing mode', () => {
+  it('disables search/sort controls in editing mode', () => {
     renderWithProviders(
       <BlueprintsTab
         {...defaultProps}
@@ -195,8 +195,8 @@ describe('BlueprintsTab editing mode', () => {
         reorderMode="editing"
       />,
     );
-    expect(screen.queryByPlaceholderText(/search blueprints/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /newest/i })).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search blueprints/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: /newest/i })).toBeDisabled();
   });
 
   it('renders all blueprints as sortable cards in editing mode', () => {
@@ -237,7 +237,6 @@ describe('BlueprintsTab editing mode', () => {
       />,
     );
     expect(screen.getByRole('button', { name: /saved/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /saved/i })).toBeDisabled();
     // No cancel button in saved state either
     expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });

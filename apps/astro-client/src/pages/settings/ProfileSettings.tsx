@@ -81,7 +81,7 @@ function AvatarSection({ accountName, displayName, onSuccess }: AvatarSectionPro
           <DropdownMenuContent align="center" side="bottom" sideOffset={8}>
             <DropdownMenuItem onClick={() => setDialogOpen(true)}>
               <Camera className="size-3.5" />
-              Edit photo
+              Change photo
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -89,7 +89,7 @@ function AvatarSection({ accountName, displayName, onSuccess }: AvatarSectionPro
               disabled={resetAvatar.isPending}
               className="text-destructive focus:text-destructive"
             >
-              <Trash2 className="size-3.5" />
+              <Trash2 className="size-3.5 text-destructive" />
               Remove photo
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -253,7 +253,7 @@ export default function ProfileSettings() {
       <div className="flex items-start justify-between gap-4 pb-6 border-b border-border">
         <SectionHeader title="Profile" subtitle="Your public identity on Astro" className="border-none pb-0" />
         <Button variant="outline" size="sm" asChild className="shrink-0 mt-0.5">
-          <Link to={`/${personalAccount.name}`}>Go to profile</Link>
+          <Link to={`/${personalAccount.name}`}>View profile</Link>
         </Button>
       </div>
       <ProfileForm key={personalAccount.name} account={account} personalAccountName={personalAccount.name} refresh={refresh} />

@@ -31,6 +31,10 @@ export function EarlyAdopterBadge({ accountNumber }: EarlyAdopterBadgeProps) {
         </defs>
         <path
           d="M2.5 0 L97.5 0 L100 3.5 L97.5 8.5 L100 13 L97.5 18 L100 22.5 L97.5 26 L2.5 26 L0 22.5 L2.5 18 L0 13 L2.5 8.5 L0 3.5 Z"
+          fill="var(--background)"
+        />
+        <path
+          d="M2.5 0 L97.5 0 L100 3.5 L97.5 8.5 L100 13 L97.5 18 L100 22.5 L97.5 26 L2.5 26 L0 22.5 L2.5 18 L0 13 L2.5 8.5 L0 3.5 Z"
           fill={`url(#${gradId})`}
           fillOpacity="0.13"
         />
@@ -47,7 +51,7 @@ export function EarlyAdopterBadge({ accountNumber }: EarlyAdopterBadgeProps) {
       <span className="relative z-10 px-5 py-1.5 text-center text-label font-mono flex items-center gap-1.5" style={{ color: "#6D5BD0" }}>
         Early adopter
         {accountNumber != null && (
-          <span style={{ opacity: 0.6 }}>#{accountNumber}</span>
+          <span>#{accountNumber}</span>
         )}
       </span>
     </span>

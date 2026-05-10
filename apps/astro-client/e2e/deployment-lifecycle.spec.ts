@@ -54,8 +54,9 @@ test("restart via kebab menu sends restart request", async ({ page }) => {
   // Open the agent identity dropdown
   await page.getByRole("button", { name: "Agent menu" }).click();
 
-  // Dropdown opens — click "Restart deployment"
-  await page.getByText("Restart deployment").click();
+  // Dropdown opens — wait for it then click "Restart deployment"
+  await expect(page.getByRole("menu")).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("menuitem", { name: "Restart deployment" }).click();
 
   // Confirmation dialog appears
   await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5_000 });

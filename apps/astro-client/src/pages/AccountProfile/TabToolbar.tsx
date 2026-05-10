@@ -14,9 +14,10 @@ interface TabSearchInputProps {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
+  disabled?: boolean;
 }
 
-export function TabSearchInput({ value, onChange, placeholder }: TabSearchInputProps) {
+export function TabSearchInput({ value, onChange, placeholder, disabled }: TabSearchInputProps) {
   return (
     <div className="relative flex-1 min-w-48 max-w-72">
       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -24,9 +25,10 @@ export function TabSearchInput({ value, onChange, placeholder }: TabSearchInputP
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
         className="pl-8 h-8 text-body-sm"
       />
-      {value && (
+      {value && !disabled && (
         <button
           type="button"
           onClick={() => onChange("")}
@@ -52,6 +54,7 @@ interface TabFilterDropdownProps<T extends string> {
   options: TabFilterDropdownOption<T>[];
   triggerLabel: string;
   minWidth?: string;
+  disabled?: boolean;
 }
 
 export function TabFilterDropdown<T extends string>({
@@ -60,11 +63,12 @@ export function TabFilterDropdown<T extends string>({
   options,
   triggerLabel,
   minWidth = "min-w-40",
+  disabled,
 }: TabFilterDropdownProps<T>) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm">
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <Button variant="outline" size="sm" disabled={disabled}>
           {triggerLabel}
           <ChevronDown className="size-3.5" />
         </Button>

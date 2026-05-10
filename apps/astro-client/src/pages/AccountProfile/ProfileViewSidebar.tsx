@@ -101,7 +101,7 @@ export function ProfileViewSidebar({
       <div className="flex flex-col gap-2">
         <UserAvatar handle={data.name} name={displayName} className="size-24 mb-1" />
         <div>
-          <h1 className="text-heading-1 text-foreground">{displayName}</h1>
+          <h1 className="text-heading-1 text-foreground break-words hyphens-auto">{displayName}</h1>
           <p className="text-body text-muted-foreground font-mono mt-0.5">@{data.name}</p>
           {data.account_number != null && data.account_number <= 1000 && (
             <div className="mt-2">
@@ -188,12 +188,12 @@ export function ProfileViewSidebar({
                     <Link to={`/${org.name}`}>
                       <UserAvatar
                         handle={org.name}
-                        name={org.display_name ?? org.name}
+                        name={org.display_name || org.name}
                         className="size-9 rounded-[6px] transition-opacity hover:opacity-80"
                       />
                     </Link>
                   </TooltipTrigger>
-                  <TooltipContent>{org.display_name ?? org.name}</TooltipContent>
+                  <TooltipContent>{org.display_name || org.name}</TooltipContent>
                 </Tooltip>
               ))}
             </div>

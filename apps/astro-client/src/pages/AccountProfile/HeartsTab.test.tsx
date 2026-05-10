@@ -45,7 +45,7 @@ const defaultProps = {
   isOwner: true,
   search: '',
   onSearchChange: vi.fn(),
-  sort: 'newest' as HeartSort,
+  sort: 'popular' as HeartSort,
   onSortChange: vi.fn(),
 };
 
@@ -120,7 +120,7 @@ describe('HeartsTab sort', () => {
   it('shows the default sort label', () => {
     setupMocks();
     renderWithProviders(<HeartsTab {...defaultProps} />);
-    expect(screen.getByRole('button', { name: /date hearted/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /most hearts/i })).toBeInTheDocument();
   });
 
   it('calls onSortChange when a sort option is selected', async () => {
@@ -128,7 +128,7 @@ describe('HeartsTab sort', () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
     renderWithProviders(<HeartsTab {...defaultProps} onSortChange={onSortChange} />);
-    await user.click(screen.getByRole('button', { name: /date hearted/i }));
+    await user.click(screen.getByRole('button', { name: /most hearts/i }));
     await user.click(screen.getByRole('menuitem', { name: /name a/i }));
     expect(onSortChange).toHaveBeenCalledWith('name');
   });
