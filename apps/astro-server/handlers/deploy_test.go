@@ -526,6 +526,7 @@ func TestEnrichDeployment_CacheHitPreservesSourceAccount(t *testing.T) {
 		accountStore,
 		nil,
 		nil,
+		nil,
 		dbDep,
 		nil,
 		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
@@ -596,6 +597,7 @@ func TestEnrichDeployment_FailedDBOverridesK8sStatus(t *testing.T) {
 		context.Background(),
 		log,
 		accountStore,
+		nil,
 		nil,
 		nil,
 		dbDep,
@@ -4468,7 +4470,7 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -5486,6 +5488,27 @@ func expectPinnedVersionFor(mock sqlmock.Sqlmock, accountID, agentName, buildID 
 			AddRow(buildID, accountID, specJSON, "", "", "[]", now, now))
 }
 
+// expectPrefillLineageValidated arms sqlmock with the publisher resolution
+// queries issued before generateTemplate runs: resolveSourceAccountName validates
+// the deployment tuple via Index.GetVersion, materializes account names via
+// AccountStore lookups, then resolveAgentForTemplate performs a fresh
+// source-account name lookup — generating multiple GetByName calls for the same
+// publisher name before generateTemplate issues its own resolver query.
+func expectPrefillLineageValidated(indexMock, accountMock sqlmock.Sqlmock, sourceAccountName, sourceAcctID, agentName, buildID string) {
+	expectAccountLookupFor(accountMock, sourceAccountName, sourceAcctID, sourceAccountName)
+	expectPinnedVersionFor(indexMock, sourceAcctID, agentName, buildID)
+	expectAccountLookupFor(accountMock, sourceAcctID, sourceAcctID, sourceAccountName)
+	expectAccountLookupFor(accountMock, sourceAccountName, sourceAcctID, sourceAccountName)
+}
+
+// expectPrefillLineageFromOwningAccountValidated covers legacy rows whose spec
+// omits source: validatedLineagePublisher falls back to the deployment's
+// account_id tuple check before resolving the publisher name via GetByID.
+func expectPrefillLineageFromOwningAccountValidated(indexMock, accountMock sqlmock.Sqlmock, acctID, accountName, agentName, buildID string) {
+	expectPinnedVersionFor(indexMock, acctID, agentName, buildID)
+	expectAccountLookupFor(accountMock, acctID, acctID, accountName)
+}
+
 // TestPostTemplate_CrossAccountPrefill_UsesSourceAccount covers the
 // cross-account shape: the deployment lives under the target account (URL)
 // but its spec carries source.account="publisher", and the pinned build
@@ -5509,9 +5532,9 @@ func TestPostTemplate_CrossAccountPrefill_UsesSourceAccount(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WithArgs(targetAcctID, "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectPrefillLineageValidated(indexMock, accountMock, "publisher", sourceAcctID, "my-agent", "build-1")
 	// generateTemplate resolves everything under "publisher"
 	// (source.account), not under "myorg" (URL account).
-	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
 	expectAgentLookupFor(indexMock, sourceAcctID, "my-agent", "public")
 	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", "build-1")
 	// GetDeploymentVariables (empty).
@@ -5581,9 +5604,9 @@ func TestPostTemplate_SameAccountPrefill(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WithArgs(acctID, "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	// source.account == "myorg" (the URL account), so the lookup happens
-	// under "myorg" — same query shape as a legacy record.
-	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
+	expectPrefillLineageValidated(indexMock, accountMock, "myorg", acctID, "my-agent", "build-1")
+	expectAgentLookup(indexMock, "public")
+	expectPinnedVersionFor(indexMock, acctID, "my-agent", "build-1")
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
@@ -5635,6 +5658,7 @@ func TestPostTemplate_LegacyPrefill_FallsBackToURLAccount(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WithArgs(acctID, "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectPrefillLineageFromOwningAccountValidated(indexMock, accountMock, acctID, "myorg", "my-agent", "build-1")
 	// SourceAccountFromSpec returns "", so generateTemplate uses
 	// c.Param("account") = "myorg" for both the agent and version lookups.
 	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
@@ -5688,10 +5712,7 @@ func TestPostTemplate_CrossAccountPrefill_AuthStaysOnDeploymentAccount(t *testin
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WithArgs(targetAcctID, "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
-	// Agent is private in the source account. An extra visibility check
-	// would call IsMember(source-acct, user-1); that query is intentionally
-	// not mocked so the test fails if it happens.
+	expectPrefillLineageValidated(indexMock, accountMock, "publisher", sourceAcctID, "my-agent", "build-1")
 	expectAgentLookupFor(indexMock, sourceAcctID, "my-agent", "private")
 	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", "build-1")
 	deployMock.ExpectQuery(`SELECT`).
@@ -5740,7 +5761,7 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WithArgs(targetAcctID, "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	expectAccountLookupFor(accountMock, "publisher", sourceAcctID, "publisher")
+	expectPrefillLineageValidated(indexMock, accountMock, "publisher", sourceAcctID, "my-agent", pinnedBuild)
 
 	// The source account has two builds — "build-new" (latest) and
 	// "build-old" (deployed). Index.Get lists them newest-first; the

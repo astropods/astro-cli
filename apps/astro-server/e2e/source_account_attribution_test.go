@@ -101,7 +101,7 @@ func setupSourceAccountFixture(t *testing.T) *sourceAccountFixture {
 	db := sourceAccountTestDB(t)
 	accountStore := account.NewAccountStore(db)
 	index := agentindex.NewIndexWithDB(db)
-	deployStore := ds.NewStore(db)
+	deployStore := ds.NewStore(db).WithLineageValidator(index)
 
 	userID := "user-srcacct-" + deployid.New()
 	targetName := "src-tgt-" + strings.ToLower(deployid.New())
@@ -128,6 +128,9 @@ func setupSourceAccountFixture(t *testing.T) *sourceAccountFixture {
 	registerAgent(t, index, publisherAcct, agentName, pubBuild)
 	registerAgent(t, index, targetAcct, agentName, tgtBuild)
 
+	legacyAgent := agentName + "-legacy"
+	registerAgent(t, index, publisherAcct, legacyAgent, pubBuild)
+
 	xAcctDep := saveSourceAccountDeployment(t, deployStore, ds.SaveDeploymentParams{
 		ID:              deployid.New(),
 		AccountID:       targetAcct.ID,
@@ -150,7 +153,6 @@ func setupSourceAccountFixture(t *testing.T) *sourceAccountFixture {
 		SpecJSON:        buildSourceAccountDeploymentSpecJSON(targetAcct.Name, targetAcct.Name, agentName, tgtBuild),
 	})
 
-	legacyAgent := agentName + "-legacy"
 	legacyDep := saveSourceAccountDeployment(t, deployStore, ds.SaveDeploymentParams{
 		ID:              deployid.New(),
 		AccountID:       targetAcct.ID,
@@ -164,7 +166,7 @@ func setupSourceAccountFixture(t *testing.T) *sourceAccountFixture {
 
 	return &sourceAccountFixture{
 		db:            db,
-		router:        newSourceAccountRouter(t, userID, accountStore, deployStore),
+		router:        newSourceAccountRouter(t, userID, accountStore, index, deployStore),
 		userID:        userID,
 		targetAcct:    targetAcct,
 		publisherAcct: publisherAcct,
@@ -234,7 +236,7 @@ func saveSourceAccountDeployment(t *testing.T, store *ds.Store, p ds.SaveDeploym
 	return dep
 }
 
-func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.AccountStore, deployStore *ds.Store) *gin.Engine {
+func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.AccountStore, index *agentindex.Index, deployStore *ds.Store) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
@@ -247,10 +249,10 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 		c.Next()
 	})
 	r.GET("/api/v1/deployments", handlers.ListDeployments(
-		log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil, k8scache.NoopCache{},
+		log, accountStore, cfg, k8sClient, deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	r.GET("/api/v1/deployments/:id", handlers.GetDeployment(
-		log, accountStore, cfg, k8sClient, deployStore, nil, nil, k8scache.NoopCache{},
+		log, accountStore, cfg, k8sClient, deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	return r
 }
@@ -433,6 +435,44 @@ func TestGetDeploymentE2E_CrossAccountSurfacesSourceAccount(t *testing.T) {
 	if got != fx.publisherAcct.Name {
 		t.Errorf("GetDeployment cross-account: source_account = %q, want %q",
 			got, fx.publisherAcct.Name)
+	}
+}
+
+func TestListDeploymentsE2E_StaleSourceIDWithoutTupleLeavesSourceAccountEmpty(t *testing.T) {
+	fx := setupSourceAccountFixture(t)
+	ghost := "ghost-build-" + deployid.New()
+	kindID := deployid.New()
+
+	t.Cleanup(func() {
+		_, _ = fx.db.Exec("DELETE FROM deployments WHERE id = $1", kindID)
+	})
+
+	_, err := fx.db.Exec(
+		`INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id,
+			namespace, display_name, deployment_spec_json, status, status_changed_at, deployed_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', NOW(), NOW())`,
+		kindID,
+		fx.targetAcct.ID,
+		fx.publisherAcct.ID,
+		fx.agentName,
+		ghost,
+		"astro-bad-src-"+deployid.Compact(deployid.New()),
+		"BadTuple",
+		buildSourceAccountDeploymentSpecJSON(fx.publisherAcct.Name, fx.targetAcct.Name, fx.agentName, ghost),
+	)
+	if err != nil {
+		t.Fatalf("insert bad-tuple deployment: %v", err)
+	}
+
+	resp := listDeployments(t, fx)
+	byID := indexByID(resp.Deployments)
+
+	badRow, ok := byID[kindID]
+	if !ok {
+		t.Fatal("seeded BadTuple deployment missing from response")
+	}
+	if raw, has := badRow["source_account"]; has && len(raw) > 0 {
+		t.Fatalf("expected empty/absent source_account for invalid tuple; got %s", string(raw))
 	}
 }
 

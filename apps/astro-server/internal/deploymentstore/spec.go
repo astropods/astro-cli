@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 // SourceAccountFromSpec extracts the source.account field from a deployment spec JSON.
@@ -32,12 +33,30 @@ func SourceAccountFromSpec(specJSON string) string {
 	return parsed.Source.Account
 }
 
+// EffectiveLineageValidator returns nil when v is an interface holding a nil
+// concrete pointer (e.g. var idx *agentindex.Index passed as LineageValidator),
+// which is not equal to an untyped nil interface in Go.
+func EffectiveLineageValidator(v LineageValidator) LineageValidator {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer && rv.IsNil() {
+		return nil
+	}
+	return v
+}
+
 // BackfillResult summarizes the outcome of BackfillSourceAccountIDs.
 type BackfillResult struct {
 	FromSpec   int // rows resolved via deployment_spec_json.source.account
 	FromSelf   int // rows for which the target account was used as fallback
 	SpecMisses int // rows with a source.account that did not match an accounts row
-	Scanned    int
+	// SkippedInvalidLineage counts tuple validation failures: when a spec-resolved
+	// account does not publish (agent_name, build_id), and when the owning-account
+	// fallback also fails (row left without source_account_id).
+	SkippedInvalidLineage int
+	Scanned               int
 }
 
 // BackfillSourceAccountIDs populates deployments.source_account_id for legacy
@@ -49,7 +68,7 @@ func (s *Store) BackfillSourceAccountIDs(ctx context.Context) (BackfillResult, e
 	var res BackfillResult
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, account_id, deployment_spec_json
+		SELECT id, account_id, agent_name, build_id, deployment_spec_json
 		FROM deployments
 		WHERE source_account_id IS NULL
 	`)
@@ -68,21 +87,49 @@ func (s *Store) BackfillSourceAccountIDs(ctx context.Context) (BackfillResult, e
 
 	for rows.Next() {
 		res.Scanned++
-		var id, accountID, specJSON string
-		if err := rows.Scan(&id, &accountID, &specJSON); err != nil {
+		var id, accountID, agentName, buildID, specJSON string
+		if err := rows.Scan(&id, &accountID, &agentName, &buildID, &specJSON); err != nil {
 			return res, fmt.Errorf("scan legacy deployment: %w", err)
+		}
+
+		validatePublisher := func(sourceAccountID string) bool {
+			if sourceAccountID == "" {
+				return false
+			}
+			ev := EffectiveLineageValidator(s.validator)
+			if ev == nil || agentName == "" || buildID == "" {
+				return true
+			}
+			return ev.ValidateLineage(sourceAccountID, agentName, buildID) == nil
+		}
+
+		appendFromSpec := func(sourceID string) {
+			toUpdate = append(toUpdate, pending{id: id, sourceAccountID: sourceID, fromSpec: true})
+		}
+
+		appendFromSelf := func() {
+			if validatePublisher(accountID) {
+				toUpdate = append(toUpdate, pending{id: id, accountID: accountID, sourceAccountID: accountID, fromSpec: false})
+				return
+			}
+			res.SkippedInvalidLineage++
 		}
 
 		if name := SourceAccountFromSpec(specJSON); name != "" {
 			var sourceID string
 			lookupErr := s.db.QueryRowContext(ctx, `SELECT id FROM accounts WHERE name = $1`, name).Scan(&sourceID)
 			if lookupErr == nil {
-				toUpdate = append(toUpdate, pending{id: id, sourceAccountID: sourceID, fromSpec: true})
-				continue
+				if validatePublisher(sourceID) {
+					appendFromSpec(sourceID)
+					continue
+				}
+				// Spec names a real account that does not publish this (agent_name, build_id).
+				res.SkippedInvalidLineage++
+			} else {
+				res.SpecMisses++
 			}
-			res.SpecMisses++
 		}
-		toUpdate = append(toUpdate, pending{id: id, accountID: accountID, sourceAccountID: accountID, fromSpec: false})
+		appendFromSelf()
 	}
 	if err := rows.Err(); err != nil {
 		return res, fmt.Errorf("iterate legacy deployments: %w", err)

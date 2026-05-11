@@ -1273,7 +1273,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		g, gctx := errgroup.WithContext(c.Request.Context())
 		for i, dbDep := range dbDeps {
 			g.Go(func() error {
-				enriched[i] = enrichDeployment(gctx, log, accountStore, k8sClient, deployStore, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
+				enriched[i] = enrichDeployment(gctx, log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
 				return nil
 			})
 		}
@@ -1344,6 +1344,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 // a single batch query against agent_versions. Looks up the lineage agent —
 // which is the source account when set, falling back to the owning account —
 // so cross-account deploys still see upgrade signals from the publisher.
+// `agentIdx` is used both for lineage tuple validation (via LineageValidator)
+// and for BatchLatestBuildIDs.
 //
 // Cross-account refs whose source blueprint is private are suppressed: the
 // deploy endpoint refuses to honor a private blueprint across an account
@@ -1352,8 +1354,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 //
 // Quietly leaves LatestBuildID empty on lookup failure rather than failing the
 // whole list response: this is a UX hint, not load-bearing data.
-func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, dbDeps []*deploymentstore.Deployment, deps []AgentDeployment) {
-	if index == nil || len(dbDeps) == 0 || len(deps) == 0 {
+func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, accountStore *account.AccountStore, dbDeps []*deploymentstore.Deployment, deps []AgentDeployment) {
+	if agentIdx == nil || len(dbDeps) == 0 || len(deps) == 0 {
 		return
 	}
 
@@ -1365,12 +1367,12 @@ func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, account
 	refSet := make(map[agentindex.AgentVersionRef]struct{})
 	crossAccountRefs := make(map[agentindex.AgentVersionRef]struct{})
 	for _, dbDep := range dbDeps {
-		acctID := lineageAccountID(log, accountStore, dbDep)
-		if acctID == "" || dbDep.AgentName == "" {
+		pubID, _ := validatedLineagePublisher(log, accountStore, agentIdx, dbDep)
+		if pubID == "" || dbDep.AgentName == "" {
 			continue
 		}
-		ref := agentindex.AgentVersionRef{AccountID: acctID, Name: dbDep.AgentName}
-		crossAccount := acctID != dbDep.AccountID
+		ref := agentindex.AgentVersionRef{AccountID: pubID, Name: dbDep.AgentName}
+		crossAccount := pubID != dbDep.AccountID
 		lineageByDepID[dbDep.ID] = lineageInfo{ref: ref, crossAccount: crossAccount}
 		refSet[ref] = struct{}{}
 		if crossAccount {
@@ -1385,7 +1387,7 @@ func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, account
 	for r := range refSet {
 		refs = append(refs, r)
 	}
-	latest, err := index.BatchLatestBuildIDs(refs)
+	latest, err := agentIdx.BatchLatestBuildIDs(refs)
 	if err != nil {
 		log.Warn("Failed to load latest build IDs for deployments", "error", err)
 		return
@@ -1398,7 +1400,7 @@ func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, account
 	// suppress those refs from the result map.
 	blockedRefs := make(map[agentindex.AgentVersionRef]struct{})
 	for ref := range crossAccountRefs {
-		agent, err := index.Get(ref.AccountID, ref.Name)
+		agent, err := agentIdx.Get(ref.AccountID, ref.Name)
 		if err != nil || agent == nil {
 			continue
 		}
@@ -1421,32 +1423,9 @@ func populateLatestBuildIDs(log *logger.Logger, index *agentindex.Index, account
 	}
 }
 
-// lineageAccountID returns the account_id whose agent_versions table holds
-// the upgrade signal for a deployment. Source account wins when populated
-// (cross-account deploys), otherwise the owning account is the publisher too.
-func lineageAccountID(log *logger.Logger, accountStore *account.AccountStore, dep *deploymentstore.Deployment) string {
-	if dep.SourceAccountID != nil && *dep.SourceAccountID != "" {
-		return *dep.SourceAccountID
-	}
-	if dep.AccountID != "" {
-		return dep.AccountID
-	}
-	// Pre-migration legacy: source account name lives in spec JSON; resolve
-	// it via the AccountStore so we have the ID for the join. Best-effort.
-	name := resolveSourceAccountName(log, accountStore, dep)
-	if name == "" || accountStore == nil {
-		return ""
-	}
-	acct, err := accountStore.GetByName(name)
-	if err != nil || acct == nil {
-		return ""
-	}
-	return acct.ID
-}
-
 // GetDeployment returns live K8s status for a single deployment.
 // GET /api/v1/deployments/:id
-func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -1464,7 +1443,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
+		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
 		result := deps[0]
 		// During a rolling build update the namespace contains workloads for both the old and
 		// new build ID. Pick the entry matching the DB's current build so the client always
@@ -1529,7 +1508,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
-func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStore, dep *deploymentstore.Deployment) AgentDeployment {
+func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, dep *deploymentstore.Deployment) AgentDeployment {
 	status := "error"
 	switch dep.Status {
 	case deploymentstore.StatusActive:
@@ -1547,7 +1526,7 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 		Name:          dep.AgentName,
 		DisplayName:   dep.DisplayName,
 		BuildID:       dep.BuildID,
-		SourceAccount: resolveSourceAccountName(log, accountStore, dep),
+		SourceAccount: resolveSourceAccountName(log, accountStore, v, dep),
 		Namespace:     dep.Namespace,
 		Status:        status,
 		Replicas:      0,
@@ -1579,12 +1558,11 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 // k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
 type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
 
-func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
+func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, v deploymentstore.LineageValidator, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
 	// Source account name resolved once per dbDep so the K8s and DB-only paths
-	// return identical SourceAccount values. Looked up via
-	// resolveSourceAccountName which prefers source_account_id and falls back to
-	// deployment_spec_json.source.account on legacy rows.
-	sourceAccount := resolveSourceAccountName(log, accountStore, dbDep)
+	// return identical SourceAccount values. Tuple validation (when wired)
+	// filters impossible lineage tuples before attribution.
+	sourceAccount := resolveSourceAccountName(log, accountStore, v, dbDep)
 
 	applyDBFields := func(deps []AgentDeployment, createdAt time.Time) {
 		for i := range deps {
@@ -1634,7 +1612,7 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *acc
 	}
 
 	dbOnly := func() []AgentDeployment {
-		entry := agentDeploymentFromDB(log, accountStore, dbDep)
+		entry := agentDeploymentFromDB(log, accountStore, v, dbDep)
 		entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
 		return []AgentDeployment{entry}
 	}
@@ -3040,18 +3018,99 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 // deployment. It prefers the deployments.source_account_id column (always
 // set on writes after the migration) and falls back to parsing
 // deployment_spec_json.source.account for legacy rows that predate the
-// column. Returns "" when neither source is available; callers treat that
-// as "same account" and use the URL account.
-func resolveSourceAccountName(log *logger.Logger, accountStore *account.AccountStore, d *deploymentstore.Deployment) string {
-	if d.SourceAccountID != nil && *d.SourceAccountID != "" {
-		if acct, err := accountStore.GetByID(*d.SourceAccountID); err == nil && acct != nil {
-			return acct.Name
-		} else if err != nil {
-			log.Warn("Failed to resolve source_account_id; falling back to spec JSON",
-				"deployment_id", d.ID, "source_account_id", *d.SourceAccountID, "error", err)
+// column, then the owning account_id. When `v` is wired, each candidate
+// publisher must pass ValidateLineage against (agent_name, build_id) or
+// attribution is suppressed. Returns "" when neither source is available;
+// callers treat that as "same account" and use the URL account.
+func resolveSourceAccountName(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, d *deploymentstore.Deployment) string {
+	_, name := validatedLineagePublisher(log, accountStore, v, d)
+	return name
+}
+
+// validatedLineagePublisher returns the publisher account UUID and display
+// name when lineage can be attributed. When `v` is nil or agent_name/build_id
+// are incomplete, tuple checks are skipped so older tests and sparse rows keep
+// pre-PR5 semantics.
+func validatedLineagePublisher(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, dep *deploymentstore.Deployment) (pubID string, pubName string) {
+	v = deploymentstore.EffectiveLineageValidator(v)
+	if accountStore == nil {
+		return "", ""
+	}
+
+	lineageChecksActive := func() bool {
+		return v != nil && dep.AgentName != "" && dep.BuildID != ""
+	}
+
+	tryTuple := func(candidateID string) bool {
+		if !lineageChecksActive() {
+			return true
+		}
+		if err := v.ValidateLineage(candidateID, dep.AgentName, dep.BuildID); err != nil {
+			log.Warn("Deployment lineage tuple invalid for candidate publisher account",
+				"deployment_id", dep.ID,
+				"candidate_account_id", candidateID,
+				"agent_name", dep.AgentName,
+				"build_id", dep.BuildID,
+				"error", err,
+			)
+			return false
+		}
+		return true
+	}
+
+	finalizePublisher := func(candidateID string) (pubID string, pubName string) {
+		acct, err := accountStore.GetByID(candidateID)
+		if err != nil {
+			log.Warn("Failed to resolve lineage publisher account id",
+				"deployment_id", dep.ID, "account_id", candidateID, "error", err)
+		}
+		if acct != nil {
+			return acct.ID, acct.Name
+		}
+		specName := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON)
+		if specName != "" {
+			return candidateID, specName
+		}
+		return candidateID, ""
+	}
+
+	// Pair a lineage-validated publisher id with display name once tryTuple succeeds.
+	publish := func(candidateID string) (string, string) {
+		if candidateID == "" || !tryTuple(candidateID) {
+			return "", ""
+		}
+		return finalizePublisher(candidateID)
+	}
+
+	if dep.SourceAccountID != nil && *dep.SourceAccountID != "" {
+		if id, name := publish(*dep.SourceAccountID); id != "" {
+			return id, name
 		}
 	}
-	return deploymentstore.SourceAccountFromSpec(d.DeploymentSpecJSON)
+
+	if srcName := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON); srcName != "" {
+		acct, err := accountStore.GetByName(srcName)
+		if err != nil {
+			log.Debug("Legacy spec source.account lookup failed",
+				"deployment_id", dep.ID,
+				"source_account_name", srcName,
+				"error", err,
+			)
+		}
+		if acct != nil {
+			candidateID := acct.ID
+			if lineageChecksActive() && !tryTuple(candidateID) {
+				// already logged in tryTuple — fall through to owning account candidate
+			} else if id, name := finalizePublisher(candidateID); id != "" {
+				return id, name
+			}
+		}
+	}
+
+	if dep.AccountID != "" {
+		return publish(dep.AccountID)
+	}
+	return "", ""
 }
 
 // resolveAgentForTemplate loads the account + agent used to build a
@@ -3258,7 +3317,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// When Revision > 0, prefillExisting.DeploymentSpecJSON already
 			// holds the historical revision's spec, so the JSON fallback
 			// picks up the source account as it was at that revision.
-			sourceAccountName := resolveSourceAccountName(log, accountStore, prefillExisting)
+			sourceAccountName := resolveSourceAccountName(log, accountStore, agentIndex, prefillExisting)
 			lookupAccountName := accountName
 			if sourceAccountName != "" {
 				lookupAccountName = sourceAccountName

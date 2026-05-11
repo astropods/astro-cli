@@ -62,10 +62,11 @@ func (s *Store) WithLineageValidator(v LineageValidator) *Store {
 // not via the validator). Callers wrap the returned error with their own
 // context.
 func (s *Store) validateLineage(p SaveDeploymentParams) error {
-	if s.validator == nil || p.SourceAccountID == "" {
+	v := EffectiveLineageValidator(s.validator)
+	if v == nil || p.SourceAccountID == "" {
 		return nil
 	}
-	if err := s.validator.ValidateLineage(p.SourceAccountID, p.AgentName, p.BuildID); err != nil {
+	if err := v.ValidateLineage(p.SourceAccountID, p.AgentName, p.BuildID); err != nil {
 		return fmt.Errorf("lineage validation failed for %s/%s@%s: %w",
 			p.SourceAccountID, p.AgentName, p.BuildID, err)
 	}

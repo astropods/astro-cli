@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	_ "github.com/lib/pq"
@@ -24,6 +26,10 @@ cover every decision branch it has:
  3. spec omits source                              → fall back to own account_id (FromSelf++).
  4. spec is malformed JSON                         → fall back to own account_id (FromSelf++).
  5. source_account_id already set                  → row untouched; re-run is a no-op.
+ 6. spec names a real publisher without this build on source → fall back to the
+    owning account when that account’s tuple validates (FromSelf++); increment
+    SkippedInvalidLineage for the rejected spec publisher.
+
 
 The idempotency case is the important one: the backfill must never
 clobber a value that a newer write has already stored, because new deploy
@@ -34,15 +40,18 @@ predicate is the only thing protecting those writes from a later backfill.
 type backfillFixture struct {
 	db         *sql.DB
 	store      *ds.Store
+	index      *agentindex.Index
 	sourceID   string
 	sourceName string
 	targetID   string
+	targetName string
 }
 
 func setupBackfillFixture(t *testing.T) *backfillFixture {
 	t.Helper()
 	db := testDB(t)
-	store := ds.NewStore(db)
+	index := agentindex.NewIndexWithDB(db)
+	store := ds.NewStore(db).WithLineageValidator(index)
 
 	sourceName := "bf-src-" + strings.ToLower(deployid.New())
 	var sourceID string
@@ -66,10 +75,28 @@ func setupBackfillFixture(t *testing.T) *backfillFixture {
 		_, _ = db.Exec("DELETE FROM accounts WHERE id IN ($1, $2)", sourceID, targetID)
 	})
 
+	srcAcct := &account.Account{ID: sourceID, Name: sourceName}
+	tgtAcct := &account.Account{ID: targetID, Name: targetName}
+	registerBackfillAgent(t, index, srcAcct, "bf-agent", "bf-build-1")
+	registerBackfillAgent(t, index, tgtAcct, "bf-agent", "bf-build-1")
+
 	return &backfillFixture{
-		db: db, store: store,
+		db: db, store: store, index: index,
 		sourceID: sourceID, sourceName: sourceName,
-		targetID: targetID,
+		targetID: targetID, targetName: targetName,
+	}
+}
+
+func registerBackfillAgent(t *testing.T, index *agentindex.Index, acct *account.Account, name, buildID string) {
+	t.Helper()
+	specMap := map[string]any{
+		"name": name,
+		"agent": map[string]any{
+			"image": "registry.io/" + acct.Name + "/" + name + ":" + buildID,
+		},
+	}
+	if err := index.Register(acct.ID, name, buildID, "registry.io", acct.Name, specMap, "", "", ""); err != nil {
+		t.Fatalf("register agent %s/%s@%s: %v", acct.Name, name, buildID, err)
 	}
 }
 
@@ -87,6 +114,24 @@ func insertLegacyDeployment(t *testing.T, db *sql.DB, targetID, specJSON string,
 			namespace, display_name, deployment_spec_json, status, status_changed_at, deployed_at)
 		VALUES ($1, $2, $3, 'bf-agent', 'bf-build-1', $4, 'BF', $5, 'active', NOW(), NOW())
 	`, id, targetID, preset, "ns-"+id, specJSON)
+	if err != nil {
+		t.Fatalf("insert deployment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM deployments WHERE id = $1", id)
+	})
+	return id
+}
+
+// insertLegacyDeploymentWithBuild inserts a legacy row with arbitrary agent/build columns.
+func insertLegacyDeploymentWithBuild(t *testing.T, db *sql.DB, targetID, agentName, buildID, specJSON string, preset *string) string {
+	t.Helper()
+	id := deployid.New()
+	_, err := db.Exec(`
+		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id,
+			namespace, display_name, deployment_spec_json, status, status_changed_at, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'BF', $7, 'active', NOW(), NOW())
+	`, id, targetID, preset, agentName, buildID, "ns-"+id, specJSON)
 	if err != nil {
 		t.Fatalf("insert deployment: %v", err)
 	}
@@ -219,5 +264,46 @@ func TestBackfillSourceAccountIDs_ReRunIsNoOpForSameFixture(t *testing.T) {
 	after := readSourceAccountID(t, fx.db, legacyID)
 	if after == nil || *after != *first {
 		t.Errorf("re-run changed value: first=%q after=%v", *first, after)
+	}
+}
+
+func TestBackfillSourceAccountIDs_SpecNamesPublisherButRowBuildNotOnPublisher(t *testing.T) {
+	fx := setupBackfillFixture(t)
+	specJSON := `{"source":{"account":"` + fx.sourceName + `","name":"bf-agent","build":"bf-build-1"}}`
+	// Row pins bf-agent@(ghost) — only registered on target, not source — while spec.names source.
+	ghost := "bf-ghost-" + strings.ToLower(deployid.New())
+	tgtAcct := &account.Account{ID: fx.targetID, Name: fx.targetName}
+	registerBackfillAgent(t, fx.index, tgtAcct, "bf-agent", ghost)
+	depID := insertLegacyDeploymentWithBuild(t, fx.db, fx.targetID, "bf-agent", ghost, specJSON, nil)
+
+	res, err := fx.store.BackfillSourceAccountIDs(context.Background())
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if res.FromSelf == 0 {
+		t.Fatalf("expected FromSelf > 0, got %+v", res)
+	}
+	got := readSourceAccountID(t, fx.db, depID)
+	if got == nil || *got != fx.targetID {
+		t.Fatalf("want target fallback publisher %q; got %v res=%+v", fx.targetID, got, res)
+	}
+}
+
+func TestBackfillSourceAccountIDs_SkipWhenOwningTupleAbsent(t *testing.T) {
+	fx := setupBackfillFixture(t)
+	specJSON := `{"spec":"v1"}`
+	ghost := "bf-ghost-" + strings.ToLower(deployid.New())
+	depID := insertLegacyDeploymentWithBuild(t, fx.db, fx.targetID, "bf-agent", ghost, specJSON, nil)
+
+	res, err := fx.store.BackfillSourceAccountIDs(context.Background())
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if res.SkippedInvalidLineage == 0 {
+		t.Fatalf("expected SkippedInvalidLineage > 0, got %+v", res)
+	}
+	got := readSourceAccountID(t, fx.db, depID)
+	if got != nil {
+		t.Fatalf("expected NULL source_account_id, got %v res=%+v", *got, res)
 	}
 }
