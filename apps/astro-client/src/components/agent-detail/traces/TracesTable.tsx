@@ -2,10 +2,20 @@ import { useState, useMemo } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  MultiSelect,
+  MultiSelectTrigger,
+  MultiSelectValue,
+  MultiSelectContent,
+  MultiSelectAllItem,
+  MultiSelectItem,
+} from "@/components/ui/multi-select";
 import type { TraceEntry } from "@/lib/api";
 import {
   type TraceStatus,
   STATUS_CONFIG,
+  STATUS_BADGE_COLOR,
   normalizeStatus,
   formatTimestamp,
   formatLatency,
@@ -13,52 +23,11 @@ import {
 } from "./trace-utils";
 
 const ALL_STATUSES: TraceStatus[] = ["success", "error", "timeout"];
+const STATUS_OPTIONS = ALL_STATUSES.map((s) => ({
+  value: s,
+  label: STATUS_CONFIG[s].label,
+}));
 const DEFAULT_VISIBLE = 10;
-
-// ---------------------------------------------------------------------------
-// Status filter
-// ---------------------------------------------------------------------------
-
-function StatusFilter({
-  selected,
-  onToggle,
-}: {
-  selected: Set<TraceStatus>;
-  onToggle: (s: TraceStatus) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      {ALL_STATUSES.map((s) => {
-        const cfg = STATUS_CONFIG[s];
-        const active = selected.has(s);
-        return (
-          <button
-            key={s}
-            onClick={() => onToggle(s)}
-            className="cursor-pointer transition-opacity hover:opacity-80"
-          >
-            <span
-              className="inline-flex items-center gap-[5px] rounded border pl-[6px] pr-[10px] py-1 font-mono text-label font-normal tracking-[0.06em]"
-              style={{
-                background: active ? cfg.bg : "transparent",
-                borderColor: cfg.bdr,
-                color: cfg.fg,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={active}
-                readOnly
-                className="pointer-events-none size-3 shrink-0 appearance-none rounded-[2px] border border-current bg-transparent accent-primary checked:appearance-auto"
-              />
-              {cfg.label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Table
@@ -77,30 +46,18 @@ export function TracesTable({
   selectedTraceId,
   onSelectTrace,
 }: TracesTableProps) {
-  const [activeStatuses, setActiveStatuses] = useState<Set<TraceStatus>>(
-    () => new Set(ALL_STATUSES),
-  );
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
 
   const filtered = useMemo(
-    () => traces.filter((t) => activeStatuses.has(normalizeStatus(t.status))),
-    [traces, activeStatuses],
+    () => selectedStatuses.length === 0
+      ? traces
+      : traces.filter((t) => selectedStatuses.includes(normalizeStatus(t.status))),
+    [traces, selectedStatuses],
   );
 
   const visible = expanded ? filtered : filtered.slice(0, DEFAULT_VISIBLE);
   const hiddenCount = filtered.length - DEFAULT_VISIBLE;
-
-  function toggleStatus(s: TraceStatus) {
-    setActiveStatuses((prev) => {
-      const next = new Set(prev);
-      if (next.has(s)) {
-        if (next.size > 1) next.delete(s);
-      } else {
-        next.add(s);
-      }
-      return next;
-    });
-  }
 
   return (
     <div
@@ -108,7 +65,22 @@ export function TracesTable({
     >
       {/* Filter bar */}
       <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <StatusFilter selected={activeStatuses} onToggle={toggleStatus} />
+        <MultiSelect value={selectedStatuses} onValueChange={setSelectedStatuses}>
+          <MultiSelectTrigger className="h-8 w-44 text-body-sm">
+            <MultiSelectValue
+              options={STATUS_OPTIONS}
+              placeholder="All statuses"
+            />
+          </MultiSelectTrigger>
+          <MultiSelectContent>
+            <MultiSelectAllItem>All statuses</MultiSelectAllItem>
+            {STATUS_OPTIONS.map((opt) => (
+              <MultiSelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </MultiSelectItem>
+            ))}
+          </MultiSelectContent>
+        </MultiSelect>
         <span className="text-mono-sm text-muted-foreground">
           {filtered.length} trace{filtered.length !== 1 ? "s" : ""}
         </span>
@@ -155,12 +127,9 @@ export function TracesTable({
                         {formatTimestamp(trace.timestamp)}
                       </td>
                       <td className="px-4 py-2.5">
-                      <span
-                        className="inline-flex items-center gap-[5px] rounded border pl-[6px] pr-[10px] py-1 font-mono text-label font-normal tracking-[0.06em]"
-                        style={{ background: cfg.bg, borderColor: cfg.bdr, color: cfg.fg }}
-                      >
-                        {cfg.label}
-                      </span>
+                        <StatusBadge color={STATUS_BADGE_COLOR[status]}>
+                          {cfg.label}
+                        </StatusBadge>
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-foreground">
                         {formatLatency(trace.latency_ms)}

@@ -1,26 +1,19 @@
 // Shared helpers for trace status display, formatting, and normalisation.
 
+import type { StatusBadgeColor } from "@/components/StatusBadge";
+
 export type TraceStatus = "success" | "error" | "timeout";
 
-export const STATUS_CONFIG: Record<TraceStatus, { label: string; bg: string; bdr: string; fg: string }> = {
-  success: {
-    label: "Success",
-    bg: "color-mix(in oklch, var(--color-green-600) 12%, transparent)",
-    bdr: "color-mix(in oklch, var(--color-green-600) 28%, transparent)",
-    fg: "var(--color-green-600)",
-  },
-  error: {
-    label: "Error",
-    bg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
-    bdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
-    fg: "var(--color-coral-600)",
-  },
-  timeout: {
-    label: "Timeout",
-    bg: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
-    bdr: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
-    fg: "var(--color-yellow-600)",
-  },
+export const STATUS_BADGE_COLOR: Record<TraceStatus, StatusBadgeColor> = {
+  success: "success",
+  error: "error",
+  timeout: "warning",
+};
+
+export const STATUS_CONFIG: Record<TraceStatus, { label: string }> = {
+  success: { label: "Success" },
+  error: { label: "Error" },
+  timeout: { label: "Timeout" },
 };
 
 export function normalizeStatus(raw: string): TraceStatus {

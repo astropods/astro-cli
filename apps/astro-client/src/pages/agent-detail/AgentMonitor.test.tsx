@@ -310,14 +310,13 @@ describe("user filters traces by status", () => {
     });
   }
 
-  it("toggling Error filter shows only error traces", async () => {
+  it("selecting Error from the dropdown shows only error traces", async () => {
     setupFilterTraces();
     const { user } = renderMonitor();
     expect(await screen.findByText("4 traces")).toBeInTheDocument();
 
-    // Uncheck Success and Timeout to leave only Error
-    await user.click(screen.getByRole("button", { name: /success/i }));
-    await user.click(screen.getByRole("button", { name: /timeout/i }));
+    await user.click(screen.getByRole("button", { name: /all statuses/i }));
+    await user.click(screen.getByRole("button", { name: /^error$/i }));
 
     await waitFor(() => {
       expect(screen.getByText("1 trace")).toBeInTheDocument();
@@ -326,19 +325,17 @@ describe("user filters traces by status", () => {
     expect(screen.queryByText("t-ok-1")).not.toBeInTheDocument();
   });
 
-  it("cannot deselect the last remaining status filter", async () => {
+  it("clicking All statuses returns to showing every trace", async () => {
     setupFilterTraces();
     const { user } = renderMonitor();
     await screen.findByText("4 traces");
 
-    // Uncheck two, leaving only Error
-    await user.click(screen.getByRole("button", { name: /success/i }));
-    await user.click(screen.getByRole("button", { name: /timeout/i }));
+    await user.click(screen.getByRole("button", { name: /all statuses/i }));
+    await user.click(screen.getByRole("button", { name: /^error$/i }));
     await waitFor(() => expect(screen.getByText("1 trace")).toBeInTheDocument());
 
-    // Try to uncheck Error — should remain checked (at least 1 must stay)
-    await user.click(screen.getByRole("button", { name: /error/i }));
-    expect(screen.getByText("1 trace")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /all statuses/i }));
+    await waitFor(() => expect(screen.getByText("4 traces")).toBeInTheDocument());
   });
 });
 

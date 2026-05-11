@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils';
 export type StatusBadgeColor = 'success' | 'warning' | 'error' | 'muted';
 
 const COLOR: Record<StatusBadgeColor, { bg: string; bdr: string; fg: string }> = {
-  success: { bg: 'color-mix(in oklch, var(--success) 12%, transparent)',           bdr: 'color-mix(in oklch, var(--success) 28%, transparent)',           fg: 'var(--success)'          },
-  warning: { bg: 'color-mix(in oklch, var(--color-yellow-500) 12%, transparent)', bdr: 'color-mix(in oklch, var(--color-yellow-500) 28%, transparent)', fg: 'var(--color-yellow-600)' },
-  error:   { bg: 'color-mix(in oklch, var(--color-coral-600) 12%, transparent)',  bdr: 'color-mix(in oklch, var(--color-coral-600) 28%, transparent)',  fg: 'var(--color-coral-600)'  },
+  success: { bg: 'color-mix(in oklch, var(--success) 12%, transparent)', bdr: 'color-mix(in oklch, var(--success) 28%, transparent)', fg: 'var(--success)' },
+  warning: { bg: 'color-mix(in oklch, var(--warning) 12%, transparent)', bdr: 'color-mix(in oklch, var(--warning) 28%, transparent)', fg: 'var(--warning)' },
+  error:   { bg: 'color-mix(in oklch, var(--error) 12%, transparent)',   bdr: 'color-mix(in oklch, var(--error) 28%, transparent)',   fg: 'var(--error)'   },
   muted:   { bg: 'var(--muted)',                                                   bdr: 'var(--border)',                                                  fg: 'var(--muted-foreground)' },
 };
 

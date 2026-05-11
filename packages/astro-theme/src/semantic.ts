@@ -42,6 +42,8 @@ export const lightTheme = {
   "input-focus-ring": "color-mix(in oklch, var(--color-slate-600) 20%, transparent)",
   ring: "var(--color-slate-500)",
   success: "var(--color-green-600)",
+  warning: "var(--color-yellow-600)",
+  error: "var(--color-coral-600)",
 } as const;
 
 export type SemanticToken = keyof typeof lightTheme;
@@ -72,4 +74,6 @@ export const darkTheme: Record<SemanticToken, string> = {
   "input-focus-ring": "color-mix(in oklch, var(--color-slate-400) 15%, transparent)",
   ring: "var(--color-slate-500)",
   success: "var(--color-green-400)",
+  warning: "var(--color-yellow-400)",
+  error: "var(--color-coral-400)",
 };
