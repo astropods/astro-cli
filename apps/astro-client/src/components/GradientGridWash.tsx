@@ -58,7 +58,7 @@ export function GradientGridWash({ colors, opacity = 1, className }: GradientGri
       <svg className="absolute inset-0 hidden h-full w-full dark:block" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <pattern id={darkId} width="8" height="8" patternUnits="userSpaceOnUse">
-            <path d="M 8 0 L 0 0 0 8" fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.4" />
+            <path d="M 8 0 L 0 0 0 8" fill="none" stroke={gridColor} strokeWidth="0.5" strokeOpacity="0.2" />
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill={`url(#${darkId})`} />
