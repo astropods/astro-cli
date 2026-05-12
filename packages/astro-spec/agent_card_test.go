@@ -189,7 +189,7 @@ description: "Unclosed"
 			},
 		},
 		{
-			name: "frontmatter only no trailing newline",
+			name:    "frontmatter only no trailing newline",
 			content: "---\ndescription: \"test\"\n---",
 			check: func(t *testing.T, p *ParsedAgentCard) {
 				if p.Description != "test" {
@@ -414,6 +414,46 @@ func TestParseAgentCard_CapabilityTruncation(t *testing.T) {
 	}
 	if result.Capabilities[1] != "short" {
 		t.Errorf("Capabilities[1] = %q, want %q", result.Capabilities[1], "short")
+	}
+}
+
+func TestParseAgentCard_AuthorStringShorthand(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []AgentCardAuthor
+	}{
+		{
+			name:    "inline JSON-style string array",
+			content: "---\nauthors: [\"test\"]\n---\n",
+			want:    []AgentCardAuthor{{Name: "test"}},
+		},
+		{
+			name:    "block sequence of plain strings",
+			content: "---\nauthors:\n  - Alice\n  - Bob\n---\n",
+			want:    []AgentCardAuthor{{Name: "Alice"}, {Name: "Bob"}},
+		},
+		{
+			name:    "mixed strings and objects",
+			content: "---\nauthors:\n  - Alice\n  - name: Bob\n    account: bobsmith\n---\n",
+			want:    []AgentCardAuthor{{Name: "Alice"}, {Name: "Bob", Account: "bobsmith"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ParseAgentCard(tt.content)
+			if err != nil {
+				t.Fatalf("ParseAgentCard() error = %v", err)
+			}
+			if len(result.Authors) != len(tt.want) {
+				t.Fatalf("len(Authors) = %d, want %d: %v", len(result.Authors), len(tt.want), result.Authors)
+			}
+			for i, want := range tt.want {
+				if result.Authors[i] != want {
+					t.Errorf("Authors[%d] = %+v, want %+v", i, result.Authors[i], want)
+				}
+			}
+		})
 	}
 }
 

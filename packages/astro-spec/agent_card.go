@@ -124,6 +124,23 @@ type AgentCardAuthor struct {
 	Account string `json:"account,omitempty" yaml:"account,omitempty"`
 }
 
+// UnmarshalYAML implements custom YAML unmarshaling for AgentCardAuthor,
+// accepting both a plain string (used as Name) and an object form.
+func (a *AgentCardAuthor) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		a.Name = value.Value
+		return nil
+	}
+
+	type plain AgentCardAuthor
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	*a = AgentCardAuthor(p)
+	return nil
+}
+
 // KnownIntegration represents an entry in the known integrations registry.
 type KnownIntegration struct {
 	ID      string   `json:"id"`
