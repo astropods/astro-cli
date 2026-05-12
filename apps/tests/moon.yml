@@ -1,0 +1,9 @@
+layer: "application"
+language: "unknown"
+
+tasks:
+  smoke:
+    command: "bash $MOON_WORKSPACE_ROOT/scripts/smoke-test.sh"
+    options:
+      cache: false
+      runInCI: false

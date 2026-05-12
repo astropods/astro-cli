@@ -1,10 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { CLI_STATE_FILE } from "./cli-state";
 import { envConfig } from "./env";
 
-const BLUEPRINT_URL = "/astro-testbot/hello-astro";
+const username = envConfig.username;
+const BLUEPRINT_URL = `/${username}/hello-astro`;
 
 test.describe("blueprint deploy", () => {
   test.beforeEach(async ({ page }) => {
@@ -29,7 +30,7 @@ test.describe("hello-astro deploy flow", () => {
   test("deploy button opens deploy flow for authenticated user", async ({ page }) => {
     await page.goto(BLUEPRINT_URL, { waitUntil: "load" });
     await page.getByRole("link", { name: /deploy this agent/i }).last().click();
-    await page.waitForURL(/\/deploy\/astro-testbot\/hello-astro/, { timeout: 15000 });
+    await page.waitForURL(new RegExp(`/deploy/${username}/hello-astro`), { timeout: 15000 });
     await expect(page).not.toHaveURL(envConfig.loginUrlPattern);
     await page.getByRole("button", { name: /^deploy$/i }).click();
 
@@ -39,8 +40,10 @@ test.describe("hello-astro deploy flow", () => {
 
     // Navigate to the deployment and capture the slug
     await page.getByRole("button", { name: /view deployment/i }).click();
-    await page.waitForURL(/\/astro-testbot\/agents\/[a-z0-9-]+/, { timeout: 15000 });
-    deploymentSlug = page.url().split("/").pop()!;
+    await page.waitForURL(new RegExp(`/${username}/agents/[a-z0-9-]+`), { timeout: 15000 });
+    const slugMatch = page.url().match(new RegExp(`/${username}/agents/([a-z0-9-]+)`));
+    expect(slugMatch, `URL ${page.url()} did not match expected deployment path /${username}/agents/<slug>`).toBeTruthy();
+    deploymentSlug = slugMatch![1];
     console.log("deploymentSlug:", deploymentSlug);
 
     // Persist slug so cli.teardown can verify it in ast agent list

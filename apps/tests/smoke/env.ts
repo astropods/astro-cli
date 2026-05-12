@@ -8,6 +8,7 @@ interface SmokeEnvConfig {
   minExploreCards: number;
   minWeatherPoetDeploys: number;
   authorDisplayName: RegExp;
+  username: string;
 }
 
 const prod: SmokeEnvConfig = {
@@ -20,6 +21,7 @@ const prod: SmokeEnvConfig = {
   minExploreCards: 7,
   minWeatherPoetDeploys: 1,
   authorDisplayName: /Rodric Rabbah/,
+  username: "astro-testbot",
 };
 
 const preview: SmokeEnvConfig = {
@@ -32,7 +34,27 @@ const preview: SmokeEnvConfig = {
   minExploreCards: 5,
   minWeatherPoetDeploys: 1,
   authorDisplayName: /r r/,
+  username: "astro-testbot",
 };
 
+const dev: SmokeEnvConfig = {
+  ...preview,
+  apiDomain: "localhost",
+  appBaseUrl: "http://localhost",
+  cliName: "ast-dev",
+  minExploreCards: 0,
+  minWeatherPoetDeploys: 0,
+  authorDisplayName: /.*/,
+  username: process.env.ASTRO_TEST_USERNAME ?? "",
+};
+
+const ASTRO_ENV = process.env.ASTRO_ENV;
+if (ASTRO_ENV !== "dev" && ASTRO_ENV !== "preview" && ASTRO_ENV !== "prod") {
+  throw new Error(
+    `ASTRO_ENV must be "dev", "preview", or "prod" (got ${JSON.stringify(ASTRO_ENV)}). ` +
+    `Run via "moon run tests:smoke" or set ASTRO_ENV explicitly.`
+  );
+}
+
 export const envConfig: SmokeEnvConfig =
-  process.env.ASTRO_ENV === "preview" ? preview : prod;
+  ASTRO_ENV === "prod" ? prod : ASTRO_ENV === "preview" ? preview : dev;

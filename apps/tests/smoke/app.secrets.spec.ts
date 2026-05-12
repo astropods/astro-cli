@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 test.describe("settings — variables & secrets", () => {
   test("profile avatar shows picture and can navigate to add variables", async ({ page }) => {
@@ -51,13 +51,14 @@ test.describe("settings — variables & secrets", () => {
     await expect(page.getByRole("heading", { name: "New variable" })).not.toBeVisible();
 
     // ANTHROPIC_API_KEY — secret: key name visible, value masked as dots, raw value never exposed
-    await expect(page.getByText("ANTHROPIC_API_KEY")).toBeVisible();
-    await expect(page.getByText("••••••••")).toBeVisible();
+    const anthropicRow = page.getByRole("row").filter({ hasText: /ANTHROPIC_API_KEY/ });
+    await expect(anthropicRow).toBeVisible();
+    await expect(anthropicRow.getByText("••••••••")).toBeVisible();
     await expect(page.getByText("sk_abc123")).not.toBeVisible();
 
     // WEATHER_API_KEY — non-secret: key name visible, plain text value shown
-    await expect(page.getByText("WEATHER_API_KEY")).toBeVisible();
-    await expect(page.getByText("the-key-in-pt")).toBeVisible();
+    await expect(page.getByText("WEATHER_API_KEY", { exact: true })).toBeVisible();
+    await expect(page.getByText("the-key-in-pt", { exact: true })).toBeVisible();
   });
 });
 
@@ -66,8 +67,12 @@ test.describe("weather-poet deploy", () => {
     await page.goto("/rabbah/weather-poet", { waitUntil: "load" });
 
     // Authenticated — clicking deploy goes directly to the deploy page, not login
-    await page.getByRole("link", { name: /deploy this agent/i }).last().click();
-    await page.waitForURL(/deploy\/rabbah\/weather-poet/, { timeout: 15000 });
+    await Promise.all([
+      page.waitForURL(/deploy\/rabbah\/weather-poet/, { timeout: 15000 }),
+      page.getByRole("link", { name: /deploy this agent/i }).last().click(),
+    ]);
+
+    await page.waitForLoadState("networkidle");
 
     // Configuration section is present
     await expect(page.getByText("Configuration", { exact: true })).toBeVisible();

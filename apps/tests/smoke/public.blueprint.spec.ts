@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { envConfig } from "./env";
 
 test.describe("weather-poet detail page", () => {

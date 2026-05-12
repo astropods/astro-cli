@@ -3,8 +3,7 @@ name: Smoke tests
 on:
   pull_request:
     paths:
-      - "tests/smoke/**"
-      - "playwright.prod.config.ts"
+      - "apps/tests/smoke/**"
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
@@ -59,7 +58,7 @@ jobs:
           ASTRO_TEST_PASSWORD: ${{ secrets.ASTRO_TEST_PASSWORD }}
           ASTRO_TEST_HOST: ${{ inputs.astro_test_host || 'https://astropods.com' }}
           ASTRO_ENV: ${{ inputs.astro_env || 'prod' }}
-        run: bunx playwright test --config=playwright.prod.config.ts
+        run: bunx playwright test --config=apps/tests/smoke/playwright.smoke.config.ts
 
       - name: Upload traces and screenshots
         if: failure()

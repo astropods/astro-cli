@@ -1,16 +1,18 @@
+import path from "path";
 import { defineConfig } from "@playwright/test";
-import { envConfig } from "./tests/smoke/env";
+import { envConfig } from "./env";
 
 const isPreview = process.env.ASTRO_ENV === "preview";
+const isDev = process.env.ASTRO_ENV === "dev";
+const authFile = path.join(import.meta.dirname, "playwright/.auth/user.json");
 
 export default defineConfig({
-  testDir: "./tests/smoke",
-  dotEnvPath: ".env.local",
+  testDir: ".",
   timeout: 60000,
   retries: 1,
   workers: 2,
   use: {
-    baseURL: process.env.ASTRO_TEST_HOST ?? envConfig.appBaseUrl,
+    baseURL: process.env.ASTRO_TEST_HOST || envConfig.appBaseUrl,
     headless: true,
     actionTimeout: 10000,
     navigationTimeout: 30000,
@@ -26,19 +28,23 @@ export default defineConfig({
       use: { browserName: "chromium" },
     },
 
-    // 2. Marketing site — no auth required, runs in parallel with setup.
-    {
-      name: "marketing-site",
-      testMatch: "**/public.spec.ts",
-      use: { browserName: "chromium" },
-    },
+    // 2. Marketing site — no auth required, runs in parallel with setup. Skipped on dev.
+    ...(!isDev
+      ? [
+          {
+            name: "marketing-site",
+            testMatch: "**/public.spec.ts",
+            use: { browserName: "chromium" },
+          },
 
-    // 3. Blueprint pages — no auth required, runs in all environments.
-    {
-      name: "blueprints",
-      testMatch: "**/public.blueprint.spec.ts",
-      use: { browserName: "chromium" },
-    },
+          // 3. Blueprint pages — no auth required, runs in all environments except dev.
+          {
+            name: "blueprints",
+            testMatch: "**/public.blueprint.spec.ts",
+            use: { browserName: "chromium" },
+          },
+        ]
+      : []),
 
     // 4. Auth smoke test — just needs a valid session. Runs before CLI and app tests.
     {
@@ -47,7 +53,7 @@ export default defineConfig({
       dependencies: ["setup"],
       use: {
         browserName: "chromium",
-        storageState: "playwright/.auth/user.json",
+        storageState: authFile,
       },
     },
 
@@ -65,7 +71,7 @@ export default defineConfig({
             teardown: "cli-teardown",
             use: {
               browserName: "chromium",
-              storageState: "playwright/.auth/user.json",
+              storageState: authFile,
             },
           },
 
@@ -84,7 +90,7 @@ export default defineConfig({
             dependencies: ["cli"],
             use: {
               browserName: "chromium",
-              storageState: "playwright/.auth/user.json",
+              storageState: authFile,
             },
           },
 
@@ -103,7 +109,7 @@ export default defineConfig({
             dependencies: ["app.deploy"],
             use: {
               browserName: "chromium",
-              storageState: "playwright/.auth/user.json",
+              storageState: authFile,
             },
           },
         ]
@@ -117,7 +123,7 @@ export default defineConfig({
     //   dependencies: ["app.post-deploy"],
     //   use: {
     //     browserName: "chromium",
-    //     storageState: "playwright/.auth/user.json",
+    //     storageState: authFile,
     //   },
     // },
 
@@ -128,7 +134,7 @@ export default defineConfig({
       dependencies: ["auth"],
       use: {
         browserName: "chromium",
-        storageState: "playwright/.auth/user.json",
+        storageState: authFile,
       },
     },
   ],

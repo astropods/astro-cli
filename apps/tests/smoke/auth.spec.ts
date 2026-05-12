@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { envConfig } from "./env";
 
 // Smoke test: verifies the saved auth session actually grants access to the app.

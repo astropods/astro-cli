@@ -1,14 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { existsSync, readFileSync, rmSync } from "fs";
-import { join } from "path";
 import { CLI_STATE_FILE, exec } from "./cli-state";
-import { envConfig } from "./env";
 
 test("archive hello-astro and clean up sandbox", () => {
   if (!existsSync(CLI_STATE_FILE)) return;
 
-  const { fakeHome, pushSucceeded } = JSON.parse(readFileSync(CLI_STATE_FILE, "utf-8"));
-  const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
+  const { fakeHome, astBin, pushSucceeded } = JSON.parse(readFileSync(CLI_STATE_FILE, "utf-8"));
 
   if (pushSucceeded) {
     const archiveResult = exec(`${astBin} bp archive hello-astro`, {

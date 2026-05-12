@@ -1,11 +1,12 @@
 // The test account must be on the WorkOS captcha bypass allow list, otherwise login
 // will be blocked by a CAPTCHA challenge. To add an account:
 // WorkOS Dashboard → Radar → Configuration → Users (under Custom lists)
+import path from "path";
 import { test as setup } from "@playwright/test";
 import { mkdir } from "fs/promises";
 import { envConfig } from "./env";
 
-export const authFile = "playwright/.auth/user.json";
+export const authFile = path.join(import.meta.dirname, "playwright/.auth/user.json");
 
 setup("authenticate", async ({ page }) => {
   const email = process.env.ASTRO_TEST_EMAIL;
@@ -15,7 +16,7 @@ setup("authenticate", async ({ page }) => {
     throw new Error("ASTRO_TEST_EMAIL / ASTRO_TEST_PASSWORD not set — all app-site tests will be skipped");
   }
 
-  await mkdir("playwright/.auth", { recursive: true });
+  await mkdir(path.join(import.meta.dirname, "playwright/.auth"), { recursive: true });
 
   // Navigate to a protected route so the app redirects to login (not signup)
   await page.goto("/settings", { waitUntil: "load", timeout: 60000 });

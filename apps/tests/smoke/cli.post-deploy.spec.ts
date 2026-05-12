@@ -1,16 +1,13 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
 import { CLI_STATE_FILE, exec } from "./cli-state";
-import { envConfig } from "./env";
 
 test("ast agent list — deployment slug is present after deploy", () => {
   if (!existsSync(CLI_STATE_FILE)) {
     throw new Error("CLI state file not found");
   }
 
-  const { fakeHome, deploymentSlug } = JSON.parse(readFileSync(CLI_STATE_FILE, "utf-8"));
-  const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
+  const { fakeHome, astBin, deploymentSlug } = JSON.parse(readFileSync(CLI_STATE_FILE, "utf-8"));
 
   const result = exec(`${astBin} agent list`, {
     env: { ...process.env, HOME: fakeHome },

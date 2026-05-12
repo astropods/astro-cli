@@ -2,6 +2,7 @@
 
 - [local-dev.sh](#local-devsh)
 - [e2e.sh](#e2esh)
+- [smoke-test.sh](#smoke-testsh)
 - [update-submodules.sh](#update-submodulessh)
 - [release.ts](#releasets)
 - [agent-k8sfwd.sh](#agent-k8sfwdsh)
@@ -34,6 +35,23 @@ Manages the e2e test infrastructure (kind cluster + vcluster + Postgres) and run
 ```
 
 Requires: `docker`, `kubectl`, `go`. Installs `kind` and `vcluster` via Homebrew if missing.
+
+## smoke-test.sh
+
+Runs the Playwright smoke test suite against a live environment. Defaults to `ASTRO_ENV=dev` (local dev server at `http://localhost`).
+
+```bash
+# Against local dev server (requires local-dev.sh running)
+ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke
+
+# Against prod
+ASTRO_ENV=prod ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... moon run tests:smoke
+
+# With Playwright UI
+ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke -- --ui
+```
+
+Requires `ASTRO_TEST_EMAIL` and `ASTRO_TEST_PASSWORD`. In dev mode, `ASTRO_TEST_USERNAME` is also required (your account handle). The test account must be on the WorkOS CAPTCHA bypass allow list.
 
 ## update-submodules.sh
 

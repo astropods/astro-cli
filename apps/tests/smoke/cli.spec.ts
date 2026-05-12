@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import path from "path";
+import { test, expect } from "./fixtures";
 import { spawn } from "child_process";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -9,26 +10,38 @@ import { envConfig } from "./env";
 // Tests must run serially: install before login.
 test.describe.configure({ mode: "serial" });
 
+const isDev = process.env.ASTRO_ENV === "dev";
+
 // The install script hardcodes INSTALL_DIR="${HOME}/.ast/bin" with no override.
 // Shadow HOME with a temp dir so the binary lands there, never touching ~/.ast.
 const fakeHome = mkdtempSync(join(tmpdir(), "ast-home-"));
-const astBin = join(fakeHome, ".ast", "bin", envConfig.cliName);
+const astBin = isDev
+  ? path.join(import.meta.dirname, "../../astro-cli/bin/", envConfig.cliName)
+  : join(fakeHome, ".ast", "bin", envConfig.cliName);
 
 test.describe("CLI", () => {
 
   test("install — downloads ast to a sandboxed directory", async () => {
+    test.skip(isDev, "dev mode uses local binary — skipping install");
     console.log("fakeHome:", fakeHome);
 
-    const installHost = process.env.ASTRO_TEST_HOST ?? envConfig.appBaseUrl;
+    const installHost = process.env.ASTRO_TEST_HOST || envConfig.appBaseUrl;
+    expect(installHost, "installHost must not be empty — set ASTRO_TEST_HOST or ASTRO_ENV").toBeTruthy();
     exec(`curl -fsSL ${installHost}/install | sh`, {
       env: { ...process.env, HOME: fakeHome },
       stdio: "pipe",
-      timeout: 60000,
+      timeout: 120000,
       shell: true,
     });
 
     const version = exec(`${astBin} --version`, { encoding: "utf-8" });
     expect(version.trim()).toBeTruthy();
+
+    exec(`${astBin} settings update --telemetry off`, {
+      env: { ...process.env, HOME: fakeHome },
+      encoding: "utf-8",
+      timeout: 10000,
+    });
   });
 
   test("login — device flow completes via browser confirmation", async ({ page }) => {
@@ -85,7 +98,7 @@ test.describe("CLI", () => {
     });
 
     console.log(result);
-    expect(result).toContain("astro-testbot (personal)");
+    expect(result).toContain(`${envConfig.username} (personal)`);
   });
 
   test("blueprint list — hello-astro not present before push", async ({}, testInfo) => {
@@ -125,7 +138,7 @@ test.describe("CLI", () => {
     console.log(result);
     expect(result).toContain("✓ Pushed successfully!");
     expect(result).toContain("hello-astro");
-    expect(result).toContain(`${envConfig.appBaseUrl}/astro-testbot/hello-astro`);
-    writeFileSync(CLI_STATE_FILE, JSON.stringify({ fakeHome, pushSucceeded: true }));
+    expect(result).toContain(`${envConfig.appBaseUrl}/${envConfig.username}/hello-astro`);
+    writeFileSync(CLI_STATE_FILE, JSON.stringify({ fakeHome, astBin, pushSucceeded: true }));
   });
 });
