@@ -47,7 +47,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
   const { data: usageData } = useAccountUsage(form.targetAccount);
   const hasKnowledgeEntries = form.knowledgeEntries && Object.keys(form.knowledgeEntries).length > 0;
   const { data: knowledgeStores } = useKnowledgeStores(form.targetAccount, hasKnowledgeEntries);
-  const computeMeter = usageData?.compute_unit_hours ?? { usage: 0, quota: undefined };
+  const computeMeter = usageData?.meters?.compute ?? { usage: 0, quota: undefined };
   const isAtComputeLimit = computeMeter.quota != null && computeMeter.usage >= computeMeter.quota;
   const showComputeLimit = isAtComputeLimit || (!!form.deployError && /compute limit/i.test(form.deployError.message));
   const importableKeys = new Set<string>([

@@ -17,27 +17,16 @@ type UsageMeter struct {
 }
 
 // UsageResponse is the response for GET /api/v1/accounts/:account/usage.
+// Meters is keyed by the OpenMeter feature key and contains all entitlements
+// present in the account's subscription — no hardcoded list.
 type UsageResponse struct {
-	AccountID         string     `json:"account_id"`
-	PeriodStart       string     `json:"period_start"`
-	PeriodEnd         string     `json:"period_end"`
-	ComputeUnitHours  UsageMeter `json:"compute_unit_hours"`
-	AgentBuilds       UsageMeter `json:"agent_builds"`
-	ActiveDeployments UsageMeter `json:"active_deployments"`
-	ActiveAgents      UsageMeter `json:"active_agents"`
+	AccountID   string                `json:"account_id"`
+	PeriodStart string                `json:"period_start"`
+	PeriodEnd   string                `json:"period_end"`
+	Meters      map[string]UsageMeter `json:"meters"`
 }
 
-// Feature keys — must match the feature keys configured in OpenMeter (see integration plan §4).
-const (
-	featureCompute          = "compute"
-	featureAgentBuilds      = "agent_builds"
-	featureAgentDeployments = "agent_deployments"
-	featureAgents           = "agents"
-)
-
 // GetAccountUsage handles GET /api/v1/accounts/:account/usage.
-// All features use metered entitlements, so both usage and quota come from
-// a single GetCustomerAccess call.
 func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if omClient == nil {
@@ -58,6 +47,7 @@ func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.Handler
 			AccountID:   acct.ID,
 			PeriodStart: from.Format(time.RFC3339),
 			PeriodEnd:   now.Format(time.RFC3339),
+			Meters:      map[string]UsageMeter{},
 		}
 
 		access, err := omClient.GetCustomerAccess(c.Request.Context(), acct.ID)
@@ -67,22 +57,13 @@ func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.Handler
 			return
 		}
 
-		features := []struct {
-			key   string
-			meter *UsageMeter
-		}{
-			{featureCompute, &resp.ComputeUnitHours},
-			{featureAgentBuilds, &resp.AgentBuilds},
-			{featureAgentDeployments, &resp.ActiveDeployments},
-			{featureAgents, &resp.ActiveAgents},
-		}
-		for _, f := range features {
-			if ent, ok := access.Entitlements[f.key]; ok {
-				if ent.Usage != nil {
-					f.meter.Usage = *ent.Usage
-				}
-				f.meter.Quota = ent.TotalAvailableGrantAmount
+		for key, ent := range access.Entitlements {
+			m := UsageMeter{}
+			if ent.Usage != nil {
+				m.Usage = *ent.Usage
 			}
+			m.Quota = ent.TotalAvailableGrantAmount
+			resp.Meters[key] = m
 		}
 
 		c.JSON(http.StatusOK, resp)

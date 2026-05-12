@@ -136,6 +136,9 @@ function UsageContent() {
     year: "numeric",
   });
 
+  const entries = Object.entries(data.meters);
+  const hasCompute = "compute" in data.meters;
+
   return (
     <div className="flex flex-col gap-5">
       <div className="text-[13px] text-muted-foreground">
@@ -143,44 +146,45 @@ function UsageContent() {
         <span className="font-medium text-foreground">{periodLabel}</span>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard
-          label="Compute Usage"
-          featureKey="compute"
-          meter={data.compute_unit_hours}
-          unit="CU-hours"
-          decimals={2}
-          account={accountName}
-        />
-        <StatCard
-          label="Agent Builds"
-          featureKey="agent_builds"
-          meter={data.agent_builds}
-          unit="builds"
-          account={accountName}
-        />
-        <StatCard
-          label="Active Deployments"
-          featureKey="agent_deployments"
-          meter={data.active_deployments}
-          account={accountName}
-        />
-        <StatCard
-          label="Registered Agents"
-          featureKey="agents"
-          meter={data.active_agents}
-          account={accountName}
-        />
+        {entries.map(([key, meter]) => {
+          const meta = meterMeta[key];
+          return (
+            <StatCard
+              key={key}
+              label={meta?.label ?? key}
+              featureKey={key}
+              meter={meter}
+              unit={meta?.unit}
+              decimals={meta?.decimals}
+              account={accountName}
+            />
+          );
+        })}
       </div>
-      <div className="flex gap-2.5 rounded-lg border border-border bg-surface px-4 py-3">
-        <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
-        <p className="text-[12px] text-muted-foreground">
-          <span className="font-medium text-foreground">1 Compute Unit (CU)</span>{" "}
-          = 1 vCPU + 2 GB RAM per hour, per replica.
-        </p>
-      </div>
+      {hasCompute && (
+        <div className="flex gap-2.5 rounded-lg border border-border bg-surface px-4 py-3">
+          <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <p className="text-[12px] text-muted-foreground">
+            <span className="font-medium text-foreground">1 Compute Unit (CU)</span>{" "}
+            = 1 vCPU + 2 GB RAM per hour, per replica.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
+
+const meterMeta: Record<string, { label: string; unit?: string; decimals?: number }> = {
+  compute:             { label: "Compute",              unit: "CU-hours", decimals: 2 },
+  agent_builds:        { label: "Agent Builds",         unit: "builds" },
+  agent_deployments:   { label: "Deployments" },
+  agents:              { label: "Agents" },
+  members:             { label: "Members" },
+  knowledge_stores:    { label: "Knowledge Stores" },
+  knowledge_storage:   { label: "Knowledge Storage",    unit: "GB",       decimals: 2 },
+  knowledge_compute:   { label: "Knowledge Compute",    unit: "CU-hours", decimals: 2 },
+  knowledge_endpoints: { label: "PrivateLink Endpoints" },
+};
 
 const featureLabels: Record<string, string> = {
   compute: "Compute",

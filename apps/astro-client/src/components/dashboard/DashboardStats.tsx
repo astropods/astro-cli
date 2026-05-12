@@ -36,8 +36,8 @@ export function DashboardStats({
       />
       <UsageCard
         label="TOTAL COMPUTE"
-        value={usageData?.compute_unit_hours.usage ?? 0}
-        quota={usageData?.compute_unit_hours.quota}
+        value={usageData?.meters?.compute?.usage ?? 0}
+        quota={usageData?.meters?.compute?.quota}
         unit="hours"
         account={account}
         loading={isLoading || usageLoading}

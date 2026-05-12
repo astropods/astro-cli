@@ -1723,10 +1723,7 @@ export interface AccountUsageResponse {
   account_id: string;
   period_start: string;
   period_end: string;
-  compute_unit_hours: UsageMeter;
-  agent_builds: UsageMeter;
-  active_deployments: UsageMeter;
-  active_agents: UsageMeter;
+  meters: Record<string, UsageMeter>;
 }
 
 // Audit Log types

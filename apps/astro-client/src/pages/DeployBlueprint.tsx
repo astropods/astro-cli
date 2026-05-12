@@ -60,7 +60,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   });
 
   const { data: usageData } = useAccountUsage(form.targetAccount);
-  const computeMeter = usageData?.compute_unit_hours;
+  const computeMeter = usageData?.meters?.compute;
   const isAtComputeLimit = computeMeter?.quota != null && computeMeter.usage >= computeMeter.quota;
 
   const { personalAccount } = useAuth();

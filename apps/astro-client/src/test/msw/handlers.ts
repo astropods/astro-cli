@@ -314,10 +314,12 @@ export const handlers = [
       account_id: 'acct-1',
       period_start: '2025-01-01T00:00:00Z',
       period_end: '2025-02-01T00:00:00Z',
-      compute_unit_hours: { usage: 0, quota: 100 },
-      agent_builds: { usage: 0 },
-      active_deployments: { usage: 0 },
-      active_agents: { usage: 0 },
+      meters: {
+        compute: { usage: 0, quota: 100 },
+        agent_builds: { usage: 0 },
+        agent_deployments: { usage: 0 },
+        agents: { usage: 0 },
+      },
     });
   }),
 
