@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Download, Loader2, Share2, X } from "lucide-react";
+import { ArrowRight, Download, Share2, X } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HoloCard } from "@/components/trading-card/HoloCard";
 import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
+import { StatusBadge } from "@/components/StatusBadge";
 import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
@@ -105,7 +106,7 @@ export function LiveRevealOverlay({
       className={cn(
         "fixed inset-0 z-40 flex items-center justify-center overflow-hidden p-6 transition-[background-color,backdrop-filter] duration-500 ease-out",
         entered
-          ? "bg-black/[0.62] backdrop-blur-[3px] [transition-delay:120ms]"
+          ? "bg-black/70 backdrop-blur-md [transition-delay:120ms]"
           : "bg-transparent backdrop-blur-0 [transition-delay:0ms]",
       )}
       onMouseDown={onDismiss}
@@ -133,10 +134,7 @@ export function LiveRevealOverlay({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="-mt-16 flex flex-col items-center gap-2">
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[color-mix(in_oklch,_var(--color-yellow-500)_28%,_transparent)] bg-[color-mix(in_oklch,_var(--color-yellow-500)_12%,_transparent)] px-3 py-1.5 font-mono text-label tracking-[0.08em] text-[var(--color-yellow-500)]">
-            <Loader2 size={12} className="dp-spin shrink-0" />
-            Deploying
-          </span>
+          <StatusBadge color="warning" indicator spinning>Deploying</StatusBadge>
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
             {(deployment.display_name ?? deployment.name)} is deploying!
           </h1>
@@ -166,13 +164,16 @@ export function LiveRevealOverlay({
           <Button
             variant="default"
             onClick={onViewDeployment}
-            className="w-full gap-2 border-0"
+            className="w-full gap-2"
           >
             View deployment <ArrowRight className="size-4" />
           </Button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-full gap-2 border-white/35 text-white hover:bg-white/10">
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              >
                 <Share2 className="size-4" /> Share badge
               </Button>
             </DropdownMenuTrigger>
