@@ -11,6 +11,8 @@ afterEach(cleanup);
 
 const personal = { id: 'acct-1', name: 'testuser', type: 'personal' as const };
 const org = { id: 'org-1', name: 'my-org', type: 'organization' as const };
+const personalWithDisplay = { id: 'acct-2', name: 'janedoe', display_name: 'Jane Doe', type: 'personal' as const };
+const orgWithDisplay = { id: 'org-2', name: 'acme-corp', display_name: 'Acme Corp', type: 'organization' as const };
 
 function renderSwitcher({
   activeAccount = 'testuser',
@@ -19,7 +21,7 @@ function renderSwitcher({
 }: {
   activeAccount?: string;
   onChange?: (account: string) => void;
-  accounts?: { id: string; name: string; type: string }[];
+  accounts?: { id: string; name: string; type: string; display_name?: string }[];
 } = {}) {
   render(
     <AuthContext.Provider value={{ ...mockAuthContext, accounts }}>
@@ -49,6 +51,18 @@ describe('OrgSwitcher', () => {
       renderSwitcher({ activeAccount: 'my-org' });
       expect(screen.getByText('my-org')).toBeInTheDocument();
     });
+
+    it('prefers display_name over name for personal accounts', () => {
+      renderSwitcher({ activeAccount: 'janedoe', accounts: [personalWithDisplay, org] });
+      expect(screen.getByText('Jane Doe')).toBeInTheDocument();
+      expect(screen.queryByText('janedoe')).not.toBeInTheDocument();
+    });
+
+    it('prefers display_name over name for organization accounts', () => {
+      renderSwitcher({ activeAccount: 'acme-corp', accounts: [personal, orgWithDisplay] });
+      expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+      expect(screen.queryByText('acme-corp')).not.toBeInTheDocument();
+    });
   });
 
   describe('dropdown', () => {
@@ -60,6 +74,18 @@ describe('OrgSwitcher', () => {
 
       expect(screen.getAllByText('testuser').length).toBeGreaterThan(0);
       expect(screen.getByText('my-org')).toBeInTheDocument();
+    });
+
+    it('shows display_name for accounts that have one in the dropdown', async () => {
+      const user = userEvent.setup();
+      renderSwitcher({ activeAccount: 'janedoe', accounts: [personalWithDisplay, orgWithDisplay] });
+
+      await user.click(screen.getByRole('button', { name: triggerName }));
+
+      expect(screen.getAllByText('Jane Doe').length).toBeGreaterThan(0);
+      expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+      expect(screen.queryByText('janedoe')).not.toBeInTheDocument();
+      expect(screen.queryByText('acme-corp')).not.toBeInTheDocument();
     });
 
     it('calls onChange with the account name when an item is selected', async () => {

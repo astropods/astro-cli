@@ -60,7 +60,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
             <span className="inline-flex items-center gap-2">
               <AccountIcon account={activeAccountObj} />
               <span className="truncate">
-                {activeAccountObj.name}
+                {activeAccountObj.display_name || activeAccountObj.name}
               </span>
             </span>
           )}
@@ -81,7 +81,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
                 {isActive && <Check className="size-4" />}
               </span>
               <AccountIcon account={a} />
-              <span className="truncate">{a.name}</span>
+              <span className="truncate">{a.display_name || a.name}</span>
             </DropdownMenuItem>
           );
         })}

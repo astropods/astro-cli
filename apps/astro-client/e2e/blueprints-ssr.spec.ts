@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 const MOCK_BACKEND = "http://localhost:48787";
 const PERSONAL_ACCOUNT = "testuser";
 const ORG_ACCOUNT = "test-org";
+const ORG_DISPLAY_NAME = "Test Org";
 
 /*
  * Tests in this file demonstrate three concerns with the SSR loader + skeleton
@@ -115,7 +116,7 @@ test("skeleton count reflects personal account when active scope is an org", asy
    * known to be for the org.
    */
   const scopeSwitcher = page.getByRole("button", { name: "Switch account" });
-  await expect(scopeSwitcher).toContainText(ORG_ACCOUNT, { timeout: 10_000 });
+  await expect(scopeSwitcher).toContainText(ORG_DISPLAY_NAME, { timeout: 10_000 });
 
   /*
    * Active scope has 0 blueprints; personal has 5. Correct behavior would
