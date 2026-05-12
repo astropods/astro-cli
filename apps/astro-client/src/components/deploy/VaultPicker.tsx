@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, WandSparkles, CaseSensitive, CaseLower } from 'lucide-react'
 import { MagnifyingGlassIcon, KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
@@ -9,6 +9,12 @@ import { cn } from '@/lib/utils'
 import type { AccountVariable } from '@/lib/api'
 import { NewEntryDialog } from '@/components/settings/secrets/NewEntryDialog'
 import { useCreateAccountVariables } from '@/api/queries/variables'
+import { useAuth } from '@/lib/use-auth'
+
+// Coalesce concurrent switchOrg calls across multiple VaultPicker instances rendered
+// on the same page (e.g. one per variable field on a deploy form). WorkOS refresh-token
+// rotation cannot tolerate parallel calls for the same target org.
+const inflightScopeSwitches = new Map<string, Promise<unknown>>()
 
 // Parse a token like {{secrets.FOO}} or {{vars.BAR}} into its parts
 export function parseVaultToken(token: string): { type: 'secret' | 'variable'; name: string } | null {
@@ -38,6 +44,26 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
   const [search, setSearch] = useState('')
   const [newVarOpen, setNewVarOpen] = useState(false)
   const createMutation = useCreateAccountVariables(accountName ?? '')
+
+  const { accounts, organizationId, switchOrg } = useAuth()
+  const acct = accountName ? accounts.find((a) => a.name === accountName) : undefined
+  const targetOrgId =
+    acct?.type === 'organization' && acct.organization_id && acct.organization_id !== organizationId
+      ? acct.organization_id
+      : null
+  const scopeReady = targetOrgId === null
+
+  useEffect(() => {
+    if (!targetOrgId) return
+    const key = targetOrgId
+    let promise = inflightScopeSwitches.get(key)
+    if (!promise) {
+      promise = switchOrg(targetOrgId)
+      inflightScopeSwitches.set(key, promise)
+      promise.finally(() => { inflightScopeSwitches.delete(key) })
+    }
+    promise.catch(() => { /* swallow — gate stays closed until session updates */ })
+  }, [targetOrgId, switchOrg])
 
   const filtered = entries.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -96,26 +122,30 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
               <p className="text-xs text-muted-foreground mt-1 mb-3">
                 Set and manage reusable credentials and configuration values for your agents
               </p>
-              <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
-                <PlusIcon className="size-3.5" />
-                New variable
-              </Button>
+              {scopeReady && (
+                <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
+                  <PlusIcon className="size-3.5" />
+                  New variable
+                </Button>
+              )}
             </div>
           ) : (
             <>
               <div className="px-3 pt-3 pb-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold text-foreground">Select a reference</p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs shrink-0"
-                    onClick={() => { setOpen(false); setNewVarOpen(true) }}
-                  >
-                    <PlusIcon className="size-3" />
-                    New
-                  </Button>
+                  {scopeReady && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs shrink-0"
+                      onClick={() => { setOpen(false); setNewVarOpen(true) }}
+                    >
+                      <PlusIcon className="size-3" />
+                      New
+                    </Button>
+                  )}
                 </div>
                 {accountName && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">
