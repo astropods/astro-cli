@@ -8,7 +8,7 @@ test.beforeEach(async () => {
   await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
 });
 
-test("breadcrumb account link: blueprint cards are clickable after navigating from blueprint detail", async ({
+test("breadcrumb account link: navigates from blueprint detail to account profile", async ({
   page,
 }) => {
   test.setTimeout(30_000);
@@ -17,21 +17,18 @@ test("breadcrumb account link: blueprint cards are clickable after navigating fr
   await page.goto(`/${ACCOUNT}/${AGENT}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: AGENT })).toBeVisible({ timeout: 15_000 });
 
-  // Step 2: click the account name in the breadcrumb → /blueprints?account=testuser
+  // Step 2: click the account name in the breadcrumb → /testuser (account profile)
   // The breadcrumb renders two <a> elements with the same href (avatar + text link); pick the first.
-  const breadcrumb = page.locator(`a[href="/blueprints?account=${ACCOUNT}"]`).first();
+  const breadcrumb = page.locator(`a[href="/${ACCOUNT}"]`).first();
   await expect(breadcrumb).toBeVisible({ timeout: 5_000 });
   await breadcrumb.click();
-  await page.waitForURL(`**/blueprints?account=${ACCOUNT}`, { timeout: 10_000 });
+  await page.waitForURL(`**/${ACCOUNT}`, { timeout: 10_000 });
 
-  // Step 3: wait for blueprint cards to render
-  const firstCard = page.locator(`a[href^="/${ACCOUNT}/"]`).first();
-  await expect(firstCard).toBeVisible({ timeout: 15_000 });
-
-  // Step 4: click a blueprint card — should navigate to its detail page
-  const targetHref = await firstCard.getAttribute("href");
-  await Promise.all([
-    page.waitForURL(`**${targetHref}`, { timeout: 10_000 }),
-    firstCard.click(),
-  ]);
+  // Step 3: confirm the profile page actually rendered — guards against silent
+  // routing failures where the URL changes but the page doesn't load.
+  // Use the account <h1> heading rather than the @handle text: during the React
+  // Router transition, SidebarAuthor on the blueprint detail page still briefly
+  // renders a second @testuser span, causing a Playwright strict-mode violation.
+  await expect(page.getByRole("heading", { name: ACCOUNT })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /Blueprints/ })).toBeVisible();
 });

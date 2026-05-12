@@ -116,6 +116,10 @@ export interface BlueprintCardProps {
   isHearted?: boolean;
   /** When provided, displays this author in the card footer instead of the owner account. */
   author?: BlueprintAuthor;
+  /** Seeds router state with `{ from }` so BlueprintDetailBreadcrumb can render
+   *  a contextual root crumb (e.g. "Explore" when arriving from /explore). When
+   *  omitted, the breadcrumb falls back to its default "Blueprints" root. */
+  from?: string;
 }
 
 export function BlueprintCard({
@@ -134,9 +138,11 @@ export function BlueprintCard({
   onHeartToggle,
   isHearted = false,
   author,
+  from,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const linkState = from ? { from } : undefined;
   const formattedDeploys = deployCount != null ? compactFormatter.format(deployCount) : "0";
   const deployLabel = deployCount === 1 ? "deploy" : "deploys";
   const accent: CardAccent = avatarColors ? {
@@ -195,6 +201,7 @@ export function BlueprintCard({
     return (
       <Link
         to={`/${slug}`}
+        state={linkState}
         className={cn(cardShell, "group flex items-center gap-3 pl-2 pr-3 py-2 shadow-sm transition-all duration-150 hover:shadow-md after:border")}
         style={cardStyle}
       >
@@ -233,7 +240,7 @@ export function BlueprintCard({
         >
           {cardOverlays}
           <div className="relative z-[1] flex items-center gap-4 pl-2 pr-4 py-3" style={contentShadowStyle}>
-            <Link to={`/${slug}`} className="flex min-w-0 flex-1 items-center gap-3">
+            <Link to={`/${slug}`} state={linkState} className="flex min-w-0 flex-1 items-center gap-3">
               <BlueprintIdentity
                 account={account}
                 name={name}
@@ -257,7 +264,7 @@ export function BlueprintCard({
             <div className="flex shrink-0 items-center gap-2" style={{ textShadow: "none" }}>
               {isDraft ? (
                 <Button asChild size="sm" variant="outline">
-                  <Link to={`/${slug}`}>
+                  <Link to={`/${slug}`} state={linkState}>
                     Continue setup
                     <ArrowRightIcon className="size-3.5" />
                   </Link>
@@ -271,7 +278,7 @@ export function BlueprintCard({
                     <Link to={`/deploy/${slug}`}>Deploy</Link>
                   </Button>
                   <Button asChild size="sm" variant="outline">
-                    <Link to={`/${slug}`}>View →</Link>
+                    <Link to={`/${slug}`} state={linkState}>View →</Link>
                   </Button>
                 </>
               )}
@@ -322,6 +329,7 @@ export function BlueprintCard({
     <>
       <Link
         to={cardHref}
+        state={linkState}
         className={cn(cardShell, "group flex h-full flex-col transition-all duration-150", !isDraft && "shadow-sm hover:shadow-md")}
         style={cardStyle}
       >

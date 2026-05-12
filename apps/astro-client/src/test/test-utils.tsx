@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, type InitialEntry } from 'react-router';
 import { createRoutesStub } from 'react-router';
 import { AuthContext, type AuthContextType } from '@/lib/auth-context';
 import { ActiveAccountProvider } from '@/hooks/use-active-account';
@@ -23,7 +23,7 @@ function createTestQueryClient() {
 }
 
 interface WrapperOptions {
-  initialEntries?: string[];
+  initialEntries?: InitialEntry[];
 }
 
 function createWrapper({ initialEntries = ['/'] }: WrapperOptions = {}) {
@@ -92,7 +92,7 @@ export const mockAuthContext: AuthContextType = {
 // Render a route using createRoutesStub (RR v7 test API)
 export function renderRoute(
   routes: Parameters<typeof createRoutesStub>[0],
-  options?: { initialEntries?: string[]; auth?: AuthContextType | null } & Omit<RenderOptions, 'wrapper'>,
+  options?: { initialEntries?: InitialEntry[]; auth?: AuthContextType | null } & Omit<RenderOptions, 'wrapper'>,
 ) {
   const { initialEntries = ['/'], auth, ...renderOptions } = options ?? {};
   const queryClient = createTestQueryClient();

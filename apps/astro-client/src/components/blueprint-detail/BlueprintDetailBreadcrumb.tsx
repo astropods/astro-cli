@@ -1,4 +1,5 @@
 import { Check, Copy } from "lucide-react";
+import { useLocation } from "react-router";
 import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outline";
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { blueprintsAccountPath } from "@/lib/routes";
+import { accountProfilePath } from "@/lib/routes";
 import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
 import { XIcon } from "@/components/ui/svgs/xIcon";
 import { LinkedInIcon } from "@/components/ui/svgs/linkedinIcon";
@@ -119,6 +120,11 @@ export function BlueprintDetailBreadcrumb({
 }: BlueprintDetailBreadcrumbProps) {
   const { copy, copied } = useCopyToClipboard(2000);
   const toggleHeart = useToggleHeart(account, blueprintName);
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
+  const rootCrumb = from?.startsWith("/explore")
+    ? { label: "Explore", to: "/explore" }
+    : { label: "Blueprints", to: "/blueprints" };
 
   const handleCopy = async () => {
     await copy(shareUrl || window.location.href);
@@ -127,8 +133,8 @@ export function BlueprintDetailBreadcrumb({
   return (
     <PageBreadcrumb
       items={[
-        { label: "Blueprints", to: "/blueprints" },
-        { label: account, to: blueprintsAccountPath(account) },
+        rootCrumb,
+        { label: account, to: accountProfilePath(account) },
         { label: blueprintName },
       ]}
       mobileItems={[
@@ -139,7 +145,7 @@ export function BlueprintDetailBreadcrumb({
               {account}
             </span>
           ),
-          to: blueprintsAccountPath(account),
+          to: accountProfilePath(account),
         },
       ]}
       actions={

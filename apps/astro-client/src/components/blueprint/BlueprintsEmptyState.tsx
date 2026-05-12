@@ -66,6 +66,7 @@ export function BlueprintsEmptyState() {
               description={getBlueprintDescription(bp)}
               avatarColors={bp.avatar_colors}
               deployCount={bp.heart_count ?? 0}
+              from={explorePath}
             />
           ))}
         </div>

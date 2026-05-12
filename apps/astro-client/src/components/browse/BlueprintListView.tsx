@@ -36,6 +36,9 @@ export interface BlueprintListViewProps {
   variant?: "grid" | "list";
   skeletonCount?: number;
   showAuthor?: boolean;
+  /** Forwarded to each BlueprintCard so the blueprint-detail breadcrumb can
+   *  reflect the surface the user came from. */
+  from?: string;
 }
 
 export function BlueprintListView({
@@ -51,6 +54,7 @@ export function BlueprintListView({
   variant = "grid",
   skeletonCount = 6,
   showAuthor = false,
+  from,
 }: BlueprintListViewProps) {
   if (isLoading) {
     return (
@@ -130,6 +134,7 @@ export function BlueprintListView({
             isDraft={blueprint.versions.length === 0}
             onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
             author={showAuthor ? blueprint.publishers?.[0] : undefined}
+            from={from}
           />
         ))}
       </div>
@@ -151,6 +156,7 @@ export function BlueprintListView({
           isDraft={blueprint.versions.length === 0}
           onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
           author={showAuthor ? blueprint.publishers?.[0] : undefined}
+          from={from}
         />
       ))}
     </div>

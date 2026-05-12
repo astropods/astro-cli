@@ -3,6 +3,7 @@ import { createServerApi } from "@/lib/api.server";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useAuth } from "@/lib/auth";
+import { explorePath } from "@/lib/routes";
 
 export async function loader({ request }: { request: Request }) {
   const api = createServerApi(request);
@@ -38,6 +39,7 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
         emptyTitle="No blueprints available"
         emptyDescription="There are no blueprints in the registry yet."
         ownerAccounts={ownerAccounts}
+        from={explorePath}
       />
     </PageContainer>
   );

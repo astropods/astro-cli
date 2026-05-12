@@ -22,7 +22,18 @@ describe("BlueprintDetailBreadcrumb", () => {
     const accountLinks = screen.getAllByRole("link", { name: /acme/i });
     expect(accountLinks.length).toBeGreaterThan(0);
     for (const link of accountLinks) {
-      expect(link).toHaveAttribute("href", "/blueprints?account=acme");
+      expect(link).toHaveAttribute("href", "/acme");
     }
+  });
+
+  it("uses Explore as the root crumb when navigated from /explore", () => {
+    renderWithProviders(
+      <BlueprintDetailBreadcrumb account="acme" blueprintName="signal-watcher" />,
+      { initialEntries: [{ pathname: "/acme/signal-watcher", state: { from: "/explore" } }] },
+    );
+
+    const exploreLink = screen.getByRole("link", { name: /explore/i });
+    expect(exploreLink).toHaveAttribute("href", "/explore");
+    expect(screen.queryByText("Blueprints")).not.toBeInTheDocument();
   });
 });
