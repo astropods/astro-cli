@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 )
 
 // newMockStore wires a Store onto a sqlmock connection.
@@ -23,6 +24,7 @@ const (
 	upsertQuery    = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id, source,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tsource           = EXCLUDED.source,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
 	lookupQuery    = "\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t"
 	listQuery      = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	listManyQuery  = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
 	revokeQuery    = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
 	revokeOneQuery = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
 )
@@ -214,6 +216,77 @@ func TestListByWorkOSUser_EmptyResult(t *testing.T) {
 	}
 	if len(out) != 0 {
 		t.Errorf("expected empty, got %d", len(out))
+	}
+}
+
+// ListByWorkOSUsers groups rows by workos_user_id so the members endpoint
+// can render per-member workspace lists from a single query.
+func TestListByWorkOSUsers_GroupsByUser(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	now := time.Now()
+	mock.ExpectQuery(listManyQuery).
+		WithArgs(pq.Array([]string{"user_a", "user_b", "user_c"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"team_id", "slack_user_id", "workos_user_id",
+			"organization_id", "source",
+			"team_name", "team_domain", "team_icon_url", "slack_username",
+			"created_at", "updated_at", "revoked_at",
+		}).
+			AddRow("T1", "U1", "user_a", "", "oauth", "Acme", "acme", "", "alice", now, now, nil).
+			AddRow("T2", "U2", "user_a", "", "oauth", "Foo", "foo", "", "alice", now, now, nil).
+			AddRow("T3", "U3", "user_b", "", "oauth", "Bar", "bar", "", "bob", now, now, nil))
+
+	out, err := store.ListByWorkOSUsers([]string{"user_a", "user_b", "user_c"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 keys (user_c absent), got %d", len(out))
+	}
+	if len(out["user_a"]) != 2 {
+		t.Errorf("user_a should have 2 workspaces, got %d", len(out["user_a"]))
+	}
+	if len(out["user_b"]) != 1 {
+		t.Errorf("user_b should have 1 workspace, got %d", len(out["user_b"]))
+	}
+	if _, ok := out["user_c"]; ok {
+		t.Error("user_c has no rows and should be absent from the map")
+	}
+	if out["user_a"][0].TeamName != "Acme" {
+		t.Errorf("user_a first row metadata: %+v", out["user_a"][0])
+	}
+}
+
+// Empty input must not hit the DB — the caller passing an empty member list
+// is the common "no members yet" case and we don't want a stray query.
+func TestListByWorkOSUsers_EmptyInputSkipsDB(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	out, err := store.ListByWorkOSUsers(nil)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(out))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListByWorkOSUsers_PropagatesDBError(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery(listManyQuery).
+		WithArgs(pq.Array([]string{"user_a"})).
+		WillReturnError(errors.New("boom"))
+
+	if _, err := store.ListByWorkOSUsers([]string{"user_a"}); err == nil {
+		t.Fatal("expected error")
 	}
 }
 

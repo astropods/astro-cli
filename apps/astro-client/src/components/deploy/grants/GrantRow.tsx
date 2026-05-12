@@ -1,9 +1,12 @@
 import { X, Globe, User as UserIcon } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
+import { SlackUnlinkedBadge } from "./SlackUnlinkedBadge";
 import type { Account, AccountMember, AuthGrant } from "@/lib/api";
 
 export interface GrantRowProps {
   grant: AuthGrant;
+  /** Adapter this grant belongs to. Drives the "no Slack connection" warning. */
+  adapter: "web" | "slack";
   /** Map of account ID → account for resolving account-scope grants (handle + display name). */
   accountById: Map<string, Account>;
   /** Map of user ID → member record for resolving user-scope grants. */
@@ -11,14 +14,23 @@ export interface GrantRowProps {
   onRemove: () => void;
 }
 
-export function GrantRow({ grant, accountById, memberByUserId, onRemove }: GrantRowProps) {
+export function GrantRow({ grant, adapter, accountById, memberByUserId, onRemove }: GrantRowProps) {
   const { primary, secondary } = grantText(grant, accountById, memberByUserId);
+  const member = grant.user_id ? memberByUserId.get(grant.user_id) : undefined;
+  // The mapping between WorkOS users and Slack accounts is per-workspace, so
+  // a user with zero linked workspaces can't be resolved at request time no
+  // matter which workspace the message arrives from.
+  const slackUnlinked =
+    adapter === "slack" && !!member && (member.slack_workspaces?.length ?? 0) === 0;
   return (
     <li className="flex items-center justify-between gap-2 rounded-[4px] border border-border bg-card px-2.5 py-1.5">
       <div className="flex items-center gap-2 min-w-0">
         <GrantBadge grant={grant} accountById={accountById} memberByUserId={memberByUserId} />
         <span className="flex flex-col min-w-0">
-          <span className="text-[13px] text-foreground truncate">{primary}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[13px] text-foreground truncate">{primary}</span>
+            {slackUnlinked && <SlackUnlinkedBadge />}
+          </span>
           {secondary && (
             <span className="text-[11px] text-muted-foreground truncate">{secondary}</span>
           )}

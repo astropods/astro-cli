@@ -3,11 +3,15 @@ import { useAccountMembers } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/UserAvatar";
+import { SlackUnlinkedBadge } from "./SlackUnlinkedBadge";
 import type { AccountMember } from "@/lib/api";
 
 export interface MemberPickerProps {
   /** Account whose members are listed and searchable. */
   account: string;
+  /** Adapter this grant is being added for. When "slack", members with no
+   *  linked Slack workspaces get a warning badge. */
+  adapter: "web" | "slack";
   /** Called with the selected member when the user clicks one. */
   onSelect: (member: AccountMember) => void;
   /** Called when the user dismisses the picker without selecting. */
@@ -18,7 +22,7 @@ export interface MemberPickerProps {
 
 /** Search-by-account-name picker over the members of a target account.
  *  Used by GrantsEditor to add a per-user grant. */
-export function MemberPicker({ account, onSelect, onCancel, isAlreadyGranted }: MemberPickerProps) {
+export function MemberPicker({ account, adapter, onSelect, onCancel, isAlreadyGranted }: MemberPickerProps) {
   const { data, isLoading } = useAccountMembers(account);
   const members: AccountMember[] = data?.members ?? [];
 
@@ -56,6 +60,8 @@ export function MemberPicker({ account, onSelect, onCancel, isAlreadyGranted }: 
           <ul>
             {filtered.map((m) => {
               const granted = isAlreadyGranted?.(m) ?? false;
+              const slackUnlinked =
+                adapter === "slack" && (m.slack_workspaces?.length ?? 0) === 0;
               return (
                 <li key={m.user_id}>
                   <button
@@ -71,8 +77,11 @@ export function MemberPicker({ account, onSelect, onCancel, isAlreadyGranted }: 
                         className="size-6"
                       />
                       <span className="flex flex-col min-w-0">
-                        <span className="truncate text-foreground">
-                          {m.display_name || m.username}
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate text-foreground">
+                            {m.display_name || m.username}
+                          </span>
+                          {slackUnlinked && <SlackUnlinkedBadge />}
                         </span>
                         <span className="truncate text-[11px] text-muted-foreground">
                           @{m.username}

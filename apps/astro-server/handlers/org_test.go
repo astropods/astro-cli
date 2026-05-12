@@ -15,7 +15,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // fakeMemberRoleSyncer is a test stub for memberRoleSyncer. It captures the
@@ -108,7 +110,7 @@ func TestListMembers_Success(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -133,13 +135,95 @@ func TestListMembers_Success(t *testing.T) {
 	}
 }
 
+// When a slackidentity store is wired in, ListMembers must populate the
+// per-member slack_workspaces field so the grants UI can warn about
+// unlinked targets without a second round-trip.
+func TestListMembers_PopulatesSlackWorkspaces(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	store := account.NewAccountStore(db)
+	slackStore := slackidentity.NewStore(db)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "wm-1", time.Now()).
+			AddRow("acct-1", "user-2", "wm-2", time.Now()))
+
+	// Personal profiles batch — match by SQL fragment to stay loose on
+	// whitespace/argument formatting.
+	mock.ExpectQuery("SELECT am.user_id, a.name, a.display_name").
+		WithArgs(pq.Array([]string{"user-1", "user-2"})).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "name", "display_name"}).
+			AddRow("user-1", "alice", "Alice").
+			AddRow("user-2", "bob", "Bob"))
+
+	// Slack identities batch — user-1 has two linked workspaces, user-2 none.
+	now := time.Now()
+	mock.ExpectQuery("FROM slack_identity_mappings\\s+WHERE workos_user_id = ANY").
+		WithArgs(pq.Array([]string{"user-1", "user-2"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"team_id", "slack_user_id", "workos_user_id",
+			"organization_id", "source",
+			"team_name", "team_domain", "team_icon_url", "slack_username",
+			"created_at", "updated_at", "revoked_at",
+		}).
+			AddRow("T1", "U1", "user-1", "", "oauth", "Acme", "acme", "https://icon.png", "alice", now, now, nil).
+			AddRow("T2", "U2", "user-1", "", "oauth", "Foo", "foo", "", "alice", now, now, nil))
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "personal"}
+	user := &auth.User{ID: "user-1"}
+
+	router := gin.New()
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, slackStore))
+
+	req := httptest.NewRequest(http.MethodGet, "/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Members []MemberResponse `json:"members"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(resp.Members))
+	}
+
+	byUser := map[string]MemberResponse{}
+	for _, m := range resp.Members {
+		byUser[m.UserID] = m
+	}
+	if got := len(byUser["user-1"].SlackWorkspaces); got != 2 {
+		t.Errorf("user-1 should have 2 workspaces, got %d (full: %+v)", got, byUser["user-1"])
+	}
+	if got := len(byUser["user-2"].SlackWorkspaces); got != 0 {
+		t.Errorf("user-2 should have 0 workspaces, got %d", got)
+	}
+	if w := byUser["user-1"].SlackWorkspaces; len(w) > 0 {
+		if w[0].TeamName != "Acme" || w[0].IconURL != "https://icon.png" {
+			t.Errorf("user-1 first workspace metadata: %+v", w[0])
+		}
+	}
+}
+
 func TestListMembers_NoAccount(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil))
+	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -167,7 +251,7 @@ func TestListMembers_DBError(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -541,7 +625,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	memberRoutes.Use(middleware.ResolveAccount(store))
 	// Match main.go: memberRoutes uses RequireAccountMember, not RequireAccountPermission
 	memberRoutes.Use(middleware.RequireAccountMember(store))
-	memberRoutes.GET("", ListMembers(log, store, nil))
+	memberRoutes.GET("", ListMembers(log, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
 	rec := httptest.NewRecorder()
@@ -568,7 +652,7 @@ func TestListMembers_NonMember_Denied(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()

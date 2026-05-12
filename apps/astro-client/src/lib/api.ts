@@ -88,6 +88,17 @@ export interface AccountMember {
   username: string;
   display_name: string;
   created_at: string;
+  /** Slack workspaces this member has linked. Empty = not connected, in
+   *  which case a Slack-typed grant for this user won't resolve and the
+   *  grants UI surfaces a warning. */
+  slack_workspaces: AccountMemberSlackWorkspace[];
+}
+
+export interface AccountMemberSlackWorkspace {
+  team_id: string;
+  team_name: string;
+  team_domain: string;
+  icon_url: string;
 }
 
 export interface AccountMembersResponse {

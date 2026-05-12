@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ShieldCheckIcon } from "@heroicons/react/24/outline";
 import { useAuth } from "@/lib/auth";
 import { useAccountMembers } from "@/api/queries";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { grantKey } from "./useDeployForm";
 import { AddGrantMenu } from "./grants/AddGrantMenu";
 import { GrantRow } from "./grants/GrantRow";
@@ -52,6 +53,7 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
       : "Slack defaults to anyone in the workspace if no grants are set.";
 
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="space-y-2.5">
       <div className="flex items-center gap-2">
         <ShieldCheckIcon className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -66,6 +68,7 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
             <GrantRow
               key={`${grantKey(g)}-${idx}`}
               grant={g}
+              adapter={adapter}
               accountById={accountById}
               memberByUserId={memberByUserId}
               onRemove={() => removeAt(idx)}
@@ -77,6 +80,7 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
       {pickingUser && targetAccount ? (
         <MemberPicker
           account={targetAccount}
+          adapter={adapter}
           isAlreadyGranted={(m) => isAlreadyGranted({ user_id: m.user_id })}
           onSelect={(m) => {
             add({ user_id: m.user_id });
@@ -93,5 +97,6 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
         />
       )}
     </div>
+    </TooltipProvider>
   );
 }

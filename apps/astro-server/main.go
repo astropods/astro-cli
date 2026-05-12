@@ -973,7 +973,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			memberRoutes.Use(middleware.ResolveAccount(accountStore))
 			memberRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, orgClient),
+				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, orgClient, slackIdentityStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

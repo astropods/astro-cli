@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 )
 
@@ -76,18 +77,49 @@ type ChangeMemberRoleRequest struct {
 }
 
 // MemberResponse is a member with role and profile information included.
+// SlackWorkspaces lists every Slack workspace the member has linked via the
+// Slack identity mapping; empty means they haven't connected Slack and
+// callers (e.g. the grants UI) can warn that a Slack grant for this user
+// won't resolve.
 type MemberResponse struct {
-	AccountID   string `json:"account_id"`
-	UserID      string `json:"user_id"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	CreatedAt   string `json:"created_at"`
+	AccountID       string              `json:"account_id"`
+	UserID          string              `json:"user_id"`
+	Role            string              `json:"role"`
+	Status          string              `json:"status"`
+	Username        string              `json:"username"`
+	DisplayName     string              `json:"display_name"`
+	CreatedAt       string              `json:"created_at"`
+	SlackWorkspaces []SlackWorkspaceRef `json:"slack_workspaces"`
+}
+
+// SlackWorkspaceRef is a compact Slack workspace identifier emitted on
+// member listings so the grants UI can render "linked to: …" badges
+// without a second round-trip.
+type SlackWorkspaceRef struct {
+	TeamID     string `json:"team_id"`
+	TeamName   string `json:"team_name"`
+	TeamDomain string `json:"team_domain"`
+	IconURL    string `json:"icon_url"`
+}
+
+func toSlackWorkspaceRefs(ms []slackidentity.Mapping) []SlackWorkspaceRef {
+	if len(ms) == 0 {
+		return []SlackWorkspaceRef{}
+	}
+	out := make([]SlackWorkspaceRef, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, SlackWorkspaceRef{
+			TeamID:     m.TeamID,
+			TeamName:   m.TeamName,
+			TeamDomain: m.TeamDomain,
+			IconURL:    m.TeamIconURL,
+		})
+	}
+	return out
 }
 
 // ListMembers handles GET /api/v1/accounts/:account/members
-func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client) gin.HandlerFunc {
+func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, slackStore *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -146,6 +178,18 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			profileByUserID = map[string]account.PersonalProfile{}
 		}
 
+		// Slack mappings keyed by member user_id. Best-effort: on lookup
+		// failure we fall through with no workspaces — the warning that
+		// would have surfaced is a softer signal than blocking the list.
+		var slackByUserID map[string][]slackidentity.Mapping
+		if slackStore != nil {
+			slackByUserID, err = slackStore.ListByWorkOSUsers(memberUserIDs)
+			if err != nil {
+				log.Error("Failed to fetch slack identities", "error", err, "account_id", acct.ID)
+				slackByUserID = map[string][]slackidentity.Mapping{}
+			}
+		}
+
 		result := make([]MemberResponse, 0, len(members))
 		localUserIDs := map[string]bool{}
 		for _, m := range members {
@@ -161,13 +205,14 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			}
 			p := profileByUserID[m.UserID]
 			result = append(result, MemberResponse{
-				AccountID:   m.AccountID,
-				UserID:      m.UserID,
-				Role:        role,
-				Status:      status,
-				Username:    p.Name,
-				DisplayName: p.DisplayName,
-				CreatedAt:   m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				AccountID:       m.AccountID,
+				UserID:          m.UserID,
+				Role:            role,
+				Status:          status,
+				Username:        p.Name,
+				DisplayName:     p.DisplayName,
+				CreatedAt:       m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				SlackWorkspaces: toSlackWorkspaceRefs(slackByUserID[m.UserID]),
 			})
 		}
 
@@ -190,13 +235,14 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 				info := infoByUserID[uid]
 				p := pendingProfiles[uid]
 				result = append(result, MemberResponse{
-					AccountID:   acct.ID,
-					UserID:      uid,
-					Role:        info.Role,
-					Status:      info.Status,
-					Username:    p.Name,
-					DisplayName: p.DisplayName,
-					CreatedAt:   info.CreatedAt,
+					AccountID:       acct.ID,
+					UserID:          uid,
+					Role:            info.Role,
+					Status:          info.Status,
+					Username:        p.Name,
+					DisplayName:     p.DisplayName,
+					CreatedAt:       info.CreatedAt,
+					SlackWorkspaces: []SlackWorkspaceRef{},
 				})
 			}
 		}

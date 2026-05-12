@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const (
@@ -156,6 +158,45 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 			return nil, fmt.Errorf("slackidentity: scan: %w", err)
 		}
 		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ListByWorkOSUsers returns active mappings for many WorkOS users in a
+// single query, grouped by user. Used by the members listing endpoint to
+// render which Slack workspaces each member has linked without N+1
+// round-trips. Users with no active mappings are absent from the result map
+// (callers should treat a missing key as "not connected").
+func (s *Store) ListByWorkOSUsers(workosUserIDs []string) (map[string][]Mapping, error) {
+	out := make(map[string][]Mapping)
+	if len(workosUserIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT team_id, slack_user_id, workos_user_id,
+		       COALESCE(organization_id, ''), source,
+		       team_name, team_domain, team_icon_url, slack_username,
+		       created_at, updated_at, revoked_at
+		FROM slack_identity_mappings
+		WHERE workos_user_id = ANY($1) AND revoked_at IS NULL
+		ORDER BY created_at DESC
+	`, pq.Array(workosUserIDs))
+	if err != nil {
+		return nil, fmt.Errorf("slackidentity: list by workos users: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var m Mapping
+		if err := rows.Scan(
+			&m.TeamID, &m.SlackUserID, &m.WorkOSUserID,
+			&m.OrganizationID, &m.Source,
+			&m.TeamName, &m.TeamDomain, &m.TeamIconURL, &m.SlackUsername,
+			&m.CreatedAt, &m.UpdatedAt, &m.RevokedAt,
+		); err != nil {
+			return nil, fmt.Errorf("slackidentity: scan: %w", err)
+		}
+		out[m.WorkOSUserID] = append(out[m.WorkOSUserID], m)
 	}
 	return out, rows.Err()
 }

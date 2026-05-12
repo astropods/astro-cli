@@ -177,6 +177,7 @@ export function useCreateInvitations() {
         username: inv.kind === 'account' ? inv.value : '',
         display_name: inv.value,
         created_at: now,
+        slack_workspaces: [],
       }));
 
       queryClient.setQueryData<AccountMembersResponse>(
