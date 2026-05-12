@@ -90,22 +90,22 @@ Nine meters track the primary billable dimensions of the platform.
 
 ### Deployment Meters
 
-| Meter | Slug | Event Type | Aggregation | Emission |
-|-------|------|------------|-------------|----------|
-| Compute | `compute` | `compute_usage` | `SUM` on `$.compute_unit_hours` | Background heartbeat (5 min) |
-| Active Agents | `agents` | `active_agents` | `LATEST` on `$.count` | Background snapshot (5 min) |
-| Agent Builds | `agent_builds` | `agent_build` | `COUNT` | Inline in RegisterAgent handler |
-| Active Deployments | `agent_deployments` | `active_deployments` | `LATEST` on `$.count` | Background snapshot (5 min) |
-| Account Members | `members` | `active_members` | `LATEST` on `$.count` | Inline on member change + background reconciliation |
+| Meter              | Slug                | Event Type           | Aggregation                     | Emission                                            |
+| ------------------ | ------------------- | -------------------- | ------------------------------- | --------------------------------------------------- |
+| Compute            | `compute`           | `compute_usage`      | `SUM` on `$.compute_unit_hours` | Background heartbeat (5 min)                        |
+| Active Agents      | `agents`            | `active_agents`      | `LATEST` on `$.count`           | Background snapshot (5 min)                         |
+| Agent Builds       | `agent_builds`      | `agent_build`        | `COUNT`                         | Inline in RegisterAgent handler                     |
+| Active Deployments | `agent_deployments` | `active_deployments` | `LATEST` on `$.count`           | Background snapshot (5 min)                         |
+| Account Members    | `members`           | `active_members`     | `LATEST` on `$.count`           | Inline on member change + background reconciliation |
 
 ### Knowledge Store Meters
 
-| Meter | Slug | Event Type | Aggregation | GroupBy | Emission |
-|-------|------|------------|-------------|---------|----------|
-| Active Knowledge Stores | `knowledge_stores` | `active_knowledge_stores` | `LATEST` on `$.count` | — | Inline on create/connect/delete + background snapshot (5 min) |
-| Knowledge Storage | `knowledge_storage` | `knowledge_storage_provisioned` | `LATEST` on `$.storage_gb` | `$.store_name`, `$.provider` | Inline on create/delete + background snapshot (5 min) |
-| Knowledge Compute | `knowledge_compute` | `knowledge_compute_usage` | `SUM` on `$.compute_unit_hours` | `$.store_name`, `$.provider` | Background heartbeat (5 min) |
-| Knowledge Endpoints | `knowledge_endpoints` | `active_knowledge_endpoints` | `LATEST` on `$.count` | — | Inline on connect-with-PrivateLink + background snapshot (5 min) |
+| Meter                   | Slug                  | Event Type                      | Aggregation                     | GroupBy                      | Emission                                                         |
+| ----------------------- | --------------------- | ------------------------------- | ------------------------------- | ---------------------------- | ---------------------------------------------------------------- |
+| Active Knowledge Stores | `knowledge_stores`    | `active_knowledge_stores`       | `LATEST` on `$.count`           | —                            | Inline on create/connect/delete + background snapshot (5 min)    |
+| Knowledge Storage       | `knowledge_storage`   | `knowledge_storage_provisioned` | `LATEST` on `$.storage_gb`      | `$.store_name`, `$.provider` | Inline on create/delete + background snapshot (5 min)            |
+| Knowledge Compute       | `knowledge_compute`   | `knowledge_compute_usage`       | `SUM` on `$.compute_unit_hours` | `$.store_name`, `$.provider` | Background heartbeat (5 min)                                     |
+| Knowledge Endpoints     | `knowledge_endpoints` | `active_knowledge_endpoints`    | `LATEST` on `$.count`           | —                            | Inline on connect-with-PrivateLink + background snapshot (5 min) |
 
 Knowledge store meters only track **managed** stores for storage and compute — external stores don't consume platform infrastructure. The store count meter includes both managed and external stores. This metering model is infrastructure-agnostic: the same meters apply whether stores run as K8s StatefulSets (current) or managed database instances like RDS (future), only the heartbeat's CU calculation source changes.
 
@@ -125,12 +125,12 @@ Knowledge stores run as independent StatefulSets with their own CPU/memory resou
 
 Per-provider CU per heartbeat (at default resource requests):
 
-| Provider | CPU Request | Memory Request | CU | CU-hours/month (24/7) |
-|----------|-----------|--------------|-----|----------------------|
-| postgres | 250m | 256Mi | 0.25 | ~180 |
-| redis | 50m | 64Mi | 0.05 | ~36 |
-| qdrant | 250m | 512Mi | 0.25 | ~180 |
-| neo4j | 500m | 512Mi | 0.50 | ~360 |
+| Provider | CPU Request | Memory Request | CU   | CU-hours/month (24/7) |
+| -------- | ----------- | -------------- | ---- | --------------------- |
+| postgres | 250m        | 256Mi          | 0.25 | ~180                  |
+| redis    | 50m         | 64Mi           | 0.05 | ~36                   |
+| qdrant   | 250m        | 512Mi          | 0.25 | ~180                  |
+| neo4j    | 500m        | 512Mi          | 0.50 | ~360                  |
 
 If the backing infrastructure moves from K8s StatefulSets to managed services (e.g. RDS), the CU calculation source changes (instance class specs instead of pod resource requests) but the meter, event schema, and entitlement logic remain the same.
 
@@ -442,20 +442,21 @@ One feature per meter, used as the entitlement key for limit checks. Current fea
 
 Single plan (`private_beta`), free, with hard limits. All accounts are auto-subscribed on creation. Uses metered entitlements with `issueAfterReset` so grants are auto-provisioned and `hasAccess` enforcement works automatically.
 
-| Feature | Limit | Reset | Type |
-|---------|-------|-------|------|
-| `compute` | 100 CU-hours/mo | Monthly, cumulative | Counter |
-| `agent_builds` | 50 builds/mo | Monthly, cumulative | Counter |
-| `agents` | 5 | Monthly, gauge re-reports | Gauge |
-| `agent_deployments` | 10 | Monthly, gauge re-reports | Gauge |
-| `members` | 5 | Monthly, gauge re-reports | Gauge |
-| `knowledge_stores` | 5 | Monthly, gauge re-reports | Gauge |
-| `knowledge_storage` | 50 GB | Monthly, gauge re-reports | Gauge |
-| `knowledge_compute` | 50 CU-hours/mo | Monthly, cumulative | Counter |
-| `knowledge_endpoints` | 2 | Monthly, gauge re-reports | Gauge |
+| Feature               | Limit           | Reset                     | Type    |
+| --------------------- | --------------- | ------------------------- | ------- |
+| `compute`             | 100 CU-hours/mo | Monthly, cumulative       | Counter |
+| `agent_builds`        | 50 builds/mo    | Monthly, cumulative       | Counter |
+| `agents`              | 5               | Monthly, gauge re-reports | Gauge   |
+| `agent_deployments`   | 10              | Monthly, gauge re-reports | Gauge   |
+| `members`             | 5               | Monthly, gauge re-reports | Gauge   |
+| `knowledge_stores`    | 5               | Monthly, gauge re-reports | Gauge   |
+| `knowledge_storage`   | 50 GB           | Monthly, gauge re-reports | Gauge   |
+| `knowledge_compute`   | 50 CU-hours/mo  | Monthly, cumulative       | Counter |
+| `knowledge_endpoints` | 2               | Monthly, gauge re-reports | Gauge   |
 
 Current plan definition in OpenMeter, created via `POST /api/v1/plans`:
 
+#### Preview
 ```json
 {
   "key": "private_beta",
@@ -602,6 +603,445 @@ Current plan definition in OpenMeter, created via `POST /api/v1/plans`:
 }
 ```
 
+#### Prod
+```json
+{
+  "key": "private_beta",
+  "name": "Private Beta",
+  "description": "Free tier for private beta users with hard limits on all resources.",
+  "currency": "USD",
+  "billingCadence": "P1M",
+  "phases": [
+    {
+      "key": "beta",
+      "name": "Private Beta",
+      "description": "Single phase — free access with hard-capped entitlements.",
+      "duration": null,
+      "rateCards": [
+        {
+          "type": "usage_based",
+          "key": "compute",
+          "name": "Compute",
+          "description": "Compute-unit-hours consumed by active deployments (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 250
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agents",
+          "name": "Agents",
+          "description": "Number of distinct agents registered in the account.",
+          "featureKey": "agents",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_builds",
+          "name": "Agent Builds",
+          "description": "Number of agent builds pushed to the registry per billing period.",
+          "featureKey": "agent_builds",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_deployments",
+          "name": "Deployments",
+          "description": "Number of concurrently active agent deployments.",
+          "featureKey": "agent_deployments",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 10
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "members",
+          "name": "Members",
+          "description": "Number of members in the account.",
+          "featureKey": "members",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_stores",
+          "name": "Knowledge Stores",
+          "description": "Number of knowledge stores (managed + external) per account.",
+          "featureKey": "knowledge_stores",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_storage",
+          "name": "Knowledge Storage",
+          "description": "Total provisioned storage (GB) across managed knowledge stores.",
+          "featureKey": "knowledge_storage",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_compute",
+          "name": "Knowledge Compute",
+          "description": "Compute-unit-hours consumed by managed knowledge store infrastructure (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "knowledge_compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_endpoints",
+          "name": "Knowledge Endpoints",
+          "description": "Number of active PrivateLink VPC endpoints for external knowledge stores.",
+          "featureKey": "knowledge_endpoints",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 2
+          },
+          "price": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+```json
+{
+  "key": "postman_limited",
+  "name": "Postman Limited",
+  "description": "Free tier for postman users with hard limits on all resources.",
+  "currency": "USD",
+  "billingCadence": "P1M",
+  "phases": [
+    {
+      "key": "beta",
+      "name": "Private Beta",
+      "description": "Single phase — free access with hard-capped entitlements.",
+      "duration": null,
+      "rateCards": [
+        {
+          "type": "usage_based",
+          "key": "compute",
+          "name": "Compute",
+          "description": "Compute-unit-hours consumed by active deployments (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agents",
+          "name": "Agents",
+          "description": "Number of distinct agents registered in the account.",
+          "featureKey": "agents",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 100
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_builds",
+          "name": "Agent Builds",
+          "description": "Number of agent builds pushed to the registry per billing period.",
+          "featureKey": "agent_builds",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 1000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_deployments",
+          "name": "Deployments",
+          "description": "Number of concurrently active agent deployments.",
+          "featureKey": "agent_deployments",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 500
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "members",
+          "name": "Members",
+          "description": "Number of members in the account.",
+          "featureKey": "members",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 1000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_stores",
+          "name": "Knowledge Stores",
+          "description": "Number of knowledge stores (managed + external) per account.",
+          "featureKey": "knowledge_stores",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 100
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_storage",
+          "name": "Knowledge Storage",
+          "description": "Total provisioned storage (GB) across managed knowledge stores.",
+          "featureKey": "knowledge_storage",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_compute",
+          "name": "Knowledge Compute",
+          "description": "Compute-unit-hours consumed by managed knowledge store infrastructure (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "knowledge_compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_endpoints",
+          "name": "Knowledge Endpoints",
+          "description": "Number of active PrivateLink VPC endpoints for external knowledge stores.",
+          "featureKey": "knowledge_endpoints",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+```json
+{
+  "key": "internal_tester",
+  "name": "Internal Tester",
+  "description": "Special user used for running smoke tests.",
+  "currency": "USD",
+  "billingCadence": "P1M",
+  "phases": [
+    {
+      "key": "beta",
+      "name": "Private Beta",
+      "description": "Single phase — free access with hard-capped entitlements.",
+      "duration": null,
+      "rateCards": [
+        {
+          "type": "usage_based",
+          "key": "compute",
+          "name": "Compute",
+          "description": "Compute-unit-hours consumed by active deployments (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agents",
+          "name": "Agents",
+          "description": "Number of distinct agents registered in the account.",
+          "featureKey": "agents",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_builds",
+          "name": "Agent Builds",
+          "description": "Number of agent builds pushed to the registry per billing period.",
+          "featureKey": "agent_builds",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 1000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_deployments",
+          "name": "Deployments",
+          "description": "Number of concurrently active agent deployments.",
+          "featureKey": "agent_deployments",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 1000
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "members",
+          "name": "Members",
+          "description": "Number of members in the account.",
+          "featureKey": "members",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_stores",
+          "name": "Knowledge Stores",
+          "description": "Number of knowledge stores (managed + external) per account.",
+          "featureKey": "knowledge_stores",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_storage",
+          "name": "Knowledge Storage",
+          "description": "Total provisioned storage (GB) across managed knowledge stores.",
+          "featureKey": "knowledge_storage",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 10
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_compute",
+          "name": "Knowledge Compute",
+          "description": "Compute-unit-hours consumed by managed knowledge store infrastructure (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "knowledge_compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "knowledge_endpoints",
+          "name": "Knowledge Endpoints",
+          "description": "Number of active PrivateLink VPC endpoints for external knowledge stores.",
+          "featureKey": "knowledge_endpoints",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 2
+          },
+          "price": null
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Subscription Lifecycle
 
 On account creation, after the OpenMeter customer is created:
@@ -622,14 +1062,14 @@ POST /api/v1/subscriptions
 
 Before resource-consuming operations, entitlements are checked synchronously:
 
-| Operation | Entitlements Checked |
-|-----------|---------------------|
-| Deploy agent | `agent_deployments`, `compute` |
-| Register agent | `agents` |
-| Add member | `members` |
-| Create knowledge store | `knowledge_stores`, `knowledge_storage`, `knowledge_compute` |
-| Connect knowledge store | `knowledge_stores` |
-| Connect knowledge store (PrivateLink) | `knowledge_stores`, `knowledge_endpoints` |
+| Operation                             | Entitlements Checked                                         |
+| ------------------------------------- | ------------------------------------------------------------ |
+| Deploy agent                          | `agent_deployments`, `compute`                               |
+| Register agent                        | `agents`                                                     |
+| Add member                            | `members`                                                    |
+| Create knowledge store                | `knowledge_stores`, `knowledge_storage`, `knowledge_compute` |
+| Connect knowledge store               | `knowledge_stores`                                           |
+| Connect knowledge store (PrivateLink) | `knowledge_stores`, `knowledge_endpoints`                    |
 
 Entitlement responses are cached with a short TTL (~30s) to avoid per-request latency. When limits are exceeded, the API returns **402** with entitlement details so the client can show upgrade prompts. Reads remain allowed; only writes/deploys are blocked.
 
