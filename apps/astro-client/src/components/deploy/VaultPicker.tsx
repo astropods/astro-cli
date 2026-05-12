@@ -52,6 +52,14 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
       ? acct.organization_id
       : null
   const scopeReady = targetOrgId === null
+  // Mirrors the server's variable:write gate so members of an org (who can read but not write
+  // variables) don't see a "+ New" affordance that would 403 on submit. Unknown accounts fall
+  // through to true and let the server enforce.
+  const canCreate =
+    !acct ||
+    acct.type === 'personal' ||
+    acct.role === 'admin' ||
+    acct.role === 'owner'
 
   useEffect(() => {
     if (!targetOrgId) return
@@ -120,9 +128,11 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
               <KeyIcon className="size-5 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm font-medium text-foreground">No variables yet</p>
               <p className="text-xs text-muted-foreground mt-1 mb-3">
-                Set and manage reusable credentials and configuration values for your agents
+                {canCreate
+                  ? 'Set and manage reusable credentials and configuration values for your agents'
+                  : 'No variables have been added for this account yet.'}
               </p>
-              {scopeReady && (
+              {scopeReady && canCreate && (
                 <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
                   <PlusIcon className="size-3.5" />
                   New variable
@@ -134,7 +144,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
               <div className="px-3 pt-3 pb-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold text-foreground">Select a reference</p>
-                  {scopeReady && (
+                  {scopeReady && canCreate && (
                     <Button
                       type="button"
                       variant="ghost"

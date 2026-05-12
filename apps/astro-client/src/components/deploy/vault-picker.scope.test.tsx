@@ -36,6 +36,7 @@ describe('VaultPicker scope switching', () => {
       id: 'acct-acme',
       name: 'acme',
       type: 'organization',
+      role: 'admin',
       organization_id: 'wos-acme-1',
     }
     let resolveSwitch: () => void = () => {}
@@ -81,6 +82,7 @@ describe('VaultPicker scope switching', () => {
       id: 'acct-acme-2',
       name: 'acme-2',
       type: 'organization',
+      role: 'admin',
       organization_id: 'wos-acme-2',
     }
     const switchOrg = vi.fn()
