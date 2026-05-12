@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { AccountPublic } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import {
   useUpdateProfile,
+  useUpdateAccountDisplayName,
   useUpdateAccountProfile,
   useUploadAvatar,
 } from "@/api/queries/accounts";
@@ -21,16 +21,18 @@ import { Camera, Loader2, X } from "lucide-react";
 interface ProfileEditSidebarProps {
   data: AccountPublic;
   onClose: () => void;
+  variant?: "personal" | "org";
 }
 
-export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
-  const { refreshUserData } = useAuth();
+export function ProfileEditSidebar({ data, onClose, variant = "personal" }: ProfileEditSidebarProps) {
+  const isOrg = variant === "org";
+
   const updateProfile = useUpdateProfile(data.name);
+  const updateDisplayName = useUpdateAccountDisplayName();
   const updateAccountProfile = useUpdateAccountProfile();
   const uploadAvatar = useUploadAvatar();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
 
-  // Initialized directly from props — no useEffect sync needed
   const [displayName, setDisplayName] = useState(data.display_name ?? "");
   const [bio, setBio] = useState(data.bio ?? "");
   const [location, setLocation] = useState(data.location ?? "");
@@ -42,29 +44,36 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
     return [links[0] ?? "", links[1] ?? "", links[2] ?? "", links[3] ?? ""];
   });
 
-  const isSaving = updateProfile.isPending || updateAccountProfile.isPending;
+  const isSaving = (isOrg ? updateDisplayName.isPending : updateProfile.isPending) || updateAccountProfile.isPending;
   const displayNameEmpty = displayName.trim() === "";
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handleSave() {
-    await updateProfile.mutateAsync({ display_name: displayName });
-    await updateAccountProfile.mutateAsync({
-      account: data.name,
-      bio,
-      location,
-      email,
-      pronouns,
-      website,
-      social_links: socialLinks.filter((s) => s.trim() !== ""),
-      local_timezone: "",
-    });
-    await refreshUserData();
-    onClose();
+    setSaveError(null);
+    try {
+      await Promise.all([
+        isOrg
+          ? updateDisplayName.mutateAsync({ account: data.name, displayName })
+          : updateProfile.mutateAsync({ display_name: displayName }),
+        updateAccountProfile.mutateAsync({
+          account: data.name,
+          bio,
+          location,
+          website,
+          social_links: socialLinks.filter((s) => s.trim() !== ""),
+          ...(!isOrg && { email, pronouns, local_timezone: "" }),
+        }),
+      ]);
+      onClose();
+    } catch {
+      setSaveError("Failed to save. Please try again.");
+    }
   }
 
   return (
     <div className="relative z-10 flex flex-col gap-5 px-6 py-7 h-full overflow-y-auto">
       <div className="flex items-center justify-between">
-        <h2 className="text-heading-4 text-foreground">Edit profile</h2>
+        <h2 className="text-heading-4 text-foreground">{isOrg ? "Edit org profile" : "Edit profile"}</h2>
         <Button variant="ghost" size="icon-sm" onClick={onClose} className="text-muted-foreground">
           <X className="size-4" />
         </Button>
@@ -88,8 +97,7 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
           await uploadAvatar.mutateAsync({ account: data.name, file });
         }}
         isPending={uploadAvatar.isPending}
-        title="Upload profile image"
-        onSuccess={() => refreshUserData()}
+        title={isOrg ? "Upload org image" : "Upload profile image"}
       />
 
       <div className="flex flex-col gap-4">
@@ -99,13 +107,14 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={DISPLAY_NAME_MAX_LENGTH}
-            placeholder="Display name"
+            placeholder={isOrg ? "Organization name" : "Display name"}
             className={cn("h-8 text-body-sm", displayNameEmpty && "border-destructive focus-visible:ring-destructive/20")}
           />
           {displayNameEmpty && (
             <p className="mt-1 text-[11px] text-destructive">Display name can't be empty</p>
           )}
         </div>
+
         <div>
           <div className="flex items-baseline justify-between mb-1">
             <p className="text-body-sm text-muted-foreground">Bio</p>
@@ -115,11 +124,12 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             maxLength={160}
-            placeholder="Tell people a bit about yourself"
+            placeholder={isOrg ? "Tell people about your organization" : "Tell people a bit about yourself"}
             rows={3}
             className="resize-none text-body-sm"
           />
         </div>
+
         <div>
           <p className="text-body-sm text-muted-foreground mb-1">Location</p>
           <Input
@@ -129,20 +139,26 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
             className="h-8 text-body-sm"
           />
         </div>
-        <div>
-          <p className="text-body-sm text-muted-foreground mb-1">Email</p>
-          <Input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            type="email"
-            className="h-8 text-body-sm"
-          />
-        </div>
-        <div>
-          <p className="text-body-sm text-muted-foreground mb-1">Pronouns</p>
-          <PronounsSelect value={pronouns} onValueChange={setPronouns} className="h-8 text-body-sm" />
-        </div>
+
+        {!isOrg && (
+          <>
+            <div>
+              <p className="text-body-sm text-muted-foreground mb-1">Email</p>
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                type="email"
+                className="h-8 text-body-sm"
+              />
+            </div>
+            <div>
+              <p className="text-body-sm text-muted-foreground mb-1">Pronouns</p>
+              <PronounsSelect value={pronouns} onValueChange={setPronouns} className="h-8 text-body-sm" />
+            </div>
+          </>
+        )}
+
         <div>
           <p className="text-body-sm text-muted-foreground mb-1">Website</p>
           <div className={cn(inputBase, inputFocusWithin, "flex items-center px-0")}>
@@ -156,19 +172,23 @@ export function ProfileEditSidebar({ data, onClose }: ProfileEditSidebarProps) {
             />
           </div>
         </div>
+
         <div className="h-px bg-border" />
         <p className="text-body-sm font-medium text-foreground -mb-1">Social accounts</p>
         <SocialLinksEditor links={socialLinks} onChange={setSocialLinks} compact />
       </div>
 
-      <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={isSaving || displayNameEmpty}>
-          {isSaving && <Loader2 className="size-3.5 animate-spin" />}
-          Save
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <Button size="sm" onClick={handleSave} disabled={isSaving || displayNameEmpty}>
+            {isSaving && <Loader2 className="size-3.5 animate-spin" />}
+            Save
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+        {saveError && <p className="text-[11px] text-destructive">{saveError}</p>}
       </div>
     </div>
   );

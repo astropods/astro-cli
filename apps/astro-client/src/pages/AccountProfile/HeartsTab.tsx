@@ -59,12 +59,10 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
   const hasFilters = search.trim() !== "" || sort !== "popular";
 
   const items = data?.items ?? [];
+  const q = search.trim().toLowerCase();
 
   const filtered = items
-    .filter((item) => {
-      if (!search.trim()) return true;
-      return item.name.toLowerCase().includes(search.toLowerCase());
-    })
+    .filter((item) => !q || item.name.toLowerCase().includes(q))
     .sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
       if (sort === "popular") return b.heart_count - a.heart_count;

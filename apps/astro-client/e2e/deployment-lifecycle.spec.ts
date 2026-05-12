@@ -51,11 +51,13 @@ test("restart via kebab menu sends restart request", async ({ page }) => {
   // Wait for the agent identity to fully render (display name visible)
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 15_000 });
 
-  // Open the agent identity dropdown
-  await page.getByRole("button", { name: "Agent menu" }).click();
+  // Open the agent identity dropdown — wait for button to be stable before clicking
+  const agentMenuBtn = page.getByRole("button", { name: "Agent menu" });
+  await expect(agentMenuBtn).toBeVisible({ timeout: 5_000 });
+  await agentMenuBtn.click();
 
   // Dropdown opens — wait for it then click "Restart deployment"
-  await expect(page.getByRole("menu")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("menu")).toBeVisible({ timeout: 10_000 });
   await page.getByRole("menuitem", { name: "Restart deployment" }).click();
 
   // Confirmation dialog appears

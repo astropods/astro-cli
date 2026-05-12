@@ -15,7 +15,7 @@ const makeBlueprint = (name: string, visibility: 'public' | 'private' = 'public'
   account: 'testuser',
   registry: 'reg.example.com',
   visibility,
-  versions: [],
+  versions: [{ build_id: 'b1', published_at: '2025-01-01T00:00:00Z', spec: {} }],
 });
 
 const defaultProps = {
@@ -28,9 +28,7 @@ const defaultProps = {
   onVisibilityChange: vi.fn(),
   sort: 'newest' as BlueprintSort,
   onSortChange: vi.fn(),
-  // Reorder defaults
   reorderMode: 'idle' as const,
-  hasCustomOrder: false,
   onEnterReorder: vi.fn(),
   onSaveReorder: vi.fn(),
 };
@@ -147,13 +145,6 @@ describe('BlueprintsTab customize order', () => {
     expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
   });
 
-  it('still shows "Customize order" when a custom order is already saved', () => {
-    renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} hasCustomOrder />,
-    );
-    expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
-  });
-
   it('calls onEnterReorder when "Customize order" is clicked', async () => {
     const user = userEvent.setup();
     const onEnterReorder = vi.fn();
@@ -183,7 +174,6 @@ describe('BlueprintsTab editing mode', () => {
       />,
     );
     expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument();
-    // No cancel button — Taylor's UX has no cancel
     expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
@@ -258,10 +248,6 @@ describe('BlueprintsTab grip handles', () => {
     expect(screen.queryByTestId('grip-hint')).not.toBeInTheDocument();
   });
 });
-
-// ── localStorage persistence (via parent IndividualProfile) ──────────────────
-// These tests verify that IndividualProfile correctly loads/saves custom order.
-// The actual persistence is tested at the IndividualProfile level.
 
 describe('BlueprintsTab onEnterReorder resets filters', () => {
   it('clicking "Customize order" calls onEnterReorder which resets filters in parent', async () => {

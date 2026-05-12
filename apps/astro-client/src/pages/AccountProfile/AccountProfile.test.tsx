@@ -109,7 +109,8 @@ describe('AccountProfile view mode toggle', () => {
     renderProfile('/testuser');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /view as visitor/i })).toBeInTheDocument();
+      // Rendered as <Button asChild><Link> so the DOM element is an <a>, role="link"
+      expect(screen.getByRole('link', { name: /view as visitor/i })).toBeInTheDocument();
     });
   });
 
@@ -171,9 +172,9 @@ describe('AccountProfile blueprint visibility', () => {
     renderProfile('/testuser');
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'public-bot' })).toBeInTheDocument();
-      // secret-bot has a PrivacyBadge inside the h3, so accessible name is "secret-bot Private"
-      expect(screen.getByRole('heading', { name: /secret-bot/ })).toBeInTheDocument();
+      // isDraft=true (versions:[]) means heading is "public-bot Finish setup" — match by prefix
+      expect(screen.getByRole('heading', { name: /^public-bot/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /^secret-bot/ })).toBeInTheDocument();
     });
   });
 
@@ -183,7 +184,6 @@ describe('AccountProfile blueprint visibility', () => {
         HttpResponse.json({ ...otherAccount, name: 'otheruser' } satisfies AccountPublic),
       ),
     );
-    // Blueprints belong to otheruser's account
     server.use(
       http.get('/api/v1/agents/otheruser', () =>
         HttpResponse.json<BlueprintsListResponse>({
@@ -199,9 +199,9 @@ describe('AccountProfile blueprint visibility', () => {
     renderProfile('/otheruser');
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'public-bot' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /^public-bot/ })).toBeInTheDocument();
     });
-    expect(screen.queryByRole('heading', { name: /secret-bot/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^secret-bot/ })).not.toBeInTheDocument();
   });
 });
 

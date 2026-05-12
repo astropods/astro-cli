@@ -7,6 +7,34 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Search, X, ChevronDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+// ── TabButton ─────────────────────────────────────────────────────────────────
+
+export function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center pb-3 text-body border-b-2 -mb-px transition-colors cursor-pointer",
+        active
+          ? "border-primary text-foreground font-semibold"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 // ── TabSearchInput ────────────────────────────────────────────────────────────
 

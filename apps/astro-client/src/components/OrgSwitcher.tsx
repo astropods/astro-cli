@@ -57,7 +57,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
           )}
         >
           {activeAccountObj && (
-            <span className="inline-flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               <AccountIcon account={activeAccountObj} />
               <span className="truncate">
                 {activeAccountObj.display_name || activeAccountObj.name}

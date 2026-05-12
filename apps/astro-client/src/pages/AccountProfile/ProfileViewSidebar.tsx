@@ -1,206 +1,161 @@
+import { useState } from "react";
 import { Link } from "react-router";
-import type { AccountPublic, AccountOrg } from "@/lib/api";
+import type { AccountPublic, AccountOrg, AccountMember } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { detectSocialLink, type SocialLinkDisplay } from "@/lib/social-links";
 import { EarlyAdopterBadge } from "@/components/account-profile/EarlyAdopterBadge";
-import { BotIcon, LayersIcon, Calendar, Globe, MapPin, Mail, User2 } from "lucide-react";
-
-// ── MetaRow ────────────────────────────────────────────────────────────────────
-// Icon + text row used throughout the profile sidebar.
-// Pass href for clickable rows (handles mailto: internally).
-
-function MetaRow({
-  icon,
-  children,
-  href,
-}: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  href?: string;
-}) {
-  const base = "flex items-center gap-2 text-[13px] leading-none text-muted-foreground";
-  const content = (
-    <>
-      <span className="shrink-0">{icon}</span>
-      <span className="truncate">{children}</span>
-    </>
-  );
-  if (!href) return <div className={base}>{content}</div>;
-  if (href.startsWith("/")) {
-    return <Link to={href} className={`${base} transition-colors hover:text-foreground`}>{content}</Link>;
-  }
-  return (
-    <a
-      href={href}
-      target={href.startsWith("mailto:") ? undefined : "_blank"}
-      rel={href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
-      className={`${base} transition-colors hover:text-foreground`}
-    >
-      {content}
-    </a>
-  );
-}
-
-// ── ProfileViewSidebar ─────────────────────────────────────────────────────────
+import { ProfileSidebarShell } from "./ProfileSidebarShell";
+import { BotIcon, LayersIcon } from "lucide-react";
 
 interface ProfileViewSidebarProps {
   data: AccountPublic;
-  isOwner: boolean;
+  variant?: "personal" | "org";
+  isAdmin: boolean;
   blueprintCount: number;
   deploymentCount: number;
-  orgs: AccountOrg[];
+  orgs?: AccountOrg[];
+  members?: AccountMember[];
   onEditOpen?: () => void;
 }
 
 export function ProfileViewSidebar({
   data,
-  isOwner,
+  variant = "personal",
+  isAdmin,
   blueprintCount,
   deploymentCount,
-  orgs,
+  orgs = [],
+  members = [],
   onEditOpen,
 }: ProfileViewSidebarProps) {
-  const displayName = data.display_name || data.name;
-  const joinedDate = new Date(data.created_at).toLocaleDateString("en-US", {
-    month: "short",
-    year: "numeric",
-  });
+  const isOrg = variant === "org";
+  const [membersOpen, setMembersOpen] = useState(false);
 
-  const socialLinks = (data.social_links ?? [])
-    .map((v) => detectSocialLink(v))
-    .filter((x): x is SocialLinkDisplay => x !== null);
-
-  const websiteHref = data.website
-    ? /^https?:\/\//.test(data.website)
-      ? data.website
-      : `https://${data.website}`
-    : null;
-  const websiteLabel = websiteHref
-    ? (() => {
-        try {
-          return new URL(websiteHref).hostname.replace(/^www\./, "");
-        } catch {
-          return data.website;
-        }
-      })()
-    : null;
+  const activeMembers = members.filter((m) => m.status === "active");
 
   const stats = [
     { label: "Blueprints", value: blueprintCount, icon: <LayersIcon className="size-3.5" /> },
-    ...(isOwner
+    ...(isAdmin
       ? [{ label: "Agents", value: deploymentCount, icon: <BotIcon className="size-3.5" /> }]
       : []),
   ];
 
+  const badge =
+    !isOrg && data.account_number != null && data.account_number <= 1000 ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <EarlyAdopterBadge accountNumber={data.account_number} />
+        </TooltipTrigger>
+        <TooltipContent>One of the first 1,000 users on Astro</TooltipContent>
+      </Tooltip>
+    ) : undefined;
+
   return (
-    <TooltipProvider delayDuration={400}>
-    <div className="relative z-10 flex flex-col gap-6 px-6 py-7 h-full overflow-y-auto">
-      {/* Avatar + identity */}
-      <div className="flex flex-col gap-2">
-        <UserAvatar handle={data.name} name={displayName} className="size-24 mb-1" />
-        <div>
-          <h1 className="text-heading-1 text-foreground break-words hyphens-auto">{displayName}</h1>
-          <p className="text-body text-muted-foreground font-mono mt-0.5">@{data.name}</p>
-          {data.account_number != null && data.account_number <= 1000 && (
-            <div className="mt-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <EarlyAdopterBadge accountNumber={data.account_number} />
-                </TooltipTrigger>
-                <TooltipContent>One of the first 1,000 users on Astro</TooltipContent>
-              </Tooltip>
+    <>
+      <ProfileSidebarShell
+        data={data}
+        isAdmin={isAdmin}
+        onEditOpen={onEditOpen}
+        dateLabel={isOrg ? "Founded" : "Joined"}
+        stats={stats}
+        badge={badge}
+        pronouns={isOrg ? undefined : data.pronouns}
+        email={isOrg ? undefined : data.email}
+      >
+        {isOrg && activeMembers.length > 0 && (
+          <>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <p className="text-label uppercase text-muted-foreground">Members</p>
+                {activeMembers.length > 12 && (
+                  <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setMembersOpen(true)}>
+                    View all {activeMembers.length}
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {activeMembers.slice(0, 12).map((member) => (
+                  <Tooltip key={member.user_id}>
+                    <TooltipTrigger asChild>
+                      <Link to={`/${member.username}`}>
+                        <UserAvatar
+                          handle={member.username}
+                          name={member.display_name || member.username}
+                          className="size-8 transition-opacity hover:opacity-80"
+                        />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>{member.display_name || member.username}</TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
-
-      {isOwner && onEditOpen && (
-        <Button variant="outline" size="sm" className="w-full" onClick={onEditOpen}>
-          Edit profile
-        </Button>
-      )}
-
-      {data.bio && (
-        <p className="text-[13px] text-muted-foreground leading-relaxed">{data.bio}</p>
-      )}
-
-      {/* Meta rows */}
-      <div className="flex flex-col gap-3">
-        <MetaRow icon={<Calendar className="size-3.5" />}>Joined {joinedDate}</MetaRow>
-        {data.pronouns && (
-          <MetaRow icon={<User2 className="size-3.5" />}>{data.pronouns}</MetaRow>
+          </>
         )}
-        {data.location && (
-          <MetaRow icon={<MapPin className="size-3.5" />}>{data.location}</MetaRow>
-        )}
-        {data.email && (
-          <MetaRow icon={<Mail className="size-3.5" />} href={`mailto:${data.email}`}>
-            {data.email}
-          </MetaRow>
-        )}
-        {websiteHref && (
-          <MetaRow icon={<Globe className="size-3.5" />} href={websiteHref}>
-            {websiteLabel}
-          </MetaRow>
-        )}
-      </div>
 
-      {socialLinks.length > 0 && (
-        <>
-          <div className="h-px bg-border" />
-          <div className="flex flex-col gap-3">
-            {socialLinks.map(({ icon, label, href }) => (
-              <MetaRow key={href} icon={icon} href={href}>
-                {label}
-              </MetaRow>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="h-px bg-border" />
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-5">
-        {stats.map(({ label, value, icon }) => (
-          <div key={label}>
-            <p className="text-label uppercase text-muted-foreground mb-1">{label}</p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">{icon}</span>
-              <p className="text-heading-2 text-foreground">{value}</p>
+        {!isOrg && orgs.length > 0 && (
+          <>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col gap-3">
+              <p className="text-label uppercase text-muted-foreground">Organizations</p>
+              <div className="flex flex-wrap gap-2">
+                {orgs.map((org) => (
+                  <Tooltip key={org.name}>
+                    <TooltipTrigger asChild>
+                      <Link to={`/${org.name}`}>
+                        <UserAvatar
+                          handle={org.name}
+                          name={org.display_name || org.name}
+                          className="size-9 rounded-[6px] transition-opacity hover:opacity-80"
+                        />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>{org.display_name || org.name}</TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          </>
+        )}
+      </ProfileSidebarShell>
 
-      {/* Organizations — only rendered when the account belongs to at least one org */}
-      {orgs.length > 0 && (
-        <>
-          <div className="h-px bg-border" />
-          <div className="flex flex-col gap-3">
-            <p className="text-label uppercase text-muted-foreground">Organizations</p>
-            <div className="flex flex-wrap gap-2">
-              {orgs.map((org) => (
-                <Tooltip key={org.name}>
-                  <TooltipTrigger asChild>
-                    <Link to={`/${org.name}`}>
-                      <UserAvatar
-                        handle={org.name}
-                        name={org.display_name || org.name}
-                        className="size-9 rounded-[6px] transition-opacity hover:opacity-80"
-                      />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent>{org.display_name || org.name}</TooltipContent>
-                </Tooltip>
+      {isOrg && (
+        <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Members · {activeMembers.length}</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-0.5 max-h-96 overflow-y-auto -mx-1">
+              {activeMembers.map((member) => (
+                <Link
+                  key={member.user_id}
+                  to={`/${member.username}`}
+                  onClick={() => setMembersOpen(false)}
+                  className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-muted transition-colors"
+                >
+                  <UserAvatar
+                    handle={member.username}
+                    name={member.display_name || member.username}
+                    className="size-8 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    {member.display_name && (
+                      <p className="text-body-sm font-medium text-foreground truncate">{member.display_name}</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground font-mono truncate">@{member.username}</p>
+                  </div>
+                  {member.role === "admin" && (
+                    <span className="ml-auto text-label text-muted-foreground shrink-0">Admin</span>
+                  )}
+                </Link>
               ))}
             </div>
-          </div>
-        </>
+          </DialogContent>
+        </Dialog>
       )}
-    </div>
-    </TooltipProvider>
+    </>
   );
 }

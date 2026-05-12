@@ -3,11 +3,13 @@ import { api } from '../../lib/api';
 import type { AccountPublic, CreateAccountData, AccountMembersResponse, AccountOrgsResponse } from '../../lib/api';
 import { accountKeys } from './keys';
 
-export function useAccountMembers(account: string, opts?: { includePending?: boolean }) {
+export function useAccountMembers(account: string, opts?: { includePending?: boolean; enabled?: boolean; initialData?: AccountMembersResponse }) {
   return useQuery({
     queryKey: opts?.includePending ? accountKeys.pendingMembers(account) : accountKeys.members(account),
     queryFn: () => api.getAccountMembers(account, opts),
-    enabled: !!account,
+    enabled: (opts?.enabled ?? true) && !!account,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
@@ -63,8 +65,6 @@ export function useDeleteAccount() {
   });
 }
 
-// No query invalidation here — callers refresh the session via useAuth().refresh()
-// which updates the session cookie with fresh user data from WorkOS.
 export function useRenameAccount() {
   return useMutation({
     mutationFn: ({ account, newName }: { account: string; newName: string }) =>
@@ -85,11 +85,14 @@ export function useUpdateProfile(account?: string) {
   });
 }
 
-// Avatar mutations — callers refresh the session via useAuth().refresh()
 export function useUploadAvatar() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ account, file }: { account: string; file: Blob }) =>
       api.uploadAvatar(account, file),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });
+    },
   });
 }
 
@@ -117,22 +120,25 @@ export function useUpdateAccountProfile() {
   });
 }
 
-export function useAccountOrgs(account: string, opts?: { initialData?: AccountOrgsResponse }) {
+export function useAccountOrgs(account: string, opts?: { enabled?: boolean; initialData?: AccountOrgsResponse }) {
   return useQuery<AccountOrgsResponse>({
     queryKey: accountKeys.orgs(account),
     queryFn: () => api.getAccountOrgs(account),
-    enabled: !!account,
+    enabled: (opts?.enabled ?? true) && !!account,
     staleTime: 60_000,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
-// No query invalidation — callers refresh the session via useAuth().refresh()
 export function useUpdateAccountDisplayName() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ account, displayName }: { account: string; displayName: string }) =>
       api.updateAccountDisplayName(account, displayName),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });
+    },
   });
 }
 

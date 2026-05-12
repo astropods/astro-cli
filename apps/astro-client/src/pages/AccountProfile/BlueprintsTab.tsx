@@ -16,9 +16,8 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Check, Plus, Telescope } from "lucide-react";
+import { GripVertical, Check, Plus } from "lucide-react";
 import { AgentMascots } from "@/components/AgentMascots";
-import { explorePath } from "@/lib/routes";
 import type { Blueprint } from "@/lib/api";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
@@ -43,49 +42,6 @@ const SORT_OPTIONS: { value: BlueprintSort; label: string }[] = [
   { value: "deployed", label: "Most deployed" },
 ];
 
-// ── Shared card props ─────────────────────────────────────────────────────────
-
-interface CardDisplayProps {
-  agent: Blueprint;
-  accountName: string;
-  showArchive?: boolean;
-}
-
-function CardDisplay({ agent, accountName, showArchive }: CardDisplayProps) {
-  return (
-    <BlueprintCard
-      slug={`${accountName}/${agent.name}`}
-      account={accountName}
-      name={agent.name}
-      description={getBlueprintDescription(agent)}
-      visibility={agent.visibility}
-      avatarColors={agent.avatar_colors}
-      deployCount={agent.metrics?.deploy_count}
-      onArchive={showArchive ? () => {} : undefined}
-    />
-  );
-}
-
-// ── Idle-mode card: cosmetic grip, no dnd ─────────────────────────────────────
-
-function IdleBlueprintCard({
-  agent,
-  accountName,
-  isOwner,
-  isInternalView,
-}: {
-  agent: Blueprint;
-  accountName: string;
-  isOwner: boolean;
-  isInternalView: boolean;
-}) {
-  return (
-    <div className="relative h-full">
-      <CardDisplay agent={agent} accountName={accountName} showArchive={isOwner && isInternalView} />
-    </div>
-  );
-}
-
 // ── Sortable card (inside DndContext) ─────────────────────────────────────────
 
 function SortableBlueprintCard({
@@ -99,14 +55,7 @@ function SortableBlueprintCard({
   accountName: string;
   index: number;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   // Freeze stagger delay at mount so reorders don't retrigger the entrance animation
   const [animDelay] = useState(() => Math.min(index * 45, 300));
@@ -131,7 +80,16 @@ function SortableBlueprintCard({
         <div className="pointer-events-none absolute right-2.5 top-2.5 z-[5] opacity-100 transition-opacity duration-150">
           <GripVertical className="h-3.5 w-3.5 text-foreground/30" />
         </div>
-        <CardDisplay agent={agent} accountName={accountName} />
+        <BlueprintCard
+          slug={`${accountName}/${agent.name}`}
+          account={accountName}
+          name={agent.name}
+          description={getBlueprintDescription(agent)}
+          visibility={agent.visibility}
+          avatarColors={agent.avatar_colors}
+          deployCount={agent.metrics?.deploy_count}
+          isDraft={agent.versions.length === 0}
+        />
       </div>
     </div>
   );
@@ -152,10 +110,11 @@ interface BlueprintsTabProps {
   sort: BlueprintSort;
   onSortChange: (v: BlueprintSort) => void;
   reorderMode: ReorderMode;
-  hasCustomOrder: boolean;
   onEnterReorder: () => void;
   onSaveReorder: (names: string[]) => void;
 }
+
+const CARD_GRID = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3";
 
 export function BlueprintsTab({
   blueprints,
@@ -236,12 +195,7 @@ export function BlueprintsTab({
               <Check className="size-3.5" />Saved
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onEnterReorder}
-              className="ml-auto"
-            >
+            <Button variant="outline" size="sm" onClick={onEnterReorder} className="ml-auto">
               Customize order
             </Button>
           )
@@ -253,13 +207,18 @@ export function BlueprintsTab({
         <EmptyState
           variant="card"
           icon={<AgentMascots size={36} />}
-          title={hasFilters ? "No blueprints match your filters." : isInternalView ? "No blueprints published yet." : `${displayName || accountName} has no public blueprints yet.`}
+          title={
+            hasFilters
+              ? "No blueprints match your filters."
+              : isInternalView
+                ? "No blueprints published yet."
+                : `${displayName || accountName} has no public blueprints yet.`
+          }
           {...(!hasFilters && {
             actions: [
               ...(isOwner && isInternalView ? [
                 { label: "Create blueprint", to: "/new/custom", icon: <Plus className="size-4" /> },
               ] : []),
-              { label: "Explore community", to: explorePath, icon: <Telescope className="size-4" strokeWidth={1.5} />, variant: "outline" as const },
             ],
             ...(isOwner && isInternalView && {
               description: "Blueprints define what your agent does. Create one to get started.",
@@ -267,13 +226,9 @@ export function BlueprintsTab({
           })}
         />
       ) : isEditing ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={localOrder.map((b) => b.name)} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={CARD_GRID}>
               {localOrder.map((agent, i) => (
                 <SortableBlueprintCard
                   key={agent.name}
@@ -287,15 +242,21 @@ export function BlueprintsTab({
           </SortableContext>
         </DndContext>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className={CARD_GRID}>
           {blueprints.map((agent) => (
-            <IdleBlueprintCard
-              key={agent.name}
-              agent={agent}
-              accountName={accountName}
-              isOwner={isOwner}
-              isInternalView={isInternalView}
-            />
+            <div key={agent.name} className="relative h-full">
+              <BlueprintCard
+                slug={`${accountName}/${agent.name}`}
+                account={accountName}
+                name={agent.name}
+                description={getBlueprintDescription(agent)}
+                visibility={agent.visibility}
+                avatarColors={agent.avatar_colors}
+                deployCount={agent.metrics?.deploy_count}
+                isDraft={agent.versions.length === 0}
+                onArchive={isOwner && isInternalView ? () => {} : undefined}
+              />
+            </div>
           ))}
         </div>
       )}

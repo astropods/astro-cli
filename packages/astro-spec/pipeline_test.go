@@ -106,12 +106,12 @@ func TestCollectComponents_MixedBuildAndImage(t *testing.T) {
 	s := &AstroSpec{
 		Agent: Container{Build: &BuildConfig{Context: "."}},
 		Models: map[string]Model{
-			"cloud":  {Provider: "anthropic"},                                                                  // no build
-			"custom": {Container: &ContainerConfig{Build: &BuildConfig{Context: "models/custom"}}},             // has build
-			"prebuilt": {Container: &ContainerConfig{Image: "prebuilt:latest"}},                                // image only
+			"cloud":    {Provider: "anthropic"},                                                      // no build
+			"custom":   {Container: &ContainerConfig{Build: &BuildConfig{Context: "models/custom"}}}, // has build
+			"prebuilt": {Container: &ContainerConfig{Image: "prebuilt:latest"}},                      // image only
 		},
 		Knowledge: map[string]Knowledge{
-			"managed": {Provider: "qdrant"},                                                                     // provider, no build
+			"managed": {Provider: "qdrant"}, // provider, no build
 		},
 	}
 	got := CollectComponents(s, "my-agent")
@@ -270,9 +270,9 @@ func TestTransformSpecForRegistry_AllSections(t *testing.T) {
 
 	// Verify all build blocks removed and images set
 	checks := []struct {
-		path     string
-		get      func() map[string]any
-		wantImg  string
+		path    string
+		get     func() map[string]any
+		wantImg string
 	}{
 		{"agent", func() map[string]any { return specObj["agent"].(map[string]any) }, "r.io/my-agent:tag"},
 		{"models.llm.container", func() map[string]any {

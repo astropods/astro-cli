@@ -436,4 +436,3 @@ func confirmVisibilityChange(current, desired string) bool {
 
 	return confirmed
 }
-

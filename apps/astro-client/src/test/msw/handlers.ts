@@ -278,10 +278,13 @@ export const handlers = [
   }),
 
   // GET /api/v1/accounts/:account (single account — tests override for 404/custom data)
+  // id must match mockAuthContext.accounts[0].id ('acct-1') for testuser so isSelf stays true
+  // after background refetch; other accounts get a deterministic id from their name.
   http.get('/api/v1/accounts/:account', ({ params }) => {
+    const account = params.account as string;
     return HttpResponse.json<AccountPublic>({
-      id: `acct-${params.account}`,
-      name: params.account as string,
+      id: account === 'testuser' ? 'acct-1' : `acct-${account}`,
+      name: account,
       type: 'personal',
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-01T00:00:00Z',
@@ -424,6 +427,11 @@ export const handlers = [
   // POST /api/v1/deployments/:id/restart
   http.post('/api/v1/deployments/:id/restart', () => {
     return HttpResponse.json({ status: 'restarting', pods: ['pod-abc-1', 'pod-abc-2'] });
+  }),
+
+  // GET /api/v1/accounts/:account/hearts
+  http.get('/api/v1/accounts/:account/hearts', () => {
+    return HttpResponse.json({ items: [] });
   }),
 
   // GET /api/v1/accounts/:account/variables

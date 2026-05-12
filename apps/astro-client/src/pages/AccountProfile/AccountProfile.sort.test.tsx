@@ -109,7 +109,7 @@ function getBlueprintOrder(): string[] {
 
 // ── Blueprint sorts ───────────────────────────────────────────────────────────
 
-describe('IndividualProfile blueprint sort: Newest', () => {
+describe('AccountProfile blueprint sort: Newest', () => {
   beforeEach(() => {
     server.use(
       http.get('/api/v1/agents/:account', () =>
@@ -163,7 +163,7 @@ describe('IndividualProfile blueprint sort: Newest', () => {
   });
 });
 
-describe('IndividualProfile blueprint sort: Name A–Z', () => {
+describe('AccountProfile blueprint sort: Name A–Z', () => {
   beforeEach(() => {
     server.use(
       http.get('/api/v1/agents/:account', () =>
@@ -189,7 +189,7 @@ describe('IndividualProfile blueprint sort: Name A–Z', () => {
   });
 });
 
-describe('IndividualProfile blueprint sort: Most deployed', () => {
+describe('AccountProfile blueprint sort: Most deployed', () => {
   beforeEach(() => {
     server.use(
       http.get('/api/v1/agents/:account', () =>
@@ -248,7 +248,7 @@ describe('IndividualProfile blueprint sort: Most deployed', () => {
 
 // ── Agent sort ────────────────────────────────────────────────────────────────
 
-describe('IndividualProfile agent sort: Name A–Z', () => {
+describe('AccountProfile agent sort: Name A–Z', () => {
   beforeEach(() => {
     server.use(
       http.get('/api/v1/deployments', () =>
