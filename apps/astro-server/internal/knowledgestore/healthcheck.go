@@ -2,10 +2,13 @@ package knowledgestore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -20,6 +23,8 @@ func CheckHealth(ctx context.Context, provider string, creds map[string]string) 
 	switch provider {
 	case "postgres":
 		return checkPostgres(ctx, creds)
+	case "mysql":
+		return checkMySQL(ctx, creds)
 	case "redis":
 		return checkRedis(ctx, host, port, creds["PASSWORD"])
 	case "qdrant":
@@ -50,6 +55,28 @@ func checkPostgres(ctx context.Context, creds map[string]string) error {
 	defer conn.Close(ctx) //nolint:errcheck
 	if err := conn.Ping(ctx); err != nil {
 		return fmt.Errorf("postgres ping: %w", err)
+	}
+	return nil
+}
+
+func checkMySQL(ctx context.Context, creds map[string]string) error {
+	cfg := mysql.NewConfig()
+	cfg.User = creds["USERNAME"]
+	cfg.Passwd = creds["PASSWORD"]
+	cfg.Net = "tcp"
+	cfg.Addr = net.JoinHostPort(creds["HOST"], creds["PORT"])
+	cfg.DBName = creds["DATABASE"]
+	cfg.Timeout = 5 * time.Second
+	cfg.AllowNativePasswords = true
+	cfg.TLSConfig = "preferred" // try TLS first, fall back to plaintext — matches postgres sslmode=prefer
+
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return fmt.Errorf("mysql: %w", err)
+	}
+	defer db.Close() //nolint:errcheck
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("mysql ping: %w", err)
 	}
 	return nil
 }

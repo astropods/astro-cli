@@ -145,6 +145,18 @@ var builtinProviders = []BuiltinProvider{
 		},
 	},
 	{
+		Name: "mysql", Section: "knowledge",
+		Image: "mysql:8.0", DefaultPort: 3306,
+		MountPath: "/var/lib/mysql", EnvPrefix: "MYSQL",
+		HealthCheck: []string{"sh", "-c", `mysqladmin ping -h 127.0.0.1 -u "$MYSQL_USER" -p"$MYSQL_PASSWORD"`},
+		FsGroup:     999, // mysql uid/gid in the official image
+		BindCredentials: []BindCredentialDef{
+			{Attr: "user", StorageKey: "MYSQL_USER"},
+			{Attr: "password", StorageKey: "MYSQL_PASSWORD"},
+			{Attr: "database", StorageKey: "MYSQL_DATABASE"},
+		},
+	},
+	{
 		Name: "neo4j", Section: "knowledge",
 		Image: "neo4j:5-community", DefaultPort: 7474,
 		ExtraPorts: []PortDef{{Name: "bolt", Port: 7687}},

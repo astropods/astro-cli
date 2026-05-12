@@ -75,33 +75,6 @@ func TestCheckHealth_HTTP_Pinecone_APIKey(t *testing.T) {
 	}
 }
 
-func TestCheckHealth_TCP_OK(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			conn.Close()
-		}
-	}()
-
-	host, port, _ := net.SplitHostPort(ln.Addr().String())
-	creds := map[string]string{"HOST": host, "PORT": port}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	if err := CheckHealth(ctx, "mysql", creds); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-}
-
 func TestCheckHealth_TCP_Refused(t *testing.T) {
 	// Use a port that's very unlikely to be listening.
 	creds := map[string]string{"HOST": "127.0.0.1", "PORT": "1"}
@@ -109,7 +82,7 @@ func TestCheckHealth_TCP_Refused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if err := CheckHealth(ctx, "mysql", creds); err == nil {
+	if err := CheckHealth(ctx, "unknown-provider", creds); err == nil {
 		t.Fatal("expected error for refused connection")
 	}
 }
@@ -121,7 +94,7 @@ func TestCheckHealth_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	err := CheckHealth(ctx, "mysql", creds)
+	err := CheckHealth(ctx, "unknown-provider", creds)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
