@@ -162,7 +162,8 @@ export function BlueprintsTab({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Toolbar */}
+      {/* Toolbar — hidden when there's nothing to filter/sort/reorder */}
+      {(blueprints.length > 0 || hasFilters) && (
       <div className="flex items-center gap-3 flex-wrap">
         <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints…" disabled={isEditing} />
 
@@ -185,7 +186,7 @@ export function BlueprintsTab({
           disabled={isEditing}
         />
 
-        {isOwner && isInternalView && (
+        {isOwner && isInternalView && blueprints.length > 0 && (
           isEditing ? (
             <Button size="sm" className="ml-auto" onClick={() => onSaveReorder(localOrder.map((b) => b.name))}>
               Save changes
@@ -201,6 +202,7 @@ export function BlueprintsTab({
           )
         )}
       </div>
+      )}
 
       {/* Grid */}
       {blueprints.length === 0 ? (

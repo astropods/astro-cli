@@ -67,19 +67,38 @@ describe('BlueprintsTab rendering', () => {
   });
 });
 
+// ── Toolbar visibility ────────────────────────────────────────────────────────
+
+describe('BlueprintsTab toolbar visibility', () => {
+  it('hides the toolbar when there are no blueprints and no active filters', () => {
+    renderWithProviders(<BlueprintsTab {...defaultProps} blueprints={[]} />);
+    expect(screen.queryByPlaceholderText(/search blueprints/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the toolbar when blueprints exist', () => {
+    renderWithProviders(<BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} />);
+    expect(screen.getByPlaceholderText(/search blueprints/i)).toBeInTheDocument();
+  });
+
+  it('shows the toolbar when filters are active even with no results', () => {
+    renderWithProviders(<BlueprintsTab {...defaultProps} blueprints={[]} search="nomatch" />);
+    expect(screen.getByPlaceholderText(/search blueprints/i)).toBeInTheDocument();
+  });
+});
+
 // ── Visibility dropdown ───────────────────────────────────────────────────────
 
 describe('BlueprintsTab visibility filter', () => {
   it('shows the visibility dropdown in internal view', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} isInternalView />,
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} isInternalView />,
     );
     expect(screen.getByRole('button', { name: /visibility/i })).toBeInTheDocument();
   });
 
   it('hides the visibility dropdown in external view', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} isInternalView={false} />,
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} isInternalView={false} />,
     );
     expect(screen.queryByRole('button', { name: /visibility/i })).not.toBeInTheDocument();
   });
@@ -90,7 +109,7 @@ describe('BlueprintsTab visibility filter', () => {
     renderWithProviders(
       <BlueprintsTab
         {...defaultProps}
-        blueprints={[]}
+        blueprints={[makeBlueprint('alpha')]}
         isInternalView
         onVisibilityChange={onVisibilityChange}
       />,
@@ -105,7 +124,7 @@ describe('BlueprintsTab visibility filter', () => {
 
 describe('BlueprintsTab sort', () => {
   it('shows the sort dropdown with the default label', () => {
-    renderWithProviders(<BlueprintsTab {...defaultProps} blueprints={[]} />);
+    renderWithProviders(<BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} />);
     expect(screen.getByRole('button', { name: /newest/i })).toBeInTheDocument();
   });
 
@@ -113,7 +132,7 @@ describe('BlueprintsTab sort', () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} onSortChange={onSortChange} />,
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} onSortChange={onSortChange} />,
     );
     await user.click(screen.getByRole('button', { name: /newest/i }));
     await user.click(screen.getByRole('menuitem', { name: /name a/i }));
@@ -124,11 +143,18 @@ describe('BlueprintsTab sort', () => {
 // ── Customize order button ────────────────────────────────────────────────────
 
 describe('BlueprintsTab customize order', () => {
-  it('shows "Customize order" button for owner in internal view', () => {
+  it('shows "Customize order" button for owner in internal view when blueprints exist', () => {
+    renderWithProviders(
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} isOwner isInternalView />,
+    );
+    expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
+  });
+
+  it('hides "Customize order" button when blueprints list is empty', () => {
     renderWithProviders(
       <BlueprintsTab {...defaultProps} blueprints={[]} isOwner isInternalView />,
     );
-    expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
   });
 
   it('hides "Customize order" button for visitor', () => {
@@ -149,7 +175,7 @@ describe('BlueprintsTab customize order', () => {
     const user = userEvent.setup();
     const onEnterReorder = vi.fn();
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} onEnterReorder={onEnterReorder} />,
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} onEnterReorder={onEnterReorder} />,
     );
     await user.click(screen.getByRole('button', { name: /customize order/i }));
     expect(onEnterReorder).toHaveBeenCalledOnce();
