@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 )
@@ -579,7 +580,7 @@ func TestCreateBlueprint_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, nil))
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO agents").
@@ -621,7 +622,7 @@ func TestCreateBlueprint_ConflictReturns409(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, nil))
 
 	// Active agent: INSERT returns 0 rows affected → ErrAlreadyExists
 	mock.ExpectBegin()
@@ -659,7 +660,7 @@ func TestCreateBlueprint_InvalidNameReturns400(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, nil))
 
 	body := `{"name": "INVALID NAME!!!"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
@@ -677,7 +678,7 @@ func TestCreateBlueprint_DBErrorReturns500(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, nil))
 
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
 
@@ -863,5 +864,60 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 	}
 	if err := accountMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("account mock: %v", err)
+	}
+}
+
+func TestCreateBlueprint_EmitsActiveAgentsEvent(t *testing.T) {
+	eventReceived := make(chan struct{}, 1)
+	omServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/events" {
+			eventReceived <- struct{}{}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer omServer.Close()
+
+	omClient := openmeter.NewClient(omServer.URL)
+
+	router, index, indexMock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	omDB, omMock, _ := sqlmock.New()
+	defer omDB.Close()
+	omMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM agents").
+		WithArgs("test-account-id").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, omClient, omDB))
+
+	indexMock.ExpectBegin()
+	indexMock.ExpectExec("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	indexMock.ExpectExec("DELETE FROM agent_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	indexMock.ExpectCommit()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(`{"name":"my-agent"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-eventReceived:
+	case <-time.After(2 * time.Second):
+		t.Error("timed out waiting for active_agents event")
+	}
+
+	if err := omMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("openmeter db mock: %v", err)
+	}
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("index mock: %v", err)
 	}
 }

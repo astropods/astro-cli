@@ -18,6 +18,8 @@ func EmitAgentBuild(ctx context.Context, client *Client, log *logger.Logger, acc
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit agent_build event", "error", err, "account_id", accountID, "agent_name", agentName)
+	} else {
+		log.Info("openmeter: emitted agent_build", "account_id", accountID, "agent_name", agentName)
 	}
 }
 
@@ -41,6 +43,8 @@ func EmitActiveAgents(ctx context.Context, client *Client, db *sql.DB, log *logg
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit active_agents event", "error", err, "account_id", accountID)
+	} else {
+		log.Info("openmeter: emitted active_agents", "account_id", accountID, "count", count)
 	}
 }
 
@@ -65,6 +69,8 @@ func EmitActiveDeployments(ctx context.Context, client *Client, db *sql.DB, log 
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit active_deployments event", "error", err, "account_id", accountID)
+	} else {
+		log.Info("openmeter: emitted active_deployments", "account_id", accountID, "count", count)
 	}
 }
 
@@ -85,6 +91,8 @@ func EmitActiveMembers(ctx context.Context, client *Client, db *sql.DB, log *log
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit active_members event", "error", err, "account_id", accountID)
+	} else {
+		log.Info("openmeter: emitted active_members", "account_id", accountID, "count", count)
 	}
 }
 
@@ -108,6 +116,8 @@ func EmitActiveKnowledgeStores(ctx context.Context, client *Client, db *sql.DB, 
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit active_knowledge_stores event", "error", err, "account_id", accountID)
+	} else {
+		log.Info("openmeter: emitted active_knowledge_stores", "account_id", accountID, "count", count)
 	}
 }
 
@@ -151,6 +161,8 @@ func EmitKnowledgeStorage(ctx context.Context, client *Client, db *sql.DB, log *
 	if len(events) > 0 {
 		if err := client.IngestEvents(ctx, events); err != nil {
 			log.Error("Failed to emit knowledge_storage_provisioned events", "error", err, "account_id", accountID)
+		} else {
+			log.Info("openmeter: emitted knowledge_storage_provisioned", "account_id", accountID, "events", len(events))
 		}
 	}
 }
@@ -177,6 +189,8 @@ func EmitActiveKnowledgeEndpoints(ctx context.Context, client *Client, db *sql.D
 	})
 	if err := client.IngestEvents(ctx, []CloudEvent{ev}); err != nil {
 		log.Error("Failed to emit active_knowledge_endpoints event", "error", err, "account_id", accountID)
+	} else {
+		log.Info("openmeter: emitted active_knowledge_endpoints", "account_id", accountID, "count", count)
 	}
 }
 

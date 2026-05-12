@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 )
 
@@ -58,10 +60,12 @@ type GitHubBuildWorker struct {
 	builder     *githubbuild.Builder
 	cfg         *config.Config
 	log         *logger.Logger
+	omClient    *openmeter.Client
+	db          *sql.DB
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
-func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient, cfg *config.Config, log *logger.Logger) *GitHubBuildWorker {
+func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB) *GitHubBuildWorker {
 	return &GitHubBuildWorker{
 		pipesClient: pipesClient,
 		ghStore:     ghStore,
@@ -69,6 +73,8 @@ func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.S
 		builder:     githubbuild.New(k8sClient, cfg, log),
 		cfg:         cfg,
 		log:         log,
+		omClient:    omClient,
+		db:          db,
 	}
 }
 
@@ -200,6 +206,12 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		log.Error("failed to update build status to registered", "error", err, "record_id", args.BuildRecordID)
 	}
 	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
+
+	// Emit synchronously — Work() is already a long-running background job so
+	// blocking here is fine and keeps job completion atomic with metering.
+	openmeter.EmitAgentBuild(ctx, w.omClient, w.log, conn.AccountID, agentName)
+	openmeter.EmitActiveAgents(ctx, w.omClient, w.db, w.log, conn.AccountID)
+
 	return nil
 }
 

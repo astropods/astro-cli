@@ -787,7 +787,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -834,6 +834,10 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 				log.Warn("Failed to set visibility on new blueprint", "error", err)
 			}
 		}
+
+		// Async to avoid adding latency to blueprint creation (unlike the GitHub
+		// build worker, which emits synchronously since it's already long-running).
+		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
 
 		// Generate and upload the placeholder avatar. Failures are non-fatal —
 		// the blueprint is already created in the DB, and the periodic backfill
