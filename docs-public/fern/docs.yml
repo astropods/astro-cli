@@ -110,11 +110,11 @@ navigation:
 
 colors:
   accent-primary:
-    dark: "#4948e6"
+    dark: "#a4b5fa"
     light: "#3e3bc9"
   background:
-    dark: "#1c1d48"
-    light: "#edf2fe"
+    dark: "#020617"
+    light: "#f8fafc"
 
 theme:
   page-actions: toolbar
