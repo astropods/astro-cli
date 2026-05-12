@@ -114,6 +114,24 @@ CREATE TABLE public.workos_event_errors (
     CONSTRAINT workos_event_errors_pkey PRIMARY KEY (event_id)
 );
 
+-- Managed workload clusters. astro-server reconciles agent deployments into
+-- one of these. `id` is a stable string (e.g. "us-east-1-managed") referenced
+-- by `deployments.cluster_id` and River job payloads. `enabled = false`
+-- registers a row that cannot accept new traffic; used to stage a cluster
+-- before promoting it.
+CREATE TABLE public.clusters (
+    id                 varchar(64)  NOT NULL,
+    region             varchar(64)  NOT NULL,
+    eks_cluster_name   varchar(128) NOT NULL,
+    eks_cluster_endpoint varchar    NOT NULL,
+    enabled            boolean      NOT NULL DEFAULT true,
+    created_at         timestamptz  NOT NULL DEFAULT now(),
+    updated_at         timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT clusters_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_clusters_enabled_region ON public.clusters(region) WHERE enabled = true;
+
 CREATE TABLE public.deployments (
     id varchar(11) NOT NULL,
     account_id uuid NOT NULL,
@@ -135,9 +153,11 @@ CREATE TABLE public.deployments (
     drift_report jsonb,
     drift_checked_at timestamptz,
     avatar_colors jsonb,
+    cluster_id varchar(64),
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
     CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
-    CONSTRAINT deployments_source_account_id_fkey FOREIGN KEY (source_account_id) REFERENCES public.accounts(id) ON DELETE SET NULL
+    CONSTRAINT deployments_source_account_id_fkey FOREIGN KEY (source_account_id) REFERENCES public.accounts(id) ON DELETE SET NULL,
+    CONSTRAINT deployments_cluster_id_fkey FOREIGN KEY (cluster_id) REFERENCES public.clusters(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
@@ -145,6 +165,8 @@ CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, age
 CREATE INDEX idx_deployments_source_account_agent ON public.deployments(source_account_id, agent_name) WHERE source_account_id IS NOT NULL;
 
 CREATE UNIQUE INDEX idx_deployments_live_display_name ON public.deployments(account_id, display_name) WHERE status <> 'undeployed' AND display_name <> '';
+
+CREATE INDEX idx_deployments_cluster_id ON public.deployments(cluster_id) WHERE cluster_id IS NOT NULL;
 
 -- Normalized deployment spec tables (Phase 1: dual-write alongside deployment_spec_json)
 
