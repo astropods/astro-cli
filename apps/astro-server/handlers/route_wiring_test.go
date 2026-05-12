@@ -62,12 +62,16 @@ func TestRoutePermissionWiring(t *testing.T) {
 		{"owner_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
 
-		// Quota increase requires org:admin — member denied
+		// Quota increase routes require org:manage — member denied
+		{"member_GET_quota_increase_denied", "GET", "/api/v1/accounts/myorg/quota-increase", "",
+			baseMember, http.StatusForbidden, ""},
 		{"member_POST_quota_increase_denied", "POST", "/api/v1/accounts/myorg/quota-increase", `{}`,
 			baseMember, http.StatusForbidden, ""},
-		// Quota increase requires org:admin — admin allowed
+		// Quota increase routes require org:manage — admin allowed
+		{"admin_GET_quota_increase_allowed", "GET", "/api/v1/accounts/myorg/quota-increase", "",
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 		{"admin_POST_quota_increase_allowed", "POST", "/api/v1/accounts/myorg/quota-increase", `{}`,
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
 		// Vault GET routes require variable:read
 		{"member_GET_variables_denied", "GET", "/api/v1/accounts/myorg/variables", "",
@@ -138,7 +142,12 @@ func TestRoutePermissionWiring(t *testing.T) {
 			accountAdmin.Use(middleware.ResolveAccount(store))
 			accountAdmin.Use(middleware.RequireAccountPermission(store, "org:admin"))
 			accountAdmin.PUT("", ok)
-			accountAdmin.POST("/quota-increase", ok)
+
+			accountManage := v1.Group("/accounts/:account")
+			accountManage.Use(middleware.ResolveAccount(store))
+			accountManage.Use(middleware.RequireAccountPermission(store, "org:manage"))
+			accountManage.GET("/quota-increase", ok)
+			accountManage.POST("/quota-increase", ok)
 
 			memberRoutes := v1.Group("/accounts/:account/members")
 			memberRoutes.Use(middleware.ResolveAccount(store))

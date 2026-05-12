@@ -793,13 +793,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 					)
 				}
-				api.GET(accountAdmin, "/quota-increase", "List quota increase requests", handlers.ListQuotaIncreaseRequests(log, db),
-					oapispec.Tags("Usage"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.QuotaIncreaseListResponse{}),
-				)
-
 				// Audit log
 				api.GET(accountAdmin, "/audit-log/filters", "List audit log filter options", handlers.ListAuditLogFilters(log, auditStore),
 					oapispec.Tags("Audit"),
@@ -818,6 +811,26 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
+			}
+
+			// Account-scoped routes (admin or owner — org:manage)
+			accountManage := protected.Group("/accounts/:account")
+			accountManage.Use(middleware.ResolveAccount(accountStore))
+			accountManage.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			{
+				api.GET(accountManage, "/quota-increase", "List quota increase requests", handlers.ListQuotaIncreaseRequests(log, db),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.QuotaIncreaseListResponse{}),
+				)
+				api.POST(accountManage, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
 			}
 
@@ -881,13 +894,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
-				)
-				api.POST(accountAdmin, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
-					oapispec.Tags("Usage"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
 
 				// Knowledge store routes
