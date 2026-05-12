@@ -8,9 +8,9 @@ import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
-function AgentCardSkeleton() {
+export function AgentCardSkeleton() {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-stone-300 bg-background px-4 pb-[22px] pt-3 dark:border-border animate-pulse">
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-background px-4 pb-[22px] pt-3 animate-pulse">
       <div className="flex items-center gap-3">
         <div className="h-9 w-9 shrink-0 rounded-sm bg-muted" />
         <div className="flex-1 space-y-2">

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import type { AccountPublic } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { detectSocialLink, type SocialLinkDisplay } from "@/lib/social-links";
 import { Calendar, Globe, Mail, MapPin, User2 } from "lucide-react";
@@ -10,6 +11,7 @@ import { Calendar, Globe, Mail, MapPin, User2 } from "lucide-react";
 export interface StatItem {
   label: string;
   value: number;
+  loading?: boolean;
   icon: ReactNode;
 }
 
@@ -61,13 +63,17 @@ function MetaRow({
   );
 }
 
-function StatCell({ label, value, icon }: StatItem) {
+function StatCell({ label, value, loading, icon }: StatItem) {
   return (
     <div>
       <p className="text-label uppercase text-muted-foreground mb-1">{label}</p>
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">{icon}</span>
-        <p className="text-heading-2 text-foreground">{value}</p>
+        {loading ? (
+          <Skeleton className="h-5 w-8" />
+        ) : (
+          <p className="text-heading-2 text-foreground">{value}</p>
+        )}
       </div>
     </div>
   );
@@ -157,8 +163,8 @@ export function ProfileSidebarShell({
         <div className="h-px bg-border" />
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-5">
-          {stats.map(({ label, value, icon }) => (
-            <StatCell key={label} label={label} value={value} icon={icon} />
+          {stats.map(({ label, value, loading, icon }) => (
+            <StatCell key={label} label={label} value={value} loading={loading} icon={icon} />
           ))}
         </div>
 

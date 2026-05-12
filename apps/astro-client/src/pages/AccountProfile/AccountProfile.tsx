@@ -20,27 +20,12 @@ export const meta: MetaFunction = ({ params }) => [
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const accountName = params.account ?? "";
-  if (!accountName) return { account: null, orgs: null, members: null, blueprints: null, deployments: null };
-
-  const [account, orgs, blueprintsResult, deploymentsResult, heartedResult] = await Promise.all([
-    api.getAccount(accountName).catch(() => null),
-    api.getAccountOrgs(accountName).catch(() => null),
-    api.listAccountBlueprints(accountName).catch(() => null),
-    api.listDeployments(accountName).catch(() => null),
-    api.listHearted(accountName).catch(() => null),
-  ]);
+  if (!accountName) return { account: null, orgs: null, members: null, blueprints: null, deployments: null, hearted: null };
+  const account = await api.getAccount(accountName).catch(() => null);
   const members = account?.type === "organization"
     ? await api.getAccountMembers(accountName).catch(() => null)
     : null;
-
-  return {
-    account,
-    orgs,
-    members,
-    blueprints: blueprintsResult,
-    deployments: deploymentsResult,
-    hearted: heartedResult,
-  };
+  return { account, orgs: null, members, blueprints: null, deployments: null, hearted: null };
 }
 
 export default function AccountProfile({ loaderData }: Route.ComponentProps) {
@@ -48,7 +33,7 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
   const { data } = useAccount(account ?? "", {
     initialData: loaderData.account ?? undefined,
   });
-  const { isAuthenticated, accounts } = useAuth();
+  const { isAuthenticated, accounts, user } = useAuth();
 
   const isOrg = data?.type === "organization";
   const isSelf = isAuthenticated && accounts.some((a) => a.id === data?.id);
@@ -61,10 +46,19 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
     enabled: isOrg,
     initialData: loaderData.members ?? undefined,
   });
-  const { data: deploymentsData } = useDeployments(data?.name ?? "", isSelf, {
+
+  const viewerMember = isAuthenticated && isOrg
+    ? membersData?.members.find((m) => m.user_id === user?.id)
+    : undefined;
+  const isOrgMember = !!viewerMember;
+  const isOrgAdmin = viewerMember?.role === "admin" || viewerMember?.role === "owner";
+  const isOwnerOrAdmin = isSelf || isOrgAdmin;
+  const canViewDeployments = isSelf || isOrgMember;
+
+  const { data: deploymentsData, isLoading: isDeploymentsLoading } = useDeployments(data?.name ?? "", canViewDeployments, {
     initialData: loaderData.deployments ?? undefined,
   });
-  const { data: blueprintsData } = useAccountBlueprints(data?.name ?? "", {
+  const { data: blueprintsData, isLoading: isBlueprintsLoading } = useAccountBlueprints(data?.name ?? "", {
     enabled: !!data,
     initialData: loaderData.blueprints ?? undefined,
   });
@@ -97,16 +91,22 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
   return (
     <ProfileLayout
       data={data}
-      isSelf={isSelf}
+      isAdmin={isOwnerOrAdmin}
+      canViewDeployments={canViewDeployments}
       rawBlueprints={rawBlueprints}
       rawDeployments={rawDeployments}
-      renderViewSidebar={({ blueprintCount, deploymentCount, onEditOpen }) => (
+      isBlueprintsLoading={isBlueprintsLoading}
+      isDeploymentsLoading={isDeploymentsLoading}
+      renderViewSidebar={({ blueprintCount, deploymentCount, onEditOpen, isBlueprintsLoading, isDeploymentsLoading }) => (
         <ProfileViewSidebar
           data={data}
           variant={isOrg ? "org" : "personal"}
-          isAdmin={isSelf}
+          isAdmin={isOwnerOrAdmin}
+          canViewDeployments={canViewDeployments}
           blueprintCount={blueprintCount}
           deploymentCount={deploymentCount}
+          isBlueprintsLoading={isBlueprintsLoading}
+          isDeploymentsLoading={isDeploymentsLoading}
           orgs={orgs}
           members={members}
           onEditOpen={onEditOpen}

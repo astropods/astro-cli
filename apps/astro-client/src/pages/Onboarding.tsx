@@ -13,6 +13,7 @@ export const meta: MetaFunction = () => [{ title: "Get Started | Astro" }];
 
 export default function Onboarding() {
   const [name, setName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function Onboarding() {
   const createAccount = useCreateAccount();
 
   const { isChecking, isAvailable, displayError } = useAccountNameValidation(name);
+  const usernameDisplayError = nameTouched && !name ? 'Username is required' : displayError;
 
   const displayNameTrimmed = displayName.trim();
   const isDisplayNameValid =
@@ -109,7 +111,8 @@ export default function Onboarding() {
             placeholder="username"
             isChecking={isChecking}
             isAvailable={isAvailable}
-            displayError={displayError}
+            displayError={usernameDisplayError}
+            onBlur={() => setNameTouched(true)}
           />
         </div>
 

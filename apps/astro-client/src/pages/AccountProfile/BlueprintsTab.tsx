@@ -22,6 +22,7 @@ import type { Blueprint } from "@/lib/api";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
 import { Button } from "@/components/ui/button";
+import { BlueprintCardSkeleton } from "@/components/browse/BlueprintListView";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
 import { EmptyState } from "@/components/EmptyState";
 import { cn } from "@/lib/utils";
@@ -101,7 +102,7 @@ interface BlueprintsTabProps {
   blueprints: Blueprint[];
   accountName: string;
   displayName?: string;
-  isOwner: boolean;
+  canManage: boolean;
   isInternalView: boolean;
   search: string;
   onSearchChange: (v: string) => void;
@@ -112,6 +113,8 @@ interface BlueprintsTabProps {
   reorderMode: ReorderMode;
   onEnterReorder: () => void;
   onSaveReorder: (names: string[]) => void;
+  isLoading?: boolean;
+  skeletonCount?: number;
 }
 
 const CARD_GRID = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3";
@@ -120,7 +123,7 @@ export function BlueprintsTab({
   blueprints,
   accountName,
   displayName,
-  isOwner,
+  canManage,
   isInternalView,
   search,
   onSearchChange,
@@ -131,6 +134,8 @@ export function BlueprintsTab({
   reorderMode,
   onEnterReorder,
   onSaveReorder,
+  isLoading,
+  skeletonCount,
 }: BlueprintsTabProps) {
   const isEditing = reorderMode === "editing";
   const isSaved = reorderMode === "saved";
@@ -186,7 +191,7 @@ export function BlueprintsTab({
           disabled={isEditing}
         />
 
-        {isOwner && isInternalView && blueprints.length > 0 && (
+        {canManage && isInternalView && blueprints.length > 0 && (
           isEditing ? (
             <Button size="sm" className="ml-auto" onClick={() => onSaveReorder(localOrder.map((b) => b.name))}>
               Save changes
@@ -205,7 +210,13 @@ export function BlueprintsTab({
       )}
 
       {/* Grid */}
-      {blueprints.length === 0 ? (
+      {isLoading && blueprints.length === 0 && !hasFilters ? (
+        <div className={CARD_GRID} role="status" aria-label="Loading blueprints">
+          {Array.from({ length: skeletonCount ?? 3 }).map((_, i) => (
+            <BlueprintCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : blueprints.length === 0 ? (
         <EmptyState
           variant="card"
           icon={<AgentMascots size={36} />}
@@ -218,11 +229,11 @@ export function BlueprintsTab({
           }
           {...(!hasFilters && {
             actions: [
-              ...(isOwner && isInternalView ? [
+              ...(canManage && isInternalView ? [
                 { label: "Create blueprint", to: "/new/custom", icon: <Plus className="size-4" /> },
               ] : []),
             ],
-            ...(isOwner && isInternalView && {
+            ...(canManage && isInternalView && {
               description: "Blueprints define what your agent does. Create one to get started.",
             }),
           })}
@@ -256,7 +267,7 @@ export function BlueprintsTab({
                 avatarColors={agent.avatar_colors}
                 deployCount={agent.metrics?.deploy_count}
                 isDraft={agent.versions.length === 0}
-                onArchive={isOwner && isInternalView ? () => {} : undefined}
+                onArchive={canManage && isInternalView ? () => {} : undefined}
               />
             </div>
           ))}

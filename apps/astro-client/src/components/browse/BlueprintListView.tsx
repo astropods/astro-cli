@@ -3,9 +3,9 @@ import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
 import type { Blueprint } from "@/lib/api";
 
-function BlueprintCardSkeleton() {
+export function BlueprintCardSkeleton() {
   return (
-    <div className="relative overflow-hidden rounded-sm border border-stone-300 bg-background animate-pulse dark:border-border">
+    <div className="relative overflow-hidden rounded-sm border border-border bg-background animate-pulse">
       <div className="flex items-start gap-3 p-4 pb-3">
         <div className="size-9 shrink-0 rounded-[3px] bg-muted" />
         <div className="flex-1 space-y-2 pt-0.5">
@@ -14,7 +14,7 @@ function BlueprintCardSkeleton() {
           <div className="h-3 w-3/4 rounded bg-muted" />
         </div>
       </div>
-      <div className="mx-[5px] border-t border-stone-200 dark:border-border" />
+      <div className="mx-[5px] border-t border-border" />
       <div className="flex items-center justify-between px-4 py-2.5 pb-3.5">
         <div className="h-3 w-14 rounded bg-muted" />
         <div className="h-3 w-20 rounded bg-muted" />

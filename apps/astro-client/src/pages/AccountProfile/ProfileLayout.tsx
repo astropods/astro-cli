@@ -26,6 +26,8 @@ export interface SidebarRenderOpts {
   blueprintCount: number;
   deploymentCount: number;
   onEditOpen: (() => void) | undefined;
+  isBlueprintsLoading: boolean;
+  isDeploymentsLoading: boolean;
 }
 
 export interface EditSidebarRenderOpts {
@@ -43,9 +45,12 @@ export interface HeartsConfig {
 
 export interface ProfileLayoutProps {
   data: AccountPublic;
-  isSelf: boolean;
+  isAdmin: boolean;
+  canViewDeployments: boolean;
   rawBlueprints: Blueprint[];
   rawDeployments: AgentDeployment[];
+  isBlueprintsLoading?: boolean;
+  isDeploymentsLoading?: boolean;
   renderViewSidebar: (opts: SidebarRenderOpts) => ReactNode;
   renderEditSidebar: (opts: EditSidebarRenderOpts) => ReactNode;
   hearts?: HeartsConfig;
@@ -55,9 +60,12 @@ export interface ProfileLayoutProps {
 
 export function ProfileLayout({
   data,
-  isSelf,
+  isAdmin,
+  canViewDeployments,
   rawBlueprints,
   rawDeployments,
+  isBlueprintsLoading = false,
+  isDeploymentsLoading = false,
   renderViewSidebar,
   renderEditSidebar,
   hearts,
@@ -65,7 +73,8 @@ export function ProfileLayout({
   // ── Visitor mode — force public view even when owner ─────────────────────
   const [searchParams] = useSearchParams();
   const isVisitorMode = searchParams.has("visitor");
-  const isInternalView = isSelf && !isVisitorMode;
+  const isAdminView = isAdmin && !isVisitorMode;    // edit profile, view-as-visitor
+  const isInternalView = canViewDeployments && !isVisitorMode; // private blueprints, visibility filter, agents
 
   // ── Sidebar edit ──────────────────────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false);
@@ -178,9 +187,11 @@ export function ProfileLayout({
     return list;
   }, [rawDeployments, agentSearch, agentSort]);
 
-  // Agents tab hidden in public/visitor view; fall back to blueprints
+  const canSeeAgentsTab = canViewDeployments && !isVisitorMode;
+
+  // Agents tab hidden for non-members and in visitor mode; fall back to blueprints
   const resolvedTab: Tab =
-    !isInternalView && activeTab === "agents" ? "blueprints" : activeTab;
+    !canSeeAgentsTab && activeTab === "agents" ? "blueprints" : activeTab;
 
   const publicBlueprintCount = rawBlueprints.filter((bp) => bp.visibility === "public").length;
   const blueprintCount = isInternalView ? rawBlueprints.length : publicBlueprintCount;
@@ -203,7 +214,9 @@ export function ProfileLayout({
           : renderViewSidebar({
               blueprintCount,
               deploymentCount: rawDeployments.length,
-              onEditOpen: isInternalView ? () => setEditOpen(true) : undefined,
+              onEditOpen: isAdminView ? () => setEditOpen(true) : undefined,
+              isBlueprintsLoading,
+              isDeploymentsLoading,
             })}
       </aside>
 
@@ -220,7 +233,7 @@ export function ProfileLayout({
             )}
           </TabButton>
 
-          {isInternalView && (
+          {canSeeAgentsTab && (
             <TabButton active={resolvedTab === "agents"} onClick={() => setActiveTab("agents")}>
               Agents
               {rawDeployments.length > 0 && (
@@ -240,7 +253,7 @@ export function ProfileLayout({
             </TabButton>
           )}
 
-          {isInternalView && (
+          {isAdminView && (
             <Button
               variant="ghost"
               size="sm"
@@ -262,7 +275,7 @@ export function ProfileLayout({
               blueprints={visibleBlueprints}
               accountName={data.name}
               displayName={data.display_name || data.name}
-              isOwner={isSelf}
+              canManage={isAdmin}
               isInternalView={isInternalView}
               search={bpSearch}
               onSearchChange={setBpSearch}
@@ -273,9 +286,11 @@ export function ProfileLayout({
               reorderMode={bpReorderMode}
               onEnterReorder={handleEnterReorder}
               onSaveReorder={handleSaveReorder}
+              isLoading={isBlueprintsLoading}
+              skeletonCount={data.blueprint_order?.length || 3}
             />
           )}
-          {resolvedTab === "agents" && isInternalView && (
+          {resolvedTab === "agents" && canSeeAgentsTab && (
             <AgentsTab
               deployments={visibleDeployments}
               accountName={data.name}
@@ -283,6 +298,7 @@ export function ProfileLayout({
               onSearchChange={setAgentSearch}
               sort={agentSort}
               onSortChange={setAgentSort}
+              isLoading={isDeploymentsLoading}
             />
           )}
           {resolvedTab === "hearts" && hearts && (

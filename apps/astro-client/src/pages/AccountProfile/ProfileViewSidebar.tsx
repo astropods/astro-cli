@@ -13,8 +13,11 @@ interface ProfileViewSidebarProps {
   data: AccountPublic;
   variant?: "personal" | "org";
   isAdmin: boolean;
+  canViewDeployments?: boolean;
   blueprintCount: number;
   deploymentCount: number;
+  isBlueprintsLoading?: boolean;
+  isDeploymentsLoading?: boolean;
   orgs?: AccountOrg[];
   members?: AccountMember[];
   onEditOpen?: () => void;
@@ -24,8 +27,11 @@ export function ProfileViewSidebar({
   data,
   variant = "personal",
   isAdmin,
+  canViewDeployments = false,
   blueprintCount,
   deploymentCount,
+  isBlueprintsLoading,
+  isDeploymentsLoading,
   orgs = [],
   members = [],
   onEditOpen,
@@ -33,12 +39,12 @@ export function ProfileViewSidebar({
   const isOrg = variant === "org";
   const [membersOpen, setMembersOpen] = useState(false);
 
-  const activeMembers = members.filter((m) => m.status === "active");
+  const activeMembers = members.filter((m) => m.status === "active" && !!m.username);
 
   const stats = [
-    { label: "Blueprints", value: blueprintCount, icon: <LayersIcon className="size-3.5" /> },
-    ...(isAdmin
-      ? [{ label: "Agents", value: deploymentCount, icon: <BotIcon className="size-3.5" /> }]
+    { label: "Blueprints", value: blueprintCount, loading: isBlueprintsLoading, icon: <LayersIcon className="size-3.5" /> },
+    ...(canViewDeployments
+      ? [{ label: "Agents", value: deploymentCount, loading: isDeploymentsLoading, icon: <BotIcon className="size-3.5" /> }]
       : []),
   ];
 

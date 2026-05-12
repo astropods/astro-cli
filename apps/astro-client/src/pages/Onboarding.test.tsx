@@ -116,4 +116,15 @@ describe('Onboarding', () => {
 
     expect(screen.getByRole('button', { name: /get started/i })).toBeDisabled();
   });
+
+  it('shows "Username is required" after blurring the username field while empty', async () => {
+    const user = userEvent.setup();
+    renderGuarded({ ...mockAuthContext, accounts: [], needsOnboarding: true }, ['/onboarding']);
+
+    // Click into the username field and then tab away without typing anything
+    await user.click(screen.getByPlaceholderText('username'));
+    await user.tab();
+
+    expect(screen.getByText('Username is required')).toBeInTheDocument();
+  });
 });

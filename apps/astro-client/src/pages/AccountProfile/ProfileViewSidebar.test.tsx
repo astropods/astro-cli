@@ -119,7 +119,7 @@ describe('ProfileViewSidebar stats', () => {
 
   it('shows the Agents stat for the owner', () => {
     renderWithProviders(
-      <ProfileViewSidebar {...personalDefaults} isAdmin deploymentCount={3} />,
+      <ProfileViewSidebar {...personalDefaults} isAdmin canViewDeployments deploymentCount={3} />,
     );
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
@@ -321,8 +321,8 @@ describe('ProfileViewSidebar org stats', () => {
     expect(screen.getByText('7')).toBeInTheDocument();
   });
 
-  it('shows agents count for members', () => {
-    renderWithProviders(<ProfileViewSidebar {...orgDefaults} isAdmin deploymentCount={4} />);
+  it('shows agents count for any org member', () => {
+    renderWithProviders(<ProfileViewSidebar {...orgDefaults} canViewDeployments deploymentCount={4} />);
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
   });
@@ -377,5 +377,37 @@ describe('ProfileViewSidebar org members', () => {
     );
     expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Bob' })).toBeInTheDocument();
+  });
+
+  it('filters out active members who have no username', () => {
+    renderWithProviders(
+      <ProfileViewSidebar
+        {...orgDefaults}
+        members={[
+          makeMember({ username: 'alice', display_name: 'Alice', user_id: 'u1', status: 'active' }),
+          makeMember({ username: '', display_name: 'No Handle', user_id: 'u2', status: 'active' }),
+        ]}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Alice' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'No Handle' })).not.toBeInTheDocument();
+  });
+
+  it('excludes handleless members from the View all count', () => {
+    // 13 members with usernames + 1 without → View all should show 13, not 14
+    const namedMembers = Array.from({ length: 13 }, (_, i) =>
+      makeMember({ username: `user-${i}`, display_name: `User ${i}`, user_id: `u${i}`, status: 'active' }),
+    );
+    renderWithProviders(
+      <ProfileViewSidebar
+        {...orgDefaults}
+        members={[
+          ...namedMembers,
+          makeMember({ username: '', display_name: 'No Handle', user_id: 'nohandle', status: 'active' }),
+        ]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /view all 13/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /view all 14/i })).not.toBeInTheDocument();
   });
 });

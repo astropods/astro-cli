@@ -20,7 +20,7 @@ const makeBlueprint = (name: string, visibility: 'public' | 'private' = 'public'
 
 const defaultProps = {
   accountName: 'testuser',
-  isOwner: true,
+  canManage: true,
   isInternalView: true,
   search: '',
   onSearchChange: vi.fn(),
@@ -145,28 +145,28 @@ describe('BlueprintsTab sort', () => {
 describe('BlueprintsTab customize order', () => {
   it('shows "Customize order" button for owner in internal view when blueprints exist', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} isOwner isInternalView />,
+      <BlueprintsTab {...defaultProps} blueprints={[makeBlueprint('alpha')]} canManage isInternalView />,
     );
     expect(screen.getByRole('button', { name: /customize order/i })).toBeInTheDocument();
   });
 
   it('hides "Customize order" button when blueprints list is empty', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner isInternalView />,
+      <BlueprintsTab {...defaultProps} blueprints={[]} canManage isInternalView />,
     );
     expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
   });
 
   it('hides "Customize order" button for visitor', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner={false} />,
+      <BlueprintsTab {...defaultProps} blueprints={[]} canManage={false} />,
     );
     expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
   });
 
   it('hides "Customize order" button in external view', () => {
     renderWithProviders(
-      <BlueprintsTab {...defaultProps} blueprints={[]} isOwner isInternalView={false} />,
+      <BlueprintsTab {...defaultProps} blueprints={[]} canManage isInternalView={false} />,
     );
     expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
   });
@@ -267,7 +267,7 @@ describe('BlueprintsTab grip handles', () => {
       <BlueprintsTab
         {...defaultProps}
         blueprints={[makeBlueprint('alpha'), makeBlueprint('beta')]}
-        isOwner
+        canManage
         isInternalView
       />,
     );

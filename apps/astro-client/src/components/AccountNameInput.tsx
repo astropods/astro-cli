@@ -10,6 +10,7 @@ interface AccountNameInputProps {
   isChecking: boolean;
   isAvailable: boolean;
   displayError: string | null;
+  onBlur?: () => void;
 }
 
 export function AccountNameInput({
@@ -20,6 +21,7 @@ export function AccountNameInput({
   isChecking,
   isAvailable,
   displayError,
+  onBlur,
 }: AccountNameInputProps) {
   return (
     <div>
@@ -27,6 +29,7 @@ export function AccountNameInput({
         <Input
           value={value}
           onChange={(e) => onChange(sanitizeAccountName(e.target.value))}
+          onBlur={onBlur}
           placeholder={placeholder}
           autoFocus={autoFocus}
           maxLength={39}
@@ -49,7 +52,7 @@ export function AccountNameInput({
         </span>
       </div>
       <div className="mt-1.5 min-h-5 text-xs">
-        {value.length > 0 && displayError && (
+        {displayError && (
           <p className="text-destructive">{displayError}</p>
         )}
         {isChecking && (
