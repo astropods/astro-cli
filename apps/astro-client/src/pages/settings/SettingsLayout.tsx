@@ -14,12 +14,6 @@ function SettingsContent() {
       <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
         <SidebarLayout>
         <SidebarNav label="Settings" className="md:w-48">
-          <SidebarNavItem to="/settings/profile">
-            <span className="flex items-center gap-2">
-              <UserIcon className="size-3.5" />
-              Profile
-            </span>
-          </SidebarNavItem>
           <SidebarNavItem to="/settings/account">
             <span className="flex items-center gap-2">
               <UserIcon className="size-3.5" />
