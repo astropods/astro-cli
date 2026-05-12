@@ -891,21 +891,23 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg, omClient, db),
+				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg, omClient, db), "knowledge_stores", "knowledge_storage"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(202, &handlers.KnowledgeResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(402, &handlers.ErrorResponse{}),
 					oapispec.Response(403, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, omClient, db),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", ent.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, omClient, db, ent), "knowledge_stores"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(402, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
 				api.GET(accountMember, "/knowledge", "List knowledge stores", handlers.ListKnowledgeStores(log, ksStore),

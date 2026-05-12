@@ -349,7 +349,7 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -457,6 +457,12 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		// The health check is deferred — the DB won't be reachable until the
 		// VPC endpoint is accepted and DNS propagates.
 		if req.PrivateLink {
+			if entCheck != nil {
+				if blocked, feature, entResult := entCheck.Check(c.Request.Context(), acct.ID, "knowledge_endpoints"); blocked {
+					c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feature, entResult))
+					return
+				}
+			}
 			if cfg.Deployment.PrivateLinkVpcID == "" {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PrivateLink is not configured on this platform"})
 				return

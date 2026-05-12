@@ -123,15 +123,11 @@ func LimitResponse(feature string, ent *openmeter.EntitlementValue) gin.H {
 	}
 
 	return gin.H{
-		"error":   fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.desc),
+		"error":   "Limit reached",
 		"code":    "ENTITLEMENT_LIMIT_REACHED",
 		"feature": feature,
 		"usage":   usage,
 		"limit":   limit,
-		"details": gin.H{
-			"feature_name": info.name,
-			"description":  info.desc,
-			"action":       "Request a quota increase from Settings > Usage.",
-		},
+		"details": fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.desc),
 	}
 }

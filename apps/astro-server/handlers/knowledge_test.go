@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 )
@@ -486,7 +489,7 @@ func TestConnectKnowledgeStore_Success(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "postgres-prod", "postgres", "ready"))
@@ -521,7 +524,7 @@ func TestConnectKnowledgeStore_MissingHost(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	body := `{"name":"pg-prod","provider":"postgres","port":5432}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -538,7 +541,7 @@ func TestConnectKnowledgeStore_MissingPort(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com"}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -555,7 +558,7 @@ func TestConnectKnowledgeStore_InvalidProvider(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	body := `{"name":"my-store","provider":"cassandra","host":"db.example.com","port":9042}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -572,7 +575,7 @@ func TestConnectKnowledgeStore_InvalidName(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	body := `{"name":"My-Store","provider":"postgres","host":"db.example.com","port":5432}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -589,7 +592,7 @@ func TestConnectKnowledgeStore_MissingCredentials(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	// Postgres requires PASSWORD but it's not provided.
 	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"mydb","username":"app"}`
@@ -607,7 +610,7 @@ func TestConnectKnowledgeStore_Conflict(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnError(&pq.Error{Code: "23505", Message: "duplicate key"})
@@ -627,7 +630,7 @@ func TestConnectKnowledgeStore_DBError(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnError(sqlmock.ErrCancelled)
@@ -646,7 +649,7 @@ func TestConnectKnowledgeStore_DBError(t *testing.T) {
 func TestConnectKnowledgeStore_ARNUsesAccountID(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil))
 
 	acct := testAccount()
 	expectedARN := arn.KnowledgeStore(acct.ID, "pg-prod")
@@ -755,6 +758,123 @@ func TestListKnowledgeStores_MixedModes(t *testing.T) {
 	}
 	if !modes["managed"] || !modes["external"] {
 		t.Errorf("expected both managed and external modes, got %v", modes)
+	}
+}
+
+// --- Entitlement checks ---
+
+type blockedEntitlementChecker struct{ feature string }
+
+func (b *blockedEntitlementChecker) Check(_ context.Context, _ string, _ ...string) (bool, string, *openmeter.EntitlementValue) {
+	return true, b.feature, nil
+}
+
+func TestCreateKnowledgeStore_EntitlementBlocked(t *testing.T) {
+	for _, feature := range []string{"knowledge_stores", "knowledge_storage"} {
+		t.Run(feature, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rawDB, mock, _ := sqlmock.New()
+			ksStore := knowledgestore.NewStore(rawDB)
+			log := logger.New("error", "json")
+
+			router := gin.New()
+			router.Use(injectAccount(testAccount()))
+			// Simulate what ent.Wrap does: a middleware that calls our blocked checker.
+			checker := &blockedEntitlementChecker{feature: feature}
+			router.POST("/knowledge", func(c *gin.Context) {
+				acct, _ := middleware.GetAccountFromContext(c)
+				if blocked, feat, entVal := checker.Check(c.Request.Context(), acct.ID); blocked {
+					c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feat, entVal))
+					return
+				}
+				CreateKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil)(c)
+			})
+
+			reqBody := `{"name":"pg-main","provider":"postgres"}`
+			req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusPaymentRequired {
+				t.Errorf("feature %s: expected 402, got %d: %s", feature, rec.Code, rec.Body.String())
+			}
+			var resp map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			if resp["code"] != "ENTITLEMENT_LIMIT_REACHED" {
+				t.Errorf("feature %s: expected ENTITLEMENT_LIMIT_REACHED code, got %v", feature, resp["code"])
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unfulfilled mock expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeStores(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rawDB, mock, _ := sqlmock.New()
+	ksStore := knowledgestore.NewStore(rawDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(injectAccount(testAccount()))
+	checker := &blockedEntitlementChecker{feature: "knowledge_stores"}
+	router.POST("/knowledge/connect", func(c *gin.Context) {
+		acct, _ := middleware.GetAccountFromContext(c)
+		if blocked, feat, entVal := checker.Check(c.Request.Context(), acct.ID); blocked {
+			c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feat, entVal))
+			return
+		}
+		ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil, nil)(c)
+	})
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret","skip_health_check":true}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Errorf("expected 402, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.T) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+
+	privateLinkCfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			PrivateLinkVpcID: "vpc-12345678",
+		},
+	}
+	checker := &blockedEntitlementChecker{feature: "knowledge_endpoints"}
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, privateLinkCfg, nil, nil, nil, checker))
+
+	// Store is created before the PrivateLink entitlement check fires.
+	mock.ExpectQuery("INSERT INTO knowledge_stores").
+		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
+
+	body := `{"name":"pg-prod","provider":"postgres","host":"com.amazonaws.vpce.us-east-1.vpce-svc-abc123","port":5432,"database":"vectors","username":"app","password":"secret","private_link":true}`
+	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Errorf("expected 402, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["code"] != "ENTITLEMENT_LIMIT_REACHED" {
+		t.Errorf("expected ENTITLEMENT_LIMIT_REACHED code, got %v", resp["code"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
 	}
 }
 
