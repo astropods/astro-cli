@@ -439,6 +439,11 @@ export const handlers = [
     return HttpResponse.json({ variables: [] });
   }),
 
+  // GET /api/v1/accounts/:account/quota-increase
+  http.get('/api/v1/accounts/:account/quota-increase', () => {
+    return HttpResponse.json({ requests: [] });
+  }),
+
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
     const body = (await request.json()) as { deployment_id: string };

@@ -43,6 +43,7 @@ export default [
           layout("pages/settings/OrgSettingsLayout.tsx", [
             route("general", "pages/settings/OrgGeneralSettings.tsx"),
             route("members", "pages/settings/OrgMembersSettings.tsx"),
+            route("usage", "pages/settings/OrgUsageSettings.tsx"),
             route("secrets", "pages/settings/OrgSecretsSettings.tsx"),
             route("audit-log", "pages/settings/OrgAuditLogSettings.tsx"),
           ]),

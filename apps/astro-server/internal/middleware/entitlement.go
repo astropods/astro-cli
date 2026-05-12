@@ -72,7 +72,9 @@ func (e *Entitlements) check(ctx context.Context, accountID string, features []s
 	for _, f := range features {
 		result, ok := access.Entitlements[f]
 		if !ok {
-			continue // feature not in entitlements, fail open
+			// Feature absent from plan entirely — always block.
+			// The enforce flag only governs quota overage, not plan structure.
+			return true, f, nil
 		}
 
 		if !result.HasAccess {
@@ -90,35 +92,49 @@ func (e *Entitlements) check(ctx context.Context, accountID string, features []s
 
 // featureInfo maps feature keys to human-readable descriptions used in error messages.
 var featureInfo = map[string]struct {
-	name string
-	desc string
+	name      string
+	quotaDesc string // shown when quota is exceeded
+	planDesc  string // shown when feature is absent from plan
 }{
-	"compute":             {name: "Compute", desc: "Your account has consumed its allocated compute-unit-hours for this billing period."},
-	"agents":              {name: "Agents", desc: "Your account has reached the maximum number of registered agents."},
-	"agent_builds":        {name: "Agent Builds", desc: "Your account has reached the maximum number of agent builds for this billing period."},
-	"agent_deployments":   {name: "Deployments", desc: "Your account has reached the maximum number of active deployments."},
-	"members":             {name: "Members", desc: "Your account has reached the maximum number of team members."},
-	"knowledge_stores":    {name: "Knowledge Stores", desc: "Your account has reached the maximum number of knowledge stores."},
-	"knowledge_storage":   {name: "Knowledge Storage", desc: "Your account has reached the maximum provisioned storage for knowledge stores."},
-	"knowledge_compute":   {name: "Knowledge Compute", desc: "Your account has consumed its allocated compute for knowledge stores this billing period."},
-	"knowledge_endpoints": {name: "Knowledge Endpoints", desc: "Your account has reached the maximum number of PrivateLink endpoints."},
+	"compute":             {name: "Compute", quotaDesc: "Your account has consumed its allocated compute-unit-hours for this billing period.", planDesc: "Compute is not included in your current plan."},
+	"agents":              {name: "Agents", quotaDesc: "Your account has reached the maximum number of registered agents.", planDesc: "Agents are not included in your current plan."},
+	"agent_builds":        {name: "Agent Builds", quotaDesc: "Your account has reached the maximum number of agent builds for this billing period.", planDesc: "Agent builds are not included in your current plan."},
+	"agent_deployments":   {name: "Deployments", quotaDesc: "Your account has reached the maximum number of active deployments.", planDesc: "Deployments are not included in your current plan."},
+	"members":             {name: "Members", quotaDesc: "Your account has reached the maximum number of team members.", planDesc: "Additional members are not included in your current plan."},
+	"knowledge_stores":    {name: "Knowledge Stores", quotaDesc: "Your account has reached the maximum number of knowledge stores.", planDesc: "Knowledge stores are not included in your current plan."},
+	"knowledge_storage":   {name: "Knowledge Storage", quotaDesc: "Your account has reached the maximum provisioned storage for knowledge stores.", planDesc: "Knowledge storage is not included in your current plan."},
+	"knowledge_compute":   {name: "Knowledge Compute", quotaDesc: "Your account has consumed its allocated compute for knowledge stores this billing period.", planDesc: "Knowledge compute is not included in your current plan."},
+	"knowledge_endpoints": {name: "Knowledge Endpoints", quotaDesc: "Your account has reached the maximum number of PrivateLink endpoints.", planDesc: "PrivateLink endpoints are not included in your current plan."},
 }
 
 // LimitResponse builds the JSON response body returned when an entitlement
-// limit is reached. It includes actionable detail so the client can display
-// a meaningful upgrade prompt.
+// limit is reached or a feature is absent from the plan. It includes actionable
+// detail so the client can display a meaningful upgrade prompt.
 func LimitResponse(feature string, ent *openmeter.EntitlementValue) gin.H {
 	info, ok := featureInfo[feature]
 	if !ok {
 		info.name = feature
-		info.desc = "Your account has reached its usage limit for this feature."
+		info.quotaDesc = "Your account has reached its usage limit for this feature."
+		info.planDesc = "This feature is not included in your current plan."
+	}
+
+	// Feature absent from plan entirely — different message and no usage/limit to report.
+	if ent == nil {
+		return gin.H{
+			"error":   "Feature not available",
+			"code":    "FEATURE_NOT_IN_PLAN",
+			"feature": feature,
+			"usage":   float64(0),
+			"limit":   float64(0),
+			"details": fmt.Sprintf("%s To access this feature, contact your account admin about upgrading your plan.", info.planDesc),
+		}
 	}
 
 	var usage, limit float64
-	if ent != nil && ent.Usage != nil {
+	if ent.Usage != nil {
 		usage = *ent.Usage
 	}
-	if ent != nil && ent.TotalAvailableGrantAmount != nil {
+	if ent.TotalAvailableGrantAmount != nil {
 		limit = *ent.TotalAvailableGrantAmount
 	}
 
@@ -128,6 +144,6 @@ func LimitResponse(feature string, ent *openmeter.EntitlementValue) gin.H {
 		"feature": feature,
 		"usage":   usage,
 		"limit":   limit,
-		"details": fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.desc),
+		"details": fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.quotaDesc),
 	}
 }

@@ -26,13 +26,13 @@ func TestRoutePermissionWiring(t *testing.T) {
 	withVaultWrite := append(orgAdminNoVault, "variable:write")
 
 	tests := []struct {
-		name           string
-		method         string
-		path           string
-		body           string
-		permissions    []string
-		wantCode       int
-		sessionOrgID   string // empty → org_123 (matches resolved account)
+		name         string
+		method       string
+		path         string
+		body         string
+		permissions  []string
+		wantCode     int
+		sessionOrgID string // empty → org_123 (matches resolved account)
 	}{
 		// Member routes require org:manage — member permissions denied
 		{"member_GET_members_denied", "GET", "/api/v1/accounts/myorg/members", "",
@@ -60,6 +60,13 @@ func TestRoutePermissionWiring(t *testing.T) {
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden, ""},
 		// Account admin routes require org:admin — owner permissions allowed
 		{"owner_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
+
+		// Quota increase requires org:admin — member denied
+		{"member_POST_quota_increase_denied", "POST", "/api/v1/accounts/myorg/quota-increase", `{}`,
+			baseMember, http.StatusForbidden, ""},
+		// Quota increase requires org:admin — admin allowed
+		{"admin_POST_quota_increase_allowed", "POST", "/api/v1/accounts/myorg/quota-increase", `{}`,
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
 
 		// Vault GET routes require variable:read
@@ -131,6 +138,7 @@ func TestRoutePermissionWiring(t *testing.T) {
 			accountAdmin.Use(middleware.ResolveAccount(store))
 			accountAdmin.Use(middleware.RequireAccountPermission(store, "org:admin"))
 			accountAdmin.PUT("", ok)
+			accountAdmin.POST("/quota-increase", ok)
 
 			memberRoutes := v1.Group("/accounts/:account/members")
 			memberRoutes.Use(middleware.ResolveAccount(store))

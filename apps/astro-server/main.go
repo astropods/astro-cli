@@ -882,7 +882,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
+				api.POST(accountAdmin, "/quota-increase", "Request quota increase", handlers.RequestQuotaIncrease(log, db),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
