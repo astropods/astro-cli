@@ -113,6 +113,12 @@ test.describe("auth grants UX", () => {
     // Grants editor still visible (slack has its own).
     await expect(page.getByText("Grant access")).toBeVisible();
 
+    // Fresh-deploy default for Slack is an "anyone" grant. That grant
+    // subsumes everything else, so the add-grant menu is intentionally
+    // hidden — remove the default first to reveal it.
+    await expect(page.getByText(/^Anyone$/)).toBeVisible();
+    await page.getByRole("button", { name: /remove grant/i }).click();
+
     // Slack's add-grant menu offers per-user grants too — slack identities
     // resolve to the linked WorkOS user server-side, so user grants apply.
     await page.getByRole("button", { name: /add access/i }).click();

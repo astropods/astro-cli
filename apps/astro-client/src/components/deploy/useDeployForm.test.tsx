@@ -428,6 +428,87 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     expect(result.current.webGrants).toEqual([{ user_id: 'user_xyz' }]);
   });
 
+  it('seeds adapter-specific default grants on a fresh deploy when template has none', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+      interfaces: { adapters: ['web', 'slack'] },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+        }),
+      { wrapper },
+    );
+
+    // mockAuthContext.user.id is 'user-1' — web defaults to the deploying user,
+    // slack defaults to anyone (workspace-wide).
+    expect(result.current.webGrants).toEqual([{ user_id: 'user-1' }]);
+    expect(result.current.slackGrants).toEqual([{ anyone: true }]);
+  });
+
+  it('toggling an adapter on seeds its default grants when currently empty', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+      interfaces: { adapters: ['web'] },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+        }),
+      { wrapper },
+    );
+
+    // Slack starts off; even so, its grants are already seeded by the initial
+    // effect. Clear them to simulate a user who explicitly removed everything,
+    // then toggle slack on — the default should come back.
+    act(() => {
+      result.current.setSlackGrants([]);
+    });
+    expect(result.current.slackGrants).toEqual([]);
+
+    act(() => {
+      result.current.setSelectedAdapters(['web', 'slack']);
+    });
+    expect(result.current.slackGrants).toEqual([{ anyone: true }]);
+  });
+
+  it('does not overwrite existing grants when an adapter is toggled on', () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+      interfaces: { adapters: ['web'] },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+        }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.setSlackGrants([{ user_id: 'specific-user' }]);
+    });
+
+    act(() => {
+      result.current.setSelectedAdapters(['web', 'slack']);
+    });
+    expect(result.current.slackGrants).toEqual([{ user_id: 'specific-user' }]);
+  });
+
   it('handles null template gracefully (loader failure)', () => {
     const { wrapper } = createAuthWrapper();
 

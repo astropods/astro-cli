@@ -3,7 +3,7 @@ import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import type { Account, DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces, AuthGrant } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces, AuthGrant } from "@/lib/api";
 import { ApiRequestError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
@@ -198,21 +198,16 @@ function templateBootstrapKey(
   ].join('\0');
 }
 
-/** Default grants for a fresh deploy:
- *   - personal account → grant the deploying user, so it's accessible to them on day one
- *   - organization     → grant all org members, matching the legacy owner-fallback
- *   - anything else    → no defaults
- *  `targetAccountName` is the account *name* (handle), matching how the form stores it. */
-export function defaultGrantsForAccount(
-  targetAccountName: string,
-  accounts: Account[],
+/** Default grants for a fresh deploy, per adapter:
+ *   - web   → the deploying user, so they can use it on day one
+ *   - slack → anyone, matching how Slack apps typically install (workspace-wide)
+ *  Returns [] when no sensible default applies (e.g. web with no signed-in user). */
+export function defaultGrantsForAdapter(
+  adapter: "web" | "slack",
   userId: string | undefined,
 ): AuthGrant[] {
-  if (!targetAccountName) return [];
-  const acct = accounts.find((a) => a.name === targetAccountName);
-  if (!acct) return [];
-  if (acct.type === "organization") return [{ org: acct.id }];
-  if (acct.type === "personal" && userId) return [{ user_id: userId }];
+  if (adapter === "slack") return [{ anyone: true }];
+  if (adapter === "web" && userId) return [{ user_id: userId }];
   return [];
 }
 
@@ -404,18 +399,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       }
     }
     // Fresh-deploy defaults: when there's no existing deployment to configure
-    // and the template returned no grants, seed with a sensible owner-scoped
-    // grant so the form doesn't start in the "no one has access" state.
+    // and the template returned no grants, seed an adapter-appropriate default
+    // so the form doesn't start in the "no one has access" state. Web defaults
+    // to the deploying user; Slack defaults to anyone (workspace-wide), which
+    // matches how Slack apps are typically installed.
     const isFreshDeploy = !opts?.deploymentId && !iv;
-    const defaultGrants = isFreshDeploy
-      ? defaultGrantsForAccount(extracted.targetAccount ?? "", accounts, user?.id)
-      : [];
     const seededWebGrants = extracted.webGrants && extracted.webGrants.length > 0
       ? extracted.webGrants
-      : defaultGrants;
+      : isFreshDeploy ? defaultGrantsForAdapter("web", user?.id) : [];
     const seededSlackGrants = extracted.slackGrants && extracted.slackGrants.length > 0
       ? extracted.slackGrants
-      : defaultGrants;
+      : isFreshDeploy ? defaultGrantsForAdapter("slack", user?.id) : [];
 
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
@@ -469,16 +463,37 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
   // bindings.knowledge is always emitted (even when empty) — see setKnowledgeBindings for why.
+  //
+  // On a fresh deploy, enabling an adapter whose grants are currently empty
+  // seeds the same per-adapter default the initial seeding effect uses. This
+  // keeps the "turn it on, ship it" path consistent whether the user lands on
+  // the form with that adapter pre-selected or toggles it on later.
   const setSelectedAdapters = useCallback((adapters: string[]) => {
+    const isFreshDeploy = !opts?.deploymentId && !iv;
+    const newlyEnabled = adapters.filter((a) => !selectedAdapters.includes(a));
+
+    let nextWebGrants = webGrants;
+    let nextSlackGrants = slackGrants;
+    if (isFreshDeploy) {
+      if (newlyEnabled.includes("web") && webGrants.length === 0) {
+        nextWebGrants = defaultGrantsForAdapter("web", user?.id);
+        if (nextWebGrants.length > 0) setWebGrants(nextWebGrants);
+      }
+      if (newlyEnabled.includes("slack") && slackGrants.length === 0) {
+        nextSlackGrants = defaultGrantsForAdapter("slack", user?.id);
+        if (nextSlackGrants.length > 0) setSlackGrants(nextSlackGrants);
+      }
+    }
+
     setSelectedAdaptersRaw(adapters);
     const auth: TemplateInterfaces['auth'] = {};
-    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: webGrants };
-    if (adapters.includes('slack')) auth.slack = { grants: slackGrants };
+    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: nextWebGrants };
+    if (adapters.includes('slack')) auth.slack = { grants: nextSlackGrants };
     reshapeTemplate({
       interfaces: { adapters, auth: auth.web || auth.slack ? auth : undefined },
       bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     });
-  }, [reshapeTemplate, webGrants, slackGrants, knowledgeBindings]);
+  }, [reshapeTemplate, webGrants, slackGrants, knowledgeBindings, selectedAdapters, opts?.deploymentId, iv, user?.id]);
 
   // Filter empty-string ARNs — an entry with value "" means "not bound".
   const nonEmptyBindings = (b: Record<string, string>): Record<string, string> => {
