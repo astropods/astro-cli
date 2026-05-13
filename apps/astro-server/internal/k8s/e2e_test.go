@@ -305,7 +305,6 @@ agent:
 knowledge:
   docs:
     provider: qdrant
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -331,7 +330,10 @@ knowledge:
 	}
 }
 
-func TestE2E_KnowledgeStore_Redis_NonPersistent(t *testing.T) {
+// Container-mode without volume → ephemeral → Deployment, not StatefulSet.
+// This is the only way to express non-persistent knowledge under the
+// mount-path-implies-persistent rule: provider mode always carries a MountPath.
+func TestE2E_KnowledgeStore_Container_NonPersistent(t *testing.T) {
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -339,28 +341,22 @@ agent:
   image: my-agent:latest
 knowledge:
   cache:
-    provider: redis
+    container:
+      image: redis:7-alpine
+      port: 6379
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
 
-	// Non-persistent redis → Deployment (not StatefulSet)
+	// Container mode without volume → Deployment (not StatefulSet)
 	if !r.hasResource("Deployment", "my-agent-knowledge-cache") {
-		t.Error("expected knowledge Deployment for non-persistent redis")
+		t.Error("expected knowledge Deployment for ephemeral container-mode entry")
 	}
 	if r.hasResource("StatefulSet", "my-agent-knowledge-cache") {
-		t.Error("did not expect StatefulSet for non-persistent knowledge")
+		t.Error("did not expect StatefulSet for ephemeral container-mode entry")
 	}
 	if !r.hasResource("Service", "my-agent-knowledge-cache") {
 		t.Error("expected knowledge Service")
-	}
-
-	// Agent env should have REDIS_HOST, REDIS_PORT, REDIS_URL
-	env := r.DeploymentSpec.Agent.Environment
-	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_URL"} {
-		if _, ok := env[key]; !ok {
-			t.Errorf("expected agent env key %s", key)
-		}
 	}
 }
 
@@ -512,7 +508,6 @@ models:
 knowledge:
   docs:
     provider: qdrant
-    persistent: true
   cache:
     provider: redis
 integrations:
@@ -581,9 +576,9 @@ ingestion:
 		t.Error("expected qdrant knowledge Service")
 	}
 
-	// Knowledge: non-persistent redis → Deployment
-	if !r.hasResource("Deployment", "my-agent-knowledge-cache") {
-		t.Error("expected redis knowledge Deployment")
+	// Knowledge: redis provider has MountPath → StatefulSet
+	if !r.hasResource("StatefulSet", "my-agent-knowledge-cache") {
+		t.Error("expected redis knowledge StatefulSet")
 	}
 	if !r.hasResource("Service", "my-agent-knowledge-cache") {
 		t.Error("expected redis knowledge Service")
@@ -656,8 +651,8 @@ ingestion:
 	if got := r.resourceCount("Service"); got < 4 {
 		t.Errorf("expected at least 4 Services, got %d", got)
 	}
-	if got := r.resourceCount("StatefulSet"); got != 2 {
-		t.Errorf("expected 2 StatefulSets (ollama + qdrant), got %d", got)
+	if got := r.resourceCount("StatefulSet"); got != 3 {
+		t.Errorf("expected 3 StatefulSets (ollama + qdrant + redis), got %d", got)
 	}
 }
 
@@ -962,7 +957,6 @@ agent:
 knowledge:
   docs:
     provider: qdrant
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -1005,7 +999,6 @@ agent:
 knowledge:
   db:
     provider: postgres
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -1029,7 +1022,6 @@ agent:
 knowledge:
   graph:
     provider: neo4j
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -1051,10 +1043,8 @@ agent:
 knowledge:
   graph:
     provider: neo4j
-    persistent: true
   docs:
     provider: qdrant
-    persistent: true
   cache:
     provider: redis
 `, e2eOpts{})
@@ -1264,7 +1254,6 @@ models:
 knowledge:
   docs:
     provider: qdrant
-    persistent: true
   cache:
     provider: redis
 `, e2eOpts{})
@@ -1351,10 +1340,8 @@ agent:
 knowledge:
   primary:
     provider: qdrant
-    persistent: true
   secondary:
     provider: qdrant
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -1828,9 +1815,9 @@ integrations:
 	})
 }
 
-func TestE2E_ProviderEnv_SameProviderMixedPersistence(t *testing.T) {
-	// Two redis knowledge stores: one persistent, one not.
-	// Bare REDIS_* points to first alphabetically ("durable"), name-qualified vars for all.
+func TestE2E_ProviderEnv_TwoRedisKnowledge(t *testing.T) {
+	// Two redis knowledge stores. Bare REDIS_* points to first alphabetically
+	// ("durable"), name-qualified vars for all.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1841,23 +1828,16 @@ knowledge:
     provider: redis
   durable:
     provider: redis
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
 
-	// Non-persistent → Deployment, persistent → StatefulSet
-	if !r.hasResource("Deployment", "my-agent-knowledge-sessions") {
-		t.Error("expected Deployment for non-persistent redis")
-	}
-	if r.hasResource("StatefulSet", "my-agent-knowledge-sessions") {
-		t.Error("did not expect StatefulSet for non-persistent redis")
+	// Both redis entries → StatefulSet (provider has MountPath)
+	if !r.hasResource("StatefulSet", "my-agent-knowledge-sessions") {
+		t.Error("expected StatefulSet for sessions redis")
 	}
 	if !r.hasResource("StatefulSet", "my-agent-knowledge-durable") {
-		t.Error("expected StatefulSet for persistent redis")
-	}
-	if r.hasResource("Deployment", "my-agent-knowledge-durable") {
-		t.Error("did not expect Deployment for persistent redis")
+		t.Error("expected StatefulSet for durable redis")
 	}
 
 	// Both get their own Service
@@ -1898,10 +1878,8 @@ agent:
 knowledge:
   analytics:
     provider: postgres
-    persistent: true
   users:
     provider: postgres
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -1962,10 +1940,8 @@ agent:
 knowledge:
   postgres:
     provider: postgres
-    persistent: true
   users:
     provider: postgres
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -2053,10 +2029,8 @@ agent:
 knowledge:
   postgres:
     provider: postgres
-    persistent: true
   users:
     provider: postgres
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -2098,10 +2072,8 @@ agent:
 knowledge:
   friends:
     provider: neo4j
-    persistent: true
   products:
     provider: neo4j
-    persistent: true
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
@@ -2150,7 +2122,6 @@ agent:
 knowledge:
   vectors:
     provider: qdrant
-    persistent: true
   embeddings:
     container:
       image: my-embeddings:latest
@@ -2261,10 +2232,8 @@ agent:
 knowledge:
   analytics:
     provider: postgres
-    persistent: true
   users:
     provider: postgres
-    persistent: true
   cache:
     provider: redis
 `, e2eOpts{})

@@ -64,14 +64,6 @@ func (m model) View() string {
 		b.WriteString(m.renderRadioList(ollamaModelOptions()))
 		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter confirm"))
 
-	case screenPersistent:
-		b.WriteString(promptStyle.Render("  Persistent storage?"))
-		b.WriteString("\n")
-		b.WriteString(hintStyle.Render("  Persist data across agent restarts."))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderRadioList(persistentOptions()))
-		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter confirm"))
-
 	case screenImage:
 		b.WriteString(promptStyle.Render("  Container image"))
 		b.WriteString("\n")
@@ -155,7 +147,7 @@ func (m model) steps() []string {
 		}
 		return []string{"Name", "Confirm"}
 	case "knowledge":
-		return []string{"Name", "Persistent", "Confirm"}
+		return []string{"Name", "Confirm"}
 	case "integration":
 		return []string{"Name", "Confirm"}
 	case "ingestion":
@@ -171,7 +163,7 @@ func (m model) screenStep() int {
 	switch m.screen {
 	case screenName:
 		return 0
-	case screenOllamaModel, screenPersistent, screenImage:
+	case screenOllamaModel, screenImage:
 		return 1
 	case screenTrigger:
 		return 2
@@ -243,12 +235,6 @@ func (m model) renderSummary() string {
 				ollamaModel = ollamaModelOptions()[0].value
 			}
 			row("Model", ollamaModel)
-		}
-	case "knowledge":
-		if m.persistent {
-			row("Persistent", "yes")
-		} else {
-			row("Persistent", "no")
 		}
 	case "ingestion":
 		row("Image", m.imageInput.Value())

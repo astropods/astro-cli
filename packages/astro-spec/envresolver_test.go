@@ -917,7 +917,7 @@ func TestAgentConnectionKeys_SelfHostedKnowledge(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Knowledge: map[string]Knowledge{
-			"docs": {Provider: "qdrant", Persistent: true},
+			"docs": {Provider: "qdrant"},
 		},
 	}
 	addrs := map[string]ConnectionAddress{
@@ -1320,7 +1320,7 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"anthropic": {Provider: "anthropic"},
 		},
 		Knowledge: map[string]Knowledge{
-			"docs":  {Provider: "qdrant", Persistent: true},
+			"docs":  {Provider: "qdrant"},
 			"cache": {Provider: "redis"},
 		},
 		Integrations: map[string]Integration{

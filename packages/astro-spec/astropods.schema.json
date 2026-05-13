@@ -263,9 +263,6 @@
                 "additionalProperties": false,
                 "type": "object"
               },
-              "persistent": {
-                "type": "boolean"
-              },
               "port": {
                 "type": "integer"
               },
@@ -446,9 +443,6 @@
                 "additionalProperties": false,
                 "type": "object"
               },
-              "persistent": {
-                "type": "boolean"
-              },
               "port": {
                 "type": "integer"
               },
@@ -489,9 +483,6 @@
             },
             "additionalProperties": false,
             "type": "object"
-          },
-          "persistent": {
-            "type": "boolean"
           },
           "inputs": {
             "items": {
@@ -631,9 +622,6 @@
                 },
                 "additionalProperties": false,
                 "type": "object"
-              },
-              "persistent": {
-                "type": "boolean"
               },
               "port": {
                 "type": "integer"
@@ -953,9 +941,6 @@
                 },
                 "additionalProperties": false,
                 "type": "object"
-              },
-              "persistent": {
-                "type": "boolean"
               },
               "port": {
                 "type": "integer"

@@ -122,7 +122,6 @@ knowledge:
     provider: redis
   docs:
     provider: qdrant
-    persistent: true
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
@@ -149,12 +148,10 @@ knowledge:
 				if !ok {
 					t.Fatal("Knowledge[docs] not found")
 				}
-				if !docs.Persistent {
-					t.Error("Knowledge[docs].Persistent = false, want true")
-				}
+				// qdrant provider has a MountPath, so ResolvedContainer derives Persistent=true.
 				dc := docs.ResolvedContainer()
 				if !dc.Persistent {
-					t.Error("Knowledge[docs].ResolvedContainer().Persistent = false, want true")
+					t.Error("Knowledge[docs].ResolvedContainer().Persistent = false, want true (qdrant has MountPath)")
 				}
 			},
 		},

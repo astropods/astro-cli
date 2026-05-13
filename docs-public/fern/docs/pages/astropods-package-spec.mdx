@@ -5,7 +5,7 @@ slug: astropods-package-spec
 ---
 
 <Versions>
-<Version version="v1.5 (Draft) - 2026-04-24" default>
+<Version version="v1.6 (Draft) - 2026-05-12" default>
 
 ## Abstract
 
@@ -15,6 +15,7 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
+| v1.6    | 2026-05-12 | **Breaking.** Removed `persistent` from `knowledge.<name>` and `ContainerConfig`. Persistence is derived from the mount-path signal — the provider's mount path in provider mode, or `container.volume` in container mode. |
 | v1.5    | 2026-04-24 | Deprecated `meta.visibility`. Visibility is managed via the platform UI and API, not the spec. |
 | v1.4    | 2026-04-08 | Removed `dev.overrides.playgroundImage`; playground UI is now bundled into the messaging container and served automatically when the `web` adapter is enabled. |
 | v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. Component `inputs` now injected into knowledge, tool, and ingestion containers during `ast dev`. |
@@ -194,14 +195,13 @@ The `models` section declares AI models the agent consumes: LLMs (e.g. Claude, G
 
 Each entry in the `knowledge` map:
 
-| Field        | Type            | Required    | Description                                                         |
-| ------------ | --------------- | ----------- | ------------------------------------------------------------------- |
-| `provider`   | string          | Conditional | Platform-managed provider name (e.g. `qdrant`, `pinecone`).         |
-| `container`  | ContainerConfig | Conditional | Custom container configuration.                                     |
-| `persistent` | boolean         | OPTIONAL    | Whether data SHOULD be persisted across restarts. Default: `false`. |
-| `inputs`     | Input[]         | OPTIONAL    | User-supplied inputs injected into the knowledge container.         |
+| Field       | Type            | Required    | Description                                                 |
+| ----------- | --------------- | ----------- | ----------------------------------------------------------- |
+| `provider`  | string          | Conditional | Platform-managed provider name (e.g. `qdrant`, `pinecone`). |
+| `container` | ContainerConfig | Conditional | Custom container configuration.                             |
+| `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the knowledge container. |
 
-When `persistent` is `true`, the platform SHOULD provision durable storage for the entry. For provider-mode entries, the mount path is resolved from the provider registry. For container-mode entries, the `volume` field on `ContainerConfig` specifies the mount path (e.g. `/var/lib/postgresql/data` for Postgres).
+A knowledge entry is **persistent** iff it has a mount path. In provider mode, the mount path comes from the provider registry — every built-in self-hosted knowledge provider (`qdrant`, `redis`, `postgres`, `mysql`, `neo4j`) declares one, so all of them are persistent by definition. In container mode, the mount path is `container.volume`; omitting it yields an ephemeral workload. Persistent entries get durable storage provisioned with platform defaults.
 
 `inputs` applies to both provider-mode and container-mode entries. They are injected into the knowledge container at runtime — not into the agent.
 
@@ -211,7 +211,6 @@ The built-in `postgres` provider manages its own credentials automatically: the 
 knowledge:
   db:
     provider: postgres
-    persistent: true
 ```
 
 In your agent, always read all five env vars — never hardcode user or password:
@@ -251,10 +250,9 @@ Used by container-mode entries and by ingestion containers.
 | `image`       | string                | Conditional | Container image reference.                                    |
 | `build`       | BuildConfig           | Conditional | Build-from-source configuration (same schema as Section 3.1). |
 | `port`        | integer               | OPTIONAL    | Primary port the container listens on.                        |
-| `volume`      | string                | OPTIONAL    | Mount path for persistent data volume inside the container. Required when `persistent` is `true` and no built-in provider is used. |
+| `volume`      | string                | OPTIONAL    | Mount path for persistent data inside the container. Setting `volume` makes the entry persistent (durable storage is provisioned); omitting it yields an ephemeral workload. Has no effect when `provider` is set — provider-mode entries inherit the provider's mount path. |
 | `environment` | map\<string, string\> | OPTIONAL    | Static environment variables passed directly to the container at runtime. Use for non-sensitive configuration (database names, feature flags, log levels). For secrets, prefer `inputs` with `secret: true`. |
 | `gpu`         | GPUConfig             | OPTIONAL    | GPU resource requirements.                                    |
-| `persistent`  | boolean               | OPTIONAL    | Whether data SHOULD be persisted. Default: `false`.           |
 | `healthcheck` | Healthcheck           | OPTIONAL    | Health check configuration (same schema as Section 3.2).      |
 
 A ContainerConfig SHOULD specify at least one of `image` or `build`.
@@ -270,7 +268,6 @@ knowledge:
       image: postgres:17
       port: 5432
       volume: /var/lib/postgresql/data
-    persistent: true
     inputs:
       - name: POSTGRES_DB
         datatype: string
@@ -625,7 +622,6 @@ models:
 knowledge:
   docs:
     provider: qdrant
-    persistent: true
 
   cache:
     provider: redis
@@ -635,7 +631,6 @@ knowledge:
       image: pgvector/pgvector:pg17
       port: 5432
       volume: /var/lib/postgresql/data
-    persistent: true
     inputs:
       - name: POSTGRES_DB
         datatype: string

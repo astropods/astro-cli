@@ -60,12 +60,10 @@ knowledge:
     provider: redis
   docs:
     provider: qdrant
-    persistent: true
   graph:
     provider: neo4j
   db:
     provider: postgres
-    persistent: true
   # Cloud
   vectors:
     provider: pinecone
@@ -391,8 +389,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if spec.PrimaryPort(cache.Endpoints) != 6379 {
 		t.Errorf("knowledge.cache port: expected 6379, got %d", spec.PrimaryPort(cache.Endpoints))
 	}
-	if cache.Persistent {
-		t.Error("knowledge.cache.persistent: expected false")
+	if !cache.Persistent {
+		t.Error("knowledge.cache.persistent: expected true (redis provider has MountPath)")
 	}
 	if cache.Healthcheck == nil || len(cache.Healthcheck.Test) == 0 {
 		t.Error("knowledge.cache.healthcheck: expected redis-cli ping")

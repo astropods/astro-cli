@@ -1045,12 +1045,7 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 		dk.Update = spec.UpdateStrategy{Strategy: "recreate"}
 	}
 
-	// Resolve volume mount path: container.volume > provider mount path
-	if container.Volume != "" {
-		dk.Volume = container.Volume
-	} else if prov := spec.GetProvider(knowledge.Provider); prov.MountPath != "" {
-		dk.Volume = prov.MountPath
-	}
+	dk.Volume = container.Volume
 	if len(container.Environment) > 0 {
 		dk.Environment = container.Environment
 	}

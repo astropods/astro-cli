@@ -165,10 +165,9 @@ func (m Model) ResolvedContainer() ContainerConfig {
 }
 
 type Knowledge struct {
-	Provider   string           `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Container  *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
-	Persistent bool             `json:"persistent,omitempty" yaml:"persistent,omitempty"`
-	Inputs     []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the knowledge container"`
+	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
+	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the knowledge container"`
 }
 
 // IsProviderMode returns true when the knowledge entry uses a platform-managed provider.
@@ -189,19 +188,20 @@ func (k Knowledge) DeploysContainer(customProviders map[string]CustomProvider) b
 
 // ResolvedContainer returns the effective ContainerConfig — either built from
 // the provider registry (provider mode) or passed through from the user's
-// container block (container mode). Knowledge.Persistent is merged into the result.
+// container block (container mode). Persistent is derived from Volume so the
+// invariant Persistent ⇔ Volume != "" holds in both modes.
 func (k Knowledge) ResolvedContainer() ContainerConfig {
 	if k.Container != nil {
 		c := *k.Container
-		c.Persistent = c.Persistent || k.Persistent
+		c.Persistent = c.Volume != ""
 		return c
 	}
-	// Provider mode: build from registry
 	prov := GetProvider(k.Provider)
 	return ContainerConfig{
 		Image:      prov.Image,
 		Port:       prov.DefaultPort,
-		Persistent: k.Persistent,
+		Volume:     prov.MountPath,
+		Persistent: prov.MountPath != "",
 	}
 }
 
@@ -239,7 +239,7 @@ type ContainerConfig struct {
 	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
 	Build       *BuildConfig      `json:"build,omitempty" yaml:"build,omitempty"`
 	GPU         *GPUConfig        `json:"gpu,omitempty" yaml:"gpu,omitempty"`
-	Persistent  bool              `json:"persistent,omitempty" yaml:"persistent,omitempty"`
+	Persistent  bool              `json:"-" yaml:"-"` // derived; set by ResolvedContainer
 	Port        int               `json:"port,omitempty" yaml:"port,omitempty"`
 	Volume      string            `json:"volume,omitempty" yaml:"volume,omitempty" jsonschema:"description=Mount path for persistent data volume inside the container"`
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`

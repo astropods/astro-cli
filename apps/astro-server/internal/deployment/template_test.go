@@ -441,7 +441,7 @@ func TestTemplate_ProviderModel_SelfHostedAndCloud(t *testing.T) {
 func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 	input := baseInput()
 	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"docs": {Provider: "qdrant", Persistent: true},
+		"docs": {Provider: "qdrant"},
 	}
 
 	ds := mustGenerate(t, input)
@@ -495,11 +495,12 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	if spec.PrimaryPort(k.Endpoints) != 6379 {
 		t.Errorf("endpoints primary port: expected 6379, got %d", spec.PrimaryPort(k.Endpoints))
 	}
-	if k.Persistent {
-		t.Error("persistent: expected false (not set in spec)")
+	// Redis provider has MountPath /data → persistent by derivation
+	if !k.Persistent {
+		t.Error("persistent: expected true (redis provider has MountPath)")
 	}
-	if k.Storage != nil {
-		t.Error("storage: expected nil for non-persistent store")
+	if k.Storage == nil {
+		t.Error("storage: expected non-nil for persistent store")
 	}
 
 	// Redis has exec health check
@@ -575,11 +576,20 @@ func TestTemplate_ProviderKnowledge_Postgres(t *testing.T) {
 	if spec.PrimaryPort(k.Endpoints) != 5432 {
 		t.Errorf("endpoints primary port: expected 5432, got %d", spec.PrimaryPort(k.Endpoints))
 	}
-	if k.Persistent {
-		t.Error("persistent: expected false (not set in spec)")
+	if !k.Persistent {
+		t.Error("persistent: expected true (postgres provider has MountPath)")
 	}
-	if k.Storage != nil {
-		t.Error("storage: expected nil for non-persistent store")
+	if k.Storage == nil {
+		t.Fatal("storage: expected non-nil for persistent store")
+	}
+	if k.Storage.Size != "10Gi" {
+		t.Errorf("storage.size: expected 10Gi, got %s", k.Storage.Size)
+	}
+	if k.Storage.AccessMode != "ReadWriteOnce" {
+		t.Errorf("storage.access_mode: expected ReadWriteOnce, got %s", k.Storage.AccessMode)
+	}
+	if k.Update.Strategy != "recreate" {
+		t.Errorf("update.strategy: expected recreate for persistent store, got %s", k.Update.Strategy)
 	}
 	if k.Healthcheck == nil || len(k.Healthcheck.Test) == 0 {
 		t.Errorf("healthcheck: expected exec test for postgres provider, got %+v", k.Healthcheck)
@@ -593,32 +603,6 @@ func TestTemplate_ProviderKnowledge_Postgres(t *testing.T) {
 		if _, ok := ds.Agent.Environment[cred]; ok {
 			t.Errorf("agent.environment.%s: must not be present — flows via secretKeyRef", cred)
 		}
-	}
-}
-
-func TestTemplate_ProviderKnowledge_Postgres_Persistent(t *testing.T) {
-	input := baseInput()
-	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"db": {Provider: "postgres", Persistent: true},
-	}
-
-	ds := mustGenerate(t, input)
-
-	k := ds.Knowledge["db"]
-	if !k.Persistent {
-		t.Error("persistent: expected true")
-	}
-	if k.Storage == nil {
-		t.Fatal("storage: expected non-nil for persistent store")
-	}
-	if k.Storage.Size != "10Gi" {
-		t.Errorf("storage.size: expected 10Gi, got %s", k.Storage.Size)
-	}
-	if k.Storage.AccessMode != "ReadWriteOnce" {
-		t.Errorf("storage.access_mode: expected ReadWriteOnce, got %s", k.Storage.AccessMode)
-	}
-	if k.Update.Strategy != "recreate" {
-		t.Errorf("update.strategy: expected recreate for persistent store, got %s", k.Update.Strategy)
 	}
 }
 
@@ -648,7 +632,12 @@ func TestTemplate_ProviderKnowledge_Pinecone(t *testing.T) {
 func TestTemplate_KnowledgeNonPersistent_NoStorage(t *testing.T) {
 	input := baseInput()
 	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"cache": {Provider: "qdrant", Persistent: false},
+		"cache": {
+			Container: &spec.ContainerConfig{
+				Image: "my-cache:latest",
+				Port:  6000,
+			},
+		},
 	}
 
 	ds := mustGenerate(t, input)
@@ -1306,9 +1295,9 @@ func TestTemplate_FullSpec(t *testing.T) {
 				"managed": {Provider: "anthropic-managed"},
 			},
 			Knowledge: map[string]spec.Knowledge{
-				"db":      {Provider: "postgres", Persistent: true},
+				"db":      {Provider: "postgres"},
 				"cache":   {Provider: "redis"},
-				"vectors": {Provider: "qdrant", Persistent: true},
+				"vectors": {Provider: "qdrant"},
 				"graph":   {Provider: "neo4j"},
 				"index":   {Provider: "pinecone"},
 			},
@@ -1554,7 +1543,7 @@ func TestTemplate_MultipleModels(t *testing.T) {
 func TestTemplate_MultipleKnowledgeProviders(t *testing.T) {
 	input := baseInput()
 	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"vectors": {Provider: "qdrant", Persistent: true},
+		"vectors": {Provider: "qdrant"},
 		"cache":   {Provider: "redis"},
 		"graph":   {Provider: "neo4j"},
 	}
@@ -1580,7 +1569,7 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 		"anthropic": {Provider: "anthropic"},
 	}
 	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"docs": {Provider: "qdrant", Persistent: true},
+		"docs": {Provider: "qdrant"},
 	}
 
 	ds := mustGenerate(t, input)
@@ -1984,10 +1973,10 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 				"anthropic": {Provider: "anthropic"},
 			},
 			Knowledge: map[string]spec.Knowledge{
-				"vectors":  {Provider: "qdrant", Persistent: true},
+				"vectors":  {Provider: "qdrant"},
 				"cache":    {Provider: "redis"},
 				"custom":   {Container: &spec.ContainerConfig{Image: "mydb:latest", Port: 5432}},
-				"postgres": {Provider: "postgres", Persistent: true},
+				"postgres": {Provider: "postgres"},
 			},
 			Integrations: map[string]spec.Integration{
 				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
@@ -3396,8 +3385,8 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 	input.AgentName = "sasbot"
 	input.Spec.Name = "sasbot"
 	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"postgres": {Provider: "postgres", Persistent: true},
-		"users":    {Provider: "postgres", Persistent: true},
+		"postgres": {Provider: "postgres"},
+		"users":    {Provider: "postgres"},
 		"cache":    {Provider: "redis"},
 	}
 
