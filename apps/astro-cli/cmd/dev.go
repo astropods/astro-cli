@@ -393,7 +393,7 @@ func runForeground(projectName, astDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	_ = stopSvc.Down(context.Background(), projectName, api.DownOptions{})
+	_ = stopSvc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 	_ = os.Remove(filepath.Join(astDir, ".running"))
 	fmt.Printf("%s→%s Stopped\n", colorCyan, colorReset)
 	return nil
@@ -602,7 +602,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
 	err = withSpinner("Stopping services...", "Services stopped", false, func() error {
-		return stopSvc.Down(context.Background(), projectName, api.DownOptions{})
+		return stopSvc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 	})
 	_ = os.Remove(statePath) // always remove — containers may be gone even on error
 	if err != nil {
