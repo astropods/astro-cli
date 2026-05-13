@@ -2,7 +2,6 @@ package compose
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -335,7 +334,7 @@ func TestBuildProject_KnowledgeStore(t *testing.T) {
 		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Knowledge: map[string]spec.Knowledge{
-			"docs": {Provider: "qdrant", Persistent: true},
+			"docs": {Provider: "qdrant"},
 		},
 	}
 
@@ -374,10 +373,9 @@ func TestBuildProject_CustomKnowledgePersistence(t *testing.T) {
 		Knowledge: map[string]spec.Knowledge{
 			"db": {
 				Container: &spec.ContainerConfig{
-					Image:      "pgvector/pgvector:pg17",
-					Port:       5432,
-					Volume:     "/var/lib/postgresql/data",
-					Persistent: true,
+					Image:  "pgvector/pgvector:pg17",
+					Port:   5432,
+					Volume: "/var/lib/postgresql/data",
 				},
 			},
 		},
@@ -402,31 +400,6 @@ func TestBuildProject_CustomKnowledgePersistence(t *testing.T) {
 	}
 	if _, ok := project.Volumes["knowledge-db-data"]; !ok {
 		t.Error("missing volume knowledge-db-data")
-	}
-}
-
-func TestBuildProject_CustomKnowledgePersistentNoVolume(t *testing.T) {
-	s := &spec.AstroSpec{
-		Name:  "my-agent",
-		Agent: spec.Container{Image: "agent:latest"},
-		Knowledge: map[string]spec.Knowledge{
-			"db": {
-				Container: &spec.ContainerConfig{
-					Image:      "postgres:17",
-					Port:       5432,
-					Persistent: true,
-					// No Volume set — should error
-				},
-			},
-		},
-	}
-
-	_, err := BuildProject(s, "/work", nil)
-	if err == nil {
-		t.Fatal("expected error for persistent custom container without volume")
-	}
-	if !strings.Contains(err.Error(), "no volume path") {
-		t.Errorf("error = %q, want it to mention 'no volume path'", err.Error())
 	}
 }
 

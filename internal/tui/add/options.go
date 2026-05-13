@@ -34,13 +34,6 @@ func triggerOptions() []option {
 	}
 }
 
-func persistentOptions() []option {
-	return []option{
-		{"No", "false"},
-		{"Yes", "true"},
-	}
-}
-
 func scopeOptions() []option {
 	return []option{
 		{"Models", "models"},

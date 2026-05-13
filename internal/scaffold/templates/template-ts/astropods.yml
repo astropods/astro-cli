@@ -33,7 +33,6 @@ knowledge:
 {{- if .HasKnowledge "qdrant"}}
   docs:
     provider: qdrant
-    persistent: true
 {{- end}}
 {{- if .HasKnowledge "redis"}}
   cache:

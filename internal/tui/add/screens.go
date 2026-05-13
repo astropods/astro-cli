@@ -36,7 +36,7 @@ func (m model) nextScreenAfterName() screen {
 		}
 		return screenConfirm
 	case "knowledge":
-		return screenPersistent
+		return screenConfirm
 	case "integration":
 		return screenConfirm
 	case "ingestion":
@@ -63,10 +63,6 @@ func (m model) updateRadio(msg tea.Msg, opts []option) (tea.Model, tea.Cmd) {
 			switch m.screen {
 			case screenOllamaModel:
 				m.ollamaModel = val
-				m.screen = screenConfirm
-				m.cursor = 0
-			case screenPersistent:
-				m.persistent = val == "true"
 				m.screen = screenConfirm
 				m.cursor = 0
 			case screenTrigger:
@@ -204,9 +200,6 @@ func (m model) buildEntry() map[string]any {
 		}
 		return map[string]any{"provider": m.provider}
 	case "knowledge":
-		if m.persistent {
-			return map[string]any{"provider": m.provider, "persistent": true}
-		}
 		return map[string]any{"provider": m.provider}
 	case "integration":
 		return map[string]any{"provider": m.provider}

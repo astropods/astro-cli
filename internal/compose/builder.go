@@ -380,16 +380,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
-		// Add persistent volume if needed
 		if container.Persistent {
-			mountPath := container.Volume
-			if mountPath == "" {
-				mountPath = spec.GetProvider(knowledge.Provider).MountPath
-			}
-			if mountPath == "" {
-				return nil, fmt.Errorf("knowledge %q: persistent is true but no volume path specified (set container.volume)", name)
-			}
-
 			volumeName := fmt.Sprintf("%s-data", serviceName)
 			project.Volumes[volumeName] = types.VolumeConfig{
 				Name: volumeName,
@@ -399,7 +390,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				{
 					Type:   types.VolumeTypeVolume,
 					Source: volumeName,
-					Target: mountPath,
+					Target: container.Volume,
 				},
 			}
 		}

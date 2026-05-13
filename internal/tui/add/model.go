@@ -12,7 +12,6 @@ type screen int
 const (
 	screenName screen = iota
 	screenOllamaModel
-	screenPersistent
 	screenImage
 	screenTrigger
 	screenScope
@@ -52,7 +51,6 @@ type model struct {
 
 	cursor      int
 	ollamaModel string
-	persistent  bool
 	triggerType string
 
 	// provider domain fields
@@ -139,8 +137,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateName(msg)
 	case screenOllamaModel:
 		return m.updateRadio(msg, ollamaModelOptions())
-	case screenPersistent:
-		return m.updateRadio(msg, persistentOptions())
 	case screenImage:
 		return m.updateImage(msg)
 	case screenTrigger:

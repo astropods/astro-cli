@@ -111,17 +111,15 @@ Knowledge entries define sidecar databases for your agent. Use built-in provider
 knowledge:
   vectors:
     provider: qdrant
-    persistent: true    # data survives restarts
 
   cache:
     provider: redis
 
   db:
     provider: postgres
-    persistent: true
 ```
 
-Available providers: `qdrant` (vector search), `redis` (key-value), `postgres` (relational + pgvector), `neo4j` (graph).
+Available providers: `qdrant` (vector search), `redis` (key-value), `postgres` (relational + pgvector), `neo4j` (graph). Provider-mode entries always get a persistent volume — the provider defines its own data path. To get an ephemeral store, use a custom container without a `volume`.
 
 Each provider injects connection env vars into the agent: `{PROVIDER}_HOST`, `{PROVIDER}_PORT`, `{PROVIDER}_URL` (e.g. `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_URL`).
 
@@ -150,7 +148,6 @@ knowledge:
       image: pgvector/pgvector:pg17
       port: 5432
       volume: /var/lib/postgresql/data
-    persistent: true
     inputs:
       - name: POSTGRES_DB
         datatype: string
@@ -165,7 +162,7 @@ knowledge:
         description: Database superuser password
 ```
 
-- `volume` — where to mount persistent data inside the container. Required with `persistent: true`.
+- `volume` — where to mount persistent data inside the container. Setting `volume` makes the entry persistent (a PVC is provisioned on deploy and a named volume in local dev). Omit `volume` for an ephemeral store.
 - `inputs` — values injected into the container at runtime. Set via `ast project configure` or defaults. Use `secret: true` for passwords and keys (requires `ast project configure` before starting).
 
 Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(name)}_PORT` into the agent (e.g. `KNOWLEDGE_DB_HOST`, `KNOWLEDGE_DB_PORT`).
