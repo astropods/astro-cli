@@ -143,7 +143,11 @@ test.describe("vault autosuggest", () => {
   test("picker marks exact match with tooltip 'Exact match'", async ({ page }) => {
     test.setTimeout(30_000);
     await page.goto(DEPLOY_PAGE, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
+    // Wait for the vault list to resolve before opening the picker — the auto-fill
+    // chip only renders once entries are loaded, so it doubles as a load gate.
+    // Without this, clicking too early opens the picker in its "No variables yet"
+    // empty state and the Find... input never appears.
+    await expect(page.getByRole("button", { name: /clear vault reference/i })).toBeVisible({ timeout: 20_000 });
 
     // Open the picker
     await page.getByTitle("Insert vault reference").click();
@@ -163,7 +167,9 @@ test.describe("vault autosuggest", () => {
     await seedVault(request, [{ name: "openai_api_key", value: "sk-lower", secret: true, description: "" }]);
 
     await page.goto(DEPLOY_PAGE, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
+    // Wait for the vault list to resolve before opening the picker — the close-match
+    // auto-fill chip only renders once entries are loaded.
+    await expect(page.getByRole("button", { name: /clear vault reference/i })).toBeVisible({ timeout: 20_000 });
 
     // Open the picker
     await page.getByTitle("Insert vault reference").click();

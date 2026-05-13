@@ -144,6 +144,7 @@ export function InterfacesPicker({
                       values={adapterCredentials}
                       onChange={onAdapterCredentialsChange}
                       errorKeys={adapterErrorKeys}
+                      account={targetAccount}
                       vaultEntries={vaultEntries}
                       vaultSettingsUrl={vaultSettingsUrl}
                       vaultLoadError={vaultLoadError}
@@ -178,6 +179,7 @@ export function InterfacesPicker({
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
                   errorKeys={adapterErrorKeys}
+                  account={targetAccount}
                   vaultEntries={vaultEntries}
                   vaultSettingsUrl={vaultSettingsUrl}
                   vaultLoadError={vaultLoadError}

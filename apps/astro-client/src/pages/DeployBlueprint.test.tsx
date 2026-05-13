@@ -534,6 +534,52 @@ describe('DeployBlueprint page', () => {
       });
     });
 
+    // Regression: InterfacesPicker did not forward the form's targetAccount to
+    // the Slack adapter's VariableFields. The VaultPicker therefore created
+    // variables against an empty account, and POST /api/v1/accounts//variables
+    // 400'd with "account name is required" — even for admins. Verifies the
+    // create call lands on the resolved account.
+    it('creates new variable against the form account when launched from Slack vault picker', async () => {
+      const variableCreates: { account: string; body: unknown }[] = [];
+      server.use(
+        http.post('/api/v1/accounts/:account/variables', async ({ params, request }) => {
+          variableCreates.push({
+            account: params.account as string,
+            body: await request.json(),
+          });
+          return HttpResponse.json({ results: [{ name: 'NEW_SLACK_BOT_TOKEN', status: 'created' }] });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await enableSlack(user);
+
+      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(firstKeyButton);
+
+      // Empty-state CTA inside the popover (account has no vault entries by default).
+      const newVariableButton = await screen.findByRole('button', { name: /new variable/i });
+      await user.click(newVariableButton);
+
+      // NewEntryDialog opens; fill Key + Value and save.
+      const keyInput = await screen.findByLabelText('Key');
+      await user.type(keyInput, 'NEW_SLACK_BOT_TOKEN');
+      await user.type(screen.getByLabelText('Value'), 'xoxb-from-test');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(variableCreates).toHaveLength(1);
+      });
+      expect(variableCreates[0].account).toBe(ACCOUNT);
+      expect(variableCreates[0].body).toMatchObject({
+        variables: [
+          expect.objectContaining({ name: 'NEW_SLACK_BOT_TOKEN', value: 'xoxb-from-test' }),
+        ],
+      });
+    });
+
     it('inserts vault reference into Slack token field on selection', async () => {
       server.use(
         http.get('/api/v1/accounts/:account/variables', () =>
