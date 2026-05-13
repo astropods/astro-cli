@@ -89,7 +89,7 @@ By default, tails logs in the foreground and stops containers on Ctrl+C.
 Use -b/--background to start in the background and exit immediately.`
 
 	// Flags on both devCmd and devStartCmd
-	for _, cmd := range []*cobra.Command{devStartCmd} {
+	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
 		cmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
