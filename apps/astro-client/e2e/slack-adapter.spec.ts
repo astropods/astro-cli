@@ -223,6 +223,7 @@ test.describe("deploy page", () => {
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole("button", { name: /^import$/i }).click();
+    await page.locator('input[type="file"]').waitFor({ state: "attached", timeout: 10_000 });
 
     const slackConfigJson = JSON.stringify({
       actionable_reactions: ["ticket", "bug"],
@@ -289,6 +290,7 @@ test.describe("deploy page", () => {
     await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
+    await expect(page.getByLabel("Slack Bot Token")).toBeVisible({ timeout: 10_000 });
     await page.getByLabel("Openai Api Key").fill("sk-test-value");
     await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");
     await page.getByLabel("Slack App Token").fill("xapp-test-value");

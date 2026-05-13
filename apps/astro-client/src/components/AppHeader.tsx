@@ -11,8 +11,8 @@ import {
   ComputerDesktopIcon,
 } from "@heroicons/react/24/outline";
 import { Telescope } from "lucide-react";
-import astroLogo from "@/assets/astro-logo.svg";
-import astroLogoDark from "@/assets/astro-logo-dark.svg";
+import astroLogo from "@/assets/astro-logo-light.png";
+import astroLogoDark from "@/assets/astro-logo-dark.png";
 import { useAuth } from "@/lib/auth";
 import { useExperiments } from "@/lib/experiments";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
@@ -63,8 +63,8 @@ const externalNav: NavItem[] = [
 function Logo() {
   return (
     <>
-      <img src={astroLogo} alt="Astro" className="h-6 dark:hidden" />
-      <img src={astroLogoDark} alt="Astro" className="hidden h-6 dark:block" />
+      <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
+      <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
     </>
   );
 }

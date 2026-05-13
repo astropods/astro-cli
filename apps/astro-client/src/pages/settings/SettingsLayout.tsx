@@ -10,8 +10,8 @@ import {
 
 function SettingsContent() {
   return (
-    <div className="flex-1 overflow-y-auto bg-background">
-      <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
+    <div className="flex-1 overflow-y-auto bg-background flex flex-col">
+      <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto flex-1">
         <SidebarLayout>
         <SidebarNav label="Settings" className="md:w-48">
           <SidebarNavItem to="/settings/account">
@@ -56,6 +56,7 @@ function SettingsContent() {
         </SidebarBody>
         </SidebarLayout>
       </div>
+      <p className="text-body-sm text-faint-foreground text-center w-full py-6">Astro AI is currently in beta.</p>
     </div>
   );
 }

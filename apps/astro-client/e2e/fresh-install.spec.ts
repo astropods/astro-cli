@@ -57,6 +57,7 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
   await page.getByRole("button", { name: /slack/i }).click();
+  await expect(page.getByLabel("Slack Bot Token")).toBeVisible({ timeout: 10_000 });
   await page.getByLabel("Slack Bot Token").fill("xoxb-test-value");
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
 

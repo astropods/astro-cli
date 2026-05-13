@@ -12,12 +12,14 @@ test.beforeEach(async () => {
 test("status toggle sends stop request and updates to Paused", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto(`${AGENT_DETAIL}/deployments`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Active")).toBeVisible({ timeout: 15_000 });
+
+  const toggle = page.getByTestId("agent-status-toggle");
+  await expect(toggle.getByText("Active")).toBeVisible({ timeout: 15_000 });
 
   const stopReq = page.waitForRequest(
     (req) => req.method() === "POST" && req.url().includes(`/deployments/${DEPLOYMENT_ID}/stop`),
   );
-  await page.getByRole("switch").click();
+  await toggle.getByRole("switch").click();
   await stopReq;
 
   // After query invalidation the mock returns status: "stopped" → label changes to Paused
