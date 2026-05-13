@@ -83,6 +83,17 @@ test.describe("JSON specs", () => {
 });
 
 test.describe("External links", () => {
+  test("Discord invite link is valid and not expired", async ({ page, request }) => {
+    await page.goto("/", { waitUntil: "load" });
+    const discordLink = page.getByRole("link", { name: /discord/i });
+    await expect(discordLink).toBeVisible();
+    const href = await discordLink.getAttribute("href");
+    expect(href).toBeTruthy();
+    const inviteCode = href!.split("/").pop()!;
+    const res = await request.get(`https://discord.com/api/v9/invites/${inviteCode}`);
+    expect(res.status(), "Discord invite should not be expired or invalid").toBe(200);
+  });
+
   test("docs loads with content", async ({ page }) => {
     await page.goto("https://docs.astropods.com/welcome", { waitUntil: "load" });
     await expect(page).not.toHaveTitle(/404|not found/i);
