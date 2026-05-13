@@ -327,7 +327,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.bun == 'true'
     runs-on: ubuntu-latest
-    name: Client E2E tests (Playwright)
+    name: Client E2E tests (Playwright) [shard ${{ matrix.shard }}/4]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     steps:
       - name: Checkout repository
@@ -346,13 +350,13 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Run client E2E tests
-        run: bun x moon run astro-client:e2e
+        run: bun x moon run astro-client:e2e -- --shard=${{ matrix.shard }}/4
 
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: |
             apps/astro-client/playwright-report
             apps/astro-client/test-results

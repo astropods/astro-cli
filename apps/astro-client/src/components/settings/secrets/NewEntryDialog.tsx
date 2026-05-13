@@ -279,8 +279,8 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
             const showValueError = valueTouched && emptyValue
             return (
               <div key={row.id} className="space-y-1">
-                <div className={`grid ${ROW_GRID} gap-2 items-start`}>
-                  <div className="space-y-1 min-w-0">
+                <div className={`grid ${ROW_GRID} gap-x-2 gap-y-1 items-start`}>
+                  <div className="space-y-1 min-w-0 col-start-1 row-start-1">
                     <Label size="md" htmlFor={`key-${row.id}`}>Key</Label>
                     <Input
                       id={`key-${row.id}`}
@@ -300,24 +300,11 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       autoFocus={index === 0}
                       aria-invalid={showKeyError || undefined}
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-0 text-xs font-medium text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        updateRow(row.id, {
-                          showDescription: !row.showDescription,
-                        })
-                      }
-                    >
-                      {row.showDescription || row.description ? 'Hide description' : 'Add description'}
-                    </Button>
                     {showKeyError && emptyKey && <p className="text-[11px] text-destructive">Key is required</p>}
                     {showKeyError && invalidKey && <p className="text-[11px] text-destructive">Invalid key format</p>}
                     {showKeyError && duplicateKey && <p className="text-[11px] text-destructive">Duplicate key</p>}
                   </div>
-                  <div className="space-y-1 min-w-0">
+                  <div className="space-y-1 min-w-0 col-start-2 row-start-1">
                     <Label size="md" htmlFor={`value-${row.id}`}>Value</Label>
                     <div className="relative">
                       <Input
@@ -344,7 +331,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                     </div>
                     {showValueError && <p className="text-[11px] text-destructive">Value is required</p>}
                   </div>
-                  <div className="flex items-center justify-end gap-2 h-10 mt-6">
+                  <div className="flex items-center justify-end gap-2 h-10 mt-6 col-start-3 row-start-1">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <label htmlFor={`secret-toggle-${row.id}`} className="text-sm font-medium text-foreground cursor-pointer whitespace-nowrap">Secret</label>
                       <TooltipProvider delayDuration={200}>
@@ -371,6 +358,21 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       aria-label={`Remove ${row.name || 'row'}`}
                     >
                       <Trash2 className="size-3.5 text-muted-foreground" />
+                    </Button>
+                  </div>
+                  <div className="col-start-1 row-start-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        updateRow(row.id, {
+                          showDescription: !row.showDescription,
+                        })
+                      }
+                    >
+                      {row.showDescription || row.description ? 'Hide description' : 'Add description'}
                     </Button>
                   </div>
                 </div>

@@ -22,6 +22,11 @@ test("fresh install shows new deployment on agents list after redirect", async (
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
   await page.getByRole("button", { name: /slack/i }).click();
+  // Wait for the Slack credential field to render before filling. Without this gate
+  // the fill() can land on a stale or not-yet-mounted input, the form state never
+  // captures the value, and the subsequent deploy click fails client-side validation
+  // silently (no POST, no navigation, waitForURL below times out).
+  await expect(page.getByLabel("Slack App Token")).toBeVisible();
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
 
   await Promise.all([
