@@ -114,7 +114,7 @@ export function CustomersPage() {
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Email</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Currency</th>
-                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Subscription</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Plan</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -146,9 +146,18 @@ export function CustomersPage() {
                   <td className="px-2 py-0.5 text-muted-foreground">{c.primaryEmail || "-"}</td>
                   <td className="px-2 py-0.5 text-muted-foreground">{c.currency || "-"}</td>
                   <td className="px-2 py-0.5">
-                    {c.currentSubscriptionId
-                      ? <span className="text-green-600">active</span>
-                      : <span className="text-muted-foreground">none</span>}
+                    {(() => {
+                      const current = c.subscriptions?.find((s) => s.id === c.currentSubscriptionId);
+                      if (!current?.plan) {
+                        return <span className="text-muted-foreground">none</span>;
+                      }
+                      return (
+                        <span>
+                          {current.plan.key}{" "}
+                          <span className="text-muted-foreground">v{current.plan.version}</span>
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-2 py-0.5 text-muted-foreground">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
                   <td className="px-2 py-0.5">

@@ -48,6 +48,7 @@ export interface Customer {
   currency: string;
   subjects: string[];
   currentSubscriptionId?: string;
+  subscriptions?: Subscription[];
   createdAt: string;
   updatedAt: string;
 }

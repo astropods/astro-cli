@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   usePlans, useCreatePlan, useUpdatePlan, useDeletePlan, usePublishPlan, useArchivePlan, useFeatures,
+  useCustomers, useMigrateSubscription,
 } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +10,12 @@ import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { Trash2, Upload, Archive, ChevronDown, Plus, X, Pencil } from "lucide-react";
+import {
+  Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { Trash2, Upload, Archive, ChevronDown, Plus, X, Pencil, ArrowUpCircle } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
-import type { Plan } from "@/types/openmeter";
+import type { Plan, Customer } from "@/types/openmeter";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "text-yellow-600",
@@ -94,11 +98,37 @@ const EMPTY_PLAN: PlanForm = {
 
 export function PlansPage() {
   const { data, isLoading, error } = usePlans();
+  const { data: customers } = useCustomers();
   const deleteMut = useDeletePlan();
   const publishMut = usePublishPlan();
   const archiveMut = useArchivePlan();
   const [showCreate, setShowCreate] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+
+  // Latest active version per plan key
+  const latestByKey = useMemo(() => {
+    const map = new Map<string, Plan>();
+    for (const p of data ?? []) {
+      if (p.status !== "active") continue;
+      const existing = map.get(p.key);
+      if (!existing || p.version > existing.version) map.set(p.key, p);
+    }
+    return map;
+  }, [data]);
+
+  // Customers grouped by `${planKey}::${planVersion}` of their current subscription
+  const customersByPlanVersion = useMemo(() => {
+    const map = new Map<string, Customer[]>();
+    for (const c of customers ?? []) {
+      const current = c.subscriptions?.find((s) => s.id === c.currentSubscriptionId);
+      if (!current?.plan || current.status !== "active") continue;
+      const key = `${current.plan.key}::${current.plan.version}`;
+      const list = map.get(key) ?? [];
+      list.push(c);
+      map.set(key, list);
+    }
+    return map;
+  }, [customers]);
 
   return (
     <div className="space-y-4">
@@ -131,16 +161,23 @@ export function PlansPage() {
       )}
       {data && data.length > 0 && (
         <div className="space-y-2">
-          {data.map((plan) => (
-            <PlanRow
-              key={plan.id}
-              plan={plan}
-              onEdit={() => { setShowCreate(false); setEditingPlan(plan); }}
-              onDelete={() => { if (confirm(`Delete plan "${plan.name}"?`)) deleteMut.mutate(plan.id); }}
-              onPublish={() => { if (confirm(`Publish plan "${plan.name}"? This makes it available for subscriptions.`)) publishMut.mutate(plan.id); }}
-              onArchive={() => { if (confirm(`Archive plan "${plan.name}"?`)) archiveMut.mutate(plan.id); }}
-            />
-          ))}
+          {data.map((plan) => {
+            const latest = latestByKey.get(plan.key);
+            const subscribers = customersByPlanVersion.get(`${plan.key}::${plan.version}`) ?? [];
+            const canMigrate = !!latest && latest.version > plan.version && subscribers.length > 0;
+            return (
+              <PlanRow
+                key={plan.id}
+                plan={plan}
+                subscribers={subscribers}
+                latestVersion={canMigrate ? latest! : undefined}
+                onEdit={() => { setShowCreate(false); setEditingPlan(plan); }}
+                onDelete={() => { if (confirm(`Delete plan "${plan.name}"?`)) deleteMut.mutate(plan.id); }}
+                onPublish={() => { if (confirm(`Publish plan "${plan.name}"? This makes it available for subscriptions.`)) publishMut.mutate(plan.id); }}
+                onArchive={() => { if (confirm(`Archive plan "${plan.name}"?`)) archiveMut.mutate(plan.id); }}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -1149,12 +1186,16 @@ function RateCardEditor({
 
 function PlanRow({
   plan,
+  subscribers,
+  latestVersion,
   onEdit,
   onDelete,
   onPublish,
   onArchive,
 }: {
   plan: Plan;
+  subscribers: Customer[];
+  latestVersion?: Plan;
   onEdit: () => void;
   onDelete: () => void;
   onPublish: () => void;
@@ -1176,6 +1217,13 @@ function PlanRow({
           <span className="text-[10px] text-muted-foreground mr-2">
             {plan.currency} &middot; {plan.billingCadence}
           </span>
+          {latestVersion && (
+            <MigrateDialog
+              plan={plan}
+              latestVersion={latestVersion}
+              subscribers={subscribers}
+            />
+          )}
           {(plan.status === "draft" || plan.status === "scheduled") && (
             <Button variant="ghost" size="icon-xs" title="Edit" onClick={onEdit}>
               <Pencil className="size-3" />
@@ -1286,5 +1334,147 @@ function PlanRow({
         ))}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+// ─── Migrate Dialog ───
+
+function MigrateDialog({
+  plan,
+  latestVersion,
+  subscribers,
+}: {
+  plan: Plan;
+  latestVersion: Plan;
+  subscribers: Customer[];
+}) {
+  const migrateMut = useMigrateSubscription();
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [errors, setErrors] = useState<{ customerId: string; message: string }[]>([]);
+  const [done, setDone] = useState(false);
+
+  const run = async () => {
+    setRunning(true);
+    setProgress(0);
+    setErrors([]);
+    setDone(false);
+
+    for (let i = 0; i < subscribers.length; i++) {
+      const c = subscribers[i];
+      const subId = c.currentSubscriptionId;
+      if (!subId) {
+        setProgress(i + 1);
+        continue;
+      }
+      try {
+        await migrateMut.mutateAsync({ id: subId, targetVersion: latestVersion.version });
+      } catch (e) {
+        setErrors((prev) => [...prev, { customerId: c.id, message: (e as Error).message }]);
+      }
+      setProgress(i + 1);
+    }
+
+    setRunning(false);
+    setDone(true);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => {
+      setOpen(o);
+      if (!o) { setDone(false); setProgress(0); setErrors([]); }
+    }}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="xs"
+          title={`Migrate ${subscribers.length} subscriber${subscribers.length !== 1 ? "s" : ""} to v${latestVersion.version}`}
+        >
+          <ArrowUpCircle className="size-3 text-amber mr-1" />
+          Migrate {subscribers.length} &rarr; v{latestVersion.version}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Migrate subscribers to v{latestVersion.version}</DialogTitle>
+          <DialogDescription>
+            Move all customers on <span className="font-mono text-amber">{plan.key}</span> v{plan.version} to v{latestVersion.version}. Each subscription is migrated individually via OpenMeter&apos;s <span className="font-mono text-[10px]">/migrate</span> endpoint &mdash; no bulk API exists, so we iterate.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span>
+              <strong>{subscribers.length}</strong> customer{subscribers.length !== 1 ? "s" : ""} on v{plan.version}
+            </span>
+            {running && (
+              <span className="text-muted-foreground">{progress} / {subscribers.length}</span>
+            )}
+            {done && !running && (
+              <span className={errors.length > 0 ? "text-amber" : "text-green-600"}>
+                {errors.length > 0 ? `${progress - errors.length} migrated, ${errors.length} failed` : `All ${progress} migrated`}
+              </span>
+            )}
+          </div>
+
+          <div className="max-h-60 overflow-y-auto rounded border border-glass-border-honey">
+            <table className="w-full text-[11px]">
+              <thead className="glass-subtle sticky top-0">
+                <tr>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Customer</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">ID</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subscribers.map((c) => {
+                  const err = errors.find((e) => e.customerId === c.id);
+                  return (
+                    <tr key={c.id} className="border-t border-glass-border-honey">
+                      <td className="px-2 py-0.5">{c.name || "-"}</td>
+                      <td className="px-2 py-0.5 font-mono text-[10px] text-muted-foreground">{c.id}</td>
+                      <td className="px-2 py-0.5">
+                        {err ? (
+                          <span className="text-red-500" title={err.message}>failed</span>
+                        ) : done ? (
+                          <span className="text-green-600">migrated</span>
+                        ) : (
+                          <span className="text-muted-foreground">pending</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {errors.length > 0 && (
+            <details className="text-[10px]">
+              <summary className="cursor-pointer text-muted-foreground">View errors ({errors.length})</summary>
+              <ul className="mt-1 space-y-0.5">
+                {errors.map((e) => (
+                  <li key={e.customerId} className="text-red-500">
+                    <span className="font-mono">{e.customerId}</span>: {e.message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="xs" onClick={() => setOpen(false)} disabled={running}>
+            {done ? "Close" : "Cancel"}
+          </Button>
+          {!done && (
+            <Button size="xs" onClick={run} disabled={running || subscribers.length === 0}>
+              {running ? `Migrating ${progress}/${subscribers.length}...` : `Migrate ${subscribers.length}`}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

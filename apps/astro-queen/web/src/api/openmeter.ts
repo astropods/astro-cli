@@ -140,7 +140,7 @@ export function useCustomers() {
       const pageSize = 100;
       for (;;) {
         const res = await api.get<Customer[] | PaginatedCustomers>(
-          `/api/openmeter/api/v1/customers?page=${page}&pageSize=${pageSize}`
+          `/api/openmeter/api/v1/customers?page=${page}&pageSize=${pageSize}&expand=subscriptions`
         );
         if (Array.isArray(res)) {
           all.push(...res);
@@ -464,6 +464,21 @@ export function useEditSubscription() {
       api.patch<SubscriptionExpanded>(
         `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}`,
         body
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.all });
+      qc.invalidateQueries({ queryKey: ["admin"] });
+    },
+  });
+}
+
+export function useMigrateSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, targetVersion }: { id: string; targetVersion?: number }) =>
+      api.post(
+        `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}/migrate`,
+        targetVersion != null ? { targetVersion } : {}
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.all });
