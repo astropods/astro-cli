@@ -343,27 +343,31 @@ func runAPI(
 		}
 	}()
 
-	// Initialize Kubernetes client
-	var k8sClient k8s.ClusterClient
+	// Initialize Kubernetes registry. The registry holds the primary
+	// ClusterClient (built from env vars / kubeconfig) and is the seam
+	// for per-deployment cluster_id resolution against the `clusters`
+	// table. Handlers and workers without a per-deployment cluster_id
+	// receive registry.Default(). See
+	// docs/01-spec/multi-region-cluster-support-spec.md for the design.
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
-	log.Info("Initializing Kubernetes client", "mode", string(clientMode))
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	var k8sErr error
-	k8sClient, k8sErr = k8s.NewClusterClient(ctx, k8s.ClusterClientConfig{
-		Mode:            clientMode,
-		ClusterName:     cfg.Deployment.EKSClusterName,
-		ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-		Region:          cfg.Deployment.AWSRegion,
-		KubeconfigPath:  cfg.Deployment.KubeconfigPath,
-		KubeContext:     cfg.Deployment.KubeContext,
-		Logger:          log,
-	})
-	cancel()
-	if k8sErr != nil {
-		log.Warn("Failed to create K8s client", "error", k8sErr)
+	log.Info("Initializing Kubernetes registry", "mode", string(clientMode))
+	registryCtx, registryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	registry, registryErr := k8s.NewRegistry(registryCtx, k8s.RegistryConfig{
+		Mode:             clientMode,
+		Region:           cfg.Deployment.AWSRegion,
+		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
+		KubeContext:      cfg.Deployment.KubeContext,
+		EKSBootstrapName: cfg.Deployment.EKSClusterName,
+		EKSBootstrapURL:  cfg.Deployment.K8sMasterURL,
+	}, log)
+	registryCancel()
+
+	var k8sClient k8s.ClusterClient
+	if registryErr != nil {
+		log.Warn("Failed to initialize K8s registry", "error", registryErr)
 		log.Warn("Kubernetes features will be unavailable")
-		k8sClient = nil
 	} else {
+		k8sClient = registry.Default()
 		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
 			log.Warn("K8s client created but connection failed", "error", connErr)
 			diag := k8sClient.DiagnoseConnection()
@@ -506,23 +510,26 @@ func runWorker(
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
-	// Start namespace scanner (reconciles DB ↔ K8s, catches drift)
-	var k8sClient k8s.ClusterClient
+	// Worker-side registry: same shape as the API-side one above. Both run
+	// inside the same astro-server process when SERVER_MODE=all; with
+	// SERVER_MODE=worker this is the only registry the process holds.
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	k8sClient, k8sErr := k8s.NewClusterClient(initCtx, k8s.ClusterClientConfig{
-		Mode:            clientMode,
-		ClusterName:     cfg.Deployment.EKSClusterName,
-		ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-		Region:          cfg.Deployment.AWSRegion,
-		KubeconfigPath:  cfg.Deployment.KubeconfigPath,
-		KubeContext:     cfg.Deployment.KubeContext,
-		Logger:          log,
-	})
+	registry, registryErr := k8s.NewRegistry(initCtx, k8s.RegistryConfig{
+		Mode:             clientMode,
+		Region:           cfg.Deployment.AWSRegion,
+		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
+		KubeContext:      cfg.Deployment.KubeContext,
+		EKSBootstrapName: cfg.Deployment.EKSClusterName,
+		EKSBootstrapURL:  cfg.Deployment.K8sMasterURL,
+	}, log)
 	initCancel()
-	if k8sErr != nil {
-		log.Warn("Worker: K8s client unavailable, namespace scanner will skip K8s reconciliation", "error", k8sErr)
-		k8sClient = nil
+
+	var k8sClient k8s.ClusterClient
+	if registryErr != nil {
+		log.Warn("Worker: K8s registry unavailable, namespace scanner will skip K8s reconciliation", "error", registryErr)
+	} else {
+		k8sClient = registry.Default()
 	}
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
