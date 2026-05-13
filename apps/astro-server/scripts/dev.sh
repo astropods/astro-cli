@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Job control: backgrounded children (air, fakeopenmeter) get their own
+# process group, so cleanup can kill the entire subtree via `kill -- -$PID`
+# instead of leaving grandchildren (astro-server, the compiled fakeopenmeter
+# binary) orphaned to launchd when air doesn't propagate the signal.
+set -m
 
 cd "$(dirname "$0")/.."
 
@@ -31,15 +36,25 @@ if ! command -v atlas &>/dev/null; then
   curl -sSf https://atlasgo.sh | sh
 fi
 
+# trap fires once per signal type (EXIT, INT, TERM); the guard keeps the
+# shutdown message from printing repeatedly when Ctrl+C is followed by the
+# script's natural EXIT.
+_cleanup_ran=0
 cleanup() {
+  [ "$_cleanup_ran" = 1 ] && return
+  _cleanup_ran=1
   echo ""
   echo "==> Shutting down..."
+  # `kill -- -PID` sends SIGTERM to the entire process group whose leader
+  # PID we tracked. Required because `air` does not reliably forward signals
+  # to its compiled astro-server child, and `go run` similarly does not
+  # forward to its compiled fakeopenmeter binary.
   if [ -n "${FAKEMETER_PID:-}" ]; then
-    kill "$FAKEMETER_PID" 2>/dev/null
+    kill -- "-$FAKEMETER_PID" 2>/dev/null || true
     wait "$FAKEMETER_PID" 2>/dev/null || true
   fi
   if [ -n "${SERVER_PID:-}" ]; then
-    kill "$SERVER_PID" 2>/dev/null
+    kill -- "-$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   echo "==> Done."
