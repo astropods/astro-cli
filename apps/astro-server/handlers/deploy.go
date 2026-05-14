@@ -23,6 +23,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -374,10 +375,14 @@ func prepareDeployment(
 			return nil, false
 		}
 
-		// Rule 19: reject any change to server-owned fields.
+		// Rule 19: reject any change to server-owned fields. Client-set
+		// target fields (account, display_name, deployment_id, cluster_id)
+		// are copied onto the regenerated template so EnforceEditable does
+		// not treat them as drift.
 		template.Target.Account = submittedSpec.Target.Account
 		template.Target.DisplayName = submittedSpec.Target.DisplayName
 		template.Target.DeploymentID = submittedSpec.Target.DeploymentID
+		template.Target.ClusterID = submittedSpec.Target.ClusterID
 		if submittedSpec.Interfaces != nil {
 			deployment.ApplyAdapterShaping(template, submittedSpec.Interfaces.Adapters)
 			deployment.ApplyAdapterShaping(submittedSpec, submittedSpec.Interfaces.Adapters)
@@ -528,7 +533,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -538,6 +543,37 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Validate target.cluster_id against the registered additional
+		// clusters. Empty (the common case) means "route to primary" and
+		// is persisted as NULL; non-empty must reference an enabled row.
+		if id := submittedSpec.Target.ClusterID; id != "" {
+			if clusterStore == nil {
+				log.Error("Deploy specifies cluster_id but clusterStore is not configured", "cluster_id", id)
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster store not configured"})
+				return
+			}
+			cluster, lookupErr := clusterStore.Get(c.Request.Context(), id)
+			if lookupErr != nil {
+				if errors.Is(lookupErr, clusterstore.ErrNotFound) {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":      "unknown cluster_id",
+						"cluster_id": id,
+					})
+					return
+				}
+				log.Error("Failed to look up cluster", "cluster_id", id, "error", lookupErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster lookup failed"})
+				return
+			}
+			if !cluster.Enabled {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":      "cluster is disabled",
+					"cluster_id": id,
+				})
+				return
+			}
 		}
 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
@@ -648,7 +684,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			SourceAccountID: dctx.sourceAccountID,
 			AgentName:       dctx.agentName, DisplayName: dctx.displayName,
 			BuildID: dctx.buildID, Namespace: dctx.k8sNS,
-			SpecJSON: string(specJSON),
+			SpecJSON:  string(specJSON),
+			ClusterID: submittedSpec.Target.ClusterID,
 		}
 		if enc != nil {
 			params.EncryptedDataKey = enc.EncryptedDataKey

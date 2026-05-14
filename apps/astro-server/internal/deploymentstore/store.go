@@ -113,6 +113,10 @@ type SaveDeploymentParams struct {
 	SpecJSON         string
 	EncryptedDataKey []byte
 	KMSKeyARN        string
+	// ClusterID pins the deployment to an additional cluster row in
+	// `public.clusters`. Empty (the common case) leaves the column NULL,
+	// which the read path resolves to the primary cluster.
+	ClusterID string
 }
 
 func nilIfEmpty(s string) interface{} {
@@ -547,13 +551,13 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	var d Deployment
 	err = tx.QueryRow(`
 		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
-		    deployment_spec_json, encrypted_data_key, kms_key_arn,
+		    deployment_spec_json, encrypted_data_key, kms_key_arn, cluster_id,
 		    status, status_changed_at, current_revision, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 1, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), 1, NOW())
 		RETURNING id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, status, deployed_at
 	`, p.ID, p.AccountID, nilIfEmpty(p.SourceAccountID), p.AgentName, p.BuildID, p.Namespace, p.DisplayName,
-		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), StatusPending).Scan(
+		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), nilIfEmpty(p.ClusterID), StatusPending).Scan(
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
@@ -638,6 +642,8 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 
 	// Update deployment row. source_account_id is refreshed on every redeploy
 	// so the column stays truthful even if the publisher is re-keyed.
+	// cluster_id mirrors the submitted spec: empty clears the column (= route
+	// to primary), non-empty pins to the named additional cluster.
 	var d Deployment
 	err = tx.QueryRow(`
 		UPDATE deployments
@@ -645,12 +651,14 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 		    kms_key_arn = $5, display_name = $6, status = $7,
 		    error_message = NULL, error_details = NULL,
 		    status_changed_at = NOW(), current_revision = $8, deployed_at = NOW(),
-		    source_account_id = COALESCE($9, source_account_id)
+		    source_account_id = COALESCE($9, source_account_id),
+		    cluster_id = $10
 		WHERE id = $1
 		RETURNING id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, status, deployed_at
 	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN),
-		p.DisplayName, StatusPending, nextRevision, nilIfEmpty(p.SourceAccountID)).Scan(
+		p.DisplayName, StatusPending, nextRevision, nilIfEmpty(p.SourceAccountID),
+		nilIfEmpty(p.ClusterID)).Scan(
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)

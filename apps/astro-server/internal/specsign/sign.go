@@ -4,8 +4,9 @@
 // verifies the signature — if valid, the spec is trusted as server-generated
 // and no re-generation or field-level enforcement is needed.
 //
-// The target fields (account, display_name, deployment_id) are zeroed before
-// signing/verifying because the client sets them after receiving the template.
+// The target fields (account, display_name, deployment_id, cluster_id) are
+// zeroed before signing/verifying because the client sets them after
+// receiving the template.
 package specsign
 
 import (
@@ -28,8 +29,8 @@ func NewKey() []byte {
 }
 
 // Sign computes an HMAC-SHA256 signature over the deployment spec.
-// Target fields (account, display_name, deployment_id) are excluded
-// because the client may set them after receiving the template.
+// Target fields (account, display_name, deployment_id, cluster_id) are
+// excluded because the client may set them after receiving the template.
 func Sign(key []byte, ds *spec.AstroDeploymentSpec) string {
 	payload := canonicalize(ds)
 	mac := hmac.New(sha256.New, key)
@@ -58,6 +59,7 @@ func canonicalize(ds *spec.AstroDeploymentSpec) []byte {
 	cp.Target.Account = ""
 	cp.Target.DisplayName = ""
 	cp.Target.DeploymentID = ""
+	cp.Target.ClusterID = ""
 	b, err := json.Marshal(cp)
 	if err != nil {
 		// AstroDeploymentSpec is always marshalable; this is defensive.

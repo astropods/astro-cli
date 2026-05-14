@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -2340,7 +2342,7 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, clusterStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -5804,4 +5806,208 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 	if err := indexMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled index expectations: %v", err)
 	}
+}
+
+// --- Deploy endpoint: target.cluster_id validation tests ---
+//
+// `target.cluster_id` is an optional field on the deployment spec. Absent
+// means "route to the primary cluster" and is persisted as NULL — already
+// covered by TestDeploy_WithoutDeploymentID_CreatesNew (which submits no
+// cluster_id and expects a successful 202). The cases below cover the
+// validation path for present values: valid+enabled (happy), unknown (400),
+// and present-but-disabled (400).
+
+// setupDeployRouterWithClusterStore is a copy of setupDeployRouter that
+// additionally wires a real clusterstore.Store backed by an sqlmock. Returns
+// the cluster mock alongside the existing mocks so callers can prime
+// `clusterstore.Get` lookups.
+func setupDeployRouterWithClusterStore(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	clusterDB, clusterMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	clusterStore := clusterstore.New(clusterDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment: "test",
+		},
+	}
+
+	router := gin.New()
+	if userID != "" {
+		router.Use(func(c *gin.Context) {
+			c.Set(string(auth.UserContextKey), &auth.User{ID: userID})
+			c.Next()
+		})
+	}
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and preflighter skip checks in tests
+
+	return router, indexMock, accountMock, deployMock, clusterMock
+}
+
+// deployableSpecWithClusterID returns a deployable spec body with an explicit
+// target.cluster_id. The rest of the spec mirrors deployableSpec("").
+func deployableSpecWithClusterID(clusterID string) string {
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
+		"target": {"runtime": "kubernetes", "cluster_id": %q},
+		"agent": {
+			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%%", "max_surge": "25%%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "langfuse"}
+	}`, clusterID)
+}
+
+func TestDeploy_WithUnknownClusterID_Returns400(t *testing.T) {
+	router, _, _, _, clusterMock := setupDeployRouterWithClusterStore("user-1")
+
+	// clusterstore.Get returns ErrNotFound when sql.ErrNoRows propagates.
+	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
+		WithArgs("unknown-cluster").
+		WillReturnError(sql.ErrNoRows)
+
+	body := deployableSpecWithClusterID("unknown-cluster")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if got := resp["error"]; got != "unknown cluster_id" {
+		t.Errorf("error = %v, want unknown cluster_id", got)
+	}
+	if got := resp["cluster_id"]; got != "unknown-cluster" {
+		t.Errorf("cluster_id in response = %v, want unknown-cluster", got)
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled cluster expectations: %v", err)
+	}
+}
+
+func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
+	router, _, _, _, clusterMock := setupDeployRouterWithClusterStore("user-1")
+
+	now := time.Now()
+	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
+		WithArgs("staging").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint",
+			"enabled", "created_at", "updated_at",
+		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", false, now, now))
+
+	body := deployableSpecWithClusterID("staging")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if got := resp["error"]; got != "cluster is disabled" {
+		t.Errorf("error = %v, want cluster is disabled", got)
+	}
+	if got := resp["cluster_id"]; got != "staging" {
+		t.Errorf("cluster_id in response = %v, want staging", got)
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled cluster expectations: %v", err)
+	}
+}
+
+func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
+	router, indexMock, accountMock, deployMock, clusterMock := setupDeployRouterWithClusterStore("user-1")
+
+	now := time.Now()
+	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
+		WithArgs("eu-west-1-managed").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint",
+			"enabled", "created_at", "updated_at",
+		}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", true, now, now))
+
+	expectDeployPrep(accountMock, indexMock)
+
+	// Pin the cluster_id arg in the INSERT. The deployment INSERT's
+	// parameter list ends with (..., kms_key_arn, cluster_id, status); the
+	// $11 position is cluster_id. sqlmock uses WithArgs on positional args
+	// against the parameter list, not column-named — so we pass
+	// AnyArg() for the earlier columns and pin only $11.
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WithArgs(
+			sqlmock.AnyArg(), // $1  id
+			sqlmock.AnyArg(), // $2  account_id
+			sqlmock.AnyArg(), // $3  source_account_id (nilIfEmpty → nil)
+			sqlmock.AnyArg(), // $4  agent_name
+			sqlmock.AnyArg(), // $5  build_id
+			sqlmock.AnyArg(), // $6  namespace
+			sqlmock.AnyArg(), // $7  display_name
+			sqlmock.AnyArg(), // $8  deployment_spec_json
+			sqlmock.AnyArg(), // $9  encrypted_data_key
+			sqlmock.AnyArg(), // $10 kms_key_arn
+			"eu-west-1-managed", // $11 cluster_id — the new pin
+			sqlmock.AnyArg(), // $12 status
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", now))
+
+	// We don't pin every downstream INSERT (revisions, events, workloads,
+	// services, build_env) — those have their own test coverage and aren't
+	// what this test asserts. We DO need to let them succeed so the
+	// transaction commits. sqlmock by default rejects unexpected queries;
+	// turning ordering off lets them flow through with permissive matchers
+	// below.
+	deployMock.MatchExpectationsInOrder(false)
+	for i := 0; i < 20; i++ {
+		// Generous slot count to cover deployment_revisions, deployment_events,
+		// deployment_workloads, deployment_services, deployment_build_env.
+		deployMock.ExpectExec(`.*`).WillReturnResult(sqlmock.NewResult(0, 1))
+		deployMock.ExpectQuery(`.*`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(i + 1)))
+	}
+	deployMock.ExpectCommit()
+
+	body := deployableSpecWithClusterID("eu-west-1-managed")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled cluster expectations: %v", err)
+	}
+	// We deliberately do NOT call deployMock.ExpectationsWereMet() — the
+	// permissive over-allocation above means some slots will go unmatched;
+	// the assertion that matters (cluster_id in the INSERT args) already
+	// fired or the deploy would have errored before commit.
 }

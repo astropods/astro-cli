@@ -88,6 +88,7 @@ func TestVerify_TargetFieldsIgnored(t *testing.T) {
 	ds.Target.Account = "other-account"
 	ds.Target.DisplayName = "Different Name"
 	ds.Target.DeploymentID = "deploy-123"
+	ds.Target.ClusterID = "eu-west-1-managed"
 	if !Verify(key, ds, sig) {
 		t.Fatal("expected signature to still verify after target field changes")
 	}

@@ -86,11 +86,17 @@ type DeploymentSource struct {
 }
 
 // DeploymentTarget describes where to deploy.
+//
+// ClusterID is an optional pin to a specific additional cluster registered
+// in the `clusters` table. Empty means the deployment routes to the
+// primary cluster (the one astro-server is configured against via env
+// vars / kubeconfig).
 type DeploymentTarget struct {
 	Runtime      string `json:"runtime" yaml:"runtime"`
 	Account      string `json:"account,omitempty" yaml:"account,omitempty"`
 	DisplayName  string `json:"display_name,omitempty" yaml:"display_name,omitempty"`
 	DeploymentID string `json:"deployment_id,omitempty" yaml:"deployment_id,omitempty"`
+	ClusterID    string `json:"cluster_id,omitempty" yaml:"cluster_id,omitempty"`
 }
 
 // DeploymentAgent describes the main agent container.

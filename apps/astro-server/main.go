@@ -33,6 +33,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -1160,8 +1161,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				}
 			}
 
-			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter),
+			// Deployment write (deploy/undeploy/restart/trigger).
+			// clusterStore is used by DeployAgent to validate an optional
+			// `target.cluster_id` on the submitted spec against the
+			// `public.clusters` table.
+			clusterStore := clusterstore.New(db)
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
