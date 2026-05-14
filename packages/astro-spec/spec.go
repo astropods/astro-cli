@@ -398,12 +398,85 @@ type DevMessaging struct {
 // SlackAdapterConfig holds behavioral settings for the Slack messaging adapter.
 // Shared between the dev (compose builder) and deployment (template generator) paths.
 // Serialized as JSON into the SLACK_CONFIG env var for the messaging sidecar.
+//
+// Extra captures any keys present under dev.interfaces.messaging.slack that
+// aren't named fields above, so new messaging-sidecar options can be passed
+// through without changes here.
 type SlackAdapterConfig struct {
-	ActionableReactions []string `json:"actionable_reactions,omitempty" yaml:"actionable_reactions,omitempty" jsonschema:"description=Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."`
-	AllowedChannelIDs   []string `json:"allowed_channel_ids,omitempty" yaml:"allowed_channel_ids,omitempty" jsonschema:"description=Slack channel IDs allowed to interact with the agent. Empty means allow all channels."`
-	AllowedUserIDs      []string `json:"allowed_user_ids,omitempty" yaml:"allowed_user_ids,omitempty" jsonschema:"description=Slack user IDs allowed to interact with the agent. Empty means allow all users."`
-	SocketMode          *bool    `json:"socket_mode,omitempty" yaml:"socket_mode,omitempty" jsonschema:"description=Use Slack Socket Mode for real-time events. Default: true"`
-	AutoThread          *bool    `json:"auto_thread,omitempty" yaml:"auto_thread,omitempty" jsonschema:"description=Automatically thread bot replies. Default: true"`
+	ActionableReactions []string       `json:"actionable_reactions,omitempty" yaml:"actionable_reactions,omitempty" jsonschema:"description=Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."`
+	AllowedChannelIDs   []string       `json:"allowed_channel_ids,omitempty" yaml:"allowed_channel_ids,omitempty" jsonschema:"description=Slack channel IDs allowed to interact with the agent. Empty means allow all channels."`
+	AllowedUserIDs      []string       `json:"allowed_user_ids,omitempty" yaml:"allowed_user_ids,omitempty" jsonschema:"description=Slack user IDs allowed to interact with the agent. Empty means allow all users."`
+	SocketMode          *bool          `json:"socket_mode,omitempty" yaml:"socket_mode,omitempty" jsonschema:"description=Use Slack Socket Mode for real-time events. Default: true"`
+	AutoThread          *bool          `json:"auto_thread,omitempty" yaml:"auto_thread,omitempty" jsonschema:"description=Automatically thread bot replies. Default: true"`
+	Extra               map[string]any `json:"-" yaml:",inline" jsonschema:"-"`
+}
+
+var slackAdapterKnownKeys = map[string]struct{}{
+	"actionable_reactions": {},
+	"allowed_channel_ids":  {},
+	"allowed_user_ids":     {},
+	"socket_mode":          {},
+	"auto_thread":          {},
+}
+
+// MarshalJSON flattens Extra into the top-level JSON object alongside the
+// named fields. Named fields win on key conflict.
+func (s SlackAdapterConfig) MarshalJSON() ([]byte, error) {
+	type alias SlackAdapterConfig
+	known, err := json.Marshal(alias(s))
+	if err != nil {
+		return nil, err
+	}
+	if len(s.Extra) == 0 {
+		return known, nil
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(known, &merged); err != nil {
+		return nil, err
+	}
+	if merged == nil {
+		merged = make(map[string]json.RawMessage, len(s.Extra))
+	}
+	for k, v := range s.Extra {
+		if _, exists := merged[k]; exists {
+			continue
+		}
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		merged[k] = raw
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON pulls out the named fields and routes any remaining keys into
+// Extra so they round-trip back through MarshalJSON unchanged.
+func (s *SlackAdapterConfig) UnmarshalJSON(data []byte) error {
+	type alias SlackAdapterConfig
+	var aux alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*s = SlackAdapterConfig(aux)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for k, v := range raw {
+		if _, known := slackAdapterKnownKeys[k]; known {
+			continue
+		}
+		if s.Extra == nil {
+			s.Extra = make(map[string]any, len(raw))
+		}
+		var val any
+		if err := json.Unmarshal(v, &val); err != nil {
+			return err
+		}
+		s.Extra[k] = val
+	}
+	return nil
 }
 
 // HasMessagingAdapters reports whether dev messaging adapters are configured.

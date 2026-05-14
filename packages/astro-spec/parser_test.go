@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1181,6 +1182,76 @@ dev:
 	}
 	if cfg.AutoThread != nil {
 		t.Errorf("AutoThread should be nil (not specified), got %v", *cfg.AutoThread)
+	}
+}
+
+// Unknown keys under dev.interfaces.messaging.slack must be captured into Extra
+// and round-trip through JSON unchanged so the messaging sidecar receives them
+// verbatim via SLACK_CONFIG.
+func TestParseSpec_SlackConfigUnknownKeysPassthrough(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+agent:
+  image: test:latest
+dev:
+  interfaces:
+    messaging:
+      adapters: [slack]
+      slack:
+        actionable_reactions: [ticket]
+        rate_limit:
+          requests_per_second: 5
+          burst_size: 20
+        webhook_url: https://hooks.slack.com/services/abc
+        custom_flag: true
+`
+	spec, err := ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	cfg := spec.Dev.SlackConfig()
+	if cfg == nil {
+		t.Fatal("SlackConfig() = nil, want non-nil")
+	}
+	if len(cfg.Extra) != 3 {
+		t.Fatalf("Extra len = %d, want 3 (rate_limit, webhook_url, custom_flag); got keys: %v", len(cfg.Extra), cfg.Extra)
+	}
+	if _, ok := cfg.Extra["rate_limit"]; !ok {
+		t.Errorf("Extra missing rate_limit; got %v", cfg.Extra)
+	}
+	if cfg.Extra["webhook_url"] != "https://hooks.slack.com/services/abc" {
+		t.Errorf("Extra[webhook_url] = %v", cfg.Extra["webhook_url"])
+	}
+	if cfg.Extra["custom_flag"] != true {
+		t.Errorf("Extra[custom_flag] = %v", cfg.Extra["custom_flag"])
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if got["webhook_url"] != "https://hooks.slack.com/services/abc" {
+		t.Errorf("marshalled webhook_url = %v", got["webhook_url"])
+	}
+	if got["custom_flag"] != true {
+		t.Errorf("marshalled custom_flag = %v", got["custom_flag"])
+	}
+	rl, ok := got["rate_limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("marshalled rate_limit type = %T, want map", got["rate_limit"])
+	}
+	if rl["requests_per_second"] != float64(5) || rl["burst_size"] != float64(20) {
+		t.Errorf("marshalled rate_limit = %v", rl)
+	}
+	// Known field still present.
+	reactions, ok := got["actionable_reactions"].([]any)
+	if !ok || len(reactions) != 1 || reactions[0] != "ticket" {
+		t.Errorf("marshalled actionable_reactions = %v", got["actionable_reactions"])
 	}
 }
 
