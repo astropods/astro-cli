@@ -3365,7 +3365,20 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// correctly shapes bound entries and populates the binding picker.
 			deployment.ApplyStoredBindingsToRequest(log, &req, prefillExisting.DeploymentSpecJSON)
 
-			// Check cache — skips generateTemplate + DB var fetch + merge on hit.
+			// Storage vars flow into req (not into the cached template) so
+			// they apply through ShapeTemplate's variable-filling pass, which
+			// runs after ApplyAdapterShaping has injected adapter-owned
+			// variables. Fetch on every request (cache hit too) — the cached
+			// template doesn't carry stored values any more.
+			storedVars, err := deployStore.GetDeploymentVariables(req.DeploymentID)
+			if err != nil {
+				log.Error("Failed to get deployment variables", "error", err, "deployment_id", req.DeploymentID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
+				return
+			}
+			applyStoredVarsToRequest(&req, storedVars)
+
+			// Check cache — skips generateTemplate + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
 				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
@@ -3393,14 +3406,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
-			storedVars, err := deployStore.GetDeploymentVariables(req.DeploymentID)
-			if err != nil {
-				log.Error("Failed to get deployment variables", "error", err, "deployment_id", req.DeploymentID)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
-				return
-			}
-
-			mergeDeploymentPrefill(log, template, prefillExisting, storedVars, accountStore, authzStore)
+			mergeDeploymentPrefill(log, template, prefillExisting, accountStore, authzStore)
 
 			// For historical revisions, also override display name from the stored spec.
 			if req.Revision > 0 {
@@ -3522,9 +3528,13 @@ func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
 	}
 }
 
-// mergeDeploymentPrefill merges stored deployment values into a template.
-// Used by PostDeploymentTemplate when deployment_id is provided.
-func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, storedVars []deploymentstore.Variable, accountStore *account.AccountStore, authzStore *authorizationstore.Store) {
+// mergeDeploymentPrefill merges stored deployment state into a template:
+// target identity, adapter selection, ingestion schedules, and live
+// authorization grants. Stored variables are routed through req via
+// applyStoredVarsToRequest instead, because adapter-injected variables
+// (e.g. SLACK_BOT_TOKEN) only exist on the template after ShapeTemplate's
+// ApplyAdapterShaping pass.
+func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, accountStore *account.AccountStore, authzStore *authorizationstore.Store) {
 	template.Target.DeploymentID = existing.ID
 	template.Target.DisplayName = existing.DisplayName
 
@@ -3532,22 +3542,6 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 	acct, err := accountStore.GetByID(existing.AccountID)
 	if err == nil && acct != nil {
 		template.Target.Account = acct.Name
-	}
-
-	// Merge variable values from the stored deployment into the template.
-	for _, sv := range storedVars {
-		if tv, ok := template.Variables[sv.Name]; ok {
-			if sv.Ref != "" {
-				// Variable was originally set via an account variable reference —
-				// restore the ref so the UI shows which account variable was selected.
-				tv.Ref = sv.Ref
-			} else if !sv.Secret {
-				// Only expose plaintext values for non-secret variables.
-				// Secret values without refs are encrypted blobs — not useful to the UI.
-				tv.Value = sv.Value
-			}
-			template.Variables[sv.Name] = tv
-		}
 	}
 
 	// Merge adapters and ingestion schedules from stored spec
@@ -3574,6 +3568,40 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 			template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
 		}
 		mergeAuthorizationFromStore(log, authzStore, existing.ID, template.Interfaces.Auth)
+	}
+}
+
+// applyStoredVarsToRequest folds each stored deployment variable into req
+// as if the user had typed it. Anything req already specifies wins — this
+// preserves user edits typed in the configure panel.
+//
+// Routing through req (instead of mutating template.Variables) is what lets
+// adapter-injected variables like SLACK_BOT_TOKEN pick up their stored Ref:
+// they don't exist on the template until ShapeTemplate's ApplyAdapterShaping
+// runs, but ShapeTemplate's variable-filling pass runs after that, so by then
+// req.Variables can populate the freshly-injected entry.
+func applyStoredVarsToRequest(req *spec.TemplateRequest, storedVars []deploymentstore.Variable) {
+	for _, sv := range storedVars {
+		if _, alreadySet := req.Variables[sv.Name]; alreadySet {
+			continue
+		}
+		var input spec.VariableInput
+		switch {
+		case sv.Ref != "":
+			// Originally set via an account variable reference — restore the
+			// ref so the UI shows which one was selected.
+			input.Ref = sv.Ref
+		case !sv.Secret:
+			// Plaintext value for a non-secret variable.
+			input.Value = sv.Value
+		default:
+			// Secret without a ref is an encrypted blob — useless to the UI.
+			continue
+		}
+		if req.Variables == nil {
+			req.Variables = make(map[string]spec.VariableInput)
+		}
+		req.Variables[sv.Name] = input
 	}
 }
 

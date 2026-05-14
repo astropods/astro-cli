@@ -5261,6 +5261,125 @@ func TestPostTemplate_WithDeploymentID_PrefillsValues(t *testing.T) {
 	}
 }
 
+// TestPostTemplate_WithDeploymentID_PreservesSlackTokenRef exercises the
+// configure-redeploy path for a deployment that originally bound SLACK_BOT_TOKEN
+// to an account variable reference. SLACK_BOT_TOKEN is platform-injected by
+// the slack adapter at ShapeTemplate time, so the merge step must round-trip
+// the stored ref through to the response — otherwise the UI shows an empty
+// secret field and the user has no idea what was previously selected.
+func TestPostTemplate_WithDeploymentID_PreservesSlackTokenRef(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-slack-1"
+	acctID := "acct-1"
+
+	// Stored spec has slack adapter enabled — mergeDeploymentPrefill copies
+	// this into template.Interfaces.Adapters so ShapeTemplate then injects
+	// the slack variables.
+	storedSpec := `{"interfaces":{"adapters":["web","slack"]}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-slack",
+			"My Slack Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// Base spec carries interfaces.messaging:true so the slack adapter is
+	// available to inject SLACK_BOT_TOKEN.
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithMessaging)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+	// GetDeploymentVariables: SLACK_BOT_TOKEN was originally set via an
+	// account variable reference. The row carries the ref in account_var_ref
+	// and lives under the messaging role.
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
+		}).
+			AddRow("messaging", "SLACK_BOT_TOKEN", []byte{}, nil, true, "SLACK_BOT_TOKEN", "my-slack-secret", false))
+
+	rec := postTemplate(t, router, `{"deployment_id":"dep-slack-1"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	v, ok := resp.Variables["SLACK_BOT_TOKEN"]
+	if !ok {
+		t.Fatalf("SLACK_BOT_TOKEN missing from resp.Variables: %v", resp.Variables)
+	}
+	if v.Ref != "my-slack-secret" {
+		t.Errorf("SLACK_BOT_TOKEN.Ref: expected %q, got %q", "my-slack-secret", v.Ref)
+	}
+	if v.Value != "" {
+		t.Errorf("SLACK_BOT_TOKEN.Value: expected empty (ref-bound), got %q", v.Value)
+	}
+}
+
+// TestPostTemplate_WithDeploymentID_PreservesSlackConfigValue covers the
+// non-secret half of the same flow: SLACK_CONFIG is platform-injected by
+// the slack adapter (Datatype=object, Secret=false), so its stored plaintext
+// value has to survive the same pipeline as SLACK_BOT_TOKEN.Ref.
+func TestPostTemplate_WithDeploymentID_PreservesSlackConfigValue(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	now := time.Now()
+	depID := "dep-slack-cfg-1"
+	acctID := "acct-1"
+	storedConfig := `{"allowed_channel_ids":["C12345"]}`
+	storedSpec := `{"interfaces":{"adapters":["web","slack"]}}`
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-slack-cfg",
+			"My Slack Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithMessaging)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+	// SLACK_CONFIG is stored as plaintext (Secret=false). value_encrypted
+	// holds the raw bytes, no nonce. The Variable returned by
+	// GetDeploymentVariables surfaces these as Value.
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
+		}).
+			AddRow("messaging", "SLACK_CONFIG", []byte(storedConfig), nil, false, "SLACK_CONFIG", "", true))
+
+	rec := postTemplate(t, router, `{"deployment_id":"dep-slack-cfg-1"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	v, ok := resp.Variables["SLACK_CONFIG"]
+	if !ok {
+		t.Fatalf("SLACK_CONFIG missing from resp.Variables: %v", resp.Variables)
+	}
+	if v.Value != storedConfig {
+		t.Errorf("SLACK_CONFIG.Value: expected %q, got %q", storedConfig, v.Value)
+	}
+	if v.Ref != "" {
+		t.Errorf("SLACK_CONFIG.Ref: expected empty (value-bound), got %q", v.Ref)
+	}
+}
+
 func TestPostTemplate_DeploymentNotFound(t *testing.T) {
 	router, _, _, deployMock := setupPostTemplateRouter(t)
 
