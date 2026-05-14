@@ -23,13 +23,13 @@ export function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
       {/* Stepper */}
       <div className="flex items-center mb-8">
         <div className="flex flex-col items-center gap-2">
-          <div className="flex size-7 items-center justify-center rounded-full bg-teal-600 dark:bg-teal-500 shrink-0">
+          <div className="flex size-7 items-center justify-center rounded-full bg-success dark:bg-green-600 shrink-0">
             <CheckIcon className="size-3.5 text-white stroke-[2]" />
           </div>
-          <span className="text-body-sm text-teal-600 dark:text-teal-500 w-max">Registered</span>
+          <span className="text-body-sm text-foreground w-max">Registered</span>
         </div>
 
-        <div className="w-14 h-px mb-5 shrink-0 bg-teal-600 dark:bg-teal-500" />
+        <div className="w-14 h-px mb-5 shrink-0 bg-success dark:bg-green-600" />
 
         <div className="flex flex-col items-center gap-2">
           <div
@@ -41,14 +41,14 @@ export function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
           >
             <ClockIcon className="size-3.5 text-yellow-600 dark:text-yellow-400 stroke-[1.75]" />
           </div>
-          <span className="text-body-sm text-yellow-600 dark:text-yellow-400 w-max">Awaiting approval</span>
+          <span className="text-body-sm text-foreground w-max">Awaiting approval</span>
         </div>
 
         <div className="w-14 h-px mb-5 shrink-0 bg-border" />
 
         <div className="flex flex-col items-center gap-2">
           <div className="size-7 rounded-full border-[1.5px] border-border shrink-0" />
-          <span className="text-body-sm text-muted-foreground w-max">Connected</span>
+          <span className="text-body-sm text-faint-foreground w-max">Connected</span>
         </div>
       </div>
 
@@ -75,12 +75,12 @@ export function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
         <PrivateLinkSection store={store} showBanner={false} />
       </div>
 
-      <div className="mt-8 w-full flex items-center justify-between">
-        <Button variant="ghost" className="pl-0" asChild>
-          <Link to={knowledgePath}>&larr; Back to stores</Link>
+      <div className="mt-8 w-full flex flex-col-reverse gap-2">
+        <Button variant="ghost" asChild>
+          <Link to={knowledgePath}>Back to stores</Link>
         </Button>
         <Button asChild>
-          <Link to={knowledgeDetailPath(store.name)}>View store &rarr;</Link>
+          <Link to={knowledgeDetailPath(store.name)}>View store →</Link>
         </Button>
       </div>
     </div>

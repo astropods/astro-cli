@@ -70,7 +70,7 @@ export const darkTheme: Record<SemanticToken, string> = {
   destructive: "var(--color-red-400)",
   border: "color-mix(in oklch, var(--color-slate-300) 15%, transparent)",
   input: "color-mix(in oklch, var(--color-slate-300) 20%, transparent)",
-  "input-background": "var(--color-slate-800)",
+  "input-background": "var(--color-slate-950)",
   "input-focus-ring": "color-mix(in oklch, var(--color-slate-400) 15%, transparent)",
   ring: "var(--color-slate-500)",
   success: "var(--color-green-400)",

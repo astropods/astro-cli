@@ -13,16 +13,22 @@ import {
   validateStoreName,
   PROVIDER_FIELDS,
   PROVIDER_PORTS,
+  PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Tag } from "@/components/Tag";
+import { StatusBadge } from "@/components/StatusBadge";
+import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { ProvisioningStage } from "./ProvisioningStage";
+import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 
 type FormState =
   | { step: "form" }
   | { step: "creating" }
   | { step: "provisioning"; submittedName: string }
+  | { step: "success"; submittedName: string }
   | { step: "error"; submittedName: string; error: string };
 
 export function ConfigureForm({
@@ -80,8 +86,8 @@ export function ConfigureForm({
   }
 
   const handleProvisionReady = useCallback((store: KnowledgeStore) => {
-    navigate(knowledgeDetailPath(store.name), { replace: true });
-  }, [navigate]);
+    dispatch({ step: "success", submittedName: store.name });
+  }, []);
 
   const handleProvisionError = useCallback((error: string, submittedName: string) => {
     dispatch({ step: "error", submittedName, error });
@@ -131,6 +137,65 @@ export function ConfigureForm({
         onReady={handleProvisionReady}
         onError={(error) => handleProvisionError(error, formState.submittedName)}
       />
+    );
+  }
+
+  if (formState.step === "success") {
+    return (
+      <div className="mx-auto max-w-lg">
+        <div className="fixed inset-0 pointer-events-none z-0">
+          <LiveRevealConfetti />
+        </div>
+
+        <div className="relative z-10 flex flex-col items-center text-center mb-9 gap-3.5">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-full border-[1.5px] border-success/25 bg-success/10 [animation:ks-pop_0.5s_cubic-bezier(0.34,1.56,0.64,1)_both]">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M4.5 10.5l4 4 7-8"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                pathLength="1"
+                strokeDasharray="1"
+                className="text-success stroke-current [stroke-dashoffset:1] [animation:ks-check-draw_0.6s_ease-out_0.3s_both]"
+              />
+            </svg>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-heading-1 text-foreground">Store connected</h2>
+            <p className="text-body text-muted-foreground">
+              <span className="font-medium text-foreground">{formState.submittedName}</span> is ready to use.
+            </p>
+          </div>
+        </div>
+
+        <div className="relative z-10 rounded-lg overflow-hidden border border-border bg-card dark:bg-surface mb-7">
+          <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+                <ProviderIcon provider={provider} className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <span className="font-medium text-foreground">{formState.submittedName}</span>
+                <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:shrink-0">
+              <Tag color="default">External</Tag>
+              <StatusBadge color="success" indicator>Ready</StatusBadge>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10 flex flex-col-reverse gap-2">
+          <Button variant="ghost" asChild>
+            <Link to={knowledgePath}>Back to stores</Link>
+          </Button>
+          <Button asChild>
+            <Link to={knowledgeDetailPath(formState.submittedName)}>View store →</Link>
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -415,14 +480,14 @@ function KnowledgeFormRadioRow({
           !hasNested &&
             (selected
               ? "border-primary/40 bg-primary/5"
-              : "border-border bg-transparent hover:bg-slate-200/50"),
+              : "border-border bg-transparent hover:bg-muted dark:hover:bg-muted/40"),
         )}
       >
         {icon && (
           <div
             className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center rounded-sm transition-colors",
-              selected ? "bg-primary/10 text-primary" : "bg-slate-200 text-muted-foreground",
+              selected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
             )}
             aria-hidden
           >

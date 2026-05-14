@@ -1,5 +1,6 @@
 import { CheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 
 const CLOUD_CONSOLE: Record<string, {
@@ -44,21 +45,21 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
       {/* Action required warning banner */}
       {isPending && showBanner && (
         <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3.5 text-sm text-yellow-800">
-          <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+          <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-warning" />
           <div>
             <p className="font-medium">Action required</p>
-            <p className="text-yellow-700">Accept the endpoint connection request in your cloud console to complete setup.</p>
+            <p className="text-warning">Accept the endpoint connection request in your cloud console to complete setup.</p>
           </div>
         </div>
       )}
 
       {/* Steps card */}
-      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-card divide-y divide-border">
+      <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface divide-y divide-border">
 
         {/* Step 1 — Complete */}
         <div className="flex items-start gap-4 px-5 py-4">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-teal-600/30 bg-teal-600/10 mt-0.5">
-            <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-success/30 bg-success/10 mt-0.5">
+            <CheckIcon className="size-3.5 text-success stroke-[2]" />
           </div>
           <div className="flex-1 min-w-0 pt-0.5">
             <p className="text-body font-medium text-foreground">Store registered in Astro</p>
@@ -73,19 +74,14 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
         {/* Step 2 — Active or complete */}
         <div className="flex items-start gap-4 px-5 py-4">
           <div
-            className="flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5"
-            style={{
-              background: isReady
-                ? "color-mix(in oklch, var(--color-teal-600) 10%, transparent)"
-                : "color-mix(in oklch, var(--color-yellow-600) 12%, transparent)",
-              borderColor: isReady
-                ? "color-mix(in oklch, var(--color-teal-600) 28%, transparent)"
-                : "color-mix(in oklch, var(--color-yellow-600) 28%, transparent)",
-            }}
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5",
+              isReady ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"
+            )}
           >
             {isReady
-              ? <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
-              : <span className="text-body-sm font-semibold text-yellow-700">2</span>
+              ? <CheckIcon className="size-3.5 text-success stroke-[2]" />
+              : <span className="text-body-sm font-semibold text-warning">2</span>
             }
           </div>
           <div className="flex-1 min-w-0 pt-0.5">
@@ -103,9 +99,9 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
 
         {/* Step 3 — Locked or complete */}
         <div className="flex items-start gap-4 px-5 py-4">
-          <div className={`flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5 ${isReady ? "border-teal-600/30 bg-teal-600/10" : "border-border"}`}>
+          <div className={`flex size-8 shrink-0 items-center justify-center rounded-full border mt-0.5 ${isReady ? "border-success/30 bg-success/10" : "border-border"}`}>
             {isReady
-              ? <CheckIcon className="size-3.5 text-teal-600 stroke-[2]" />
+              ? <CheckIcon className="size-3.5 text-success stroke-[2]" />
               : <span className="text-body-sm font-medium text-muted-foreground">3</span>
             }
           </div>
@@ -126,7 +122,7 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
           {events.map((event, i) => (
             <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
               {event.type === "Warning" ? (
-                <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-yellow-600" />
+                <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-warning" />
               ) : (
                 <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-500" />
               )}

@@ -56,15 +56,17 @@ export function ProvisioningStage({
       </div>
 
       <div className="rounded-lg overflow-hidden border border-border bg-white dark:bg-surface">
-        <div className="flex items-center gap-3 px-4 py-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
-            <ProviderIcon provider={provider} className="size-5" />
+        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+              <ProviderIcon provider={provider} className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="font-medium text-foreground">{storeName}</span>
+              <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground">{storeName}</span>
-            <p className="mt-0.5 text-body-sm text-muted-foreground">{PROVIDER_LABELS[provider]}</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 sm:shrink-0">
             <Tag color="default">External</Tag>
             <StatusBadge color="warning" indicator spinning>Provisioning</StatusBadge>
           </div>
@@ -83,12 +85,12 @@ export function ProvisioningStage({
             >
               <div className="shrink-0">
                 {isDone && (
-                  <div className="flex size-5 items-center justify-center rounded-full bg-teal-600 dark:bg-teal-500">
+                  <div className="flex size-5 items-center justify-center rounded-full bg-success dark:bg-green-600">
                     <CheckIcon className="size-3 text-white stroke-[2.5]" />
                   </div>
                 )}
                 {isActive && (
-                  <Spinner size={20} className="text-teal-600 dark:text-teal-500" />
+                  <Spinner size={20} className="text-success" />
                 )}
                 {isPending && (
                   <div className="size-5 rounded-full border-[1.5px] border-border" />
