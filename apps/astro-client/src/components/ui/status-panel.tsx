@@ -31,9 +31,9 @@ const PANEL_TONES: Record<"neutral" | "error" | "success" | "warning", PanelTone
     borderColor: "color-mix(in oklch, var(--color-blue-700) 28%, transparent)",
   },
   error: {
-    textColor: "var(--color-red-700)",
-    backgroundColor: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-red-700) 28%, transparent)",
+    textColor: "var(--error)",
+    backgroundColor: "color-mix(in oklch, var(--error) 12%, transparent)",
+    borderColor: "color-mix(in oklch, var(--error) 28%, transparent)",
   },
   success: {
     textColor: "var(--color-green-700)",

@@ -512,7 +512,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       await waitFor(() => {
-        expect(screen.getByText('Could not load account variables')).toBeInTheDocument();
+        expect(screen.getByText("Couldn't load your variables")).toBeInTheDocument();
         expect(screen.getByText('insufficient permissions for this account')).toBeInTheDocument();
       });
     });
@@ -529,7 +529,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       await waitFor(() => {
-        expect(screen.getByText('Could not load account variables')).toBeInTheDocument();
+        expect(screen.getByText("Couldn't load your variables")).toBeInTheDocument();
         expect(screen.getByText(msg)).toBeInTheDocument();
       });
     });

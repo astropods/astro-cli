@@ -64,38 +64,6 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
   return (
     <div className="space-y-12">
-      {/* Error */}
-      {showComputeLimit ? (
-        <>
-          <ErrorPanel title="Compute limit reached">
-            All compute hours for this billing period have been used. To continue,{" "}
-            <button
-              type="button"
-              className="underline underline-offset-2 font-medium cursor-pointer"
-              onClick={() => setQuotaDialogOpen(true)}
-            >
-              request a quota increase
-            </button>.
-          </ErrorPanel>
-          <RequestIncreaseDialog
-            featureKey="compute"
-            label="Compute unit hours"
-            meter={computeMeter}
-            account={form.targetAccount}
-            open={quotaDialogOpen}
-            onOpenChange={setQuotaDialogOpen}
-          />
-        </>
-      ) : form.deployError ? (
-        <ErrorPanel title={form.deployError.message}>
-          {form.deployError.details ?? null}
-        </ErrorPanel>
-      ) : form.vaultEntriesLoadError ? (
-        <ErrorPanel title="Could not load account variables">
-          {form.vaultEntriesLoadError}
-        </ErrorPanel>
-      ) : null}
-
       {/* Agent name & account */}
       <FormSection title="General" description="Choose what to call your agent and where to deploy it.">
         <div className="space-y-5">
@@ -279,6 +247,38 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           {ingestionExtra}
         </FormSection>
       )}
+
+      {/* Error — rendered last so it sits just above the action bar */}
+      {showComputeLimit ? (
+        <>
+          <ErrorPanel title="Compute limit reached">
+            All compute hours for this billing period have been used. To continue,{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 font-medium cursor-pointer"
+              onClick={() => setQuotaDialogOpen(true)}
+            >
+              request a quota increase
+            </button>.
+          </ErrorPanel>
+          <RequestIncreaseDialog
+            featureKey="compute"
+            label="Compute unit hours"
+            meter={computeMeter}
+            account={form.targetAccount}
+            open={quotaDialogOpen}
+            onOpenChange={setQuotaDialogOpen}
+          />
+        </>
+      ) : form.deployError ? (
+        <ErrorPanel title={form.deployError.message}>
+          {form.deployError.details ?? null}
+        </ErrorPanel>
+      ) : form.vaultEntriesLoadError ? (
+        <ErrorPanel title="Couldn't load your variables">
+          {form.vaultEntriesLoadError}
+        </ErrorPanel>
+      ) : null}
     </div>
   );
 }

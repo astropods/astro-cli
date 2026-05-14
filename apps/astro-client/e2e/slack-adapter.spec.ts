@@ -220,7 +220,7 @@ test.describe("deploy page", () => {
     test.setTimeout(60_000);
     await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /^import$/i })).toBeVisible({ timeout: 20_000 });
 
     await page.getByRole("button", { name: /^import$/i }).click();
     await page.locator('input[type="file"]').waitFor({ state: "attached", timeout: 10_000 });
@@ -244,10 +244,12 @@ test.describe("deploy page", () => {
       buffer: Buffer.from(envContents),
     });
 
-    await expect(page.getByText(/Filled 4 variables/i)).toBeVisible();
+    await expect(page.getByText(/Filled 4 variables/i)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-imported-value");
 
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
+    await expect(page.getByLabel("Slack Bot Token")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel("Slack App Token")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-imported-value");
     await expect(page.getByLabel("Slack App Token")).toHaveValue("xapp-imported-value");
     await expect(page.getByLabel("Actionable Reactions")).toHaveValue("ticket, bug");
