@@ -11,6 +11,7 @@ import (
 // Config holds astro-queen connection settings loaded from ~/.astro-queen/config.yaml.
 type Config struct {
 	Server    string `yaml:"-"`          // set at runtime by the environment subcommand
+	Insecure  bool   `yaml:"-"`          // set at runtime for local dev (skips mTLS)
 	OPAccount string `yaml:"op_account"` // 1Password account name for desktop app integration
 }
 

@@ -45,14 +45,6 @@ cleanup() {
   _cleanup_ran=1
   echo ""
   echo "==> Shutting down..."
-  # `kill -- -PID` sends SIGTERM to the entire process group whose leader
-  # PID we tracked. Required because `air` does not reliably forward signals
-  # to its compiled astro-server child, and `go run` similarly does not
-  # forward to its compiled fakeopenmeter binary.
-  if [ -n "${FAKEMETER_PID:-}" ]; then
-    kill -- "-$FAKEMETER_PID" 2>/dev/null || true
-    wait "$FAKEMETER_PID" 2>/dev/null || true
-  fi
   if [ -n "${SERVER_PID:-}" ]; then
     kill -- "-$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -78,14 +70,6 @@ atlas migrate apply \
   --dir "file://../../sql/river" \
   --revisions-schema atlas_schema_revisions \
   --allow-dirty
-
-# Start fake OpenMeter if OPENMETER_URL points to localhost
-if grep -q 'OPENMETER_URL=http://localhost:8888' .env 2>/dev/null; then
-  echo "==> Starting fake OpenMeter on :8888..."
-  go run ./cmd/fakeopenmeter &
-  FAKEMETER_PID=$!
-  sleep 1
-fi
 
 # Start the server with hot reload
 echo "==> Starting astro-server (hot reload via air)..."

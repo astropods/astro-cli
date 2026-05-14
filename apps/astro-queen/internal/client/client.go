@@ -30,7 +30,7 @@ func New(cfg *config.Config) (*Client, error) {
 	keyFile := config.KeyFile()
 	caFile := config.CAFile()
 
-	if fileExists(certFile) && fileExists(keyFile) && fileExists(caFile) {
+	if !cfg.Insecure && fileExists(certFile) && fileExists(keyFile) && fileExists(caFile) {
 		creds, err := loadClientTLS(certFile, keyFile, caFile)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS: %w", err)

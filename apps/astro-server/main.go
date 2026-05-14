@@ -18,6 +18,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -1551,17 +1552,28 @@ func startAdminGRPCServer(
 		return nil, fmt.Errorf("admin gRPC TLS: %w", err)
 	}
 
-	if creds == nil {
-		log.Warn("Admin gRPC disabled — mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
-		return nil, nil
-	}
 	var opts []grpc.ServerOption
-	opts = append(opts, grpc.Creds(creds))
+	if creds == nil {
+		if cfg.Deployment.Environment != "local" {
+			log.Warn("Admin gRPC disabled — mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
+			return nil, nil
+		}
+		log.Warn("Admin gRPC starting without TLS (local dev only)")
+		opts = append(opts, grpc.Creds(insecure.NewCredentials()))
+	} else {
+		opts = append(opts, grpc.Creds(creds))
+	}
 
 	grpcSrv := grpc.NewServer(opts...)
 	adminv1.RegisterAdminServiceServer(grpcSrv, adminSrv)
 
-	lis, err := net.Listen("tcp", ":"+port)
+	// Bind only to loopback when running insecurely so the port is unreachable
+	// from other hosts even if ENVIRONMENT=local is set on a routable interface.
+	listenAddr := ":" + port
+	if creds == nil {
+		listenAddr = "127.0.0.1:" + port
+	}
+	lis, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("admin gRPC listen: %w", err)
 	}

@@ -20,6 +20,7 @@ var (
 )
 
 var environments = map[string]string{
+	"local":   "localhost:9091",
 	"prod":    "admin.astropods.ai:443",
 	"preview": "admin.astropod.ai:443",
 }
@@ -53,6 +54,7 @@ func newAdminCmd(env, addr string) *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 			cfg.Server = addr
+			cfg.Insecure = env == "local"
 
 			c, err := client.New(cfg)
 			if err != nil {
