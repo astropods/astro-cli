@@ -1378,12 +1378,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, &handlers.TraceDetailResponse{}),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
-			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, langfuseStore),
+			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
-				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
-				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.QueryParam("from", "Period start (RFC3339)", false),
+				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
 		}

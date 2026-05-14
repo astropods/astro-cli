@@ -195,24 +195,38 @@ func (c *Client) GetTrace(traceID string) (*TraceDetail, error) {
 	return &result, nil
 }
 
-// GetDailyMetrics returns daily aggregated metrics filtered by deployment tag.
-func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) (*DailyMetricsResponse, error) {
-	params := url.Values{}
-	if deploymentID != "" {
-		params.Set("tags", "deployment:"+deploymentID)
-	}
-	if startTime != "" {
-		params.Set("fromTimestamp", startTime)
-	}
-	if endTime != "" {
-		params.Set("toTimestamp", endTime)
-	}
+// maxDailyMetricsPages caps the pagination loop in GetDailyMetrics to prevent
+// a runaway loop if Langfuse ever returns inconsistent TotalPages metadata.
+// 100 pages × default limit covers ~2700 days (~7.5 years) of daily metrics.
+const maxDailyMetricsPages = 100
 
-	var result DailyMetricsResponse
-	if err := c.doGet("/api/public/metrics/daily", params, &result); err != nil {
-		return nil, err
+// GetDailyMetrics returns all daily aggregated metrics filtered by deployment tag.
+// It paginates through every page so callers always receive the full dataset.
+func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) ([]DailyMetric, error) {
+	var all []DailyMetric
+	for page := 1; page <= maxDailyMetricsPages; page++ {
+		params := url.Values{}
+		if deploymentID != "" {
+			params.Set("tags", "deployment:"+deploymentID)
+		}
+		if startTime != "" {
+			params.Set("fromTimestamp", startTime)
+		}
+		if endTime != "" {
+			params.Set("toTimestamp", endTime)
+		}
+		params.Set("page", fmt.Sprintf("%d", page))
+
+		var result DailyMetricsResponse
+		if err := c.doGet("/api/public/metrics/daily", params, &result); err != nil {
+			return nil, err
+		}
+		all = append(all, result.Data...)
+		if page >= result.Meta.TotalPages || result.Meta.TotalPages == 0 {
+			break
+		}
 	}
-	return &result, nil
+	return all, nil
 }
 
 // MetricsQuery is the structured query for GET /api/public/metrics.

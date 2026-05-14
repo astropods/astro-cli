@@ -250,6 +250,83 @@ func TestDailyMetric_InputOutputTokens(t *testing.T) {
 	}
 }
 
+func TestGetDailyMetrics_Pagination(t *testing.T) {
+	page1 := DailyMetricsResponse{
+		Data: []DailyMetric{{Date: "2026-04-01", CountTraces: 10}},
+	}
+	page1.Meta.Page = 1
+	page1.Meta.Limit = 1
+	page1.Meta.TotalItems = 2
+	page1.Meta.TotalPages = 2
+
+	page2 := DailyMetricsResponse{
+		Data: []DailyMetric{{Date: "2026-04-02", CountTraces: 20}},
+	}
+	page2.Meta.Page = 2
+	page2.Meta.Limit = 1
+	page2.Meta.TotalItems = 2
+	page2.Meta.TotalPages = 2
+
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		if callCount == 1 {
+			json.NewEncoder(w).Encode(page1)
+		} else {
+			json.NewEncoder(w).Encode(page2)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	metrics, err := c.GetDailyMetrics("", "", "")
+	if err != nil {
+		t.Fatalf("GetDailyMetrics returned error: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("expected 2 HTTP calls (one per page), got %d", callCount)
+	}
+	if len(metrics) != 2 {
+		t.Fatalf("expected 2 metrics, got %d", len(metrics))
+	}
+	if metrics[0].Date != "2026-04-01" {
+		t.Errorf("metrics[0].Date = %q, want 2026-04-01", metrics[0].Date)
+	}
+	if metrics[1].Date != "2026-04-02" {
+		t.Errorf("metrics[1].Date = %q, want 2026-04-02", metrics[1].Date)
+	}
+}
+
+func TestGetDailyMetrics_SinglePage(t *testing.T) {
+	resp := DailyMetricsResponse{
+		Data: []DailyMetric{{Date: "2026-04-01", CountTraces: 5}},
+	}
+	resp.Meta.Page = 1
+	resp.Meta.TotalPages = 1
+
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	metrics, err := c.GetDailyMetrics("dep-1", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected 1 HTTP call, got %d", callCount)
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("expected 1 metric, got %d", len(metrics))
+	}
+}
+
 func assertParam(t *testing.T, query map[string][]string, key, want string) {
 	t.Helper()
 	vals, exists := query[key]

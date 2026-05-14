@@ -148,6 +148,25 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	return &d, err
 }
 
+// CountActiveAgentsDuringPeriod counts distinct agent names that had at least one
+// deployment live during [from, to]: deployed_at <= to AND (undeployed_at IS NULL
+// OR undeployed_at >= from). Pass from == to == time.Now() to count currently-active
+// agents (the "All time" case).
+func (s *Store) CountActiveAgentsDuringPeriod(accountID string, from, to time.Time) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(DISTINCT agent_name)
+		FROM deployments
+		WHERE account_id = $1
+		  AND deployed_at <= $3
+		  AND (undeployed_at IS NULL OR undeployed_at >= $2)
+	`, accountID, from, to).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active agents during period: %w", err)
+	}
+	return count, nil
+}
+
 // SetAvatarColors stores the extracted avatar color scheme for a deployment.
 func (s *Store) SetAvatarColors(deploymentID string, colorsJSON []byte) error {
 	_, err := s.db.Exec(`UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, colorsJSON, deploymentID)

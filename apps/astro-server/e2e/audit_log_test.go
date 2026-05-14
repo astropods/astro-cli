@@ -276,15 +276,22 @@ func TestAuditLog_LogAsync(t *testing.T) {
 		Description:  "Async test event",
 	})
 
-	// Wait for the goroutine to complete
-	time.Sleep(100 * time.Millisecond)
-
-	entries, err := store.Query(context.Background(), auditlog.QueryParams{
-		AccountID: acct.ID,
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("Query: %v", err)
+	// Poll until the goroutine completes (up to 2s to handle slow CI runners).
+	var entries []auditlog.Entry
+	var err error
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err = store.Query(context.Background(), auditlog.QueryParams{
+			AccountID: acct.ID,
+			Limit:     10,
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if len(entries) == 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 async entry, got %d", len(entries))

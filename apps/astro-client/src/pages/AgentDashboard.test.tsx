@@ -160,10 +160,11 @@ describe('stats', () => {
     server.use(
       http.get('/api/v1/accounts/:account/observability/summary', () =>
         HttpResponse.json({
-          total_traces: 0,
-          input_tokens: 800,
-          output_tokens: 200,
-          time_range: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z' },
+          period: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z', days: 1 },
+          totals: { cost_usd: 0, requests: 0, input_tokens: 800, output_tokens: 200, active_agents: 0 },
+          daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
+          cost_over_time: [],
+          cost_by_model: [],
         }),
       ),
     );
@@ -179,10 +180,11 @@ describe('stats', () => {
     server.use(
       http.get('/api/v1/accounts/:account/observability/summary', () =>
         HttpResponse.json({
-          total_traces: 42,
-          input_tokens: 0,
-          output_tokens: 0,
-          time_range: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z' },
+          period: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z', days: 1 },
+          totals: { cost_usd: 0, requests: 42, input_tokens: 0, output_tokens: 0, active_agents: 0 },
+          daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
+          cost_over_time: [],
+          cost_by_model: [],
         }),
       ),
     );

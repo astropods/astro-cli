@@ -246,12 +246,64 @@ type ObservabilitySummaryResponse struct {
 	Metrics     ObservabilitySummaryMetrics `json:"metrics"`
 }
 
+// AccountSummaryPeriod describes the queried time window.
+type AccountSummaryPeriod struct {
+	Start string `json:"start,omitempty"`
+	End   string `json:"end,omitempty"`
+	Days  int    `json:"days"`
+}
+
+// AccountSummaryTotals holds aggregate totals for the period.
+type AccountSummaryTotals struct {
+	CostUSD      float64 `json:"cost_usd"`
+	Requests     int     `json:"requests"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	ActiveAgents int     `json:"active_agents"`
+}
+
+// AccountSummaryDailyAvg holds per-day averages for the period.
+type AccountSummaryDailyAvg struct {
+	CostUSD  float64 `json:"cost_usd"`
+	Requests float64 `json:"requests"`
+	Tokens   float64 `json:"tokens"`
+}
+
+// AccountSummaryChange holds period-over-period % deltas.
+// Fields are nil when the prior period value was 0.
+type AccountSummaryChange struct {
+	CostPct     *float64 `json:"cost_pct"`
+	RequestsPct *float64 `json:"requests_pct"`
+	TokensPct   *float64 `json:"tokens_pct"`
+}
+
+// AccountCostOverTimeEntry is one day's model-level cost breakdown for the chart.
+type AccountCostOverTimeEntry struct {
+	Date   string             `json:"date"`
+	Models []AccountModelCost `json:"models"`
+}
+
+// AccountModelCost is a per-model cost contribution within a single day.
+type AccountModelCost struct {
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// AccountCostByModelEntry is one row in the aggregate model cost breakdown.
+type AccountCostByModelEntry struct {
+	Model   string  `json:"model"`
+	CostUSD float64 `json:"cost_usd"`
+	CostPct float64 `json:"cost_pct"`
+}
+
 // AccountObservabilitySummaryResponse is returned by the account-level summary endpoint.
 type AccountObservabilitySummaryResponse struct {
-	TotalTraces  int              `json:"total_traces"`
-	InputTokens  int              `json:"input_tokens"`
-	OutputTokens int              `json:"output_tokens"`
-	TimeRange    MetricsTimeRange `json:"time_range"`
+	Period       AccountSummaryPeriod       `json:"period"`
+	Totals       AccountSummaryTotals       `json:"totals"`
+	DailyAvg     AccountSummaryDailyAvg     `json:"daily_avg"`
+	Change       *AccountSummaryChange      `json:"change,omitempty"`
+	CostOverTime []AccountCostOverTimeEntry `json:"cost_over_time"`
+	CostByModel  []AccountCostByModelEntry  `json:"cost_by_model"`
 }
 
 // TraceEntry represents a single trace in the traces list.

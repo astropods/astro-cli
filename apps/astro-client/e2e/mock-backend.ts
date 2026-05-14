@@ -1387,10 +1387,11 @@ Bun.serve({
     const accountObsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/observability\/summary$/);
     if (accountObsMatch && request.method === "GET") {
       return json({
-        total_traces: 0,
-        input_tokens: 0,
-        output_tokens: 0,
-        time_range: { start: nowIso, end: nowIso },
+        period: { start: nowIso, end: nowIso, days: 0 },
+        totals: { cost_usd: 0, requests: 0, input_tokens: 0, output_tokens: 0, active_agents: 0 },
+        daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
+        cost_over_time: [],
+        cost_by_model: [],
       });
     }
 

@@ -1597,10 +1597,25 @@ export interface TraceEntry {
 }
 
 export interface AccountObservabilitySummaryResponse {
-  total_traces: number;
-  input_tokens: number;
-  output_tokens: number;
-  time_range: { start: string; end: string };
+  period: { start: string; end: string; days: number };
+  totals: {
+    cost_usd: number;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    active_agents: number;
+  };
+  daily_avg: { cost_usd: number; requests: number; tokens: number };
+  change?: {
+    cost_pct: number | null;
+    requests_pct: number | null;
+    tokens_pct: number | null;
+  } | null;
+  cost_over_time: Array<{
+    date: string;
+    models: Array<{ model: string; cost_usd: number }>;
+  }>;
+  cost_by_model: Array<{ model: string; cost_usd: number; cost_pct: number }>;
 }
 
 export interface ObservabilityTracesResponse {

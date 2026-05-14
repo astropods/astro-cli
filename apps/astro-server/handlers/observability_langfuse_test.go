@@ -46,10 +46,11 @@ func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
+	// deploymentStore is nil — not reached in the "not configured" early-return path.
 	router.GET("/api/v1/accounts/:account/observability/summary",
-		GetAccountLangfuseSummary(log, cfg, accountStore, langfuseStore))
+		GetAccountLangfuseSummary(log, cfg, accountStore, nil, langfuseStore))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/summary?start_time=2026-04-01T00:00:00Z&end_time=2026-04-02T00:00:00Z", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/summary", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -57,12 +58,22 @@ func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]any
+	var resp AccountObservabilitySummaryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp["total_traces"] != float64(0) {
-		t.Errorf("total_traces = %v, want 0", resp["total_traces"])
+	if resp.Totals.Requests != 0 {
+		t.Errorf("totals.requests = %d, want 0", resp.Totals.Requests)
+	}
+	if len(resp.CostOverTime) != 0 {
+		t.Errorf("cost_over_time len = %d, want 0", len(resp.CostOverTime))
+	}
+	if len(resp.CostByModel) != 0 {
+		t.Errorf("cost_by_model len = %d, want 0", len(resp.CostByModel))
+	}
+	// No from/to — change key should be absent.
+	if resp.Change != nil {
+		t.Errorf("change should be nil when no period provided, got %+v", resp.Change)
 	}
 }
 
@@ -214,3 +225,192 @@ func TestLangfuseMetricsBucketFiltering(t *testing.T) {
 		t.Errorf("bucket[1] output_tokens = %v, want 80", buckets[1]["output_tokens"])
 	}
 }
+
+// ── buildAccountSummary ───────────────────────────────────────────────────────
+
+func TestBuildAccountSummary_Empty(t *testing.T) {
+	resp := buildAccountSummary(nil, nil, false, "", "", 0)
+
+	if resp.Totals.Requests != 0 || resp.Totals.CostUSD != 0 {
+		t.Errorf("expected zero totals, got %+v", resp.Totals)
+	}
+	if resp.Change != nil {
+		t.Errorf("change should be nil when hasPeriod=false")
+	}
+	if len(resp.CostOverTime) != 0 {
+		t.Errorf("cost_over_time should be empty, got %d entries", len(resp.CostOverTime))
+	}
+	if len(resp.CostByModel) != 0 {
+		t.Errorf("cost_by_model should be empty, got %d entries", len(resp.CostByModel))
+	}
+}
+
+func TestBuildAccountSummary_Totals(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{
+			Date: "2026-04-01", CountTraces: 100, TotalCost: 5.0,
+			Usage: []langfuse.DailyMetricUsage{
+				{Model: "claude-sonnet", InputUsage: 1000, OutputUsage: 500, TotalCost: 3.0},
+				{Model: "claude-haiku", InputUsage: 200, OutputUsage: 100, TotalCost: 2.0},
+			},
+		},
+		{
+			Date: "2026-04-02", CountTraces: 50, TotalCost: 2.5,
+			Usage: []langfuse.DailyMetricUsage{
+				{Model: "claude-sonnet", InputUsage: 500, OutputUsage: 250, TotalCost: 2.5},
+			},
+		},
+	}
+
+	resp := buildAccountSummary(current, nil, false, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", 3)
+
+	if resp.Totals.Requests != 150 {
+		t.Errorf("requests = %d, want 150", resp.Totals.Requests)
+	}
+	if resp.Totals.InputTokens != 1700 {
+		t.Errorf("input_tokens = %d, want 1700", resp.Totals.InputTokens)
+	}
+	if resp.Totals.OutputTokens != 850 {
+		t.Errorf("output_tokens = %d, want 850", resp.Totals.OutputTokens)
+	}
+	if resp.Totals.ActiveAgents != 3 {
+		t.Errorf("active_agents = %d, want 3", resp.Totals.ActiveAgents)
+	}
+	// cost_usd: 7.5 rounded to 2dp
+	if resp.Totals.CostUSD != 7.5 {
+		t.Errorf("cost_usd = %v, want 7.5", resp.Totals.CostUSD)
+	}
+	// Period is 7 days; daily_avg requests = 150/7 ≈ 21.43
+	if resp.DailyAvg.Requests == 0 {
+		t.Errorf("daily_avg.requests should be non-zero")
+	}
+	if resp.Period.Days != 7 {
+		t.Errorf("period.days = %d, want 7", resp.Period.Days)
+	}
+}
+
+func TestBuildAccountSummary_CostOverTime(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{
+			Date: "2026-04-02", CountTraces: 10, TotalCost: 2.0,
+			Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4", TotalCost: 2.0}},
+		},
+		{
+			Date: "2026-04-01", CountTraces: 5, TotalCost: 1.0,
+			Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4", TotalCost: 1.0}},
+		},
+	}
+
+	resp := buildAccountSummary(current, nil, false, "", "", 0)
+
+	// cost_over_time should be sorted by date ascending
+	if len(resp.CostOverTime) != 2 {
+		t.Fatalf("expected 2 cost_over_time entries, got %d", len(resp.CostOverTime))
+	}
+	if resp.CostOverTime[0].Date != "2026-04-01" {
+		t.Errorf("first date = %q, want 2026-04-01", resp.CostOverTime[0].Date)
+	}
+	if resp.CostOverTime[1].Date != "2026-04-02" {
+		t.Errorf("second date = %q, want 2026-04-02", resp.CostOverTime[1].Date)
+	}
+}
+
+func TestBuildAccountSummary_CostByModel(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{
+			Date: "2026-04-01", TotalCost: 10.0,
+			Usage: []langfuse.DailyMetricUsage{
+				{Model: "claude-haiku", TotalCost: 3.0},
+				{Model: "claude-sonnet", TotalCost: 7.0},
+			},
+		},
+	}
+
+	resp := buildAccountSummary(current, nil, false, "", "", 0)
+
+	if len(resp.CostByModel) != 2 {
+		t.Fatalf("expected 2 cost_by_model entries, got %d", len(resp.CostByModel))
+	}
+	// Sorted by cost desc: sonnet first
+	if resp.CostByModel[0].Model != "claude-sonnet" {
+		t.Errorf("first model = %q, want claude-sonnet", resp.CostByModel[0].Model)
+	}
+	if resp.CostByModel[0].CostPct != 70.0 {
+		t.Errorf("sonnet cost_pct = %v, want 70.0", resp.CostByModel[0].CostPct)
+	}
+	if resp.CostByModel[1].CostPct != 30.0 {
+		t.Errorf("haiku cost_pct = %v, want 30.0", resp.CostByModel[1].CostPct)
+	}
+}
+
+func TestBuildAccountSummary_ChangeWithPrior(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{Date: "2026-04-08", CountTraces: 200, TotalCost: 10.0,
+			Usage: []langfuse.DailyMetricUsage{{Model: "m", InputUsage: 200, OutputUsage: 200, TotalCost: 10.0}}},
+	}
+	prior := []langfuse.DailyMetric{
+		{Date: "2026-04-01", CountTraces: 100, TotalCost: 5.0,
+			Usage: []langfuse.DailyMetricUsage{{Model: "m", InputUsage: 100, OutputUsage: 100, TotalCost: 5.0}}},
+	}
+
+	resp := buildAccountSummary(current, prior, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0)
+
+	if resp.Change == nil {
+		t.Fatal("change should be present when hasPeriod=true")
+	}
+	// cost: (10-5)/5 * 100 = 100%
+	if resp.Change.CostPct == nil || *resp.Change.CostPct != 100.0 {
+		t.Errorf("cost_pct = %v, want 100.0", resp.Change.CostPct)
+	}
+	// requests: (200-100)/100 * 100 = 100%
+	if resp.Change.RequestsPct == nil || *resp.Change.RequestsPct != 100.0 {
+		t.Errorf("requests_pct = %v, want 100.0", resp.Change.RequestsPct)
+	}
+}
+
+func TestBuildAccountSummary_ChangeNullWhenPriorZero(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{Date: "2026-04-08", CountTraces: 100, TotalCost: 5.0,
+			Usage: []langfuse.DailyMetricUsage{{Model: "m", TotalCost: 5.0}}},
+	}
+
+	// Empty prior (no data in the prior period)
+	resp := buildAccountSummary(current, nil, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0)
+
+	if resp.Change == nil {
+		t.Fatal("change key should exist when hasPeriod=true")
+	}
+	// Prior cost was 0 → division by zero → null
+	if resp.Change.CostPct != nil {
+		t.Errorf("cost_pct should be nil when prior=0, got %v", *resp.Change.CostPct)
+	}
+}
+
+// ── pctChange ─────────────────────────────────────────────────────────────────
+
+func TestPctChange(t *testing.T) {
+	tests := []struct {
+		current, prior float64
+		want           *float64
+	}{
+		{200, 100, ptr(100.0)},
+		{50, 100, ptr(-50.0)},
+		{100, 100, ptr(0.0)},
+		{100, 0, nil}, // division by zero → nil
+		{0, 100, ptr(-100.0)},
+	}
+	for _, tt := range tests {
+		got := pctChange(tt.current, tt.prior)
+		if tt.want == nil {
+			if got != nil {
+				t.Errorf("pctChange(%v, %v) = %v, want nil", tt.current, tt.prior, *got)
+			}
+			continue
+		}
+		if got == nil || *got != *tt.want {
+			t.Errorf("pctChange(%v, %v) = %v, want %v", tt.current, tt.prior, got, *tt.want)
+		}
+	}
+}
+
+func ptr(f float64) *float64 { return &f }

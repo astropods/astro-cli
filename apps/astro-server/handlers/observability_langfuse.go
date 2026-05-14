@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
 // langfuseContext holds the resolved Langfuse client and deployment metadata.
@@ -71,14 +72,16 @@ func resolveLangfuseContext(
 	return &langfuseContext{Client: client, DeploymentID: dep.ID}, true
 }
 
-// GetAccountLangfuseSummary returns the total trace count for all deployments
-// in an account over a given time window. Uses the account's Langfuse project
-// credentials without a deployment tag filter, so it aggregates across all deployments.
+// GetAccountLangfuseSummary returns aggregate observability data for all deployments
+// in an account. Accepts optional `from`/`to` ISO-8601 query params; when absent the
+// full history is queried. Two parallel Langfuse calls (current + prior period) drive
+// % change stats. Active-agent count comes from the deployments table.
 // GET /api/v1/accounts/:account/observability/summary
 func GetAccountLangfuseSummary(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -100,41 +103,241 @@ func GetAccountLangfuseSummary(
 			return
 		}
 
+		from := c.Query("from")
+		to := c.Query("to")
+		hasPeriod := from != "" && to != ""
+
+		if hasPeriod {
+			if _, err := time.Parse(time.RFC3339, from); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp: must be RFC3339"})
+				return
+			}
+			if _, err := time.Parse(time.RFC3339, to); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp: must be RFC3339"})
+				return
+			}
+		}
+
 		creds, err := langfuseStore.Get(acct.ID)
 		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"total_traces":  0,
-				"input_tokens":  0,
-				"output_tokens": 0,
-				"time_range":    gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
-			})
+			c.JSON(http.StatusOK, zeroAccountSummary(from, to, hasPeriod))
 			return
 		}
 
 		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
-		// Empty deploymentID = no tag filter; queries all traces in the account's Langfuse project.
-		metrics, err := client.GetDailyMetrics("", c.Query("start_time"), c.Query("end_time"))
-		if err != nil {
+		// Parallel fetch: current period + prior period (only when bounded).
+		var currentMetrics, priorMetrics []langfuse.DailyMetric
+		g, _ := errgroup.WithContext(c.Request.Context()) //nolint:errcheck // ctx unused until doGet accepts context
+
+		g.Go(func() error {
+			m, ferr := client.GetDailyMetrics("", from, to)
+			currentMetrics = m
+			return ferr
+		})
+
+		if hasPeriod {
+			priorFrom, priorTo := shiftPrior(from, to)
+			g.Go(func() error {
+				m, ferr := client.GetDailyMetrics("", priorFrom, priorTo)
+				priorMetrics = m
+				return ferr
+			})
+		}
+
+		if err := g.Wait(); err != nil {
 			log.Error("Failed to get Langfuse account metrics", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
 			return
 		}
 
-		var totalTraces, inputTokens, outputTokens int
-		for _, m := range metrics.Data {
-			totalTraces += m.CountTraces
-			inputTokens += m.InputTokens()
-			outputTokens += m.OutputTokens()
+		// Active-agent count: time-bounded or snapshot (now/now for "All").
+		activeAgents := 0
+		if deploymentStore != nil {
+			fromT, toT := periodTimes(from, to)
+			var agentErr error
+			activeAgents, agentErr = deploymentStore.CountActiveAgentsDuringPeriod(acct.ID, fromT, toT)
+			if agentErr != nil {
+				log.Error("Failed to count active agents", "error", agentErr)
+			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"total_traces":  totalTraces,
-			"input_tokens":  inputTokens,
-			"output_tokens": outputTokens,
-			"time_range":    gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
-		})
+		resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// zeroAccountSummary returns an empty response with the correct shape when
+// Langfuse is not configured for the account.
+func zeroAccountSummary(from, to string, hasPeriod bool) AccountObservabilitySummaryResponse {
+	resp := AccountObservabilitySummaryResponse{
+		Period:       buildPeriod(from, to),
+		Totals:       AccountSummaryTotals{},
+		DailyAvg:     AccountSummaryDailyAvg{},
+		CostOverTime: []AccountCostOverTimeEntry{},
+		CostByModel:  []AccountCostByModelEntry{},
+	}
+	if hasPeriod {
+		resp.Change = &AccountSummaryChange{} // all nil fields — prior period is also zero
+	}
+	return resp
+}
+
+// buildAccountSummary aggregates DailyMetric slices into the full response shape.
+func buildAccountSummary(
+	current, prior []langfuse.DailyMetric,
+	hasPeriod bool,
+	from, to string,
+	activeAgents int,
+) AccountObservabilitySummaryResponse {
+	// Aggregate current period.
+	var totalCost float64
+	var totalRequests, totalInput, totalOutput int
+	costByDay := make(map[string][]AccountModelCost)
+	costByModel := make(map[string]float64)
+
+	for _, m := range current {
+		totalRequests += m.CountTraces
+		totalCost += m.TotalCost
+		totalInput += m.InputTokens()
+		totalOutput += m.OutputTokens()
+
+		if len(m.Usage) > 0 {
+			models := make([]AccountModelCost, 0, len(m.Usage))
+			for _, u := range m.Usage {
+				if u.TotalCost > 0 {
+					models = append(models, AccountModelCost{Model: u.Model, CostUSD: u.TotalCost})
+					costByModel[u.Model] += u.TotalCost
+				}
+			}
+			if len(models) > 0 {
+				costByDay[m.Date] = models
+			}
+		}
+	}
+
+	// cost_over_time: sorted by date ascending.
+	dates := make([]string, 0, len(costByDay))
+	for d := range costByDay {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+	costOverTime := make([]AccountCostOverTimeEntry, 0, len(dates))
+	for _, d := range dates {
+		costOverTime = append(costOverTime, AccountCostOverTimeEntry{Date: d, Models: costByDay[d]})
+	}
+
+	// cost_by_model: sorted by cost descending with percentage.
+	modelEntries := make([]AccountCostByModelEntry, 0, len(costByModel))
+	for model, cost := range costByModel {
+		modelEntries = append(modelEntries, AccountCostByModelEntry{Model: model, CostUSD: cost})
+	}
+	sort.Slice(modelEntries, func(i, j int) bool {
+		return modelEntries[i].CostUSD > modelEntries[j].CostUSD
+	})
+	for i := range modelEntries {
+		if totalCost > 0 {
+			modelEntries[i].CostPct = math.Round(modelEntries[i].CostUSD/totalCost*1000) / 10
+		}
+	}
+
+	period := buildPeriod(from, to)
+	days := float64(period.Days)
+
+	dailyAvg := AccountSummaryDailyAvg{}
+	if days > 0 {
+		dailyAvg = AccountSummaryDailyAvg{
+			CostUSD:  math.Round(totalCost/days*100) / 100,
+			Requests: math.Round(float64(totalRequests)/days*100) / 100,
+			Tokens:   math.Round(float64(totalInput+totalOutput)/days*100) / 100,
+		}
+	}
+
+	totals := AccountSummaryTotals{
+		CostUSD:      math.Round(totalCost*100) / 100,
+		Requests:     totalRequests,
+		InputTokens:  totalInput,
+		OutputTokens: totalOutput,
+		ActiveAgents: activeAgents,
+	}
+
+	// Change vs prior period.
+	var change *AccountSummaryChange
+	if hasPeriod {
+		var priorCost float64
+		var priorRequests, priorInput, priorOutput int
+		for _, m := range prior {
+			priorRequests += m.CountTraces
+			priorCost += m.TotalCost
+			priorInput += m.InputTokens()
+			priorOutput += m.OutputTokens()
+		}
+		change = &AccountSummaryChange{
+			CostPct:     pctChange(totalCost, priorCost),
+			RequestsPct: pctChange(float64(totalRequests), float64(priorRequests)),
+			TokensPct:   pctChange(float64(totalInput+totalOutput), float64(priorInput+priorOutput)),
+		}
+	}
+
+	return AccountObservabilitySummaryResponse{
+		Period:       period,
+		Totals:       totals,
+		DailyAvg:     dailyAvg,
+		Change:       change,
+		CostOverTime: costOverTime,
+		CostByModel:  modelEntries,
+	}
+}
+
+// buildPeriod parses from/to into an AccountSummaryPeriod.
+func buildPeriod(from, to string) AccountSummaryPeriod {
+	if from == "" || to == "" {
+		return AccountSummaryPeriod{}
+	}
+	f, err1 := time.Parse(time.RFC3339, from)
+	t, err2 := time.Parse(time.RFC3339, to)
+	if err1 != nil || err2 != nil {
+		return AccountSummaryPeriod{Start: from, End: to}
+	}
+	days := int(t.Sub(f).Hours() / 24)
+	return AccountSummaryPeriod{Start: from, End: to, Days: days}
+}
+
+// shiftPrior computes the prior period of equal length immediately before from.
+// Precondition: from and to are valid RFC3339 strings (enforced by the handler).
+func shiftPrior(from, to string) (string, string) {
+	f, _ := time.Parse(time.RFC3339, from)
+	t, _ := time.Parse(time.RFC3339, to)
+	d := t.Sub(f)
+	return f.Add(-d).UTC().Format(time.RFC3339), f.UTC().Format(time.RFC3339)
+}
+
+// periodTimes parses from/to into time.Time values. For "All" mode (empty strings)
+// both are set to time.Now() so CountActiveAgentsDuringPeriod returns currently-active agents.
+func periodTimes(from, to string) (time.Time, time.Time) {
+	now := time.Now().UTC()
+	fromT, toT := now, now
+	if from != "" {
+		if t, err := time.Parse(time.RFC3339, from); err == nil {
+			fromT = t
+		}
+	}
+	if to != "" {
+		if t, err := time.Parse(time.RFC3339, to); err == nil {
+			toT = t
+		}
+	}
+	return fromT, toT
+}
+
+// pctChange returns the % change from prior to current rounded to one decimal place,
+// or nil when prior is 0 (undefined).
+func pctChange(current, prior float64) *float64 {
+	if prior == 0 {
+		return nil
+	}
+	v := math.Round((current-prior)/prior*1000) / 10
+	return &v
 }
 
 // granularityIntervalMinutes maps Langfuse granularity names to their bucket

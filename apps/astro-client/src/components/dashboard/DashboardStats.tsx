@@ -17,8 +17,8 @@ export function DashboardStats({
 
   const { data: usageData, isLoading: usageLoading } = useAccountUsage(account);
 
-  const totalRequests = allTimeSummary?.total_traces ?? 0;
-  const totalTokens = (allTimeSummary?.input_tokens ?? 0) + (allTimeSummary?.output_tokens ?? 0);
+  const totalRequests = allTimeSummary?.totals?.requests ?? 0;
+  const totalTokens = (allTimeSummary?.totals?.input_tokens ?? 0) + (allTimeSummary?.totals?.output_tokens ?? 0);
 
   return (
     <div className="mb-9 grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
