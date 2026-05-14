@@ -296,6 +296,13 @@ type AccountCostByModelEntry struct {
 	CostPct float64 `json:"cost_pct"`
 }
 
+// AccountSparklines holds per-day value arrays (date-ascending) for frontend sparklines.
+type AccountSparklines struct {
+	Cost     []float64 `json:"cost"`
+	Requests []int     `json:"requests"`
+	Tokens   []int     `json:"tokens"`
+}
+
 // AccountObservabilitySummaryResponse is returned by the account-level summary endpoint.
 type AccountObservabilitySummaryResponse struct {
 	Period       AccountSummaryPeriod       `json:"period"`
@@ -304,6 +311,48 @@ type AccountObservabilitySummaryResponse struct {
 	Change       *AccountSummaryChange      `json:"change,omitempty"`
 	CostOverTime []AccountCostOverTimeEntry `json:"cost_over_time"`
 	CostByModel  []AccountCostByModelEntry  `json:"cost_by_model"`
+	Sparklines   AccountSparklines          `json:"sparklines"`
+}
+
+// BlueprintDailyCost is one day's total cost for a single blueprint.
+type BlueprintDailyCost struct {
+	Date    string  `json:"date"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// BlueprintDailyRequests is one day's request count for a blueprint.
+type BlueprintDailyRequests struct {
+	Date     string `json:"date"`
+	Requests int    `json:"requests"`
+}
+
+// BlueprintDailyTokens is one day's token usage for a blueprint.
+type BlueprintDailyTokens struct {
+	Date         string `json:"date"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+}
+
+// BlueprintSummaryEntry holds per-agent-name aggregated observability for the blueprints summary.
+type BlueprintSummaryEntry struct {
+	AgentName        string                   `json:"agent_name"`
+	Requests         int                      `json:"requests"`
+	CostUSD          float64                  `json:"cost_usd"`
+	CostPerRequest   float64                  `json:"cost_per_request"`
+	InputTokens      int                      `json:"input_tokens"`
+	OutputTokens     int                      `json:"output_tokens"`
+	TokPerRequest    float64                  `json:"tok_per_request"`
+	P95LatencyMs     int                      `json:"p95_latency_ms"`
+	TopModel         string                   `json:"top_model"`
+	CostOverTime     []BlueprintDailyCost     `json:"cost_over_time"`
+	RequestsOverTime []BlueprintDailyRequests `json:"requests_over_time"`
+	TokensOverTime   []BlueprintDailyTokens   `json:"tokens_over_time"`
+}
+
+// AccountBlueprintsSummaryResponse is returned by the blueprints-summary endpoint.
+type AccountBlueprintsSummaryResponse struct {
+	Blueprints []BlueprintSummaryEntry `json:"blueprints"`
+	Period     AccountSummaryPeriod    `json:"period"`
 }
 
 // TraceEntry represents a single trace in the traces list.

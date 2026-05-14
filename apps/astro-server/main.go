@@ -1386,6 +1386,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
+			api.GET(protected, "/accounts/:account/observability/blueprints-summary", "Get per-blueprint observability summary", handlers.GetAccountBlueprintsSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.QueryParam("from", "Period start (RFC3339)", false),
+				oapispec.QueryParam("to", "Period end (RFC3339)", false),
+				oapispec.Response(200, &handlers.AccountBlueprintsSummaryResponse{}),
+			)
 		}
 
 		// GitHub connection routes

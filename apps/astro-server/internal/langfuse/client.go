@@ -1,6 +1,7 @@
 package langfuse
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -163,7 +164,7 @@ type DailyMetricsResponse struct {
 }
 
 // GetTraces returns traces filtered by deployment ID tag.
-func (c *Client) GetTraces(deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
+func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
 	params := url.Values{}
 	params.Set("tags", "deployment:"+deploymentID)
 	if startTime != "" {
@@ -180,16 +181,16 @@ func (c *Client) GetTraces(deploymentID, startTime, endTime string, limit, offse
 	}
 
 	var result TracesResponse
-	if err := c.doGet("/api/public/traces", params, &result); err != nil {
+	if err := c.doGet(ctx, "/api/public/traces", params, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 // GetTrace returns a single trace with its full observations and scores.
-func (c *Client) GetTrace(traceID string) (*TraceDetail, error) {
+func (c *Client) GetTrace(ctx context.Context, traceID string) (*TraceDetail, error) {
 	var result TraceDetail
-	if err := c.doGet("/api/public/traces/"+url.PathEscape(traceID), nil, &result); err != nil {
+	if err := c.doGet(ctx, "/api/public/traces/"+url.PathEscape(traceID), nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -202,7 +203,7 @@ const maxDailyMetricsPages = 100
 
 // GetDailyMetrics returns all daily aggregated metrics filtered by deployment tag.
 // It paginates through every page so callers always receive the full dataset.
-func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) ([]DailyMetric, error) {
+func (c *Client) GetDailyMetrics(ctx context.Context, deploymentID, startTime, endTime string) ([]DailyMetric, error) {
 	var all []DailyMetric
 	for page := 1; page <= maxDailyMetricsPages; page++ {
 		params := url.Values{}
@@ -218,7 +219,7 @@ func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) ([]Dai
 		params.Set("page", fmt.Sprintf("%d", page))
 
 		var result DailyMetricsResponse
-		if err := c.doGet("/api/public/metrics/daily", params, &result); err != nil {
+		if err := c.doGet(ctx, "/api/public/metrics/daily", params, &result); err != nil {
 			return nil, err
 		}
 		all = append(all, result.Data...)
@@ -271,7 +272,7 @@ type MetricsResponse struct {
 }
 
 // GetMetrics calls the structured metrics API with configurable granularity.
-func (c *Client) GetMetrics(q MetricsQuery) (*MetricsResponse, error) {
+func (c *Client) GetMetrics(ctx context.Context, q MetricsQuery) (*MetricsResponse, error) {
 	queryJSON, err := json.Marshal(q)
 	if err != nil {
 		return nil, fmt.Errorf("langfuse: marshal metrics query: %w", err)
@@ -280,19 +281,19 @@ func (c *Client) GetMetrics(q MetricsQuery) (*MetricsResponse, error) {
 	params.Set("query", string(queryJSON))
 
 	var result MetricsResponse
-	if err := c.doGet("/api/public/metrics", params, &result); err != nil {
+	if err := c.doGet(ctx, "/api/public/metrics", params, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func (c *Client) doGet(path string, params url.Values, out any) error {
+func (c *Client) doGet(ctx context.Context, path string, params url.Values, out any) error {
 	u := c.baseURL + path
 	if len(params) > 0 {
 		u += "?" + params.Encode()
 	}
 
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return fmt.Errorf("langfuse: create request: %w", err)
 	}
@@ -301,7 +302,7 @@ func (c *Client) doGet(path string, params url.Values, out any) error {
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req) //nolint:gosec
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("langfuse: request failed: %w", err)
 	}

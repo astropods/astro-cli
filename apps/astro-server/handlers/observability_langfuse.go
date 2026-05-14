@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net/http"
@@ -105,6 +106,12 @@ func GetAccountLangfuseSummary(
 
 		from := c.Query("from")
 		to := c.Query("to")
+
+		if (from == "") != (to == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
+			return
+		}
+
 		hasPeriod := from != "" && to != ""
 
 		if hasPeriod {
@@ -128,10 +135,10 @@ func GetAccountLangfuseSummary(
 
 		// Parallel fetch: current period + prior period (only when bounded).
 		var currentMetrics, priorMetrics []langfuse.DailyMetric
-		g, _ := errgroup.WithContext(c.Request.Context()) //nolint:errcheck // ctx unused until doGet accepts context
+		g, gCtx := errgroup.WithContext(c.Request.Context())
 
 		g.Go(func() error {
-			m, ferr := client.GetDailyMetrics("", from, to)
+			m, ferr := client.GetDailyMetrics(gCtx, "", from, to)
 			currentMetrics = m
 			return ferr
 		})
@@ -139,7 +146,7 @@ func GetAccountLangfuseSummary(
 		if hasPeriod {
 			priorFrom, priorTo := shiftPrior(from, to)
 			g.Go(func() error {
-				m, ferr := client.GetDailyMetrics("", priorFrom, priorTo)
+				m, ferr := client.GetDailyMetrics(gCtx, "", priorFrom, priorTo)
 				priorMetrics = m
 				return ferr
 			})
@@ -151,12 +158,13 @@ func GetAccountLangfuseSummary(
 			return
 		}
 
-		// Active-agent count: time-bounded or snapshot (now/now for "All").
+		// Active-agent count: always a snapshot of currently-deployed agents,
+		// independent of the selected time window.
 		activeAgents := 0
 		if deploymentStore != nil {
-			fromT, toT := periodTimes(from, to)
+			now := time.Now()
 			var agentErr error
-			activeAgents, agentErr = deploymentStore.CountActiveAgentsDuringPeriod(acct.ID, fromT, toT)
+			activeAgents, agentErr = deploymentStore.CountActiveAgentsDuringPeriod(acct.ID, now, now)
 			if agentErr != nil {
 				log.Error("Failed to count active agents", "error", agentErr)
 			}
@@ -216,15 +224,40 @@ func buildAccountSummary(
 		}
 	}
 
+	// Build per-day sparkline values (all dates, not just days with model breakdowns).
+	allDays := make(map[string]struct{})
+	dailyCost := make(map[string]float64)
+	dailyRequests := make(map[string]int)
+	dailyTokens := make(map[string]int)
+	for _, m := range current {
+		allDays[m.Date] = struct{}{}
+		dailyCost[m.Date] = m.TotalCost
+		dailyRequests[m.Date] = m.CountTraces
+		dailyTokens[m.Date] = m.InputTokens() + m.OutputTokens()
+	}
+
 	// cost_over_time: sorted by date ascending.
-	dates := make([]string, 0, len(costByDay))
-	for d := range costByDay {
+	dates := make([]string, 0, len(allDays))
+	for d := range allDays {
 		dates = append(dates, d)
 	}
 	sort.Strings(dates)
 	costOverTime := make([]AccountCostOverTimeEntry, 0, len(dates))
 	for _, d := range dates {
-		costOverTime = append(costOverTime, AccountCostOverTimeEntry{Date: d, Models: costByDay[d]})
+		if models, ok := costByDay[d]; ok {
+			costOverTime = append(costOverTime, AccountCostOverTimeEntry{Date: d, Models: models})
+		}
+	}
+
+	sparklines := AccountSparklines{
+		Cost:     make([]float64, 0, len(dates)),
+		Requests: make([]int, 0, len(dates)),
+		Tokens:   make([]int, 0, len(dates)),
+	}
+	for _, d := range dates {
+		sparklines.Cost = append(sparklines.Cost, math.Round(dailyCost[d]*10000)/10000)
+		sparklines.Requests = append(sparklines.Requests, dailyRequests[d])
+		sparklines.Tokens = append(sparklines.Tokens, dailyTokens[d])
 	}
 
 	// cost_by_model: sorted by cost descending with percentage.
@@ -286,6 +319,7 @@ func buildAccountSummary(
 		Change:       change,
 		CostOverTime: costOverTime,
 		CostByModel:  modelEntries,
+		Sparklines:   sparklines,
 	}
 }
 
@@ -312,24 +346,6 @@ func shiftPrior(from, to string) (string, string) {
 	return f.Add(-d).UTC().Format(time.RFC3339), f.UTC().Format(time.RFC3339)
 }
 
-// periodTimes parses from/to into time.Time values. For "All" mode (empty strings)
-// both are set to time.Now() so CountActiveAgentsDuringPeriod returns currently-active agents.
-func periodTimes(from, to string) (time.Time, time.Time) {
-	now := time.Now().UTC()
-	fromT, toT := now, now
-	if from != "" {
-		if t, err := time.Parse(time.RFC3339, from); err == nil {
-			fromT = t
-		}
-	}
-	if to != "" {
-		if t, err := time.Parse(time.RFC3339, to); err == nil {
-			toT = t
-		}
-	}
-	return fromT, toT
-}
-
 // pctChange returns the % change from prior to current rounded to one decimal place,
 // or nil when prior is 0 (undefined).
 func pctChange(current, prior float64) *float64 {
@@ -338,6 +354,265 @@ func pctChange(current, prior float64) *float64 {
 	}
 	v := math.Round((current-prior)/prior*1000) / 10
 	return &v
+}
+
+// ── blueprints-summary ────────────────────────────────────────────────────────
+
+// deploymentMetrics holds the raw Langfuse data fetched for one deployment.
+type deploymentMetrics struct {
+	AgentName    string
+	DailyMetrics []langfuse.DailyMetric
+	P95LatencyMs float64
+}
+
+// fetchDeploymentMetrics fetches cost/token/request metrics and P95 latency for one
+// deployment. Errors are swallowed — missing data is treated as zero so the
+// blueprint row still appears in the aggregated response.
+func fetchDeploymentMetrics(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) deploymentMetrics {
+	result := deploymentMetrics{AgentName: dep.AgentName}
+
+	daily, err := client.GetDailyMetrics(ctx, dep.ID, from, to)
+	if err == nil {
+		result.DailyMetrics = daily
+	}
+
+	traceQ := langfuse.MetricsQuery{
+		View:    "traces",
+		Metrics: []langfuse.MetricsQueryField{{Measure: "latency", Aggregation: "p95"}},
+		Filters: []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + dep.ID}},
+		},
+		FromTimestamp: from,
+		ToTimestamp:   to,
+	}
+	traceResp, err := client.GetMetrics(ctx, traceQ)
+	if err == nil && len(traceResp.Data) > 0 {
+		result.P95LatencyMs = toFloat(traceResp.Data[0]["p95_latency"])
+	}
+
+	return result
+}
+
+// buildBlueprintsSummary aggregates per-deployment metrics into per-agent-name
+// blueprint entries, sorted by cost descending.
+func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry {
+	type group struct {
+		requests     int
+		costUSD      float64
+		inputTokens  int
+		outputTokens int
+		p95LatencyMs float64
+		modelCosts   map[string]float64
+		dayCosts     map[string]float64 // date → total cost for this agent
+		dayRequests  map[string]int     // date → trace count for this agent
+		dayTokens    map[string][2]int  // date → [inputTokens, outputTokens]
+	}
+
+	groups := make(map[string]*group)
+	// order preserves agent_name insertion order so sort is the only reordering.
+	order := make([]string, 0, len(metrics))
+
+	for _, m := range metrics {
+		g, exists := groups[m.AgentName]
+		if !exists {
+			g = &group{
+				modelCosts:  make(map[string]float64),
+				dayCosts:    make(map[string]float64),
+				dayRequests: make(map[string]int),
+				dayTokens:   make(map[string][2]int),
+			}
+			groups[m.AgentName] = g
+			order = append(order, m.AgentName)
+		}
+		for _, d := range m.DailyMetrics {
+			g.requests += d.CountTraces
+			g.costUSD += d.TotalCost
+			g.inputTokens += d.InputTokens()
+			g.outputTokens += d.OutputTokens()
+			g.dayCosts[d.Date] += d.TotalCost
+			g.dayRequests[d.Date] += d.CountTraces
+			prev := g.dayTokens[d.Date]
+			g.dayTokens[d.Date] = [2]int{prev[0] + d.InputTokens(), prev[1] + d.OutputTokens()}
+			for _, u := range d.Usage {
+				g.modelCosts[u.Model] += u.TotalCost
+			}
+		}
+		if m.P95LatencyMs > g.p95LatencyMs {
+			g.p95LatencyMs = m.P95LatencyMs
+		}
+	}
+
+	entries := make([]BlueprintSummaryEntry, 0, len(groups))
+	for _, name := range order {
+		g := groups[name]
+
+		topModel := ""
+		var maxModelCost float64
+		for model, cost := range g.modelCosts {
+			if cost > maxModelCost {
+				maxModelCost = cost
+				topModel = model
+			}
+		}
+
+		var costPerRequest, tokPerRequest float64
+		if g.requests > 0 {
+			costPerRequest = math.Round(g.costUSD/float64(g.requests)*10000) / 10000
+			tokPerRequest = math.Round(float64(g.inputTokens+g.outputTokens)/float64(g.requests)*10) / 10
+		}
+
+		// Build *_over_time slices sorted by date ascending.
+		dates := make([]string, 0, len(g.dayCosts))
+		for d := range g.dayCosts {
+			dates = append(dates, d)
+		}
+		sort.Strings(dates)
+		costOverTime := make([]BlueprintDailyCost, 0, len(dates))
+		requestsOverTime := make([]BlueprintDailyRequests, 0, len(dates))
+		tokensOverTime := make([]BlueprintDailyTokens, 0, len(dates))
+		for _, d := range dates {
+			costOverTime = append(costOverTime, BlueprintDailyCost{
+				Date:    d,
+				CostUSD: math.Round(g.dayCosts[d]*10000) / 10000,
+			})
+			requestsOverTime = append(requestsOverTime, BlueprintDailyRequests{
+				Date:     d,
+				Requests: g.dayRequests[d],
+			})
+			tok := g.dayTokens[d]
+			tokensOverTime = append(tokensOverTime, BlueprintDailyTokens{
+				Date:         d,
+				InputTokens:  tok[0],
+				OutputTokens: tok[1],
+			})
+		}
+
+		entries = append(entries, BlueprintSummaryEntry{
+			AgentName:        name,
+			Requests:         g.requests,
+			CostUSD:          math.Round(g.costUSD*10000) / 10000,
+			CostPerRequest:   costPerRequest,
+			InputTokens:      g.inputTokens,
+			OutputTokens:     g.outputTokens,
+			TokPerRequest:    tokPerRequest,
+			P95LatencyMs:     int(math.Round(g.p95LatencyMs)),
+			TopModel:         topModel,
+			CostOverTime:     costOverTime,
+			RequestsOverTime: requestsOverTime,
+			TokensOverTime:   tokensOverTime,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].CostUSD > entries[j].CostUSD
+	})
+
+	return entries
+}
+
+// zeroBlueprintEntries returns an empty blueprints response when Langfuse is not configured.
+func zeroBlueprintEntries(from, to string) AccountBlueprintsSummaryResponse {
+	return AccountBlueprintsSummaryResponse{
+		Blueprints: []BlueprintSummaryEntry{},
+		Period:     buildPeriod(from, to),
+	}
+}
+
+// GetAccountBlueprintsSummary returns per-blueprint aggregated cost, tokens, requests,
+// and P95 latency by fanning out to Langfuse across all account deployments.
+// GET /api/v1/accounts/:account/observability/blueprints-summary
+func GetAccountBlueprintsSummary(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(c.Param("account"))
+		if err != nil || acct == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		from := c.Query("from")
+		to := c.Query("to")
+
+		if (from == "") != (to == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
+			return
+		}
+
+		hasPeriod := from != "" && to != ""
+
+		if hasPeriod {
+			if _, err := time.Parse(time.RFC3339, from); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp: must be RFC3339"})
+				return
+			}
+			if _, err := time.Parse(time.RFC3339, to); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp: must be RFC3339"})
+				return
+			}
+		}
+
+		creds, err := langfuseStore.Get(acct.ID)
+		if err != nil || creds == nil {
+			c.JSON(http.StatusOK, zeroBlueprintEntries(from, to))
+			return
+		}
+
+		if deploymentStore == nil {
+			c.JSON(http.StatusOK, zeroBlueprintEntries(from, to))
+			return
+		}
+
+		deployments, err := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+		if err != nil {
+			log.Error("Failed to list deployments for blueprints summary", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+			return
+		}
+
+		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+		const maxDeployments = 100
+		if len(deployments) > maxDeployments {
+			deployments = deployments[:maxDeployments]
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		g, gCtx := errgroup.WithContext(ctx)
+		g.SetLimit(10)
+
+		results := make([]deploymentMetrics, len(deployments))
+		for i, dep := range deployments {
+			g.Go(func() error {
+				results[i] = fetchDeploymentMetrics(gCtx, client, dep, from, to)
+				return nil // errors swallowed inside fetchDeploymentMetrics
+			})
+		}
+		_ = g.Wait()
+
+		c.JSON(http.StatusOK, AccountBlueprintsSummaryResponse{
+			Blueprints: buildBlueprintsSummary(results),
+			Period:     buildPeriod(from, to),
+		})
+	}
 }
 
 // granularityIntervalMinutes maps Langfuse granularity names to their bucket
@@ -394,7 +669,7 @@ func GetLangfuseMetrics(
 			ToTimestamp:   toTS,
 		}
 
-		obsResp, err := lctx.Client.GetMetrics(obsQ)
+		obsResp, err := lctx.Client.GetMetrics(c.Request.Context(), obsQ)
 		if err != nil {
 			log.Error("Failed to get Langfuse metrics", "error", err, "granularity", granularity)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
@@ -418,7 +693,7 @@ func GetLangfuseMetrics(
 		}
 
 		type latencyAgg struct{ avg, p95, min, max float64 }
-		traceResp, terr := lctx.Client.GetMetrics(traceQ)
+		traceResp, terr := lctx.Client.GetMetrics(c.Request.Context(), traceQ)
 		latencyByTS := map[string]latencyAgg{}
 		if terr != nil {
 			log.Warn("Failed to get Langfuse trace latency metrics — bucket latency will be zero", "error", terr)
@@ -508,7 +783,7 @@ func GetLangfuseSummary(
 			return
 		}
 
-		traces, err := lctx.Client.GetTraces(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), 0, 0)
+		traces, err := lctx.Client.GetTraces(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), 0, 0)
 		if err != nil {
 			log.Error("Failed to get Langfuse traces for summary", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
@@ -546,7 +821,7 @@ func GetLangfuseTraces(
 		offsetStr := c.DefaultQuery("offset", "0")
 		offset, _ := strconv.Atoi(offsetStr)
 
-		traces, err := lctx.Client.GetTraces(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), limit, offset)
+		traces, err := lctx.Client.GetTraces(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), limit, offset)
 		if err != nil {
 			log.Error("Failed to get Langfuse traces", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
@@ -597,7 +872,7 @@ func GetLangfuseTraceDetail(
 			return
 		}
 
-		detail, err := lctx.Client.GetTrace(traceID)
+		detail, err := lctx.Client.GetTrace(c.Request.Context(), traceID)
 		if err != nil {
 			if errors.Is(err, langfuse.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})

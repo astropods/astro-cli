@@ -1,6 +1,7 @@
 package langfuse
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -91,7 +92,7 @@ func TestGetTraces_QueryParams(t *testing.T) {
 			defer srv.Close()
 
 			c := NewClient(srv.URL, "pk", "sk")
-			_, err := c.GetTraces(tt.deploymentID, tt.startTime, tt.endTime, tt.limit, tt.offset)
+			_, err := c.GetTraces(context.Background(), tt.deploymentID, tt.startTime, tt.endTime, tt.limit, tt.offset)
 			if err != nil {
 				t.Fatalf("GetTraces returned error: %v", err)
 			}
@@ -145,7 +146,7 @@ func TestGetDailyMetrics_QueryParams(t *testing.T) {
 			defer srv.Close()
 
 			c := NewClient(srv.URL, "pk", "sk")
-			_, err := c.GetDailyMetrics(tt.deploymentID, tt.startTime, tt.endTime)
+			_, err := c.GetDailyMetrics(context.Background(), tt.deploymentID, tt.startTime, tt.endTime)
 			if err != nil {
 				t.Fatalf("GetDailyMetrics returned error: %v", err)
 			}
@@ -170,7 +171,7 @@ func TestDoGet_BasicAuth(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, pk, sk)
-	_, err := c.GetTraces("dep", "", "", 50, 0)
+	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +188,7 @@ func TestDoGet_Non200Status(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	_, err := c.GetTraces("dep", "", "", 50, 0)
+	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err == nil {
 		t.Fatal("expected error for 403, got nil")
 	}
@@ -204,7 +205,7 @@ func TestDoGet_MalformedJSON(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	_, err := c.GetTraces("dep", "", "", 50, 0)
+	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err == nil {
 		t.Fatal("expected decode error, got nil")
 	}
@@ -280,7 +281,7 @@ func TestGetDailyMetrics_Pagination(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	metrics, err := c.GetDailyMetrics("", "", "")
+	metrics, err := c.GetDailyMetrics(context.Background(), "", "", "")
 	if err != nil {
 		t.Fatalf("GetDailyMetrics returned error: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestGetDailyMetrics_SinglePage(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	metrics, err := c.GetDailyMetrics("dep-1", "", "")
+	metrics, err := c.GetDailyMetrics(context.Background(), "dep-1", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
