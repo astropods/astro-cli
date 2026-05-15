@@ -11,8 +11,8 @@ import {
   ComputerDesktopIcon,
 } from "@heroicons/react/24/outline";
 import { Telescope } from "lucide-react";
-import astroLogo from "@/assets/astro-logo-light.png";
-import astroLogoDark from "@/assets/astro-logo-dark.png";
+import astroLogo from "@/assets/astro-logo.svg";
+import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";

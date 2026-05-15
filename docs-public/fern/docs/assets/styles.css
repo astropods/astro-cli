@@ -8,6 +8,7 @@
 
 .dark .fern-button.filled.primary {
   background-color: #4948e6;
+  color: #ffffff;
 }
 
 .dark .fern-button.filled.primary:hover {
