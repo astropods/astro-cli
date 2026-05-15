@@ -1174,6 +1174,29 @@ func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
 			t.Errorf("%s ref = %q, want ${variables.%s}", key, ref, key)
 		}
 	}
+
+	wantFields := []string{
+		"actionable_reactions",
+		"allowed_channel_ids",
+		"allowed_user_ids",
+		"observe_channel_ids",
+	}
+	for _, key := range wantFields {
+		f, ok := v.Fields[key]
+		if !ok {
+			t.Errorf("SLACK_CONFIG.Fields missing %q", key)
+			continue
+		}
+		if f.Datatype != "csv" {
+			t.Errorf("SLACK_CONFIG.Fields[%q].Datatype = %q, want csv", key, f.Datatype)
+		}
+		if !f.Optional {
+			t.Errorf("SLACK_CONFIG.Fields[%q] should be optional", key)
+		}
+		if f.Label == "" {
+			t.Errorf("SLACK_CONFIG.Fields[%q].Label is empty", key)
+		}
+	}
 }
 
 func TestTemplate_SlackConfigVariable_MessagingDisabled(t *testing.T) {

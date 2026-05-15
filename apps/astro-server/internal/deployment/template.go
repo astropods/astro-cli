@@ -755,6 +755,13 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 					Datatype:    "csv",
 					Optional:    true,
 				},
+				"observe_channel_ids": {
+					Label:       "Observe Channel IDs",
+					Description: "Channels where non-mention messages are forwarded to the agent instead of dropped",
+					Placeholder: "C12345, C67890",
+					Datatype:    "csv",
+					Optional:    true,
+				},
 			},
 		}
 	}

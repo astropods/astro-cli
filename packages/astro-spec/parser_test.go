@@ -1004,6 +1004,7 @@ func TestSlackConfig(t *testing.T) {
 				ActionableReactions: []string{"ticket"},
 				AllowedChannelIDs:   []string{"C123", "C999"},
 				AllowedUserIDs:      []string{"U123", "U999"},
+				ObserveChannelIDs:   []string{"C500", "C600"},
 				SocketMode:          boolPtr(false),
 				AutoThread:          boolPtr(true),
 			},
@@ -1011,6 +1012,7 @@ func TestSlackConfig(t *testing.T) {
 			ActionableReactions: []string{"ticket"},
 			AllowedChannelIDs:   []string{"C123", "C999"},
 			AllowedUserIDs:      []string{"U123", "U999"},
+			ObserveChannelIDs:   []string{"C500", "C600"},
 			SocketMode:          boolPtr(false),
 			AutoThread:          boolPtr(true),
 		}},
@@ -1051,6 +1053,14 @@ func TestSlackConfig(t *testing.T) {
 					t.Errorf("AllowedUserIDs[%d] = %q, want %q", i, got.AllowedUserIDs[i], tt.want.AllowedUserIDs[i])
 				}
 			}
+			if len(got.ObserveChannelIDs) != len(tt.want.ObserveChannelIDs) {
+				t.Fatalf("ObserveChannelIDs len = %d, want %d", len(got.ObserveChannelIDs), len(tt.want.ObserveChannelIDs))
+			}
+			for i := range tt.want.ObserveChannelIDs {
+				if got.ObserveChannelIDs[i] != tt.want.ObserveChannelIDs[i] {
+					t.Errorf("ObserveChannelIDs[%d] = %q, want %q", i, got.ObserveChannelIDs[i], tt.want.ObserveChannelIDs[i])
+				}
+			}
 			if tt.want.SocketMode != nil {
 				if got.SocketMode == nil || *got.SocketMode != *tt.want.SocketMode {
 					t.Errorf("SocketMode = %v, want %v", got.SocketMode, *tt.want.SocketMode)
@@ -1079,6 +1089,7 @@ dev:
         actionable_reactions: [ticket, bug]
         allowed_channel_ids: [C123, C999]
         allowed_user_ids: [U123, U999]
+        observe_channel_ids: [C500, C600]
         socket_mode: false
         auto_thread: true
 `
@@ -1098,6 +1109,9 @@ dev:
 	}
 	if len(cfg.AllowedUserIDs) != 2 || cfg.AllowedUserIDs[0] != "U123" || cfg.AllowedUserIDs[1] != "U999" {
 		t.Errorf("AllowedUserIDs = %v, want [U123 U999]", cfg.AllowedUserIDs)
+	}
+	if len(cfg.ObserveChannelIDs) != 2 || cfg.ObserveChannelIDs[0] != "C500" || cfg.ObserveChannelIDs[1] != "C600" {
+		t.Errorf("ObserveChannelIDs = %v, want [C500 C600]", cfg.ObserveChannelIDs)
 	}
 	if cfg.SocketMode == nil || *cfg.SocketMode != false {
 		t.Errorf("SocketMode = %v, want false", cfg.SocketMode)

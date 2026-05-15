@@ -293,6 +293,11 @@ func (DevInterfaces) JSONSchema() *jsonschema.Schema {
 		Items:       &jsonschema.Schema{Type: "string"},
 		Description: "Slack user IDs allowed to interact with the agent. Empty means allow all users.",
 	})
+	slackConfigProps.Set("observe_channel_ids", &jsonschema.Schema{
+		Type:        "array",
+		Items:       &jsonschema.Schema{Type: "string"},
+		Description: "Slack channel IDs whose non-mention messages are forwarded to the agent instead of dropped.",
+	})
 	slackConfigProps.Set("socket_mode", &jsonschema.Schema{
 		Type:        "boolean",
 		Description: "Use Slack Socket Mode for real-time events. Default: true",
@@ -407,6 +412,7 @@ type SlackAdapterConfig struct {
 	ActionableReactions []string       `json:"actionable_reactions,omitempty" yaml:"actionable_reactions,omitempty" jsonschema:"description=Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."`
 	AllowedChannelIDs   []string       `json:"allowed_channel_ids,omitempty" yaml:"allowed_channel_ids,omitempty" jsonschema:"description=Slack channel IDs allowed to interact with the agent. Empty means allow all channels."`
 	AllowedUserIDs      []string       `json:"allowed_user_ids,omitempty" yaml:"allowed_user_ids,omitempty" jsonschema:"description=Slack user IDs allowed to interact with the agent. Empty means allow all users."`
+	ObserveChannelIDs   []string       `json:"observe_channel_ids,omitempty" yaml:"observe_channel_ids,omitempty" jsonschema:"description=Slack channel IDs whose non-mention messages are forwarded to the agent instead of dropped."`
 	SocketMode          *bool          `json:"socket_mode,omitempty" yaml:"socket_mode,omitempty" jsonschema:"description=Use Slack Socket Mode for real-time events. Default: true"`
 	AutoThread          *bool          `json:"auto_thread,omitempty" yaml:"auto_thread,omitempty" jsonschema:"description=Automatically thread bot replies. Default: true"`
 	Extra               map[string]any `json:"-" yaml:",inline" jsonschema:"-"`
@@ -416,6 +422,7 @@ var slackAdapterKnownKeys = map[string]struct{}{
 	"actionable_reactions": {},
 	"allowed_channel_ids":  {},
 	"allowed_user_ids":     {},
+	"observe_channel_ids":  {},
 	"socket_mode":          {},
 	"auto_thread":          {},
 }
