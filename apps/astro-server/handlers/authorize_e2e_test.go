@@ -69,6 +69,18 @@ func decodeAllowed(t *testing.T, w *httptest.ResponseRecorder) bool {
 	return body.Allowed
 }
 
+func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) (bool, string) {
+	t.Helper()
+	var body struct {
+		Allowed bool   `json:"allowed"`
+		UserID  string `json:"user_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (body=%s)", err, w.Body.String())
+	}
+	return body.Allowed, body.UserID
+}
+
 const hasAnyGrantsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2\n\t\tLIMIT 1\n\t"
 
 // expectHasGrants queues the fallback's per-adapter "any grants exist?" query.
@@ -432,6 +444,92 @@ func TestAuthorize_SlackWithoutScope_SkipsMappingLookup(t *testing.T) {
 	}
 	if err := f.mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unexpected mock state (mapping lookup should have been skipped): %v", err)
+	}
+}
+
+// On allowed slack responses the server echoes back the resolved WorkOS user_id
+// so the messaging container can forward it downstream like the web adapter
+// does. Unmapped slack users (allowed via org/anyone) get an empty user_id.
+func TestAuthorize_SlackResolvedUserIDInResponse(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U01").
+		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U01&identity_scope=T1&adapter=slack")
+	allowed, userID := decodeResponse(t, w)
+	if !allowed {
+		t.Fatal("expected allowed=true")
+	}
+	if userID != "user_alice" {
+		t.Fatalf("expected user_id=user_alice in response, got %q", userID)
+	}
+}
+
+// identity_type=user responses echo identityID back as the resolved user_id,
+// so callers don't need special-casing per adapter.
+func TestAuthorize_UserIdentityEchoesUserID(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-A"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web", pq.Array([]string{"acct-A"}), pq.Array([]string{"user_alice"})).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=user&identity_id=user_alice&adapter=web")
+	allowed, userID := decodeResponse(t, w)
+	if !allowed || userID != "user_alice" {
+		t.Fatalf("expected allowed=true user_id=user_alice; got allowed=%v user_id=%q", allowed, userID)
+	}
+}
+
+// Denials must not surface the resolved user_id. Avoids leaking mapping state
+// for identities the deployment ultimately doesn't grant access to.
+func TestAuthorize_DenyOmitsUserID(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U01").
+		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	// Grant lookup misses.
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
+		WillReturnError(sql.ErrNoRows)
+	expectHasGrants(f.mock, "dep-1", "slack", true) // slack has grants → no fallback
+
+	w := f.call(t, "identity_type=slack&identity_id=U01&identity_scope=T1&adapter=slack")
+	allowed, userID := decodeResponse(t, w)
+	if allowed {
+		t.Fatal("expected allowed=false")
+	}
+	if userID != "" {
+		t.Fatalf("expected empty user_id on deny, got %q", userID)
 	}
 }
 

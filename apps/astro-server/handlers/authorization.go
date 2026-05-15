@@ -33,8 +33,12 @@ import (
 //     supplied), else fall back to the deployment's owning account.
 //  3. store.IsAllowed runs the grant lookup and returns the boolean.
 //
-// Returns 200 {allowed: bool} on every authoritative answer. Returns 4xx for
-// malformed inputs and 5xx for server-side failures.
+// Returns 200 {allowed: bool, user_id: string} on every authoritative answer.
+// `user_id` carries the canonical WorkOS user_id when one is known: for
+// identity_type=user that's the input echoed back, for identity_type=slack
+// it's the linked WorkOS user resolved via slack_identity_mappings (empty if
+// the slack user isn't linked). It is only populated when allowed=true.
+// Returns 4xx for malformed inputs and 5xx for server-side failures.
 func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationstore.Store, slackStore *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		deploymentID := middleware.DeploymentIDFromContext(c)
@@ -77,7 +81,7 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		}
 
 		// Step 2: principal resolution.
-		candidates, err := resolveCandidates(authStore, slackStore, deploymentID, identityType, identityID, identityScope)
+		candidates, resolvedUserID, err := resolveCandidates(authStore, slackStore, deploymentID, identityType, identityID, identityScope)
 		if err != nil {
 			log.Error("authorize: failed to resolve identity",
 				"deployment_id", deploymentID,
@@ -127,7 +131,15 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 			)
 		}
 
-		c.JSON(http.StatusOK, gin.H{"allowed": allowed})
+		resp := gin.H{"allowed": allowed}
+		// Only surface the resolved WorkOS user_id on allowed responses — there
+		// is no caller value in identifying a principal that was denied, and
+		// keeping it off the deny path avoids accidentally leaking mapping
+		// state for unrelated identities.
+		if allowed && resolvedUserID != "" {
+			resp["user_id"] = resolvedUserID
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -163,45 +175,49 @@ func tryOwnerFallback(authStore *authorizationstore.Store, deploymentID, adapter
 }
 
 // resolveCandidates turns an (identity_type, identity_id, identity_scope)
-// triple into the set of subjects the grant lookup should match against.
+// triple into the set of subjects the grant lookup should match against,
+// plus the canonical WorkOS user_id when one is identifiable.
 //
-//   - user  → the user_id itself plus every account the user is a member of.
+//   - user  → the user_id itself plus every account the user is a member of;
+//     resolved user_id echoes identityID.
 //   - slack → the deployment's owning account, plus (when scope=team_id is
 //     provided and the user has linked their slack identity) the linked
 //     WorkOS user_id and that user's accounts. The owning-account
 //     candidate is always emitted so `org` and `anyone` grants keep
-//     matching for unmapped slack users.
-//   - ""    → empty set; only the anyone short-circuit can succeed.
+//     matching for unmapped slack users. Resolved user_id is the linked
+//     WorkOS user, or empty when no mapping exists.
+//   - ""    → empty set, empty user_id; only the anyone short-circuit can succeed.
 //   - other → empty set with an error to make the caller surface a 4xx.
-func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackidentity.Store, deploymentID, identityType, identityID, identityScope string) ([]authorizationstore.Subject, error) {
+func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackidentity.Store, deploymentID, identityType, identityID, identityScope string) ([]authorizationstore.Subject, string, error) {
 	switch identityType {
 	case "":
-		return nil, nil
+		return nil, "", nil
 
 	case authorizationstore.IdentityTypeUser:
 		accountIDs, err := authStore.AccountIDsForUser(identityID)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out := make([]authorizationstore.Subject, 0, 1+len(accountIDs))
 		out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeUser, ID: identityID})
 		for _, aid := range accountIDs {
 			out = append(out, authorizationstore.Subject{Type: authorizationstore.SubjectTypeOrg, ID: aid})
 		}
-		return out, nil
+		return out, identityID, nil
 
 	case authorizationstore.IdentityTypeSlack:
 		accountID, err := authStore.DeploymentAccountID(deploymentID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// Token is signed but deployment was deleted.
-				return nil, nil
+				return nil, "", nil
 			}
-			return nil, err
+			return nil, "", err
 		}
 		out := []authorizationstore.Subject{
 			{Type: authorizationstore.SubjectTypeOrg, ID: accountID},
 		}
+		var resolvedUserID string
 		// When the messaging container forwards a team_id, try to resolve
 		// the slack user to a linked WorkOS user. Mapping miss is benign —
 		// `org` and `anyone` grants still match via the owning-account
@@ -210,16 +226,17 @@ func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackide
 		if slackStore != nil && identityScope != "" && identityID != "" {
 			res, err := slackStore.Lookup(identityScope, identityID)
 			if err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			if res.Found {
+				resolvedUserID = res.WorkOSUserID
 				out = append(out, authorizationstore.Subject{
 					Type: authorizationstore.SubjectTypeUser,
 					ID:   res.WorkOSUserID,
 				})
 				accountIDs, err := authStore.AccountIDsForUser(res.WorkOSUserID)
 				if err != nil {
-					return nil, err
+					return nil, "", err
 				}
 				for _, aid := range accountIDs {
 					if aid == accountID {
@@ -234,9 +251,9 @@ func resolveCandidates(authStore *authorizationstore.Store, slackStore *slackide
 				}
 			}
 		}
-		return out, nil
+		return out, resolvedUserID, nil
 
 	default:
-		return nil, errors.New("unknown identity_type")
+		return nil, "", errors.New("unknown identity_type")
 	}
 }
