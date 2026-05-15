@@ -393,6 +393,7 @@ type DevFrontend struct {
 type DevMessaging struct {
 	Adapters []string            `json:"adapters,omitempty" yaml:"adapters,omitempty" jsonschema:"description=Messaging adapters to enable locally (e.g. slack)"`
 	Slack    *SlackAdapterConfig `json:"slack,omitempty" yaml:"slack,omitempty" jsonschema:"description=Slack-specific adapter configuration"`
+	LogLevel string              `json:"log_level,omitempty" yaml:"log_level,omitempty" jsonschema:"description=Log level for the messaging sidecar. One of debug|info|warn|error. Default: info"`
 }
 
 // SlackAdapterConfig holds behavioral settings for the Slack messaging adapter.
@@ -498,6 +499,14 @@ func (d *Dev) SlackConfig() *SlackAdapterConfig {
 		return nil
 	}
 	return d.Interfaces.Messaging.Slack
+}
+
+// MessagingLogLevel returns the dev messaging sidecar log level, or empty when unset.
+func (d *Dev) MessagingLogLevel() string {
+	if d == nil || d.Interfaces == nil || d.Interfaces.Messaging == nil {
+		return ""
+	}
+	return d.Interfaces.Messaging.LogLevel
 }
 
 // DevOverrides allows overriding default images for local dev services.
