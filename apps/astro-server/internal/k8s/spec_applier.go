@@ -82,6 +82,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		BoundKnowledge:    a.boundKnowledge,
 		BoundCredentials:  allCredentials,
 		ExternalAgentHost: externalAgentHost,
+		DeploymentID:      a.deploymentID,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -660,7 +661,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		msgSidecar = &MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
-			BuildID: buildID, Component: "messaging",
+			BuildID: buildID, DeploymentID: a.deploymentID, Component: "messaging",
 			Image: msgImage, Port: grpcPort, SecretName: messagingSecretName,
 			ConfigMapName: "",
 			SlackEnabled:  slackEnabled, WebEnabled: webEnabled,

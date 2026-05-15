@@ -148,6 +148,25 @@ func Resolve(ds *spec.AstroDeploymentSpec, opts ResolveOptions) ([]Resolution, e
 		out = append(out, resolveIngestionRole(ds, opts, lookup, rctx, name, ing)...)
 	}
 
+	// Surface ASTRO_AGENT_ID (the deployment ID) on every per-deployment
+	// container role. Knowledge containers run stock provider images and are
+	// shared across deployments, so they're excluded.
+	if opts.DeploymentID != "" {
+		roles := map[Role]bool{}
+		for _, r := range out {
+			if strings.HasPrefix(string(r.Role), "knowledge:") {
+				continue
+			}
+			roles[r.Role] = true
+		}
+		for role := range roles {
+			out = append(out, Resolution{
+				Role: role, EnvName: "ASTRO_AGENT_ID",
+				Value: opts.DeploymentID, Source: EnvSourcePlatformMeta,
+			})
+		}
+	}
+
 	// Stable order for deterministic test assertions and diff cleanliness.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Role != out[j].Role {

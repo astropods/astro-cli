@@ -51,6 +51,7 @@ type MessagingDeploymentConfig struct {
 	Namespace       string
 	AgentName       string
 	BuildID         string
+	DeploymentID    string // Surfaced as ASTRO_AGENT_ID
 	Component       string
 	Image           string
 	Port            int32
@@ -196,6 +197,9 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		{Name: "STORAGE_TYPE", Value: "memory"},
 		{Name: "DEPLOYMENT_MODE", Value: "all"},
 	}
+	if cfg.DeploymentID != "" {
+		container.Env = append(container.Env, corev1.EnvVar{Name: "ASTRO_AGENT_ID", Value: cfg.DeploymentID})
+	}
 
 	// Enable adapters based on configuration.
 	// Behavioral settings are injected via interface-targeted variables
@@ -327,6 +331,7 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 	container.Env = append(container.Env,
 		corev1.EnvVar{Name: "ASTRO_AGENT_NAME", Value: cfg.AgentName},
 		corev1.EnvVar{Name: "ASTRO_AGENT_VERSION", Value: cfg.AgentVersion},
+		corev1.EnvVar{Name: "ASTRO_AGENT_ID", Value: cfg.DeploymentID},
 		corev1.EnvVar{Name: "ASTRO_DEPLOYMENT_ID", Value: cfg.DeploymentID},
 	)
 	if cfg.LangfuseAuthToken != "" {

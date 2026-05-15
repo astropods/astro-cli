@@ -2055,6 +2055,7 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 			BuildID:           r.buildID,
 			SecretName:        deployment.GenerateSecretName(r.agentName, r.buildID),
 			ExternalAgentHost: externalAgentHost,
+			DeploymentID:      r.id,
 		}
 		resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
 

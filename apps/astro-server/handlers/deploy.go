@@ -653,10 +653,11 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Resolve env vars for normalized storage
 		rctx := deployment.ResolveContext{
-			Namespace:  dctx.k8sNS,
-			AgentName:  dctx.agentName,
-			BuildID:    dctx.buildID,
-			SecretName: deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
+			Namespace:    dctx.k8sNS,
+			AgentName:    dctx.agentName,
+			BuildID:      dctx.buildID,
+			SecretName:   deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
+			DeploymentID: dctx.deploymentID,
 		}
 		resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
 

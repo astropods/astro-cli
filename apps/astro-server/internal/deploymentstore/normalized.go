@@ -800,6 +800,7 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 		BuildID:           dep.BuildID,
 		SecretName:        deployment.GenerateSecretName(dep.AgentName, dep.BuildID),
 		ExternalAgentHost: externalAgentHost,
+		DeploymentID:      deploymentID,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
 

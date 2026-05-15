@@ -28,6 +28,8 @@ type ResolveContext struct {
 	// so the agent can know its own externally reachable URL — useful for
 	// OAuth callbacks and similar flows that would otherwise be circular.
 	ExternalAgentHost string
+	// DeploymentID is surfaced to every container as ASTRO_AGENT_ID.
+	DeploymentID string
 }
 
 // ResolvedEnv holds the resolved environment: plain key-value pairs go into the
@@ -75,6 +77,9 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	result.ConfigMapData["ASTRO_AGENT_NAME"] = ds.Source.Name
 	if ds.Source.Build != "" {
 		result.ConfigMapData["ASTRO_AGENT_BUILD"] = ds.Source.Build
+	}
+	if rctx.DeploymentID != "" {
+		result.ConfigMapData["ASTRO_AGENT_ID"] = rctx.DeploymentID
 	}
 
 	// Add agent's own URL
