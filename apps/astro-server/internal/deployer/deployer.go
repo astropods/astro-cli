@@ -199,6 +199,15 @@ func (d *Deployer) populateBuildEnv(
 		}
 	}
 
+	externalAgentHost := ""
+	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+		if ep.Expose != nil && ep.Expose.Domain != "" {
+			externalAgentHost = ep.Expose.Domain
+		} else if d.Cfg.Deployment.IngressDomain != "" {
+			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, d.Cfg.Deployment.IngressDomain)
+		}
+	}
+
 	opts := deployment.ResolveOptions{
 		Namespace:         dep.Namespace,
 		BoundKnowledge:    boundKnowledge,
@@ -208,6 +217,7 @@ func (d *Deployer) populateBuildEnv(
 		LangfuseAuthToken: "", // ditto
 		LangfuseBaseURL:   "",
 		DeploymentID:      dep.ID,
+		ExternalAgentHost: externalAgentHost,
 	}
 	rows, err := deployment.Resolve(ds, opts)
 	if err != nil {

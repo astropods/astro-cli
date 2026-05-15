@@ -22,6 +22,12 @@ type ResolveContext struct {
 	SecretName       string
 	BoundKnowledge   map[string]BoundKnowledgeInfo // knowledge entry name → store info
 	BoundCredentials map[string]string             // "name.key" → credential value
+	// ExternalAgentHost is the public hostname assigned to the agent's
+	// exposed endpoint (when the agent has a frontend ingress). When set,
+	// ASTRO_EXTERNAL_AGENT_URL=https://<host> is injected into the ConfigMap
+	// so the agent can know its own externally reachable URL — useful for
+	// OAuth callbacks and similar flows that would otherwise be circular.
+	ExternalAgentHost string
 }
 
 // ResolvedEnv holds the resolved environment: plain key-value pairs go into the
@@ -80,6 +86,12 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	}
 	result.ConfigMapData["ASTRO_AGENT_URL"] = fmt.Sprintf("http://%s:%d", agentHost, agentPort)
 	result.ConfigMapData["ASTRO_AGENT_HOST"] = agentHost
+
+	// Add external URL when the agent has an exposed endpoint and a public
+	// host has been resolved. ALB ingresses are always HTTPS on 443.
+	if rctx.ExternalAgentHost != "" && spec.ExposedEndpoint(ds.Agent.Endpoints) != nil {
+		result.ConfigMapData["ASTRO_EXTERNAL_AGENT_URL"] = "https://" + rctx.ExternalAgentHost
+	}
 
 	// Add OTel collector endpoint
 	collectorServiceName := GenerateAgentResourceName(ds.Source.Name, "collector")

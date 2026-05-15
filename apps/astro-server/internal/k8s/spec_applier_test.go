@@ -1082,6 +1082,17 @@ func TestApplyDeploymentSpec_WithFrontendExpose(t *testing.T) {
 		t.Error("expected frontend service endpoint")
 	}
 
+	// ASTRO_EXTERNAL_AGENT_URL should be injected and match the ingress host
+	expectedHost := GenerateIngressHost("my-agent", a.namespace, a.ingressDomain)
+	cm, err := a.clientset.CoreV1().ConfigMaps(a.namespace).Get(context.Background(),
+		deployment.GenerateConfigMapName("my-agent", ds.Source.Build), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+	if got := cm.Data["ASTRO_EXTERNAL_AGENT_URL"]; got != "https://"+expectedHost {
+		t.Errorf("ASTRO_EXTERNAL_AGENT_URL: got %q, want %q", got, "https://"+expectedHost)
+	}
+
 	// Should NOT have messaging resources
 	for _, r := range result.Resources {
 		if r.Kind == "Service" && r.Name == "my-agent-messaging" {

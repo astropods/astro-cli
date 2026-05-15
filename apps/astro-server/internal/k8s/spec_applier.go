@@ -68,14 +68,20 @@ func (a *Applier) ApplyDeploymentSpec(
 		maps.Copy(result.AllCredentials, allCredentials)
 	}
 
+	// Resolve the agent's externally reachable hostname (if any) before
+	// building env so ASTRO_EXTERNAL_AGENT_URL can be injected when the
+	// agent has a frontend ingress. Same logic as the ingress block below.
+	externalAgentHost := a.resolveAgentIngressHost(ds, agentName)
+
 	// Resolve all ${} references and build ConfigMap/Secret data
 	rctx := deployment.ResolveContext{
-		Namespace:        a.namespace,
-		AgentName:        agentName,
-		BuildID:          buildID,
-		SecretName:       deployment.GenerateSecretName(agentName, buildID),
-		BoundKnowledge:   a.boundKnowledge,
-		BoundCredentials: allCredentials,
+		Namespace:         a.namespace,
+		AgentName:         agentName,
+		BuildID:           buildID,
+		SecretName:        deployment.GenerateSecretName(agentName, buildID),
+		BoundKnowledge:    a.boundKnowledge,
+		BoundCredentials:  allCredentials,
+		ExternalAgentHost: externalAgentHost,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -196,13 +202,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Agent ingress — when frontend is exposed
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-agent")
-		host := ""
-		if ep.Expose != nil {
-			host = ep.Expose.Domain
-		}
-		if host == "" && a.ingressDomain != "" {
-			host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
-		}
+		host := externalAgentHost
 		if host != "" {
 			ingress := BuildIngress(IngressConfig{
 				Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
@@ -1250,6 +1250,24 @@ func (a *Applier) buildKnowledgeService(
 			Type: corev1.ServiceTypeClusterIP, Selector: selector, Ports: servicePorts,
 		},
 	}
+}
+
+// resolveAgentIngressHost returns the public hostname the agent's frontend
+// ingress will be created on, or "" if the agent has no exposed endpoint or
+// no host can be determined. Mirrors the host-selection used when building
+// the ingress so callers can pre-compute the URL for env injection.
+func (a *Applier) resolveAgentIngressHost(ds *spec.AstroDeploymentSpec, agentName string) string {
+	ep := spec.ExposedEndpoint(ds.Agent.Endpoints)
+	if ep == nil {
+		return ""
+	}
+	if ep.Expose != nil && ep.Expose.Domain != "" {
+		return ep.Expose.Domain
+	}
+	if a.ingressDomain != "" {
+		return GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+	}
+	return ""
 }
 
 // applyServiceAndRecord is a helper that applies a service and records the result.

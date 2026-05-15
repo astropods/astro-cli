@@ -258,6 +258,59 @@ func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
 	}
 }
 
+func TestResolveDeploymentSpecEnv_ExternalAgentURL(t *testing.T) {
+	exposedEndpoints := func(port int) map[string]spec.Endpoint {
+		return map[string]spec.Endpoint{
+			"http": {Port: port, Expose: &spec.EndpointExpose{Enabled: true}},
+		}
+	}
+
+	tests := []struct {
+		name              string
+		endpoints         map[string]spec.Endpoint
+		externalAgentHost string
+		wantURL           string // empty means key must be absent
+	}{
+		{
+			name:              "exposed endpoint with host → external URL injected",
+			endpoints:         exposedEndpoints(8080),
+			externalAgentHost: "agent-deadbeef.agents.example.com",
+			wantURL:           "https://agent-deadbeef.agents.example.com",
+		},
+		{
+			name:              "exposed endpoint without host → not injected",
+			endpoints:         exposedEndpoints(8080),
+			externalAgentHost: "",
+			wantURL:           "",
+		},
+		{
+			name:              "no exposed endpoint, host set → not injected",
+			endpoints:         httpEndpoints(8080),
+			externalAgentHost: "agent.example.com",
+			wantURL:           "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ds := &spec.AstroDeploymentSpec{
+				Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+				Agent:  spec.DeploymentAgent{Image: "x", Endpoints: tc.endpoints},
+			}
+			rctx := ResolveContext{
+				Namespace:         "ns",
+				AgentName:         "agent",
+				ExternalAgentHost: tc.externalAgentHost,
+			}
+			result := ResolveDeploymentSpecEnv(ds, rctx)
+			got := result.ConfigMapData["ASTRO_EXTERNAL_AGENT_URL"]
+			if got != tc.wantURL {
+				t.Errorf("ASTRO_EXTERNAL_AGENT_URL: got %q, want %q", got, tc.wantURL)
+			}
+		})
+	}
+}
+
 func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},

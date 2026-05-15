@@ -105,6 +105,11 @@ type ResolveOptions struct {
 	LangfuseAuthToken string // collector
 	LangfuseBaseURL   string // collector
 
+	// ExternalAgentHost is the public hostname assigned to the agent's
+	// frontend ingress, when one exists. Surfaces to the agent as
+	// ASTRO_EXTERNAL_AGENT_URL=https://<host>.
+	ExternalAgentHost string
+
 	// DeploymentID is needed for collector env (ASTRO_DEPLOYMENT_ID).
 	DeploymentID string
 }
@@ -281,6 +286,13 @@ func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup 
 			Value:  fmt.Sprintf("http://%s:%d", agentHost, agentPort),
 			Source: EnvSourcePlatformMeta},
 	)
+	if opts.ExternalAgentHost != "" && spec.ExposedEndpoint(ds.Agent.Endpoints) != nil {
+		out = append(out, Resolution{
+			Role: RoleAgent, EnvName: "ASTRO_EXTERNAL_AGENT_URL",
+			Value:  "https://" + opts.ExternalAgentHost,
+			Source: EnvSourcePlatformMeta,
+		})
+	}
 
 	// --- Auth token ---
 	if opts.AuthToken != "" {

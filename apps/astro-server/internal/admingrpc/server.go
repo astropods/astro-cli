@@ -2041,11 +2041,20 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 			continue
 		}
 
+		externalAgentHost := ""
+		if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+			if ep.Expose != nil && ep.Expose.Domain != "" {
+				externalAgentHost = ep.Expose.Domain
+			} else if s.ingressDomain != "" {
+				externalAgentHost = k8s.GenerateIngressHost(r.agentName, r.namespace, s.ingressDomain)
+			}
+		}
 		rctx := deployment.ResolveContext{
-			Namespace:  r.namespace,
-			AgentName:  r.agentName,
-			BuildID:    r.buildID,
-			SecretName: deployment.GenerateSecretName(r.agentName, r.buildID),
+			Namespace:         r.namespace,
+			AgentName:         r.agentName,
+			BuildID:           r.buildID,
+			SecretName:        deployment.GenerateSecretName(r.agentName, r.buildID),
+			ExternalAgentHost: externalAgentHost,
 		}
 		resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
 

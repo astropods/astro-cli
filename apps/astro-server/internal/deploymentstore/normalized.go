@@ -784,11 +784,22 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 
 	// Resolve env to regenerate the ConfigMap/Secret key sets for drift detection.
 	// This must happen before clearing variables since resolving needs ${variables.*}.
+	// Mirror the spec applier's external-host resolution so ASTRO_EXTERNAL_AGENT_URL
+	// shows up in the regenerated key set when the agent has a frontend ingress.
+	externalAgentHost := ""
+	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+		if ep.Expose != nil && ep.Expose.Domain != "" {
+			externalAgentHost = ep.Expose.Domain
+		} else if nsCfg != nil && nsCfg.IngressDomain != "" {
+			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, nsCfg.IngressDomain)
+		}
+	}
 	rctx := deployment.ResolveContext{
-		Namespace:  dep.Namespace,
-		AgentName:  dep.AgentName,
-		BuildID:    dep.BuildID,
-		SecretName: deployment.GenerateSecretName(dep.AgentName, dep.BuildID),
+		Namespace:         dep.Namespace,
+		AgentName:         dep.AgentName,
+		BuildID:           dep.BuildID,
+		SecretName:        deployment.GenerateSecretName(dep.AgentName, dep.BuildID),
+		ExternalAgentHost: externalAgentHost,
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
 
