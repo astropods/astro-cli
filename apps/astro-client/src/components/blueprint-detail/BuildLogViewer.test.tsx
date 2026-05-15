@@ -22,7 +22,7 @@ describe('BuildLogViewer', () => {
   });
 
   it('shows error state', () => {
-    render(<BuildLogViewer isError components={[]} />);
+    render(<BuildLogViewer error="Logs unavailable. The pod may have been cleaned up." components={[]} />);
     expect(screen.getByText(/logs unavailable/i)).toBeInTheDocument();
   });
 

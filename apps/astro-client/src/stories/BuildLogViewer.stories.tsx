@@ -55,7 +55,7 @@ export const Loading: Story = {
 };
 
 export const Error: Story = {
-  args: { components: [], isError: true },
+  args: { components: [], error: "Logs unavailable. The pod may have been cleaned up." },
 };
 
 export const SingleComponentSucceeded: Story = {
@@ -77,10 +77,10 @@ export const SingleComponentPendingBuild: Story = {
 
 // ── In-dialog stories (real context) ─────────────────────────────────────────
 
-function DialogStory({ components, isLoading, isError }: {
+function DialogStory({ components, isLoading, error }: {
   components: BuildLogComponentData[];
   isLoading?: boolean;
-  isError?: boolean;
+  error?: string;
 }) {
   return (
     <Dialog open>
@@ -92,7 +92,7 @@ function DialogStory({ components, isLoading, isError }: {
             totalDuration="3m 23s"
             components={components}
             isLoading={isLoading}
-            isError={isError}
+            error={error}
           />
         </div>
       </DialogContent>

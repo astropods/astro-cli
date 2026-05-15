@@ -30,13 +30,52 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userVariables map[st
 		MissingVariables: []string{},
 	}
 
-	// Validate container
 	if astroSpec.Agent.Image == "" && astroSpec.Agent.Build == nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
-			Field:   "container",
-			Message: "either image or build configuration is required",
+			Field:   "agent",
+			Message: "must specify either image or build",
 		})
+	}
+
+	for name, model := range astroSpec.Models {
+		if model.Container != nil && model.Container.Image == "" && model.Container.Build == nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("models.%s", name),
+				Message: "container must specify either image or build",
+			})
+		}
+	}
+
+	for name, knowledge := range astroSpec.Knowledge {
+		if knowledge.Container != nil && knowledge.Container.Image == "" && knowledge.Container.Build == nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("knowledge.%s", name),
+				Message: "container must specify either image or build",
+			})
+		}
+	}
+
+	for name, integration := range astroSpec.Integrations {
+		if integration.Container != nil && integration.Container.Image == "" && integration.Container.Build == nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("integrations.%s", name),
+				Message: "container must specify either image or build",
+			})
+		}
+	}
+
+	for name, ingestion := range astroSpec.Ingestion {
+		if ingestion.Container.Image == "" && ingestion.Container.Build == nil {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("ingestion.%s", name),
+				Message: "container must specify either image or build",
+			})
+		}
 	}
 
 	// Validate ingestion triggers
@@ -156,7 +195,7 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 	}
 	for name, tool := range astroSpec.Integrations {
 		if tool.IsProviderMode() && tool.Container == nil {
-			validateEntry("integrations", "tools", name, tool.Provider)
+			validateEntry("integrations", "integrations", name, tool.Provider)
 		}
 	}
 }

@@ -685,16 +685,30 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 					return
 				}
 
-				validator := deployment.NewValidator()
-				result := validator.ValidateSpec(&astroSpec, nil, nil, nil)
+				result := deployment.NewValidator().ValidateSpec(&astroSpec, nil, nil, nil)
 
-				// Keep only spec-structural errors; exclude deploy-time errors
+				// Structural errors (missing image/build, bad provider, invalid trigger
+				// type) are hard failures. Deploy-time values (credentials, schedule
+				// expressions) are not known at registration and stored as warnings.
+				var structuralErrs []deployment.ValidationError
 				for _, e := range result.Errors {
-					if strings.HasPrefix(e.Field, "credentials.") ||
+					if strings.HasPrefix(e.Field, "variables.") ||
 						strings.HasSuffix(e.Field, ".trigger.schedule") {
-						continue
+						validationWarnings = append(validationWarnings, e)
+					} else {
+						structuralErrs = append(structuralErrs, e)
 					}
-					validationWarnings = append(validationWarnings, e)
+				}
+				if len(structuralErrs) > 0 {
+					msgs := make([]string, len(structuralErrs))
+					for i, e := range structuralErrs {
+						msgs[i] = e.Field + ": " + e.Message
+					}
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":   "Invalid spec",
+						"details": strings.Join(msgs, "; "),
+					})
+					return
 				}
 			}
 		}

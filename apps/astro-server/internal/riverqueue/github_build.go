@@ -183,6 +183,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 
 	if err := pipeline.
 		FetchSpec().
+		ValidateSpec().
 		CollectComponents().
 		CreateComponentRecords().
 		RunBuildJobs().

@@ -25,7 +25,7 @@ export interface BuildLogViewerProps {
   totalDuration?: string;
   components?: BuildLogComponentData[];
   isLoading?: boolean;
-  isError?: boolean;
+  error?: string;
 }
 
 interface LogSection {
@@ -135,7 +135,7 @@ function LogLines({ entries }: { entries: LogEntry[] }) {
 
 // ── BuildLogViewer ────────────────────────────────────────────────────────────
 
-export function BuildLogViewer({ commitSha, buildId, totalDuration, components = [], isLoading, isError }: BuildLogViewerProps) {
+export function BuildLogViewer({ commitSha, buildId, totalDuration, components = [], isLoading, error }: BuildLogViewerProps) {
   const [activeTab, setActiveTab] = useState(() => components[0]?.name ?? "");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
@@ -153,14 +153,6 @@ export function BuildLogViewer({ commitSha, buildId, totalDuration, components =
         <Spinner size={16} />
         Loading logs…
       </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <p className="text-sm text-destructive p-4">
-        Logs unavailable. The pod may have been cleaned up.
-      </p>
     );
   }
 
@@ -200,7 +192,9 @@ export function BuildLogViewer({ commitSha, buildId, totalDuration, components =
         )}
       </div>
 
-      {components.length === 0 ? (
+      {error ? (
+        <p className="font-mono text-mono-sm text-destructive p-4">{error}</p>
+      ) : components.length === 0 ? (
         <p className="font-mono text-mono-sm text-faint-foreground p-4">(no output)</p>
       ) : (
         <>

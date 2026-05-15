@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -93,6 +95,26 @@ func (p *GitHubBuildPipeline) updateStep(name string) {
 			p.cfg.Log.Error("failed to update build step", "step", name, "error", err)
 		}
 	}
+}
+
+// ValidateSpec rejects specs with structural errors (missing image/build, bad
+// provider, invalid trigger type). Deploy-time values like credentials and
+// schedule expressions are not known at build time and are skipped.
+func (p *GitHubBuildPipeline) ValidateSpec() *GitHubBuildPipeline {
+	return p.step("validating-spec", func() error {
+		result := deployment.NewValidator().ValidateSpec(p.astroSpec, nil, nil, nil)
+		var msgs []string
+		for _, e := range result.Errors {
+			if strings.HasPrefix(e.Field, "variables.") || strings.HasSuffix(e.Field, ".trigger.schedule") {
+				continue
+			}
+			msgs = append(msgs, e.Field+": "+e.Message)
+		}
+		if len(msgs) == 0 {
+			return nil
+		}
+		return PermanentError{Err: fmt.Errorf("spec validation failed: %s", strings.Join(msgs, "; "))}
+	})
 }
 
 // FetchSpec downloads astropods.yml from GitHub and parses it.

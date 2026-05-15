@@ -49,7 +49,7 @@ func TestValidateSpec(t *testing.T) {
 			},
 			creds:          map[string]string{},
 			wantValid:      false,
-			wantErrorField: "container",
+			wantErrorField: "agent",
 		},
 		{
 			name: "container with build config is valid",
@@ -59,6 +59,82 @@ func TestValidateSpec(t *testing.T) {
 				Agent: spec.Container{
 					Build: &spec.BuildConfig{Context: ".", Dockerfile: "Dockerfile"},
 				},
+			},
+			creds:     map[string]string{},
+			wantValid: true,
+		},
+		{
+			name: "model container missing image and build",
+			spec: &spec.AstroSpec{
+				Agent:  spec.Container{Image: "agent:latest"},
+				Models: map[string]spec.Model{"llm": {Container: &spec.ContainerConfig{}}},
+			},
+			creds:          map[string]string{},
+			wantValid:      false,
+			wantErrorField: "models.llm",
+		},
+		{
+			name: "model provider mode skipped",
+			spec: &spec.AstroSpec{
+				Agent:  spec.Container{Image: "agent:latest"},
+				Models: map[string]spec.Model{"llm": {Provider: "ollama"}},
+			},
+			creds:     map[string]string{},
+			wantValid: true,
+		},
+		{
+			name: "knowledge container missing image and build",
+			spec: &spec.AstroSpec{
+				Agent:     spec.Container{Image: "agent:latest"},
+				Knowledge: map[string]spec.Knowledge{"db": {Container: &spec.ContainerConfig{}}},
+			},
+			creds:          map[string]string{},
+			wantValid:      false,
+			wantErrorField: "knowledge.db",
+		},
+		{
+			name: "knowledge provider mode skipped",
+			spec: &spec.AstroSpec{
+				Agent:     spec.Container{Image: "agent:latest"},
+				Knowledge: map[string]spec.Knowledge{"db": {Provider: "qdrant"}},
+			},
+			creds:     map[string]string{},
+			wantValid: true,
+		},
+		{
+			name: "integration container missing image and build",
+			spec: &spec.AstroSpec{
+				Agent:        spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{"search": {Container: &spec.ContainerConfig{}}},
+			},
+			creds:          map[string]string{},
+			wantValid:      false,
+			wantErrorField: "integrations.search",
+		},
+		{
+			name: "integration provider mode skipped",
+			spec: &spec.AstroSpec{
+				Agent:        spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{"search": {Provider: "github"}},
+			},
+			creds:     map[string]string{"GITHUB_TOKEN": "ghp_test"},
+			wantValid: true,
+		},
+		{
+			name: "ingestion container missing image and build",
+			spec: &spec.AstroSpec{
+				Agent:     spec.Container{Image: "agent:latest"},
+				Ingestion: map[string]spec.Ingestion{"sync": {Container: spec.ContainerConfig{}, Trigger: spec.IngestionTrigger{Type: "manual"}}},
+			},
+			creds:          map[string]string{},
+			wantValid:      false,
+			wantErrorField: "ingestion.sync",
+		},
+		{
+			name: "ingestion container with image passes",
+			spec: &spec.AstroSpec{
+				Agent:     spec.Container{Image: "agent:latest"},
+				Ingestion: map[string]spec.Ingestion{"sync": {Container: spec.ContainerConfig{Image: "worker:latest"}, Trigger: spec.IngestionTrigger{Type: "manual"}}},
 			},
 			creds:     map[string]string{},
 			wantValid: true,

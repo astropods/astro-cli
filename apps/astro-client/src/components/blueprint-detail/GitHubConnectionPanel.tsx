@@ -367,6 +367,7 @@ function BuildLogsDialog({
     enabled: open,
     refetchInterval: open && isActive ? 3000 : false,
   });
+  const error = build.error || (isError ? "Logs unavailable. The pod may have been cleaned up." : undefined);
 
   const rawComponents = data?.components && data.components.length > 0
     ? data.components
@@ -397,7 +398,7 @@ function BuildLogsDialog({
             totalDuration={totalDuration}
             components={componentLogs}
             isLoading={isLoading}
-            isError={isError}
+            error={error}
           />
         </div>
       </DialogContent>

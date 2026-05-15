@@ -199,7 +199,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 	body := `{
 		"build_id": "a3f2b1c9",
 		"registry": "registry.example.com",
-		"spec_content": "name: test-agent\nversion: 1.0.0\n"
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
 	}`
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
@@ -250,7 +250,7 @@ func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
 	body := `{
 		"build_id": "a3f2b1c9",
 		"registry": "registry.example.com",
-		"spec_content": "name: test-agent\nversion: 1.0.0\n"
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
 	}`
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
@@ -301,7 +301,7 @@ func TestRegisterAgent_WithReadme_NoHint(t *testing.T) {
 	body := `{
 		"build_id": "a3f2b1c9",
 		"registry": "registry.example.com",
-		"spec_content": "name: test-agent\nversion: 1.0.0\n",
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n",
 		"readme": "# My Agent\nA great agent."
 	}`
 
@@ -488,7 +488,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 		"name": "test-agent",
 		"build_id": "a3f2b1c9",
 		"registry": "registry.example.com",
-		"spec_content": "name: test-agent\n"
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
 	}`
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(body))
@@ -531,7 +531,7 @@ func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
 			body := `{
 				"build_id": "a3f2b1c9",
 				"registry": "registry.example.com",
-				"spec_content": "name: test-agent\nversion: 1.0.0\n"
+				"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
 			}`
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+url.PathEscape(tt.agentName)+"/register", strings.NewReader(body))
@@ -734,7 +734,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 			body := `{
 				"build_id": "a3f2b1c9",
 				"registry": "registry.example.com",
-				"spec_content": "name: test-agent\nversion: 1.0.0\n"
+				"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
 			}`
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
