@@ -14,7 +14,6 @@ import { Telescope } from "lucide-react";
 import astroLogo from "@/assets/astro-logo-light.png";
 import astroLogoDark from "@/assets/astro-logo-dark.png";
 import { useAuth } from "@/lib/auth";
-import { useExperiments } from "@/lib/experiments";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -116,7 +115,6 @@ function ThemeSwitcher() {
 
 export function AppHeader() {
   const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
-  const { experiments } = useExperiments();
   const location = useLocation();
   const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -260,7 +258,7 @@ export function AppHeader() {
                         <ArrowRightStartOnRectangleIcon className="size-4" />
                         Sign out
                       </Button>
-                      {experiments.theming && <ThemeSwitcher />}
+                      <ThemeSwitcher />
                     </div>
                     <Separator className="my-1" />
                     <Button variant="ghost" className="w-full justify-start min-[700px]:hidden" asChild>
@@ -434,12 +432,8 @@ export function AppHeader() {
                   <ArrowRightStartOnRectangleIcon className="size-4" />
                   Sign out
                 </DropdownMenuItem>
-                {experiments.theming && (
-                  <>
-                    <div className="w-px h-5 bg-border shrink-0" />
-                    <ThemeSwitcher />
-                  </>
-                )}
+                <div className="w-px h-5 bg-border shrink-0" />
+                <ThemeSwitcher />
               </div>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -18,7 +18,6 @@ function renderLayout() {
           { path: 'usage', Component: () => <div>UsageContent</div> },
           { path: 'secrets', Component: () => <div>SecretsContent</div> },
           { path: 'organizations', Component: () => <div>OrganizationsContent</div> },
-          { path: 'experiments', Component: () => <div>ExperimentsContent</div> },
         ],
       },
     ],
@@ -35,6 +34,6 @@ describe('SettingsLayout', () => {
     expect(screen.getAllByText('Usage').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Variables & Secrets').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Organizations').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Experiments')).toBeNull();
   });
 });

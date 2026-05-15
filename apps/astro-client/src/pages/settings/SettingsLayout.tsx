@@ -7,6 +7,7 @@ import {
   SidebarNavItem,
   SidebarBody,
 } from "@/components/ui/sidebar-layout";
+import { hasExperiments } from "@/lib/experiments";
 
 function SettingsContent() {
   return (
@@ -44,12 +45,14 @@ function SettingsContent() {
               Audit Log
             </span>
           </SidebarNavItem>
-          <SidebarNavItem to="/settings/experiments">
-            <span className="flex items-center gap-2">
-              <FlaskConical className="size-3.5" />
-              Experiments
-            </span>
-          </SidebarNavItem>
+          {hasExperiments && (
+            <SidebarNavItem to="/settings/experiments">
+              <span className="flex items-center gap-2">
+                <FlaskConical className="size-3.5" />
+                Experiments
+              </span>
+            </SidebarNavItem>
+          )}
         </SidebarNav>
         <SidebarBody>
           <Outlet />

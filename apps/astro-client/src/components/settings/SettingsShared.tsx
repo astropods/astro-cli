@@ -19,7 +19,7 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex-1 space-y-1 pb-6 border-b border-border", className)}>
+    <div className={cn("space-y-1 pb-6 border-b border-border", className)}>
       <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
       <p className="text-[13px] text-muted-foreground">{subtitle}</p>
     </div>

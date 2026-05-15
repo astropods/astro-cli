@@ -1,73 +1,77 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
-import { setExperiment, useExperiments } from "./experiments";
+import { describe, it, expect, afterEach } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
+import { useExperiments, hasExperiments, setExperiment } from "./experiments";
 
-function resetExperiments() {
-  // Reset the module-level snapshot to defaults; localStorage.clear alone
-  // doesn't suffice because the snapshot is captured at module init.
-  setExperiment("theming", false);
+// Cast to bypass the empty Experiments type — lets us exercise the store
+// plumbing (subscribe/notify/persist) without modifying production types.
+const setTestExperiment = setExperiment as unknown as (key: string, value: boolean) => void;
+
+function resetStore() {
+  setTestExperiment("__test__", false);
   localStorage.clear();
 }
 
 afterEach(() => {
   cleanup();
-  resetExperiments();
+  resetStore();
 });
-
-beforeEach(() => {
-  resetExperiments();
-});
-
-function ExperimentsProbe({ id }: { id: string }) {
-  const { experiments, setExperiment } = useExperiments();
-  return (
-    <div>
-      <span data-testid={`${id}-theming`}>{String(experiments.theming)}</span>
-      <button
-        type="button"
-        onClick={() => setExperiment("theming", !experiments.theming)}
-        data-testid={`${id}-toggle`}
-      >
-        toggle
-      </button>
-    </div>
-  );
-}
 
 describe("useExperiments", () => {
-  it("toggling in one consumer updates a sibling consumer in the same tree (no reload)", () => {
-    render(
-      <>
-        <ExperimentsProbe id="a" />
-        <ExperimentsProbe id="b" />
-      </>,
-    );
-
-    expect(screen.getByTestId("a-theming")).toHaveTextContent("false");
-    expect(screen.getByTestId("b-theming")).toHaveTextContent("false");
-
-    fireEvent.click(screen.getByTestId("a-toggle"));
-
-    // Both consumers must reflect the new value without any remount or reload.
-    expect(screen.getByTestId("a-theming")).toHaveTextContent("true");
-    expect(screen.getByTestId("b-theming")).toHaveTextContent("true");
+  it("returns an empty experiments object by default", () => {
+    const { result } = renderHook(() => useExperiments());
+    expect(result.current.experiments).toEqual({});
   });
 
-  it("persists across tree unmount/remount via localStorage", () => {
-    const first = render(<ExperimentsProbe id="a" />);
-    fireEvent.click(screen.getByTestId("a-toggle"));
-    expect(screen.getByTestId("a-theming")).toHaveTextContent("true");
+  it("hasExperiments is false when no experiments are defined", () => {
+    expect(hasExperiments).toBe(false);
+  });
+});
+
+describe("store reactive infrastructure", () => {
+  it("setExperiment notifies all active consumers in the same tree without remount", () => {
+    function Probe({ id }: { id: string }) {
+      const { experiments } = useExperiments();
+      return <span data-testid={id}>{String((experiments as Record<string, unknown>).__test__ ?? false)}</span>;
+    }
+
+    render(<><Probe id="a" /><Probe id="b" /></>);
+
+    expect(screen.getByTestId("a")).toHaveTextContent("false");
+    expect(screen.getByTestId("b")).toHaveTextContent("false");
+
+    act(() => setTestExperiment("__test__", true));
+
+    expect(screen.getByTestId("a")).toHaveTextContent("true");
+    expect(screen.getByTestId("b")).toHaveTextContent("true");
+  });
+
+  it("persists state across unmount and remount via localStorage", () => {
+    function Probe() {
+      const { experiments } = useExperiments();
+      return <span data-testid="val">{String((experiments as Record<string, unknown>).__test__ ?? false)}</span>;
+    }
+
+    const first = render(<Probe />);
+    act(() => setTestExperiment("__test__", true));
+    expect(screen.getByTestId("val")).toHaveTextContent("true");
     first.unmount();
 
-    render(<ExperimentsProbe id="b" />);
-    expect(screen.getByTestId("b-theming")).toHaveTextContent("true");
+    render(<Probe />);
+    expect(screen.getByTestId("val")).toHaveTextContent("true");
   });
 
   it("setExperiment writes through to localStorage", () => {
-    render(<ExperimentsProbe id="a" />);
-    fireEvent.click(screen.getByTestId("a-toggle"));
-
+    act(() => setTestExperiment("__test__", true));
     const stored = JSON.parse(localStorage.getItem("astro:experiments") ?? "{}");
-    expect(stored.theming).toBe(true);
+    expect(stored.__test__).toBe(true);
+  });
+
+  it("setExperiment is a no-op when the value is unchanged", () => {
+    act(() => setTestExperiment("__test__", false));
+    const { result } = renderHook(() => useExperiments());
+    const snapshotBefore = result.current.experiments;
+    act(() => setTestExperiment("__test__", false));
+    expect(result.current.experiments).toBe(snapshotBefore);
   });
 });

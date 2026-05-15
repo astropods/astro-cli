@@ -1,14 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-export interface Experiments {
-  theming: boolean;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface Experiments {}
 
 const STORAGE_KEY = "astro:experiments";
 
-const DEFAULTS: Experiments = {
-  theming: false,
-};
+const DEFAULTS: Experiments = {};
+
+export const hasExperiments = Object.keys(DEFAULTS).length > 0;
 
 function load(): Experiments {
   try {
