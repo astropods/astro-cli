@@ -114,6 +114,50 @@ func TestBuildProject_SlackInterface(t *testing.T) {
 	}
 }
 
+// dev.interfaces.messaging.log_level overrides the messaging sidecar's
+// default LOG_LEVEL=info. Empty / unset falls back to info.
+func TestBuildProject_MessagingLogLevel(t *testing.T) {
+	cases := []struct {
+		name     string
+		override string
+		want     string
+	}{
+		{"default when unset", "", "debug"},
+		{"override applied", "info", "info"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &spec.AstroSpec{
+				Name:  "my-agent",
+				Agent: spec.Container{Image: "agent:latest"},
+				Dev: &spec.Dev{
+					Interfaces: &spec.DevInterfaces{
+						Messaging: &spec.DevMessaging{
+							Adapters: []string{"slack"},
+							LogLevel: tc.override,
+						},
+					},
+				},
+			}
+			envVars := map[string]string{
+				"SLACK_BOT_TOKEN": "xoxb-test",
+				"SLACK_APP_TOKEN": "xapp-test",
+			}
+			project, err := BuildProject(s, "/work", envVars)
+			if err != nil {
+				t.Fatalf("BuildProject() error = %v", err)
+			}
+			messaging, ok := project.Services["astro-messaging"]
+			if !ok {
+				t.Fatal("missing astro-messaging service")
+			}
+			if got := envVal(messaging.Environment, "LOG_LEVEL"); got != tc.want {
+				t.Errorf("LOG_LEVEL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildProject_SlackInterface_MissingToken(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",

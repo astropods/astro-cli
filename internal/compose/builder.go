@@ -894,8 +894,12 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	storageType := "memory"
 	env["STORAGE_TYPE"] = &storageType
 
-	// Log level
-	logLevel := "info"
+	// Log level — spec override wins, otherwise default to debug since this
+	// path runs in local dev where verbose logs aid troubleshooting.
+	logLevel := "debug"
+	if override := s.Dev.MessagingLogLevel(); override != "" {
+		logLevel = override
+	}
 	env["LOG_LEVEL"] = &logLevel
 
 	// Dev mode — lets the messaging service tag outgoing messages
