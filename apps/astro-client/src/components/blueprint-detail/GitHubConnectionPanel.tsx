@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { repoHref, repoLabel } from "@/lib/github-utils";
 import { useSearchParams } from "react-router";
-import { Github, GitBranch, CheckCircle2, XCircle, Clock, Loader2, MinusCircle, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
+import { GitBranch, CheckCircle2, XCircle, Clock, Loader2, MinusCircle, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
+import { getIntegrationIconUrl } from "@/lib/assets";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -121,7 +122,12 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
               onClick={handleConnect}
               disabled={connect.isPending}
             >
-              {connect.isPending ? <Spinner size={14} /> : <Github className="h-3.5 w-3.5" />}
+              {connect.isPending ? <Spinner size={14} /> : (
+                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                  <img src={getIntegrationIconUrl("github", "light")} alt="" className="h-full w-full object-contain dark:hidden" />
+                  <img src={getIntegrationIconUrl("github", "dark")} alt="" className="hidden h-full w-full object-contain dark:block" />
+                </span>
+              )}
               Connect GitHub repo
             </Button>
             {connect.isError && (
@@ -167,9 +173,12 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-sm font-medium hover:underline truncate"
+            className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:underline truncate"
           >
-            <Github className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              <img src={getIntegrationIconUrl("github", "light")} alt="" className="h-full w-full object-contain dark:hidden" />
+              <img src={getIntegrationIconUrl("github", "dark")} alt="" className="hidden h-full w-full object-contain dark:block" />
+            </span>
             <span className="truncate">{label || status.repo_full_name}</span>
             <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
           </a>
@@ -192,13 +201,10 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {latestBuild && (
-              <>
-                <DropdownMenuItem onClick={() => setLogsOpen(true)}>
-                  <ScrollText className="h-3.5 w-3.5" />
-                  Build Logs
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
+              <DropdownMenuItem onClick={() => setLogsOpen(true)}>
+                <ScrollText className="h-3.5 w-3.5" />
+                Build Logs
+              </DropdownMenuItem>
             )}
             <DropdownMenuItem
               onClick={() => rebuild.mutate()}
@@ -207,12 +213,13 @@ export function ConnectedRepoView({ account, name, status, statusLoading, rebuil
               {rebuild.isPending ? <Spinner size={14} /> : <RefreshCw className="h-3.5 w-3.5" />}
               Rebuild branch
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => disconnect.mutate()}
               disabled={disconnect.isPending}
               className="text-destructive focus:text-destructive"
             >
-              {disconnect.isPending ? <Spinner size={14} /> : <Link2Off className="h-3.5 w-3.5" />}
+              {disconnect.isPending ? <Spinner size={14} /> : <Link2Off className="h-3.5 w-3.5 text-destructive" />}
               Disconnect
             </DropdownMenuItem>
           </DropdownMenuContent>

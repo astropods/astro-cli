@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import { SidebarSection } from "./SidebarSection";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import type { BlueprintCardRepo } from "@/lib/api";
@@ -50,14 +51,20 @@ export function SidebarRepository({ repository }: SidebarRepositoryProps) {
         href={repository.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex items-center gap-2.5 text-[13px] text-foreground hover:underline hover:decoration-primary underline-offset-4 transition-colors min-w-0"
+        className="flex items-center gap-1.5 text-[13px] text-foreground hover:underline underline-offset-4 transition-colors min-w-0"
       >
         {integrationId && (
           <span className="flex h-4 w-4 shrink-0 items-center justify-center">
             <img
               src={getIntegrationIconUrl(integrationId, "light")}
               alt=""
-              className="h-full w-full object-contain"
+              className="h-full w-full object-contain dark:hidden"
+              loading="lazy"
+            />
+            <img
+              src={getIntegrationIconUrl(integrationId, "dark")}
+              alt=""
+              className="hidden h-full w-full object-contain dark:block"
               loading="lazy"
             />
           </span>
@@ -68,6 +75,7 @@ export function SidebarRepository({ repository }: SidebarRepositoryProps) {
             /{repository.directory}
           </span>
         )}
+        <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
       </a>
     </SidebarSection>
   );

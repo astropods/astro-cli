@@ -45,7 +45,7 @@ export function SidebarStats({
   }
 
   rows.push({
-    label: "Deployments",
+    label: "Deploys",
     faint: isDraft || installs == null,
     value: isDraft || installs == null ? DASH : (
       <span className="inline-flex items-center justify-end gap-1.5">
