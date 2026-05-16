@@ -78,6 +78,19 @@ func TestCheckAccountNameRestricted(t *testing.T) {
 		{"reserved agents", "agents", true, "reserved"},
 		{"reserved accounts", "accounts", true, "reserved"},
 		{"reserved settings", "settings", true, "reserved"},
+
+		// reservedVariants: singulars of plurals in reservedNames
+		{"variant singular agent", "agent", true, "reserved"},
+		{"variant singular blueprint", "blueprint", true, "reserved"},
+		{"variant singular setting", "setting", true, "reserved"},
+		{"variant singular task", "task", true, "reserved"},
+		{"variant singular workflow", "workflow", true, "reserved"},
+
+		// reservedVariants: plurals of singulars in reservedNames
+		{"variant plural admins", "admins", true, "reserved"},
+		{"variant plural dashboards", "dashboards", true, "reserved"},
+		{"variant plural sandboxes", "sandboxes", true, "reserved"},
+		{"variant plural systems", "systems", true, "reserved"},
 	}
 
 	for _, tt := range tests {

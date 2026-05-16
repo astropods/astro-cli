@@ -230,7 +230,7 @@ func ValidateAccountName(name string) error {
 // Call this in addition to ValidateAccountName for user-facing registration
 // where brand/system names should be blocked.
 func CheckAccountNameRestricted(name string) error {
-	if reservedNames[name] {
+	if reservedNames[name] || reservedVariants[name] {
 		return fmt.Errorf("account name %q is reserved", name)
 	}
 	if deniedNames[name] {
