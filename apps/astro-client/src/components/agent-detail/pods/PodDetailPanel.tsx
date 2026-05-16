@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check } from "lucide-react";
+import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { isSensitiveEnvVar } from "@/lib/env-utils";
 import { formatTimeAgo } from "@/lib/time-format";
 import { cn } from "@/lib/utils";
@@ -27,9 +27,11 @@ interface PodDetailPanelProps {
   /** Public-facing URLs from the deployment (external_urls). */
   externalUrls?: ServiceEndpointInfo[];
   onClose: () => void;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
-export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose }: PodDetailPanelProps) {
+export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("General");
 
   return (
@@ -39,13 +41,15 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose }
       deploymentId={deploymentId}
       externalUrls={externalUrls}
       onClose={onClose}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
       activeTab={activeTab}
       setActiveTab={setActiveTab}
     />
   );
 }
 
-function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, activeTab, setActiveTab }: PodDetailPanelProps & { activeTab: Tab; setActiveTab: (tab: Tab) => void }) {
+function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, expanded, onToggleExpanded, activeTab, setActiveTab }: PodDetailPanelProps & { activeTab: Tab; setActiveTab: (tab: Tab) => void }) {
   const logsVisited = useRef(false);
   if (activeTab === "Logs") logsVisited.current = true;
 
@@ -63,13 +67,24 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, ac
             <span className="text-mono-sm text-muted-foreground">{statusLabel}</span>
           </span>
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close pod details"
-          className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onToggleExpanded && (
+            <button
+              onClick={onToggleExpanded}
+              aria-label={expanded ? "Collapse pod details" : "Expand pod details"}
+              className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close pod details"
+            className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

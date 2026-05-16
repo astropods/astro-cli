@@ -24,6 +24,7 @@ export default function AgentDeployments() {
   } = useAgentDetailContext();
   const workloads = deployment.workloads ?? [];
   const [selectedPodIndex, setSelectedPodIndex] = useState<number | null>(null);
+  const [podPanelExpanded, setPodPanelExpanded] = useState(false);
 
   const selectedWorkload =
     selectedPodIndex !== null && selectedPodIndex < workloads.length
@@ -36,7 +37,8 @@ export default function AgentDeployments() {
   const panelOpen = selectedWorkload !== null;
   const threshold = panelOpen ? POD_OVERLAY_THRESHOLD : OVERLAY_THRESHOLD;
   const shouldOverlay = outerWidth > 0 && outerWidth < threshold;
-  const effectiveWidth = panelOpen && !shouldOverlay
+  const podPanelFullWidth = panelOpen && (podPanelExpanded || shouldOverlay);
+  const effectiveWidth = panelOpen && !shouldOverlay && !podPanelExpanded
     ? outerWidth - remToPx(PANEL_WIDTH_REM)
     : outerWidth;
 
@@ -46,15 +48,25 @@ export default function AgentDeployments() {
     setExpanded((prev) => !prev);
   }, []);
 
+  const togglePodPanelExpanded = useCallback(() => {
+    setPodPanelExpanded((prev) => !prev);
+  }, []);
+
   const handlePodClick = useCallback((index: number) => {
     setSelectedPodIndex((prev) => (prev === index ? null : index));
+    setPodPanelExpanded(false);
+  }, []);
+
+  const handleClosePodPanel = useCallback(() => {
+    setSelectedPodIndex(null);
+    setPodPanelExpanded(false);
   }, []);
 
   // Shift graph left to center in the visible area beside the panel.
-  // In overlay mode: no translate, graph stays centered.
-  const graphTransform = panelOpen && !shouldOverlay
+  // In overlay/expanded mode: no translate, graph stays centered.
+  const graphTransform = panelOpen && !shouldOverlay && !podPanelExpanded
     ? { transform: `translateX(calc(-${PANEL_WIDTH_REM}rem / 2))` }
-    : expanded && !shouldOverlay
+    : !panelOpen && expanded && !shouldOverlay
     ? { transform: `translateX(calc(-${SIDEBAR_WIDTH_REM}rem / 2))` }
     : undefined;
 
@@ -91,7 +103,7 @@ export default function AgentDeployments() {
         <motion.div
           layoutId="deployment-panel"
           className={
-            shouldOverlay
+            podPanelFullWidth
               ? "absolute inset-3 top-20 z-20"
               : "absolute bottom-3 right-3 top-20 z-20 w-[42rem]"
           }
@@ -102,7 +114,9 @@ export default function AgentDeployments() {
             deploymentId={deployment.id}
 
             externalUrls={deployment.external_urls}
-            onClose={() => setSelectedPodIndex(null)}
+            onClose={handleClosePodPanel}
+            expanded={podPanelExpanded}
+            onToggleExpanded={shouldOverlay ? undefined : togglePodPanelExpanded}
           />
         </motion.div>
       ) : expanded ? (
