@@ -42,6 +42,7 @@ type Trace struct {
 	Input     any            `json:"input"`
 	Output    any            `json:"output"`
 	SessionID string         `json:"sessionId"`
+	UserID    string         `json:"userId"`
 	Metadata  map[string]any `json:"metadata"`
 	Tags      []string       `json:"tags"`
 	Latency   float64        `json:"latency"` // seconds

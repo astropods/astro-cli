@@ -42,7 +42,7 @@ function buildTimeParams(days: number) {
 }
 
 export default function AgentMonitor() {
-  const { deploymentId } = useAgentDetailContext();
+  const { deploymentId, account } = useAgentDetailContext();
   const [range, setRange] = useState<DayRange>("7d");
   const { days } = RANGES.find((r) => r.key === range)!;
 
@@ -195,6 +195,7 @@ export default function AgentMonitor() {
 
             <TracesTable
               traces={allTraces}
+              account={account}
               loading={tracesLoading}
               selectedTraceId={selectedTrace?.trace_id}
               onSelectTrace={setSelectedTrace}

@@ -3,6 +3,7 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { StatusBadge } from "@/components/StatusBadge";
+import { UserBadge } from "@/components/UserBadge";
 import {
   MultiSelect,
   MultiSelectTrigger,
@@ -35,6 +36,8 @@ const DEFAULT_VISIBLE = 10;
 
 export interface TracesTableProps {
   traces: TraceEntry[];
+  /** Account that owns the deployment — used to resolve trace user IDs to profiles. */
+  account: string;
   loading?: boolean;
   selectedTraceId?: string | null;
   onSelectTrace?: (trace: TraceEntry) => void;
@@ -42,6 +45,7 @@ export interface TracesTableProps {
 
 export function TracesTable({
   traces,
+  account,
   loading,
   selectedTraceId,
   onSelectTrace,
@@ -102,6 +106,7 @@ export function TracesTable({
                 <tr className="border-b border-border/60">
                   <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Date</th>
                   <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Status</th>
+                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">User</th>
                   <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Latency</th>
                   <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Cost</th>
                   <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Trace ID</th>
@@ -130,6 +135,9 @@ export function TracesTable({
                         <StatusBadge color={STATUS_BADGE_COLOR[status]}>
                           {cfg.label}
                         </StatusBadge>
+                      </td>
+                      <td className="max-w-[180px] px-4 py-2.5">
+                        <UserBadge userId={trace.user_id} account={account} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-foreground">
                         {formatLatency(trace.latency_ms)}

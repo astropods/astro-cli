@@ -1594,6 +1594,7 @@ export interface TraceEntry {
   input: string;
   output: string;
   timestamp: string;
+  user_id?: string;
 }
 
 export interface AccountObservabilitySummaryResponse {

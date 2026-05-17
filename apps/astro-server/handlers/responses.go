@@ -364,6 +364,7 @@ type TraceEntry struct {
 	Input     string  `json:"input"`
 	Output    string  `json:"output"`
 	Timestamp string  `json:"timestamp"`
+	UserID    string  `json:"user_id,omitempty"`
 }
 
 // TraceDetail describes a trace's full content, including the conversation

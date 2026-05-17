@@ -839,6 +839,7 @@ func GetLangfuseTraces(
 				"input":      t.Input,
 				"output":     t.Output,
 				"timestamp":  t.CreatedAt,
+				"user_id":    t.UserID,
 			})
 		}
 
