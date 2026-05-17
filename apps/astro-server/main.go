@@ -293,6 +293,7 @@ func runAPI(
 	// deploymentstore.NewStore(db) without this wire and the gate becomes a
 	// no-op, which preserves existing test fixtures.
 	deploymentStore := deploymentstore.NewStore(db).WithLineageValidator(agentIndex)
+	clusterStore := clusterstore.New(db)
 	accountVarsStore := accountvars.NewStore(db)
 	heartStore := heartstore.New(db)
 	agentMetricsStore := metricsstore.New(db)
@@ -354,7 +355,7 @@ func runAPI(
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	log.Info("Initializing Kubernetes registry", "mode", string(clientMode))
 	registryCtx, registryCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	registry, registryErr := k8s.NewRegistry(registryCtx, k8s.RegistryConfig{
+	registry, registryErr := k8s.NewRegistry(registryCtx, clusterStore, k8s.RegistryConfig{
 		Mode:             clientMode,
 		Region:           cfg.Deployment.AWSRegion,
 		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
@@ -434,7 +435,7 @@ func runAPI(
 	imagePreflighter := newImagePreflighter(cfg)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, clusterStore, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -517,7 +518,8 @@ func runWorker(
 	// SERVER_MODE=worker this is the only registry the process holds.
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	registry, registryErr := k8s.NewRegistry(initCtx, k8s.RegistryConfig{
+	clusterStore := clusterstore.New(db)
+	registry, registryErr := k8s.NewRegistry(initCtx, clusterStore, k8s.RegistryConfig{
 		Mode:             clientMode,
 		Region:           cfg.Deployment.AWSRegion,
 		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
@@ -527,11 +529,11 @@ func runWorker(
 	}, log)
 	initCancel()
 
-	var k8sClient k8s.ClusterClient
+	var k8sReg *k8s.Registry
 	if registryErr != nil {
 		log.Warn("Worker: K8s registry unavailable, namespace scanner will skip K8s reconciliation", "error", registryErr)
 	} else {
-		k8sClient = registry.Default()
+		k8sReg = registry
 	}
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
@@ -557,7 +559,7 @@ func runWorker(
 		AccountStore:     accountStore,
 		AgentIndex:       agentIndex,
 		AvatarStore:      avatarStore,
-		K8sClient:        k8sClient,
+		K8sRegistry:      k8sReg,
 		K8sCache:         k8sCache,
 		ServerConfig:     cfg,
 		WorkOSAPIKey:     cfg.Auth.WorkOSAPIKey,
@@ -589,7 +591,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, clusterStore *clusterstore.Store, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
 	billing := openmeter.NewBillingStateManager(omClient, db, log)
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
@@ -1161,11 +1163,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				}
 			}
 
-			// Deployment write (deploy/undeploy/restart/trigger).
-			// clusterStore is used by DeployAgent to validate an optional
-			// `target.cluster_id` on the submitted spec against the
-			// `public.clusters` table.
-			clusterStore := clusterstore.New(db)
+			// clusterStore validates optional `target.cluster_id` on deploy specs.
 			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

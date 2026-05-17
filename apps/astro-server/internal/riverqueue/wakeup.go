@@ -16,6 +16,7 @@ import (
 // WakeUpArgs are the job arguments for the wakeup worker.
 type WakeUpArgs struct {
 	DeploymentID string `json:"deployment_id"`
+	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
 func (WakeUpArgs) Kind() string { return "wakeup" }

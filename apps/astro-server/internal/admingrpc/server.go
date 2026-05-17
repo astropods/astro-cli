@@ -860,7 +860,7 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 
 	// Enqueue async undeploy job
 	if s.queue != nil {
-		if err := s.queue.InsertUndeployJob(context.Background(), dep.ID); err != nil {
+		if err := s.queue.InsertUndeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			s.log.Warn("Failed to enqueue undeploy job", "deployment_id", dep.ID, "error", err)
 		}
 	}
@@ -1484,7 +1484,7 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 
 	// Enqueue wakeup job
 	if s.queue != nil {
-		if err := s.queue.InsertWakeUpJob(context.Background(), dep.ID); err != nil {
+		if err := s.queue.InsertWakeUpJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			return nil, fmt.Errorf("enqueue wakeup job: %w", err)
 		}
 	}
@@ -1580,7 +1580,7 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 
 	// Enqueue deploy job (idempotent — safe outside transaction)
 	if s.queue != nil {
-		if err := s.queue.InsertDeployJob(context.Background(), dep.ID); err != nil {
+		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			s.log.Warn("Failed to enqueue deploy job for rollback", "deployment_id", dep.ID, "error", err)
 		}
 	}
@@ -1633,7 +1633,7 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 	// Enqueue deploy job
 	if s.queue != nil {
-		if err := s.queue.InsertDeployJob(context.Background(), dep.ID); err != nil {
+		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			return nil, fmt.Errorf("enqueue deploy job: %w", err)
 		}
 	}

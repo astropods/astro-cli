@@ -18,6 +18,7 @@ import (
 // DeployArgs are the job arguments for the deploy worker.
 type DeployArgs struct {
 	DeploymentID string `json:"deployment_id"`
+	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
 func (DeployArgs) Kind() string { return "deploy" }
@@ -55,6 +56,9 @@ type DeployWorker struct {
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
 	if w.deployer == nil {
 		return fmt.Errorf("deploy worker: K8s client not configured")
+	}
+	if job.Args.ClusterID == "" {
+		w.log.Info("deploy worker: primary cluster routing", "deployment_id", job.Args.DeploymentID)
 	}
 	dep, err := w.store.GetDeploymentByID(job.Args.DeploymentID)
 	if err != nil {

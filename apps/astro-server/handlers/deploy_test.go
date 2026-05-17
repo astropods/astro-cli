@@ -81,14 +81,14 @@ func TestDeploymentNamespace_UniquePerID(t *testing.T) {
 // mockQueue is a no-op DeployQueue for testing.
 type mockQueue struct{}
 
-func (q *mockQueue) InsertDeployJob(_ context.Context, _ string) error   { return nil }
-func (q *mockQueue) InsertUndeployJob(_ context.Context, _ string) error { return nil }
-func (q *mockQueue) InsertWakeUpJob(_ context.Context, _ string) error   { return nil }
+func (q *mockQueue) InsertDeployJob(_ context.Context, _, _ string) error   { return nil }
+func (q *mockQueue) InsertUndeployJob(_ context.Context, _, _ string) error { return nil }
+func (q *mockQueue) InsertWakeUpJob(_ context.Context, _, _ string) error   { return nil }
 
 // deploymentByIDColumns lists the columns scanned by scanDeployment, in order.
 var deploymentByIDColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at", "avatar_colors",
 }
@@ -109,7 +109,7 @@ func deploymentByIDRowWithSource(id, accountID, sourceAccountID, agentName, buil
 	}
 	return sqlmock.NewRows(deploymentByIDColumns).AddRow(
 		id, accountID, src, agentName, buildID, namespace,
-		displayName, specJSON, []byte(nil), (*string)(nil),
+		displayName, specJSON, []byte(nil), (*string)(nil), nil,
 		status, (*string)(nil), json.RawMessage(nil), now, &rev,
 		now, undeployedAt, nil,
 	)
@@ -365,12 +365,12 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", nil, agentName, buildID, namespace, "My Agent",
-			`{}`, nil, nil,
+			`{}`, nil, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		))
@@ -430,12 +430,12 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", nil, agentName, buildID, namespace, "Sas Bot",
-			`{}`, nil, nil,
+			`{}`, nil, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		))
@@ -1419,7 +1419,7 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}))
@@ -1562,17 +1562,17 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID1, "acct-1", nil, "agent-a", "b1", ns1, "Agent A",
-			`{}`, nil, nil,
+			`{}`, nil, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		).AddRow(
 			depID2, "acct-1", nil, "agent-b", "b1", ns2, "Agent B",
-			`{}`, nil, nil,
+			`{}`, nil, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		))
@@ -1698,12 +1698,12 @@ func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
 			"deployed_at", "undeployed_at", "avatar_colors",
 		}).AddRow(
 			depID, "acct-1", nil, agentName, buildID, namespace, "My Agent",
-			`{}`, nil, nil,
+			`{}`, nil, nil, nil,
 			"active", nil, nil, now, 1,
 			now, nil, nil,
 		))
@@ -2927,12 +2927,12 @@ func setupWakeUpRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 func deploymentByIDRowWithStatus(id, accountID, agentName, buildID, namespace, displayName, specJSON, status string, revision *int, now time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
 		"deployed_at", "undeployed_at", "avatar_colors",
 	}).AddRow(
 		id, accountID, nil, agentName, buildID, namespace,
-		displayName, specJSON, []byte(nil), (*string)(nil),
+		displayName, specJSON, []byte(nil), (*string)(nil), nil,
 		status, (*string)(nil), json.RawMessage(nil), now, revision,
 		now, (*time.Time)(nil), nil,
 	)

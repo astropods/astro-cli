@@ -516,18 +516,22 @@ type EntitlementChecker interface {
 
 // DeployQueue abstracts job insertion for deploy/undeploy/wakeup operations.
 type DeployQueue interface {
-	InsertDeployJob(ctx context.Context, deploymentID string) error
-	InsertUndeployJob(ctx context.Context, deploymentID string) error
-	InsertWakeUpJob(ctx context.Context, deploymentID string) error
+	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
 }
 
 // EnqueueUndeploy transitions a deployment to "undeploying" and inserts an
 // async undeploy job. Used by both UndeployAgent and DeleteAccount.
-func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, deploymentID string) error {
-	if err := deployStore.UpdateStatus(deploymentID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, dep *deploymentstore.Deployment) error {
+	if dep == nil {
+		return fmt.Errorf("nil deployment")
+	}
+	cid := dep.EffectiveClusterID()
+	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}
-	if err := queue.InsertUndeployJob(ctx, deploymentID); err != nil {
+	if err := queue.InsertUndeployJob(ctx, dep.ID, cid); err != nil {
 		return fmt.Errorf("insert undeploy job: %w", err)
 	}
 	return nil
@@ -776,7 +780,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
-		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID); err != nil {
+		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID, params.ClusterID); err != nil {
 			log.Error("Failed to enqueue deploy job", "error", err, "deployment_id", dctx.deploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
@@ -890,7 +894,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		)
 
 		// Set status to undeploying and enqueue async undeploy job
-		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep.ID); err != nil {
+		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep); err != nil {
 			log.Error("Failed to enqueue undeploy job", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return
@@ -4146,7 +4150,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			return
 		}
 
-		if err := queue.InsertWakeUpJob(c.Request.Context(), dep.ID); err != nil {
+		if err := queue.InsertWakeUpJob(c.Request.Context(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			log.Error("Failed to enqueue wakeup job", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule wakeup"})
 			return
@@ -4215,7 +4219,7 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			return
 		}
 
-		if err := queue.InsertDeployJob(c.Request.Context(), dep.ID); err != nil {
+		if err := queue.InsertDeployJob(c.Request.Context(), dep.ID, dep.EffectiveClusterID()); err != nil {
 			log.Error("Failed to enqueue rollback deploy job", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule rollback"})
 			return

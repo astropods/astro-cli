@@ -30,16 +30,25 @@ func (KnowledgeReconcileArgs) Kind() string { return "knowledge_reconcile" }
 //  3. Polls PrivateLink endpoints (connecting/pending-acceptance) and advances them.
 type KnowledgeReconcileWorker struct {
 	river.WorkerDefaults[KnowledgeReconcileArgs]
-	ksStore *knowledgestore.Store
-	k8s     k8s.ClusterClient
-	log     *logger.Logger
-	billing *openmeter.BillingStateManager
+	ksStore  *knowledgestore.Store
+	registry *k8s.Registry
+	log      *logger.Logger
+	billing  *openmeter.BillingStateManager
+}
+
+// Knowledge rows do not yet carry per-cluster routing; StatefulSet, LB, and
+// secret recovery use the primary cluster only until that metadata exists.
+func (w *KnowledgeReconcileWorker) primaryK8s() k8s.ClusterClient {
+	if w.registry == nil {
+		return nil
+	}
+	return w.registry.Default()
 }
 
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
-	if w.k8s != nil {
-		w.reconcileProvisioning(ctx)
-		w.ensureSecrets(ctx)
+	if pk := w.primaryK8s(); pk != nil {
+		w.reconcileProvisioning(ctx, pk)
+		w.ensureSecrets(ctx, pk)
 	}
 	w.reconcilePrivateLink(ctx)
 
@@ -47,7 +56,7 @@ func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[Knowle
 }
 
 // reconcileProvisioning checks stores in provisioning state and advances them.
-func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
+func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context, k8sClient k8s.ClusterClient) {
 	stores, err := w.ksStore.ListProvisioning()
 	if err != nil {
 		w.log.Error("KnowledgeReconcile: failed to list provisioning stores", "error", err)
@@ -55,7 +64,7 @@ func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
 	}
 
 	for _, ks := range stores {
-		ready, err := k8s.IsStatefulSetReady(ctx, w.k8s, ks.AccountID, ks.ID)
+		ready, err := k8s.IsStatefulSetReady(ctx, k8sClient, ks.AccountID, ks.ID)
 		if err != nil {
 			w.log.Error("KnowledgeReconcile: failed to check StatefulSet readiness",
 				"error", err, "store_id", ks.ID)
@@ -68,7 +77,7 @@ func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
 
 		// For public stores: wait for LB hostname before marking ready.
 		if ks.Public {
-			host, err := k8s.GetLoadBalancerHostname(ctx, w.k8s, ks.AccountID, ks.ID)
+			host, err := k8s.GetLoadBalancerHostname(ctx, k8sClient, ks.AccountID, ks.ID)
 			if err != nil {
 				w.log.Error("KnowledgeReconcile: failed to get LB hostname",
 					"error", err, "store_id", ks.ID)
@@ -103,7 +112,7 @@ func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context) {
 // This is the recovery path for cluster migrations and accidental secret deletions.
 // Decryption requires the KMS data key stored in the DB — if KMS is unavailable or
 // the store has no encrypted credentials, the secret cannot be recreated.
-func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context) {
+func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context, k8sClient k8s.ClusterClient) {
 	stores, err := w.ksStore.ListReady()
 	if err != nil {
 		w.log.Error("KnowledgeReconcile: failed to list ready stores", "error", err)
@@ -114,7 +123,7 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context) {
 	var kmsClient *awskms.Client
 	for _, ks := range stores {
 		secretName := k8s.KnowledgeSecretName(ks.ID)
-		exists, err := k8s.SecretExists(ctx, w.k8s, ks.AccountID, secretName)
+		exists, err := k8s.SecretExists(ctx, k8sClient, ks.AccountID, secretName)
 		if err != nil {
 			w.log.Error("KnowledgeReconcile: failed to check secret existence",
 				"error", err, "store_id", ks.ID)
@@ -152,7 +161,7 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context) {
 			continue
 		}
 
-		if err := k8s.ApplyKnowledgeSecret(ctx, w.k8s, ks.AccountID, ks.ID, secretName, plainCreds); err != nil {
+		if err := k8s.ApplyKnowledgeSecret(ctx, k8sClient, ks.AccountID, ks.ID, secretName, plainCreds); err != nil {
 			w.log.Error("KnowledgeReconcile: failed to recreate secret",
 				"error", err, "store_id", ks.ID)
 			continue

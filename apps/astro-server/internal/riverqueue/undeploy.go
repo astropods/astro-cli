@@ -18,6 +18,7 @@ import (
 // UndeployArgs are the job arguments for the undeploy worker.
 type UndeployArgs struct {
 	DeploymentID string `json:"deployment_id"`
+	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
 func (UndeployArgs) Kind() string { return "undeploy" }

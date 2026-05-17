@@ -43,15 +43,22 @@ type ReconcileWorker struct {
 	river.WorkerDefaults[ReconcileArgs]
 	deployer  *deployer.Deployer
 	store     *deploymentstore.Store
-	k8s       k8s.ClusterClient
+	registry  *k8s.Registry
 	dynClient dynamic.Interface
 	queue     *Queue
 	log       *logger.Logger
 	billing   *openmeter.BillingStateManager
 }
 
+func (w *ReconcileWorker) clusterClient(ctx context.Context, dep *deploymentstore.Deployment) (k8s.ClusterClient, error) {
+	if dep == nil {
+		return nil, fmt.Errorf("reconcile: nil deployment")
+	}
+	return w.clusterClientForKey(ctx, dep.EffectiveClusterID())
+}
+
 func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs]) error {
-	if w.k8s == nil {
+	if w.registry == nil {
 		return nil
 	}
 
@@ -120,34 +127,59 @@ func (w *ReconcileWorker) escalatePodFailures(ctx context.Context) {
 		return
 	}
 
-	pods, err := w.k8s.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		LabelSelector: managedByAstroLabelSelector,
-	})
-	if err != nil {
-		w.log.Warn("Reconcile: failed to list managed pods for escalation", "error", err)
-		return
-	}
-	byNamespace := groupPodsByNamespace(pods.Items)
-
+	byCluster := make(map[string][]*deploymentstore.Deployment)
 	for _, dep := range deps {
-		reason, image, podName := findEscalatablePodFailure(byNamespace[dep.Namespace])
-		if reason == "" {
-			continue
-		}
-		msg := formatPodFailureMessage(reason, image, podName)
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, msg, nil); err != nil {
-			w.log.Warn("Reconcile: failed to escalate deployment to failed",
-				"error", err, "deployment_id", dep.ID)
-			continue
-		}
-		w.log.Warn("Reconcile: escalated deployment to failed (pod failure)",
-			"deployment_id", dep.ID,
-			"namespace", dep.Namespace,
-			"pod", podName,
-			"reason", reason,
-			"image", image,
-		)
+		key := dep.EffectiveClusterID()
+		byCluster[key] = append(byCluster[key], dep)
 	}
+
+	for clusterKey, clusterDeps := range byCluster {
+		kc, kerr := w.clusterClientForKey(ctx, clusterKey)
+		if kerr != nil {
+			w.log.Warn("Reconcile: skip pod escalation cluster", "cluster_id", clusterKey, "error", kerr)
+			continue
+		}
+		pods, err := kc.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			LabelSelector: managedByAstroLabelSelector,
+		})
+		if err != nil {
+			w.log.Warn("Reconcile: failed to list managed pods for escalation", "error", err, "cluster_id", clusterKey)
+			continue
+		}
+		byNamespace := groupPodsByNamespace(pods.Items)
+
+		for _, dep := range clusterDeps {
+			reason, image, podName := findEscalatablePodFailure(byNamespace[dep.Namespace])
+			if reason == "" {
+				continue
+			}
+			msg := formatPodFailureMessage(reason, image, podName)
+			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, msg, nil); err != nil {
+				w.log.Warn("Reconcile: failed to escalate deployment to failed",
+					"error", err, "deployment_id", dep.ID)
+				continue
+			}
+			w.log.Warn("Reconcile: escalated deployment to failed (pod failure)",
+				"deployment_id", dep.ID,
+				"namespace", dep.Namespace,
+				"pod", podName,
+				"reason", reason,
+				"image", image,
+			)
+		}
+	}
+}
+
+// clusterClientForKey returns the ClusterClient for an effective cluster id
+// (empty string means primary).
+func (w *ReconcileWorker) clusterClientForKey(ctx context.Context, clusterKey string) (k8s.ClusterClient, error) {
+	if w.registry == nil {
+		return nil, fmt.Errorf("reconcile: no registry")
+	}
+	if clusterKey == "" {
+		return w.registry.Default(), nil
+	}
+	return w.registry.Get(ctx, clusterKey)
 }
 
 // managedByAstroLabelSelector matches every workload pod the Applier renders
@@ -232,7 +264,7 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 			continue
 		}
 
-		if w.isKEDAScaledDown(ctx, dep.Namespace) {
+		if w.isKEDAScaledDown(ctx, dep, dep.Namespace) {
 			if err := w.store.MarkScaledDown(dep.ID, dep.Namespace); err != nil {
 				w.log.Error("Reconcile: failed to mark scaled down", "error", err, "deployment_id", dep.ID)
 			} else {
@@ -245,7 +277,7 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 		}
 
 		// Check for reconciliation opt-out
-		if w.hasAnnotation(ctx, dep.Namespace, "astro.dev/reconcile", "paused") {
+		if w.hasAnnotation(ctx, dep, dep.Namespace, "astro.dev/reconcile", "paused") {
 			w.log.Info("Reconcile: paused via annotation", "deployment_id", dep.ID, "namespace", dep.Namespace)
 			continue
 		}
@@ -318,7 +350,7 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 					"deployment_id", dep.ID,
 					"since", dep.StatusChangedAt,
 				)
-				if _, err := w.queue.Insert(ctx, DeployArgs{DeploymentID: dep.ID}, nil); err != nil {
+				if _, err := w.queue.Insert(ctx, DeployArgs{DeploymentID: dep.ID, ClusterID: dep.EffectiveClusterID()}, nil); err != nil {
 					w.log.Error("Reconcile: failed to re-enqueue stuck pending deployment", "error", err, "deployment_id", dep.ID)
 				}
 			}
@@ -353,65 +385,73 @@ func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
 		expectedTimeout = 3600
 	}
 
-	// Collect OIDC deployments and their namespaces (DB-only, no K8s calls).
-	var oidcDeps []*deploymentstore.Deployment
-	oidcNamespaces := map[string]bool{}
+	// Collect OIDC deployments grouped by workload cluster (primary has empty key).
+	oidcByCluster := make(map[string][]*deploymentstore.Deployment)
 	for _, dep := range deps {
 		if specHasOIDCAuth(dep.DeploymentSpecJSON) {
-			oidcDeps = append(oidcDeps, dep)
+			k := dep.EffectiveClusterID()
+			oidcByCluster[k] = append(oidcByCluster[k], dep)
+		}
+	}
+	if len(oidcByCluster) == 0 {
+		return
+	}
+
+	const maxReappliesPerTick = 10
+
+	for clusterKey, oidcDeps := range oidcByCluster {
+		kc, kerr := w.clusterClientForKey(ctx, clusterKey)
+		if kerr != nil {
+			w.log.Warn("Reconcile OIDC: skip cluster", "cluster_id", clusterKey, "error", kerr)
+			continue
+		}
+		clientset := kc.Clientset()
+		allIngresses, err := clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if err != nil {
+			w.log.Warn("Reconcile OIDC: failed to list cluster ingresses", "error", err, "cluster_id", clusterKey)
+			continue
+		}
+
+		oidcNamespaces := make(map[string]bool, len(oidcDeps))
+		for _, dep := range oidcDeps {
 			oidcNamespaces[dep.Namespace] = true
 		}
-	}
-	if len(oidcDeps) == 0 {
-		return
-	}
 
-	// Single cluster-wide ingress list filtered by managed-by label, then
-	// bucket by namespace. One K8s call instead of N.
-	clientset := w.k8s.Clientset()
-	allIngresses, err := clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-	})
-	if err != nil {
-		w.log.Warn("Reconcile OIDC: failed to list cluster ingresses", "error", err)
-		return
-	}
-
-	ingressByNs := map[string][]networkingv1.Ingress{}
-	for _, ing := range allIngresses.Items {
-		if oidcNamespaces[ing.Namespace] {
-			ingressByNs[ing.Namespace] = append(ingressByNs[ing.Namespace], ing)
-		}
-	}
-
-	// Check every OIDC deployment against the pre-fetched ingresses so
-	// partially-applied rollouts recover on the next tick.
-	const maxReappliesPerTick = 10
-	reapplied := 0
-	stale := 0
-	for _, dep := range oidcDeps {
-		if oidcAnnotationCurrent(ingressByNs[dep.Namespace], expectedAnnotation, expectedTimeout) {
-			continue
-		}
-		stale++
-
-		if reapplied >= maxReappliesPerTick {
-			continue // count remaining stale but don't enqueue
+		ingressByNs := map[string][]networkingv1.Ingress{}
+		for _, ing := range allIngresses.Items {
+			if oidcNamespaces[ing.Namespace] {
+				ingressByNs[ing.Namespace] = append(ingressByNs[ing.Namespace], ing)
+			}
 		}
 
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "OIDC config changed — reapplying", nil); err != nil {
-			w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
-			continue
+		reapplied := 0
+		stale := 0
+		for _, dep := range oidcDeps {
+			if oidcAnnotationCurrent(ingressByNs[dep.Namespace], expectedAnnotation, expectedTimeout) {
+				continue
+			}
+			stale++
+
+			if reapplied >= maxReappliesPerTick {
+				continue
+			}
+
+			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "OIDC config changed — reapplying", nil); err != nil {
+				w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
+				continue
+			}
+			if insErr := w.queue.InsertDeployJob(ctx, dep.ID, dep.EffectiveClusterID()); insErr != nil {
+				w.log.Error("Reconcile OIDC: failed to enqueue deploy job", "deployment_id", dep.ID, "error", insErr)
+				continue
+			}
+			reapplied++
 		}
-		if err := w.queue.InsertDeployJob(ctx, dep.ID); err != nil {
-			w.log.Error("Reconcile OIDC: failed to enqueue deploy job", "deployment_id", dep.ID, "error", err)
-			continue
+		if stale > 0 {
+			w.log.Info("Reconcile OIDC: stale deployments found",
+				"cluster_id", clusterKey, "stale", stale, "reapplied", reapplied, "deferred", stale-reapplied)
 		}
-		reapplied++
-	}
-	if stale > 0 {
-		w.log.Info("Reconcile OIDC: stale deployments found",
-			"stale", stale, "reapplied", reapplied, "deferred", stale-reapplied)
 	}
 }
 
@@ -487,81 +527,102 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 		return
 	}
 
-	dbNamespaces := make(map[string]*deploymentstore.Deployment, len(deps))
+	dbByNS := make(map[string]*deploymentstore.Deployment, len(deps))
 	for _, dep := range deps {
-		dbNamespaces[dep.Namespace] = dep
+		dbByNS[dep.Namespace] = dep
 	}
 
-	// Detect orphaned K8s namespaces and recover them as failed deployments.
-	nsList, err := w.k8s.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-	})
-	if err != nil {
-		w.log.Warn("Reconcile: failed to list K8s namespaces", "error", err)
-		return
+	clusterKeys := map[string]struct{}{"": {}}
+	for _, dep := range deps {
+		clusterKeys[dep.EffectiveClusterID()] = struct{}{}
 	}
 
-	for _, ns := range nsList.Items {
-		if _, ok := dbNamespaces[ns.Name]; ok {
+	for clusterKey := range clusterKeys {
+		kc, kerr := w.clusterClientForKey(ctx, clusterKey)
+		if kerr != nil {
+			w.log.Warn("Reconcile: skip orphan namespace scan", "cluster_id", clusterKey, "error", kerr)
 			continue
 		}
 
-		accountID := ns.Labels["astro.dev/account-id"]
-		agentName := ns.Labels[deployment.LabelKeyAgent]
-		buildID := ns.Labels["astro.dev/build"]
-
-		if accountID == "" || agentName == "" {
-			w.log.Warn("Reconcile: orphaned K8s namespace missing labels, skipping recovery",
-				"namespace", ns.Name,
-			)
+		nsList, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if err != nil {
+			w.log.Warn("Reconcile: failed to list K8s namespaces", "error", err, "cluster_id", clusterKey)
 			continue
 		}
 
-		// The source-account-id label was added in the PR2 work — namespaces
-		// stamped before that commit lack it. Default the missing case to the
-		// deployer account: same-account deploys are the common case, and
-		// any genuine cross-account orphan stamped pre-PR2 is rare enough
-		// that the warning + manual triage is preferable to silently
-		// recording a wrong lineage.
-		sourceAccountID := ns.Labels[deployment.LabelKeySourceAccountID]
-		if sourceAccountID == "" {
-			w.log.Warn("Reconcile: orphaned K8s namespace missing source-account-id label, defaulting to deployer account",
+		for _, ns := range nsList.Items {
+			dep, known := dbByNS[ns.Name]
+			if known && dep.EffectiveClusterID() == clusterKey {
+				continue
+			}
+			if known {
+				// Namespace exists in DB but is tied to a different cluster than
+				// this list source — ignore on this pass.
+				continue
+			}
+
+			accountID := ns.Labels["astro.dev/account-id"]
+			agentName := ns.Labels[deployment.LabelKeyAgent]
+			buildID := ns.Labels["astro.dev/build"]
+
+			if accountID == "" || agentName == "" {
+				w.log.Warn("Reconcile: orphaned K8s namespace missing labels, skipping recovery",
+					"namespace", ns.Name,
+					"cluster_id", clusterKey,
+				)
+				continue
+			}
+
+			sourceAccountID := ns.Labels[deployment.LabelKeySourceAccountID]
+			if sourceAccountID == "" {
+				w.log.Warn("Reconcile: orphaned K8s namespace missing source-account-id label, defaulting to deployer account",
+					"namespace", ns.Name,
+					"account_id", accountID,
+					"cluster_id", clusterKey,
+				)
+				sourceAccountID = accountID
+			}
+
+			newID := deployid.FromNamespace(ns.Name)
+			if newID == "" {
+				newID = deployid.New()
+			}
+			if recErr := w.store.RecoverOrphanedDeployment(newID, accountID, sourceAccountID, agentName, buildID, ns.Name); recErr != nil {
+				w.log.Error("Reconcile: failed to recover orphaned namespace",
+					"namespace", ns.Name,
+					"cluster_id", clusterKey,
+					"error", recErr,
+				)
+				continue
+			}
+
+			w.log.Warn("Reconcile: recovered orphaned K8s namespace as failed deployment",
 				"namespace", ns.Name,
+				"cluster_id", clusterKey,
+				"deployment_id", newID,
 				"account_id", accountID,
+				"source_account_id", sourceAccountID,
+				"agent", agentName,
 			)
-			sourceAccountID = accountID
 		}
-
-		newID := deployid.FromNamespace(ns.Name)
-		if newID == "" {
-			newID = deployid.New()
-		}
-		if err := w.store.RecoverOrphanedDeployment(newID, accountID, sourceAccountID, agentName, buildID, ns.Name); err != nil {
-			w.log.Error("Reconcile: failed to recover orphaned namespace",
-				"namespace", ns.Name,
-				"error", err,
-			)
-			continue
-		}
-
-		w.log.Warn("Reconcile: recovered orphaned K8s namespace as failed deployment",
-			"namespace", ns.Name,
-			"deployment_id", newID,
-			"account_id", accountID,
-			"source_account_id", sourceAccountID,
-			"agent", agentName,
-		)
 	}
 }
 
 // isKEDAScaledDown checks if all ScaledObjects in the namespace have Active=False.
-func (w *ReconcileWorker) isKEDAScaledDown(ctx context.Context, namespace string) bool {
-	if w.dynClient == nil {
+func (w *ReconcileWorker) isKEDAScaledDown(ctx context.Context, dep *deploymentstore.Deployment, namespace string) bool {
+	kc, err := w.clusterClient(ctx, dep)
+	if err != nil || kc == nil {
+		return false
+	}
+	dyn, err := dynamic.NewForConfig(kc.Config())
+	if err != nil {
 		return false
 	}
 
 	gvr := schema.GroupVersionResource{Group: "keda.sh", Version: "v1alpha1", Resource: "scaledobjects"}
-	objects, err := w.dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	objects, err := dyn.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return false // KEDA CRD not installed
@@ -604,8 +665,12 @@ func scaledObjectIsInactive(obj unstructured.Unstructured) bool {
 }
 
 // hasAnnotation checks if a K8s namespace has a specific annotation value.
-func (w *ReconcileWorker) hasAnnotation(ctx context.Context, namespace, key, value string) bool {
-	ns, err := w.k8s.Clientset().CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+func (w *ReconcileWorker) hasAnnotation(ctx context.Context, dep *deploymentstore.Deployment, namespace, key, value string) bool {
+	kc, err := w.clusterClient(ctx, dep)
+	if err != nil || kc == nil {
+		return false
+	}
+	ns, err := kc.Clientset().CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		return false
 	}
@@ -633,7 +698,12 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
+	kc, err := w.clusterClient(ctx, dep)
+	if err != nil || kc == nil {
+		return nil
+	}
+
+	return BuildDriftReport(ctx, kc.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 }
 
 // BuildDriftReport is the core drift detection logic.

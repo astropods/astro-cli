@@ -43,9 +43,9 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	store := deploymentstore.NewStore(cfg.DB)
 
 	var dep *deployer.Deployer
-	if cfg.K8sClient != nil && cfg.ServerConfig != nil {
+	if cfg.K8sRegistry != nil && cfg.ServerConfig != nil {
 		dep = &deployer.Deployer{
-			K8sClient:        cfg.K8sClient,
+			Registry:         cfg.K8sRegistry,
 			AccountStore:     cfg.AccountStore,
 			Cfg:              cfg.ServerConfig,
 			Store:            store,
@@ -78,8 +78,8 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
 
 	var dynClient dynamic.Interface
-	if cfg.K8sClient != nil {
-		dynClient, _ = dynamic.NewForConfig(cfg.K8sClient.Config())
+	if cfg.K8sRegistry != nil {
+		dynClient, _ = dynamic.NewForConfig(cfg.K8sRegistry.Default().Config())
 	}
 
 	river.AddWorker(workers, &MessageCountSyncWorker{
@@ -136,7 +136,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	rw := &ReconcileWorker{
 		deployer:  dep,
 		store:     store,
-		k8s:       cfg.K8sClient,
+		registry:  cfg.K8sRegistry,
 		dynClient: dynClient,
 		log:       cfg.Logger,
 		billing:   billing,
@@ -147,10 +147,10 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
 	river.AddWorker(workers, &KnowledgeReconcileWorker{
-		ksStore: ksStoreForWorkers,
-		k8s:     cfg.K8sClient,
-		log:     cfg.Logger,
-		billing: billing,
+		ksStore:  ksStoreForWorkers,
+		registry: cfg.K8sRegistry,
+		log:      cfg.Logger,
+		billing:  billing,
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 
@@ -168,7 +168,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sClient, cfg.ServerConfig, log, cfg.OMClient, cfg.DB)
+		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.OMClient, cfg.DB)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}

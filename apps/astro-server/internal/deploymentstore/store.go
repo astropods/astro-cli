@@ -99,6 +99,9 @@ type Deployment struct {
 	DeployedAt         time.Time        `json:"deployed_at"`
 	UndeployedAt       *time.Time       `json:"undeployed_at,omitempty"`
 	AvatarColors       *json.RawMessage `json:"avatar_colors,omitempty"`
+	// ClusterID is set when the deployment targets an additional cluster row
+	// in `public.clusters`. Nil or empty means the primary cluster (env-configured).
+	ClusterID *string `json:"cluster_id,omitempty"`
 }
 
 // SaveDeploymentParams holds the parameters for saving a deployment with normalized spec data.
@@ -128,7 +131,7 @@ func nilIfEmpty(s string) interface{} {
 
 // deploymentColumns is the SELECT column list for full deployment reads.
 const deploymentColumns = `id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
-       deployment_spec_json, encrypted_data_key, kms_key_arn,
+       deployment_spec_json, encrypted_data_key, kms_key_arn, cluster_id,
        status, error_message, error_details, status_changed_at, current_revision,
        deployed_at, undeployed_at, avatar_colors`
 
@@ -136,16 +139,30 @@ const deploymentColumns = `id, account_id, source_account_id, agent_name, build_
 func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
 	var d Deployment
 	var errorDetails []byte
+	var clusterID sql.NullString
 	err := row.Scan(
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
-		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
+		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN, &clusterID,
 		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
 		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors,
 	)
+	if clusterID.Valid && clusterID.String != "" {
+		s := clusterID.String
+		d.ClusterID = &s
+	}
 	if errorDetails != nil {
 		d.ErrorDetails = errorDetails
 	}
 	return &d, err
+}
+
+// EffectiveClusterID returns the additional-cluster registry id, or empty
+// string when the deployment uses the primary cluster (NULL column).
+func (d *Deployment) EffectiveClusterID() string {
+	if d == nil || d.ClusterID == nil {
+		return ""
+	}
+	return *d.ClusterID
 }
 
 // CountActiveAgentsDuringPeriod counts distinct agent names that had at least one

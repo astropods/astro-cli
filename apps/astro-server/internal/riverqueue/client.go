@@ -36,7 +36,7 @@ type Config struct {
 	AccountStore         *account.AccountStore
 	AgentIndex           *agentindex.Index
 	AvatarStore          *avatar.Store
-	K8sClient            k8s.ClusterClient
+	K8sRegistry *k8s.Registry
 	K8sCache             k8scache.Cache
 	ServerConfig         *config.Config
 	WorkOSAPIKey         string
@@ -107,7 +107,12 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			if err := store.UpdateStatus(deploymentID, "undeploying", "", nil); err != nil {
 				return fmt.Errorf("update status: %w", err)
 			}
-			return q.InsertUndeployJob(ctx, deploymentID)
+			dep, derr := store.GetDeploymentByID(deploymentID)
+			cid := ""
+			if derr == nil && dep != nil {
+				cid = dep.EffectiveClusterID()
+			}
+			return q.InsertUndeployJob(ctx, deploymentID, cid)
 		}
 	}
 
@@ -162,21 +167,22 @@ func (q *Queue) Insert(ctx context.Context, args river.JobArgs, opts *river.Inse
 	return result, nil
 }
 
-// InsertDeployJob enqueues a deploy job.
-func (q *Queue) InsertDeployJob(ctx context.Context, deploymentID string) error {
-	_, err := q.Insert(ctx, DeployArgs{DeploymentID: deploymentID}, nil)
+// InsertDeployJob enqueues a deploy job. clusterID is empty when the deployment
+// targets the primary cluster (deployments.cluster_id IS NULL).
+func (q *Queue) InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error {
+	_, err := q.Insert(ctx, DeployArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
 	return err
 }
 
 // InsertUndeployJob enqueues an undeploy job.
-func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID string) error {
-	_, err := q.Insert(ctx, UndeployArgs{DeploymentID: deploymentID}, nil)
+func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error {
+	_, err := q.Insert(ctx, UndeployArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
 	return err
 }
 
 // InsertWakeUpJob enqueues a wakeup job.
-func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID string) error {
-	_, err := q.Insert(ctx, WakeUpArgs{DeploymentID: deploymentID}, nil)
+func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error {
+	_, err := q.Insert(ctx, WakeUpArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
 	return err
 }
 

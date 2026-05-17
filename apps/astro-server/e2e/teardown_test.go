@@ -64,7 +64,7 @@ func setupTeardownEnv(t *testing.T) *teardownTestEnv {
 	}
 
 	store := ds.NewStore(db)
-	dep := &deployer.Deployer{K8sClient: client}
+	dep := &deployer.Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
 
 	return &teardownTestEnv{
 		t: t, db: db, store: store, client: client, deployer: dep,

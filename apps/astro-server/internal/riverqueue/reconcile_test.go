@@ -41,7 +41,7 @@ func newTestK8sClient(handler http.Handler) k8s.ClusterClient {
 
 var testDeployColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-	"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at", "avatar_colors",
 }
@@ -96,7 +96,7 @@ func k8sNamespaceListLabeledHandler(items ...k8sNS) http.Handler {
 func addDeployRow(rows *sqlmock.Rows, id, namespace, status string) {
 	now := time.Now()
 	rows.AddRow(id, "acct-1", nil, "agent", "build-1", namespace, "agent",
-		"{}", nil, nil,
+		"{}", nil, nil, nil,
 		status, nil, nil, now, nil,
 		now, nil, nil)
 }
@@ -114,7 +114,7 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 	// No orphan recovery expected — the namespace matches a pending deployment.
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 
@@ -152,7 +152,7 @@ func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("warn", "json"),
 	}
 
@@ -195,7 +195,7 @@ func TestMaintainNamespaceOwnership_OrphanRecovered_LabeledSource(t *testing.T) 
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("warn", "json"),
 	}
 
@@ -237,7 +237,7 @@ func TestMaintainNamespaceOwnership_AllLiveStatusesIncluded(t *testing.T) {
 	// No orphan recovery expected — all K8s namespaces are in the DB.
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 
@@ -322,7 +322,7 @@ func TestReconcileOIDCIssuer_SkipsNonOIDCDeployments(t *testing.T) {
 	rows := sqlmock.NewRows(testDeployColumns)
 	now := time.Now()
 	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-ns-0", "agent",
-		`{"interfaces":{"adapters":["web"],"image":"img","resources":{}}}`, nil, nil,
+		`{"interfaces":{"adapters":["web"],"image":"img","resources":{}}}`, nil, nil, nil,
 		"active", nil, nil, now, nil,
 		now, nil, nil)
 	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
@@ -337,7 +337,7 @@ func TestReconcileOIDCIssuer_SkipsNonOIDCDeployments(t *testing.T) {
 	w := &ReconcileWorker{
 		deployer: &deployer.Deployer{Cfg: cfg},
 		store:    store,
-		k8s:      k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -365,7 +365,7 @@ func TestReconcileOIDCIssuer_NoReapplyWhenConfigMatches(t *testing.T) {
 	rows := sqlmock.NewRows(testDeployColumns)
 	now := time.Now()
 	rows.AddRow("dep-1", "acct-1", nil, "agent", "build-1", "astro-ns-0", "agent",
-		oidcSpec, nil, nil,
+		oidcSpec, nil, nil, nil,
 		"active", nil, nil, now, nil,
 		now, nil, nil)
 	mock.ExpectQuery("SELECT .+ FROM deployments").WillReturnRows(rows)
@@ -404,7 +404,7 @@ func TestReconcileOIDCIssuer_NoReapplyWhenConfigMatches(t *testing.T) {
 	w := &ReconcileWorker{
 		deployer: &deployer.Deployer{Cfg: cfg},
 		store:    store,
-		k8s:      k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -1173,7 +1173,7 @@ func TestEscalatePodFailures_StuckOnImagePull_MarksFailed(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 
@@ -1199,7 +1199,7 @@ func TestEscalatePodFailures_FreshPod_NoEscalation(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 
@@ -1230,7 +1230,7 @@ func TestEscalatePodFailures_OnlyScansLiveDeployments(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 
@@ -1290,7 +1290,7 @@ func TestEscalatePodFailures_MultiNamespaceFanIn(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store: store,
-		k8s:   k8sClient,
+		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
 		log:   logger.New("error", "json"),
 	}
 

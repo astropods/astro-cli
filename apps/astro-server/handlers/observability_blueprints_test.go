@@ -371,7 +371,7 @@ func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
 
 	depCols := []string{
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-		"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
 		"deployed_at", "undeployed_at", "avatar_colors",
 	}
@@ -379,7 +379,7 @@ func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(depCols).
 			AddRow("dep-1", "acct-1", nil, "code-reviewer", "b1", "ns-1", "Code Reviewer",
-				"{}", nil, nil, "Running", nil, nil, now, nil, now, nil, nil))
+				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil))
 
 	cfg := &config.Config{}
 	cfg.Deployment.LangfuseBaseURL = langfuseSrv.URL

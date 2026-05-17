@@ -27,7 +27,7 @@ import (
 
 // Deployer handles K8s apply and teardown operations for deployments.
 type Deployer struct {
-	K8sClient    k8s.ClusterClient
+	Registry     *k8s.Registry
 	AccountStore *account.AccountStore
 	Cfg          *config.Config
 	Store        *deploymentstore.Store
@@ -44,6 +44,19 @@ type Deployer struct {
 	// re-checks tenant images against the registry. Defense-in-depth against
 	// stale specs the handler couldn't catch.
 	ImagePreflighter *k8s.ImagePreflighter
+}
+
+func (d *Deployer) clusterClient(ctx context.Context, dep *deploymentstore.Deployment) (k8s.ClusterClient, error) {
+	if d == nil || d.Registry == nil {
+		return nil, fmt.Errorf("deployer: k8s registry not configured")
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployer: nil deployment")
+	}
+	if dep.EffectiveClusterID() == "" {
+		return d.Registry.Default(), nil
+	}
+	return d.Registry.Get(ctx, dep.EffectiveClusterID())
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -100,13 +113,18 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		d.Log.Info("Messaging OIDC configured", "issuer", oidcAuth.Issuer)
 	}
 
+	k8sForDep, err := d.clusterClient(ctx, dep)
+	if err != nil {
+		return nil, fmt.Errorf("resolve k8s client: %w", err)
+	}
+
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
-	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, &ds)
+	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, dep, &ds, k8sForDep)
 	if boundErr != nil {
 		return nil, fmt.Errorf("resolve bound knowledge: %w", boundErr)
 	}
 
-	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
+	applier := k8s.NewApplier(k8sForDep, k8s.ApplierConfig{
 		Namespace:              dep.Namespace,
 		RegistryURL:            d.Cfg.Deployment.RegistryURL,
 		ProxyRegistryHost:      d.Cfg.Deployment.ProxyRegistryHost,
@@ -276,7 +294,7 @@ func (d *Deployer) encryptorForDeployment(
 // store or credentials cannot be resolved — deploying without credentials would
 // produce a running agent that silently fails to connect.
 func (d *Deployer) resolveBoundKnowledge(
-	ctx context.Context, ds *spec.AstroDeploymentSpec,
+	ctx context.Context, dep *deploymentstore.Deployment, ds *spec.AstroDeploymentSpec, k8sForDep k8s.ClusterClient,
 ) (map[string]deployment.BoundKnowledgeInfo, map[string]string, error) {
 	if d.KnowledgeStore == nil {
 		return nil, nil, nil
@@ -314,7 +332,7 @@ func (d *Deployer) resolveBoundKnowledge(
 		}
 		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
 			ctx, store, creds, d.kmsClient(ctx),
-			&k8s.KnowledgeSecretReader{Clientset: d.K8sClient.Clientset()}, storeNS,
+			&k8s.KnowledgeSecretReader{Clientset: k8sForDep.Clientset()}, storeNS,
 		)
 		if resolveErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to resolve credentials for store %q: %w", name, store.ID, resolveErr)
@@ -363,7 +381,11 @@ func buildNamespaceLabels(dep *deploymentstore.Deployment, accountName string) m
 // Teardown deletes the K8s namespace for a deployment, cascading to all resources.
 // Returns nil if the namespace is already gone (idempotent).
 func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment) error {
-	err := d.K8sClient.Clientset().CoreV1().Namespaces().Delete(
+	k8sForDep, err := d.clusterClient(ctx, dep)
+	if err != nil {
+		return fmt.Errorf("resolve k8s client: %w", err)
+	}
+	err = k8sForDep.Clientset().CoreV1().Namespaces().Delete(
 		ctx, dep.Namespace, metav1.DeleteOptions{},
 	)
 	if apierrors.IsNotFound(err) {

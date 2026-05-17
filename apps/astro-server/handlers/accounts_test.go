@@ -420,18 +420,26 @@ func TestCreateAccount_InvalidName(t *testing.T) {
 
 // --- DeleteAccount handler tests ---
 
+// deleteAccountDeploymentColumns matches deploymentstore.deploymentColumns for sqlmock.
+var deleteAccountDeploymentColumns = []string{
+	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+	"status", "error_message", "error_details", "status_changed_at", "current_revision",
+	"deployed_at", "undeployed_at", "avatar_colors",
+}
+
 // deleteAccountMockQueue tracks calls to InsertUndeployJob.
 type deleteAccountMockQueue struct {
 	undeployIDs []string
 	err         error // if non-nil, InsertUndeployJob returns this
 }
 
-func (q *deleteAccountMockQueue) InsertDeployJob(_ context.Context, _ string) error { return nil }
-func (q *deleteAccountMockQueue) InsertUndeployJob(_ context.Context, id string) error {
+func (q *deleteAccountMockQueue) InsertDeployJob(_ context.Context, _, _ string) error { return nil }
+func (q *deleteAccountMockQueue) InsertUndeployJob(_ context.Context, id string, _ string) error {
 	q.undeployIDs = append(q.undeployIDs, id)
 	return q.err
 }
-func (q *deleteAccountMockQueue) InsertWakeUpJob(_ context.Context, _ string) error { return nil }
+func (q *deleteAccountMockQueue) InsertWakeUpJob(_ context.Context, _, _ string) error { return nil }
 
 func setupDeleteAccountTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, *deleteAccountMockQueue) {
 	t.Helper()
@@ -470,14 +478,9 @@ func TestDeleteAccount_Success(t *testing.T) {
 	now := time.Now()
 	rev := 1
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at", "avatar_colors",
-		}).AddRow(
+		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns).AddRow(
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
-			"My Agent", `{}`, nil, nil,
+			"My Agent", `{}`, nil, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil, nil,
 		))
@@ -524,12 +527,7 @@ func TestDeleteAccount_NoDeployments(t *testing.T) {
 
 	// No deployments
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at", "avatar_colors",
-		}))
+		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns))
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount", nil)
 	rec := httptest.NewRecorder()
@@ -786,19 +784,13 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 	now := time.Now()
 	rev := 1
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at", "avatar_colors",
-		}).AddRow(
+		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns).AddRow(
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
-			"My Agent", `{}`, nil, nil,
+			"My Agent", `{}`, nil, nil, nil,
 			"active", nil, nil, now, &rev,
 			now, nil, nil,
 		))
 
-	// UpdateStatus succeeds but InsertUndeployJob fails — handler should still return 200
 	deployMock.ExpectBegin()
 	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).WillReturnResult(sqlmock.NewResult(0, 1))

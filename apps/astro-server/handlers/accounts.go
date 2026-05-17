@@ -364,7 +364,7 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 			log.Error("Failed to list deployments for deleted account", "error", err, "account_id", acct.ID)
 		} else {
 			for _, dep := range deps {
-				if err := EnqueueUndeploy(ctx, deployStore, queue, dep.ID); err != nil {
+				if err := EnqueueUndeploy(ctx, deployStore, queue, dep); err != nil {
 					log.Error("Failed to enqueue undeploy for deleted account", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
 				}
 			}

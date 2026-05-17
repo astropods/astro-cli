@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
@@ -80,7 +81,7 @@ func TestTeardown_NotFound(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"namespaces \"test-ns\" not found","reason":"NotFound","code":404}`))
 	}))
 
-	d := &Deployer{K8sClient: client}
+	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)
@@ -97,7 +98,7 @@ func TestTeardown_Success(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Success"}`))
 	}))
 
-	d := &Deployer{K8sClient: client}
+	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)
@@ -114,7 +115,7 @@ func TestTeardown_ServerError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"internal error","reason":"InternalError","code":500}`))
 	}))
 
-	d := &Deployer{K8sClient: client}
+	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)
@@ -188,6 +189,10 @@ func TestDefaultK8sClientMode(t *testing.T) {
 func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 	// When KnowledgeStore is nil (not configured), bound entries are silently skipped.
 	d := &Deployer{Log: logger.New("error", "json")}
+	noopK8s := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	dep := &deploymentstore.Deployment{ID: "d1"}
 
 	ds := &spec.AstroDeploymentSpec{
 		Knowledge: map[string]spec.DeploymentKnowledge{
@@ -195,7 +200,7 @@ func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 		},
 	}
 
-	bk, bc, err := d.resolveBoundKnowledge(context.Background(), ds)
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds, noopK8s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,6 +211,10 @@ func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 
 func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 	d := &Deployer{Log: logger.New("error", "json")}
+	noopK8s := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	dep := &deploymentstore.Deployment{ID: "d1"}
 
 	ds := &spec.AstroDeploymentSpec{
 		Knowledge: map[string]spec.DeploymentKnowledge{
@@ -213,7 +222,7 @@ func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 		},
 	}
 
-	bk, bc, err := d.resolveBoundKnowledge(context.Background(), ds)
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds, noopK8s)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -30,6 +30,7 @@ type GitHubBuildArgs struct {
 	BuildID       string `json:"build_id"`
 	BuildRecordID string `json:"build_record_id"`
 	Force         bool   `json:"force,omitempty"` // skip subpath-change filtering (manual rebuild)
+	ClusterID     string `json:"cluster_id,omitempty"`
 }
 
 func (GitHubBuildArgs) Kind() string { return "github_build" }
@@ -57,7 +58,8 @@ type GitHubBuildWorker struct {
 	pipesClient *pipes.Client
 	ghStore     *githubconnection.Store
 	agentIndex  *agentindex.Index
-	builder     *githubbuild.Builder
+	builder     *githubbuild.Builder // primary cluster; EnsureInfrastructure only
+	registry    *k8s.Registry
 	cfg         *config.Config
 	log         *logger.Logger
 	omClient    *openmeter.Client
@@ -65,12 +67,17 @@ type GitHubBuildWorker struct {
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
-func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB) *GitHubBuildWorker {
+func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB) *GitHubBuildWorker {
+	var builder *githubbuild.Builder
+	if registry != nil {
+		builder = githubbuild.New(registry.Default(), cfg, log)
+	}
 	return &GitHubBuildWorker{
 		pipesClient: pipesClient,
 		ghStore:     ghStore,
 		agentIndex:  agentIndex,
-		builder:     githubbuild.New(k8sClient, cfg, log),
+		builder:     builder,
+		registry:    registry,
 		cfg:         cfg,
 		log:         log,
 		omClient:    omClient,
@@ -164,6 +171,20 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	agentName := conn.AgentName
 	local := w.cfg.Deployment.K8sClientMode == "local"
 
+	var k8sForBuild k8s.ClusterClient
+	if w.registry != nil {
+		if args.ClusterID != "" {
+			var kerr error
+			k8sForBuild, kerr = w.registry.Get(ctx, args.ClusterID)
+			if kerr != nil {
+				return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, fmt.Errorf("resolve build cluster: %w", kerr))
+			}
+		} else {
+			k8sForBuild = w.registry.Default()
+		}
+	}
+	builder := githubbuild.New(k8sForBuild, w.cfg, w.log)
+
 	pipeline := githubbuild.NewGitHubBuildPipeline(ctx, githubbuild.GitHubBuildConfig{
 		Token:       token.AccessToken,
 		RepoName:    conn.RepoFullName,
@@ -174,7 +195,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		ProxyHost:   w.cfg.Deployment.ProxyRegistryHost,
 		RegistryURL: w.cfg.Deployment.RegistryURL,
 		Local:       local,
-		Builder:     w.builder,
+		Builder:     builder,
 		GHStore:     w.ghStore,
 		AgentIndex:  w.agentIndex,
 		RecordID:    args.BuildRecordID,
