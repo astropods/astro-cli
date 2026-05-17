@@ -24,7 +24,6 @@ function renderInstall({ account = ACCOUNT, agent = AGENT, auth = undefined }: {
     [
       {
         path: ROUTE_PATH,
-        // @ts-expect-error: `matches` won't align between test code and app code
         Component: DeployBlueprint,
       },
     ],
@@ -37,7 +36,6 @@ function renderInstallWithAgentsRoute() {
     [
       {
         path: ROUTE_PATH,
-        // @ts-expect-error: `matches` won't align between test code and app code
         Component: DeployBlueprint,
       },
       {

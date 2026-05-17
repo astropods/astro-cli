@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: #0b0c0f;
+  color: #e6e8ee;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

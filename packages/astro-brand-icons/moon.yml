@@ -1,0 +1,28 @@
+language: "typescript"
+type: "tool"
+
+tasks:
+  process:
+    command: "bun run process"
+    inputs:
+      - "sources/**/*.svg"
+      - "icons.json"
+      - "scripts/**/*.ts"
+    options:
+      cache: false
+  dev:
+    command: "bun run dev"
+    local: true
+    options:
+      cache: false
+      persistent: true
+  typecheck:
+    command: "bun run typecheck"
+    inputs:
+      - "scripts/**/*.ts"
+      - "dev/**/*.ts"
+      - "dev/**/*.tsx"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    options:
+      mergeArgs: "replace"

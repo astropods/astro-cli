@@ -1,0 +1,178 @@
+{
+  "icons": [
+    {
+      "id": "airtable"
+    },
+    {
+      "id": "anthropic"
+    },
+    {
+      "id": "asana"
+    },
+    {
+      "id": "auth0"
+    },
+    {
+      "id": "aws"
+    },
+    {
+      "id": "azure"
+    },
+    {
+      "id": "bitbucket"
+    },
+    {
+      "id": "calendly"
+    },
+    {
+      "id": "clerk"
+    },
+    {
+      "id": "cloudflare"
+    },
+    {
+      "id": "confluence"
+    },
+    {
+      "id": "datadog"
+    },
+    {
+      "id": "discord"
+    },
+    {
+      "id": "docker"
+    },
+    {
+      "id": "dropbox"
+    },
+    {
+      "id": "elasticsearch"
+    },
+    {
+      "id": "figma"
+    },
+    {
+      "id": "gcp"
+    },
+    {
+      "id": "github"
+    },
+    {
+      "id": "gitlab"
+    },
+    {
+      "id": "gmail"
+    },
+    {
+      "id": "google-calendar"
+    },
+    {
+      "id": "google-drive"
+    },
+    {
+      "id": "google-sheets"
+    },
+    {
+      "id": "hubspot"
+    },
+    {
+      "id": "huggingface"
+    },
+    {
+      "id": "intercom"
+    },
+    {
+      "id": "jira"
+    },
+    {
+      "id": "kubernetes"
+    },
+    {
+      "id": "linear"
+    },
+    {
+      "id": "mailchimp"
+    },
+    {
+      "id": "microsoft-teams"
+    },
+    {
+      "id": "mongodb"
+    },
+    {
+      "id": "mysql"
+    },
+    {
+      "id": "neo4j"
+    },
+    {
+      "id": "netlify"
+    },
+    {
+      "id": "notion"
+    },
+    {
+      "id": "openai"
+    },
+    {
+      "id": "pagerduty"
+    },
+    {
+      "id": "pinecone"
+    },
+    {
+      "id": "postgres"
+    },
+    {
+      "id": "qdrant"
+    },
+    {
+      "id": "redis"
+    },
+    {
+      "id": "resend"
+    },
+    {
+      "id": "salesforce"
+    },
+    {
+      "id": "sentry"
+    },
+    {
+      "id": "shopify"
+    },
+    {
+      "id": "slack"
+    },
+    {
+      "id": "snowflake"
+    },
+    {
+      "id": "stripe"
+    },
+    {
+      "id": "supabase"
+    },
+    {
+      "id": "trello"
+    },
+    {
+      "id": "twilio"
+    },
+    {
+      "id": "vercel"
+    },
+    {
+      "id": "weaviate"
+    },
+    {
+      "id": "x"
+    },
+    {
+      "id": "zendesk"
+    },
+    {
+      "id": "zoom"
+    }
+  ]
+}
