@@ -74,4 +74,54 @@ describe("MetricCard", () => {
     expect(card).toHaveClass("bg-card");
     expect(card).not.toHaveClass("bg-white");
   });
+
+  // Label-style change badge (changePct API, used by activity StatCards).
+  // Renders instead of the bold TrendIndicator when `changePct` is set.
+  it("shows ↑ and text-success when changePct is positive and showChange", () => {
+    const { container } = render(
+      <MetricCard label="Cost" value="$10" showChange changePct={25} />
+    );
+    const badge = container.querySelector(".text-success");
+    expect(badge).toBeInTheDocument();
+    expect(badge?.textContent).toContain("↑");
+  });
+
+  it("shows ↓ and text-destructive when changePct is negative and showChange", () => {
+    const { container } = render(
+      <MetricCard label="Cost" value="$10" showChange changePct={-15} />
+    );
+    const badge = container.querySelector(".text-destructive");
+    expect(badge).toBeInTheDocument();
+    expect(badge?.textContent).toContain("↓");
+  });
+
+  it("renders nothing for changePct=null", () => {
+    render(<MetricCard label="Cost" value="$10" showChange changePct={null} />);
+    expect(screen.queryByText("↑")).not.toBeInTheDocument();
+    expect(screen.queryByText("↓")).not.toBeInTheDocument();
+  });
+
+  it("hides change badge when showChange=false even if changePct provided", () => {
+    render(<MetricCard label="Cost" value="$10" showChange={false} changePct={30} />);
+    expect(screen.queryByText("↑")).not.toBeInTheDocument();
+  });
+
+  it("renders sparkline chart when sparkline has more than one point", () => {
+    const { container } = render(
+      <MetricCard
+        label="Cost"
+        value="$10"
+        sparkline={[1, 2, 3, 4, 5]}
+        sparklineDates={["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"]}
+      />
+    );
+    expect(container.querySelector("[class*='recharts']")).toBeTruthy();
+  });
+
+  it("does not render sparkline chart with only one point", () => {
+    const { container } = render(
+      <MetricCard label="Cost" value="$10" sparkline={[5]} />
+    );
+    expect(container.querySelector("[class*='recharts']")).toBeFalsy();
+  });
 });

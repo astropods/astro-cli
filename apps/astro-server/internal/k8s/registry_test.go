@@ -22,9 +22,9 @@ type fakeClient struct{ id string }
 
 func (f *fakeClient) Clientset() *kubernetes.Clientset      { return nil }
 func (f *fakeClient) Config() *rest.Config                  { return nil }
-func (f *fakeClient) CheckHealth() error                      { return nil }
-func (f *fakeClient) GetServerVersion() (string, error)       { return "fake-v0.0.0", nil }
-func (f *fakeClient) DiagnoseConnection() map[string]string   { return map[string]string{"id": f.id} }
+func (f *fakeClient) CheckHealth() error                    { return nil }
+func (f *fakeClient) GetServerVersion() (string, error)     { return "fake-v0.0.0", nil }
+func (f *fakeClient) DiagnoseConnection() map[string]string { return map[string]string{"id": f.id} }
 
 // newRegistryDirect mirrors NewRegistry but injects a stub primary and an
 // empty cache for tests that do not dial Kubernetes.

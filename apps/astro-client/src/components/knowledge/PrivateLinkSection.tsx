@@ -124,7 +124,7 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
               {event.type === "Warning" ? (
                 <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-warning" />
               ) : (
-                <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-500" />
+                <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-500 dark:text-blue-400" />
               )}
               <div className="flex-1 min-w-0">
                 <span className="font-medium text-body-sm text-foreground">{event.reason}</span>

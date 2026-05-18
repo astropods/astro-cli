@@ -23,6 +23,7 @@ import {
   aggregateByLocalDay,
   aggregateRequestsByLocalDay,
 } from "@/components/agent-detail/charts/aggregate-token-buckets";
+import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 
 const RANGES: { key: DayRange; label: string; days: number }[] = [
   { key: "7d", label: "7D", days: 7 },
@@ -126,29 +127,12 @@ export default function AgentMonitor() {
               )}
             </div>
 
-            {/* Range picker */}
-            <div className="flex items-center rounded-md border border-border bg-surface/60 p-0.5">
-              {RANGES.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setRange(key)}
-                  aria-pressed={key === range}
-                  className={cn(
-                    "relative rounded-[10px] px-3 py-1 text-mono-sm font-medium transition-colors",
-                    key === range ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {key === range && (
-                    <motion.div
-                      layoutId="monitor-range-pill"
-                      className="absolute inset-0 rounded-[10px] bg-primary/15 dark:bg-white/10"
-                      transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
-                    />
-                  )}
-                  <span className="relative">{label}</span>
-                </button>
-              ))}
-            </div>
+            <TimeRangeSelector
+              value={range}
+              ranges={RANGES}
+              onChange={(r) => setRange(r as DayRange)}
+              layoutId="monitor-range-pill"
+            />
           </div>
 
           {/* Chart */}

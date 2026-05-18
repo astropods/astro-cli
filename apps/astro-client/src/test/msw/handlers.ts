@@ -12,9 +12,7 @@ import type {
   ObservabilitySummaryResponse,
   ObservabilityTracesResponse,
   TraceDetailResponse,
-  AccountObservabilitySummaryResponse,
   AccountUsageResponse,
-  AccountMembersResponse,
   DeploymentEventsResponse,
   AccountPublic,
   AccountOrgsResponse,
@@ -158,8 +156,6 @@ export const mockTemplate: DeploymentTemplate = {
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
-/** Wraps a legacy DeploymentTemplate into a TemplateResponse envelope for the POST endpoint.
- *  Optionally merges request inputs (interfaces, variables) to simulate server-side shaping. */
 export function wrapTemplateResponse(
   tmpl: DeploymentTemplate,
   reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> },
@@ -181,7 +177,6 @@ export function wrapTemplateResponse(
       };
     }
   }
-  // Shape interfaces — mirrors server: promote user-editable fields to response root
   const interfaces = rest.interfaces as Record<string, unknown> | undefined;
   const shapedAdapters = (reqAdapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
   const shapedAuth = interfaces?.auth as { web?: { type?: string } } | undefined;
@@ -189,7 +184,6 @@ export function wrapTemplateResponse(
     ? { ...rest, interfaces: { ...interfaces, adapters: reqAdapters } }
     : rest;
 
-  // Build schema variables (mirrors server's schemaVars) with shaped optionality
   const schemaVars: Record<string, DeploymentVariable> = {};
   if (variables) {
     for (const [k, v] of Object.entries(variables)) {
@@ -198,7 +192,6 @@ export function wrapTemplateResponse(
     }
   }
 
-  // Extract schedules — apply request overrides, then promote to response root
   const schedules: Record<string, string> = {};
   const ingestion = rest.ingestion as Record<string, { trigger?: { type?: string; schedule?: string } }> | undefined;
   if (ingestion) {
@@ -294,22 +287,6 @@ export const handlers = [
   // GET /api/v1/accounts/:account/orgs
   http.get('/api/v1/accounts/:account/orgs', () => {
     return HttpResponse.json<AccountOrgsResponse>({ orgs: [] });
-  }),
-
-  // GET /api/v1/accounts/:account/members
-  http.get('/api/v1/accounts/:account/members', () => {
-    return HttpResponse.json<AccountMembersResponse>({ members: [] });
-  }),
-
-  // GET /api/v1/accounts/:account/observability/summary
-  http.get('/api/v1/accounts/:account/observability/summary', () => {
-    return HttpResponse.json<AccountObservabilitySummaryResponse>({
-      period: { start: '', end: '', days: 0 },
-      totals: { cost_usd: 0, requests: 0, input_tokens: 0, output_tokens: 0, active_agents: 0 },
-      daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
-      cost_over_time: [],
-      cost_by_model: [],
-    });
   }),
 
   // GET /api/v1/accounts/:account/usage
@@ -457,4 +434,5 @@ export const handlers = [
       resources: [{ kind: 'Deployment', name: body.deployment_id, status: 'deleted' }],
     });
   }),
+
 ];

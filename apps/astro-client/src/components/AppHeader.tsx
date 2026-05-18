@@ -9,12 +9,12 @@ import {
   SunIcon,
   MoonIcon,
   ComputerDesktopIcon,
+  UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import { Telescope } from "lucide-react";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
-import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
+import { insightsPath, dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -130,7 +130,7 @@ export function AppHeader() {
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [...publicNav, { label: "Agents", to: dashboardPath }, { label: "Knowledge", to: knowledgePath }]
+    ? [...publicNav, { label: "Agents", to: dashboardPath }, { label: "Insights", to: insightsPath }, { label: "Knowledge", to: knowledgePath }]
     : [...publicNav];
 
   if (isMobile) {

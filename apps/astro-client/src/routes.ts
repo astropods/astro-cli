@@ -25,6 +25,7 @@ export default [
       route("getting-started", "pages/NewBlueprint.tsx", { id: "getting-started" }),
       route("new/custom", "pages/NewBlueprint.tsx", { id: "new-custom" }),
       route("agents", "pages/AgentDashboard.tsx"),
+      route("insights", "pages/Insights.tsx"),
       route("knowledge", "pages/knowledge/KnowledgeStores.tsx"),
       route("knowledge/new", "pages/knowledge/NewKnowledgeStore/NewKnowledgeStore.tsx"),
       route("knowledge/:storeName", "pages/knowledge/KnowledgeStoreDetail/KnowledgeStoreDetail.tsx"),

@@ -2,13 +2,12 @@ import { Outlet, useParams, useOutletContext, useLocation } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import type { Route } from "./+types/AgentDetail";
 import { createServerApi } from "@/lib/api.server";
-import { StarField } from "@/components/agent-detail/starfield/StarField";
+import { PageStarField } from "@/components/agent-detail/starfield/PageStarField";
 import { AgentTabBar } from "@/components/agent-detail/AgentTabBar";
 import { AgentIdentity } from "@/components/agent-detail/AgentIdentity";
 import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
 import { useDeployment } from "@/api/queries/deployments";
 import type { AgentDeployment } from "@/lib/api";
-import { useResolvedTheme } from "@/lib/theme";
 import { ArrowUpRight } from "lucide-react";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -48,14 +47,6 @@ export function useAgentDetailContext() {
   return useOutletContext<AgentDetailContext>();
 }
 
-const STARFIELD_COLORS = {
-  darkBg: "linear-gradient(to top, color-mix(in srgb, var(--color-indigo-900) 18%, var(--color-background)), var(--color-background))",
-  lightBg: "linear-gradient(in oklch to bottom, color-mix(in srgb, var(--color-blue-500) 60%, var(--color-surface)) 0%, color-mix(in srgb, var(--color-blue-500) 40%, var(--color-surface)) 70%, color-mix(in srgb, var(--color-blue-500) 25%, var(--color-surface)) 80%, color-mix(in srgb, var(--color-pink-500) 12%, var(--color-surface)) 93%, color-mix(in srgb, var(--color-amber-500) 20%, var(--color-surface)) 100%)",
-  darkStars: "oklch(87.08% 0.0571 272.201)", // indigo-200
-  lightStars: "#ffffff",
-  darkCloudColor: "oklch(58.40% 0.2055 274.722)", // indigo-500
-  lightCloudColor: "#ffffff",
-};
 
 export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { account, deploymentId } = useParams<{ account: string; deploymentId: string }>();
@@ -69,22 +60,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const deployment = data?.deployment ?? loaderData.deployment;
   const messagingUrl = deployment?.external_urls?.find(u => u.type === 'messaging')?.url;
 
-  const resolvedTheme = useResolvedTheme();
-  const isDark = resolvedTheme === "dark";
-  const starFieldColor = isDark ? STARFIELD_COLORS.darkStars : STARFIELD_COLORS.lightStars;
-  const cloudColor = isDark ? STARFIELD_COLORS.darkCloudColor : STARFIELD_COLORS.lightCloudColor;
-
   const context: AgentDetailContext | null = deployment
     ? { deployment, account: account ?? "", deploymentId: deploymentId ?? "" }
     : null;
 
   return (
     <div key={deploymentId} className="relative -mt-px min-h-0 flex-1">
-    <div
-      className="absolute inset-0 flex overflow-hidden [--sf-bg:var(--sf-bg-light)] dark:[--sf-bg:var(--sf-bg-dark)]"
-      style={{ '--sf-bg-light': STARFIELD_COLORS.lightBg, '--sf-bg-dark': STARFIELD_COLORS.darkBg } as React.CSSProperties}
-    >
-      <StarField backgroundColor="var(--sf-bg)" starColor={starFieldColor} starOpacity={isDark ? 1 : 10} starDensity={isDark ? 1 : 2} cloudColor={cloudColor} cloudOpacity={isDark ? 1 : 6} direction="right" speed={0.5} seed={95522} />
+    <div className="absolute inset-0 flex overflow-hidden">
+      <PageStarField className="absolute inset-0" />
       {/* Softens the hard edge between the site header and the starfield */}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-10 dark:block hidden"

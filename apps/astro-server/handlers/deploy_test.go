@@ -6080,18 +6080,18 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 	deployMock.ExpectBegin()
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WithArgs(
-			sqlmock.AnyArg(), // $1  id
-			sqlmock.AnyArg(), // $2  account_id
-			sqlmock.AnyArg(), // $3  source_account_id (nilIfEmpty → nil)
-			sqlmock.AnyArg(), // $4  agent_name
-			sqlmock.AnyArg(), // $5  build_id
-			sqlmock.AnyArg(), // $6  namespace
-			sqlmock.AnyArg(), // $7  display_name
-			sqlmock.AnyArg(), // $8  deployment_spec_json
-			sqlmock.AnyArg(), // $9  encrypted_data_key
-			sqlmock.AnyArg(), // $10 kms_key_arn
+			sqlmock.AnyArg(),    // $1  id
+			sqlmock.AnyArg(),    // $2  account_id
+			sqlmock.AnyArg(),    // $3  source_account_id (nilIfEmpty → nil)
+			sqlmock.AnyArg(),    // $4  agent_name
+			sqlmock.AnyArg(),    // $5  build_id
+			sqlmock.AnyArg(),    // $6  namespace
+			sqlmock.AnyArg(),    // $7  display_name
+			sqlmock.AnyArg(),    // $8  deployment_spec_json
+			sqlmock.AnyArg(),    // $9  encrypted_data_key
+			sqlmock.AnyArg(),    // $10 kms_key_arn
 			"eu-west-1-managed", // $11 cluster_id — the new pin
-			sqlmock.AnyArg(), // $12 status
+			sqlmock.AnyArg(),    // $12 status
 		).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",

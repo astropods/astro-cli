@@ -1030,9 +1030,9 @@ type ContainerStatus struct {
 // Field population by Kind:
 //   - Deployment / StatefulSet: Phase, PodName, Containers, URLs
 //   - Job:                       Status, StartTime, Completions, Containers
-//                                (from the executing pod, when present)
+//     (from the executing pod, when present)
 //   - CronJob:                   Status, Schedule, StartTime (last fire),
-//                                Runs (child Jobs)
+//     Runs (child Jobs)
 type WorkloadDetail struct {
 	Name      string `json:"name"`      // k8s resource name
 	Kind      string `json:"kind"`      // "Deployment", "StatefulSet", "Job", "CronJob"
@@ -1051,10 +1051,10 @@ type WorkloadDetail struct {
 	// Long-running kinds leave Status empty — their health is read from
 	// Containers[].Ready instead.
 	Status      string      `json:"status,omitempty"`
-	Schedule    string      `json:"schedule,omitempty"`     // cron expression (CronJob only)
-	StartTime   string      `json:"start_time,omitempty"`   // Job: pod start. CronJob: last schedule time.
-	Completions string      `json:"completions,omitempty"`  // "succeeded/desired" (Job only)
-	Runs        []JobDetail `json:"runs,omitempty"`         // CronJob children, oldest-first
+	Schedule    string      `json:"schedule,omitempty"`    // cron expression (CronJob only)
+	StartTime   string      `json:"start_time,omitempty"`  // Job: pod start. CronJob: last schedule time.
+	Completions string      `json:"completions,omitempty"` // "succeeded/desired" (Job only)
+	Runs        []JobDetail `json:"runs,omitempty"`        // CronJob children, oldest-first
 }
 
 // JobDetail represents a single K8s Job execution — used both for standalone

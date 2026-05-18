@@ -113,9 +113,9 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 
 	// No orphan recovery expected — the namespace matches a pending deployment.
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.maintainNamespaceOwnership(t.Context())
@@ -151,9 +151,9 @@ func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 	mock.ExpectCommit()
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("warn", "json"),
+		log:      logger.New("warn", "json"),
 	}
 
 	w.maintainNamespaceOwnership(t.Context())
@@ -194,9 +194,9 @@ func TestMaintainNamespaceOwnership_OrphanRecovered_LabeledSource(t *testing.T) 
 	mock.ExpectCommit()
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("warn", "json"),
+		log:      logger.New("warn", "json"),
 	}
 
 	w.maintainNamespaceOwnership(t.Context())
@@ -236,9 +236,9 @@ func TestMaintainNamespaceOwnership_AllLiveStatusesIncluded(t *testing.T) {
 
 	// No orphan recovery expected — all K8s namespaces are in the DB.
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.maintainNamespaceOwnership(t.Context())
@@ -1172,9 +1172,9 @@ func TestEscalatePodFailures_StuckOnImagePull_MarksFailed(t *testing.T) {
 	mock.ExpectCommit()
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.escalatePodFailures(t.Context())
@@ -1198,9 +1198,9 @@ func TestEscalatePodFailures_FreshPod_NoEscalation(t *testing.T) {
 	// No UPDATE expected — pod isn't old enough.
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.escalatePodFailures(t.Context())
@@ -1229,9 +1229,9 @@ func TestEscalatePodFailures_OnlyScansLiveDeployments(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(testDeployColumns))
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.escalatePodFailures(t.Context())
@@ -1289,9 +1289,9 @@ func TestEscalatePodFailures_MultiNamespaceFanIn(t *testing.T) {
 	mock.ExpectCommit()
 
 	w := &ReconcileWorker{
-		store: store,
+		store:    store,
 		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
-		log:   logger.New("error", "json"),
+		log:      logger.New("error", "json"),
 	}
 
 	w.escalatePodFailures(t.Context())

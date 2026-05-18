@@ -36,7 +36,7 @@ type Config struct {
 	AccountStore         *account.AccountStore
 	AgentIndex           *agentindex.Index
 	AvatarStore          *avatar.Store
-	K8sRegistry *k8s.Registry
+	K8sRegistry          *k8s.Registry
 	K8sCache             k8scache.Cache
 	ServerConfig         *config.Config
 	WorkOSAPIKey         string

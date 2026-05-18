@@ -1,6 +1,62 @@
 import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import type { AccountObservabilitySummaryResponse, AccountBlueprintsSummaryResponse } from '@/lib/api';
 import { observabilityKeys } from './keys';
+
+const ACTIVITY_QUERY_OPTS = {
+  staleTime: 1000 * 60 * 5,
+  gcTime: 1000 * 60 * 30,
+  placeholderData: keepPreviousData,
+  retry: false,
+  refetchOnWindowFocus: false,
+} as const;
+
+const LIVE_QUERY_OPTS = {
+  staleTime: 0,
+  gcTime: 1000 * 60 * 30,
+  placeholderData: keepPreviousData,
+  retry: false,
+  refetchOnWindowFocus: false,
+} as const;
+
+function buildDateParams(from?: string, to?: string): Record<string, string> {
+  const p: Record<string, string> = {};
+  if (from) p.from = from;
+  if (to) p.to = to;
+  return p;
+}
+
+export function useAccountActivitySummary(
+  account: string,
+  from?: string,
+  to?: string,
+  opts?: { initialData?: AccountObservabilitySummaryResponse },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.activitySummary(account, from, to),
+    queryFn: () => api.getAccountObservabilitySummary(account, buildDateParams(from, to)),
+    enabled: !!account,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    ...ACTIVITY_QUERY_OPTS,
+  });
+}
+
+export function useBlueprintsSummary(
+  account: string,
+  from?: string,
+  to?: string,
+  opts?: { initialData?: AccountBlueprintsSummaryResponse },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.blueprintsSummary(account, from, to),
+    queryFn: () => api.getAccountBlueprintsSummary(account, buildDateParams(from, to)),
+    enabled: !!account,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    ...ACTIVITY_QUERY_OPTS,
+  });
+}
 
 export function useAccountObservabilitySummary(
   account: string,
@@ -25,11 +81,7 @@ export function useObservabilityMetrics(
     queryKey: observabilityKeys.metrics(deploymentId, opts?.window),
     queryFn: () => api.getObservabilityMetrics(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
-    staleTime: 0,
-    gcTime: 1000 * 60 * 30,
-    placeholderData: keepPreviousData,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...LIVE_QUERY_OPTS,
   });
 }
 
@@ -39,11 +91,7 @@ export function useObservabilitySummaries(deploymentIds: string[]) {
       queryKey: observabilityKeys.summary(id),
       queryFn: () => api.getObservabilitySummary(id),
       enabled: !!id,
-      staleTime: 0,
-      gcTime: 1000 * 60 * 30,
-      placeholderData: keepPreviousData,
-      retry: false,
-      refetchOnWindowFocus: false,
+      ...LIVE_QUERY_OPTS,
     })),
   });
 }
@@ -57,11 +105,7 @@ export function useObservabilitySummary(
     queryKey: observabilityKeys.summary(deploymentId, opts?.window),
     queryFn: () => api.getObservabilitySummary(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
-    staleTime: 0,
-    gcTime: 1000 * 60 * 30,
-    placeholderData: keepPreviousData,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...LIVE_QUERY_OPTS,
   });
 }
 
@@ -74,11 +118,7 @@ export function useObservabilityTraces(
     queryKey: observabilityKeys.traces(deploymentId, opts?.window),
     queryFn: () => api.getObservabilityTraces(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
-    staleTime: 0,
-    gcTime: 1000 * 60 * 30,
-    placeholderData: keepPreviousData,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...LIVE_QUERY_OPTS,
   });
 }
 
@@ -91,11 +131,9 @@ export function useObservabilityTraceDetail(
     queryKey: observabilityKeys.traceDetail(deploymentId, traceId ?? ''),
     queryFn: () => api.getObservabilityTraceDetail(deploymentId, traceId!),
     enabled: (opts?.enabled ?? true) && !!deploymentId && !!traceId,
-    // Trace details are immutable once written, so a longer staleTime keeps the
-    // panel snappy when navigating between traces.
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 30,
-    retry: false,
-    refetchOnWindowFocus: false,
+    ...ACTIVITY_QUERY_OPTS,
+    // Trace records are immutable once written; longer staleTime keeps the panel snappy when navigating between traces.
+    // placeholderData disabled: showing stale data from a different trace would be confusing.
+    placeholderData: undefined,
   });
 }

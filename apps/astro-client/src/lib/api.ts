@@ -2,6 +2,10 @@
 
 import type { LogEntry } from "./log-utils";
 
+function buildQS(params?: Record<string, string>): string {
+  return params ? `?${new URLSearchParams(params)}` : '';
+}
+
 export interface User {
   id: string;
   email: string;
@@ -598,9 +602,8 @@ class ApiClient {
     deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilityMetricsResponse> {
-    const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilityMetricsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/metrics${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/metrics${buildQS(params)}`
     );
   }
 
@@ -608,9 +611,8 @@ class ApiClient {
     deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilitySummaryResponse> {
-    const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilitySummaryResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${buildQS(params)}`
     );
   }
 
@@ -618,9 +620,17 @@ class ApiClient {
     account: string,
     params?: Record<string, string>,
   ): Promise<AccountObservabilitySummaryResponse> {
-    const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<AccountObservabilitySummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/summary${qs}`
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/summary${buildQS(params)}`
+    );
+  }
+
+  async getAccountBlueprintsSummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountBlueprintsSummaryResponse> {
+    return this.request<AccountBlueprintsSummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/blueprints-summary${buildQS(params)}`
     );
   }
 
@@ -638,9 +648,8 @@ class ApiClient {
     deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilityTracesResponse> {
-    const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilityTracesResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${buildQS(params)}`
     );
   }
 
@@ -1617,6 +1626,25 @@ export interface AccountObservabilitySummaryResponse {
     models: Array<{ model: string; cost_usd: number }>;
   }>;
   cost_by_model: Array<{ model: string; cost_usd: number; cost_pct: number }>;
+  sparklines?: { cost: number[]; requests: number[]; tokens: number[] };
+}
+
+export interface AccountBlueprintsSummaryResponse {
+  blueprints: Array<{
+    agent_name: string;
+    requests: number;
+    cost_usd: number;
+    cost_per_request: number;
+    input_tokens: number;
+    output_tokens: number;
+    tok_per_request: number;
+    p95_latency_ms: number;
+    top_model: string;
+    cost_over_time?: Array<{ date: string; cost_usd: number }>;
+    requests_over_time?: Array<{ date: string; requests: number }>;
+    tokens_over_time?: Array<{ date: string; input_tokens: number; output_tokens: number }>;
+  }>;
+  period: { start: string; end: string; days: number };
 }
 
 export interface ObservabilityTracesResponse {

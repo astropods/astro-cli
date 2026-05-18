@@ -31,12 +31,14 @@ interface MultiSelectRootProps {
   value: string[];
   onValueChange: (v: string[]) => void;
   children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-function MultiSelect({ value, onValueChange, children }: MultiSelectRootProps) {
+function MultiSelect({ value, onValueChange, children, open, onOpenChange }: MultiSelectRootProps) {
   return (
     <MultiSelectContext.Provider value={{ value, onValueChange }}>
-      <PopoverPrimitive.Root data-slot="multi-select">
+      <PopoverPrimitive.Root data-slot="multi-select" open={open} onOpenChange={onOpenChange}>
         {children}
       </PopoverPrimitive.Root>
     </MultiSelectContext.Provider>
