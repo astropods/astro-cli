@@ -251,7 +251,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			if ds.Knowledge == nil {
 				ds.Knowledge = make(map[string]spec.DeploymentKnowledge)
 			}
-			dk := buildDeploymentKnowledge(knowledge, input)
+			dk := buildDeploymentKnowledge(knowledge, name, input)
 			ds.Knowledge[name] = dk
 
 			primaryEp := primaryEndpointName(dk.Endpoints)
@@ -306,7 +306,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			if ds.Integrations == nil {
 				ds.Integrations = make(map[string]spec.DeploymentIntegration)
 			}
-			dt := buildDeploymentIntegration(tool, input)
+			dt := buildDeploymentIntegration(tool, name, input)
 			ds.Integrations[name] = dt
 
 			primaryEp := primaryEndpointName(dt.Endpoints)
@@ -339,7 +339,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	if len(astroSpec.Ingestion) > 0 {
 		ds.Ingestion = make(map[string]spec.DeploymentIngestion, len(astroSpec.Ingestion))
 		for name, ingestion := range astroSpec.Ingestion {
-			ds.Ingestion[name] = buildDeploymentIngestion(ingestion, input)
+			ds.Ingestion[name] = buildDeploymentIngestion(ingestion, name, input)
 		}
 	}
 
@@ -1003,15 +1003,23 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 	return dm
 }
 
-func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spec.DeploymentKnowledge {
+func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input TemplateInput) spec.DeploymentKnowledge {
 	container := knowledge.ResolvedContainer()
 	port := container.Port
 	if port == 0 {
 		port = 8080
 	}
 
+	// When the source spec uses container.build without an explicit image,
+	// synthesize an image name so the deployment spec passes validation.
+	// This mirrors the naming convention in TransformSpecForRegistry.
+	image := container.Image
+	if image == "" && knowledge.Container != nil && knowledge.Container.Build != nil {
+		image = fmt.Sprintf("%s-knowledge-%s", input.AgentName, name)
+	}
+
 	dk := spec.DeploymentKnowledge{
-		Image:       resolveImage(container.Image, input),
+		Image:       resolveImage(image, input),
 		Endpoints:   spec.SingleEndpoint("http", port, "http"),
 		Replicas:    1,
 		Resources:   spec.StandardResources,
@@ -1086,7 +1094,7 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 	return dk
 }
 
-func buildDeploymentIntegration(tool spec.Integration, input TemplateInput) spec.DeploymentIntegration {
+func buildDeploymentIntegration(tool spec.Integration, name string, input TemplateInput) spec.DeploymentIntegration {
 	port := 8080
 	dt := spec.DeploymentIntegration{
 		Replicas:  1,
@@ -1094,7 +1102,11 @@ func buildDeploymentIntegration(tool spec.Integration, input TemplateInput) spec
 		Update:    spec.DefaultUpdateStrategy(),
 	}
 	if tool.Container != nil {
-		dt.Image = resolveImage(tool.Container.Image, input)
+		image := tool.Container.Image
+		if image == "" && tool.Container.Build != nil {
+			image = fmt.Sprintf("%s-integration-%s", input.AgentName, name)
+		}
+		dt.Image = resolveImage(image, input)
 		if tool.Container.Port != 0 {
 			port = tool.Container.Port
 		}
@@ -1107,8 +1119,12 @@ func buildDeploymentIntegration(tool spec.Integration, input TemplateInput) spec
 	return dt
 }
 
-func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spec.DeploymentIngestion {
-	image := resolveImage(ingestion.Container.Image, input)
+func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input TemplateInput) spec.DeploymentIngestion {
+	imageName := ingestion.Container.Image
+	if imageName == "" && ingestion.Container.Build != nil {
+		imageName = fmt.Sprintf("%s-ingestion-%s", input.AgentName, name)
+	}
+	image := resolveImage(imageName, input)
 	di := spec.DeploymentIngestion{
 		Image:     image,
 		Resources: spec.StandardResources,

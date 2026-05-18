@@ -561,6 +561,37 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM_DB_PORT", "${knowledge.custom_db.http.port}")
 }
 
+func TestTemplate_ContainerKnowledge_BuildWithoutImage(t *testing.T) {
+	input := baseInput()
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"chat-sandbox": {
+			Container: &spec.ContainerConfig{
+				Build: &spec.BuildConfig{
+					Context:    ".",
+					Dockerfile: "sandbox/Dockerfile",
+				},
+				Port:   3000,
+				Volume: "/data",
+			},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	k := ds.Knowledge["chat-sandbox"]
+	// Image should be synthesized from agent name + knowledge entry name
+	expectedImage := "registry.example.com/dockerhub/library/my-agent-knowledge-chat-sandbox"
+	if k.Image != expectedImage {
+		t.Errorf("image: expected %s, got %s", expectedImage, k.Image)
+	}
+	if spec.PrimaryPort(k.Endpoints) != 3000 {
+		t.Errorf("endpoints primary port: expected 3000, got %d", spec.PrimaryPort(k.Endpoints))
+	}
+	if !k.Persistent {
+		t.Error("persistent: expected true (volume is set)")
+	}
+}
+
 func TestTemplate_ProviderKnowledge_Postgres(t *testing.T) {
 	input := baseInput()
 	input.Spec.Knowledge = map[string]spec.Knowledge{
