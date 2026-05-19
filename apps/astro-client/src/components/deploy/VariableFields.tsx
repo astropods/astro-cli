@@ -7,6 +7,8 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
+import { InlineBadge } from "@/components/InlineBadge";
+import { cn } from "@/lib/utils";
 import { VariableField, humanizeKey } from "./VariableField";
 import type { AccountVariable } from "@/lib/api";
 
@@ -23,6 +25,9 @@ export interface VariableDisplay {
   displayAs?: string;
   options?: string[];
   defaultValue?: string;
+  // Non-empty when the variable/sub-field is deprecated; carries the
+  // migration message shown in a tooltip next to the "Deprecated" badge.
+  deprecated?: string;
 }
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */
@@ -62,13 +67,31 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
             {v.datatype !== "boolean" && (
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor={key} size="md" className="mb-0">
+                  <Label
+                    htmlFor={key}
+                    size="md"
+                    className={cn("mb-0", v.deprecated && "line-through text-muted-foreground")}
+                  >
                     {v.label ?? humanizeKey(key)}
                   </Label>
-                  {v.optional && (
+                  {v.deprecated && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span tabIndex={0} className="inline-flex cursor-help">
+                          <InlineBadge variant="soft" className="text-muted-foreground border-border">
+                            Deprecated
+                          </InlineBadge>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={4}>
+                        {v.deprecated}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {v.optional && !v.deprecated && (
                     <span className="text-xs text-muted-foreground">Optional</span>
                   )}
-                  {v.description && (
+                  {v.description && !v.deprecated && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
@@ -92,18 +115,20 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
                 )}
               </div>
             )}
-            <VariableField
-              fieldKey={key}
-              meta={v}
-              value={values[key] || ""}
-              onChange={(val) => handleFieldChange(key, val)}
-              hasError={errorKeys?.includes(key)}
-              refInvalid={invalidRefKeys?.includes(key)}
-              account={account}
-              vaultEntries={vaultEntries}
-              vaultSettingsUrl={vaultSettingsUrl}
-              vaultLoadError={vaultLoadError}
-            />
+            <div className={cn(v.deprecated && "opacity-60 focus-within:opacity-100 transition-opacity")}>
+              <VariableField
+                fieldKey={key}
+                meta={v}
+                value={values[key] || ""}
+                onChange={(val) => handleFieldChange(key, val)}
+                hasError={errorKeys?.includes(key)}
+                refInvalid={invalidRefKeys?.includes(key)}
+                account={account}
+                vaultEntries={vaultEntries}
+                vaultSettingsUrl={vaultSettingsUrl}
+                vaultLoadError={vaultLoadError}
+              />
+            </div>
             {errorKeys?.includes(key) && (
               <p className="text-destructive text-xs mt-1">
                 {values[key] ? 'Variable not found in selected account' : 'Required'}

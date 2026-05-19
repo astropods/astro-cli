@@ -138,6 +138,7 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
     displayAs: v['display-as'],
     options: v.options,
     defaultValue: v.default,
+    deprecated: v.deprecated,
   };
 }
 
@@ -605,6 +606,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
             placeholder: fieldDef.placeholder,
             optional: fieldDef.optional ?? true,
             secret: false,
+            deprecated: fieldDef.deprecated,
           }]);
         }
       }

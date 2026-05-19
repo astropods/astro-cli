@@ -754,6 +754,7 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 					Placeholder: "U12345, U67890",
 					Datatype:    "csv",
 					Optional:    true,
+					Deprecated:  "User-ID gating is no longer enforced. Restrict access via allowed_channel_ids instead.",
 				},
 				"observe_channel_ids": {
 					Label:       "Observe Channel IDs",

@@ -1181,6 +1181,9 @@ export interface DeploymentVariable {
   'display-as'?: string;
   options?: string[];
   fields?: Record<string, VariableField>;
+  // Non-empty when the variable is deprecated; carries the migration message
+  // the UI surfaces in a tooltip next to a "Deprecated" badge.
+  deprecated?: string;
 }
 
 export interface VariableField {
@@ -1189,6 +1192,9 @@ export interface VariableField {
   placeholder?: string;
   datatype?: string;
   optional?: boolean;
+  // Non-empty when the sub-field is deprecated; same semantics as
+  // DeploymentVariable.deprecated.
+  deprecated?: string;
 }
 
 export interface AccountVariable {

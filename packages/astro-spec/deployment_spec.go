@@ -65,6 +65,11 @@ type Variable struct {
 	DisplayAs   string                   `json:"display-as,omitempty" yaml:"display-as,omitempty"`
 	Options     []string                 `json:"options,omitempty" yaml:"options,omitempty"`
 	Fields      map[string]VariableField `json:"fields,omitempty" yaml:"fields,omitempty"` // sub-field schema for datatype=object
+	// Deprecated, when non-empty, signals that the variable is on its way out
+	// and explains what to use instead. The UI demotes deprecated variables
+	// (strike-through label, "Deprecated" badge, tooltip carrying this
+	// message) but keeps them editable so existing values can be cleared.
+	Deprecated string `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
 }
 
 // VariableField describes a single sub-field within an object-typed variable.
@@ -75,6 +80,10 @@ type VariableField struct {
 	Placeholder string `json:"placeholder,omitempty" yaml:"placeholder,omitempty"`
 	Datatype    string `json:"datatype,omitempty" yaml:"datatype,omitempty"` // "csv" for comma-separated arrays, "string", "boolean"
 	Optional    bool   `json:"optional,omitempty" yaml:"optional,omitempty"`
+	// Deprecated, when non-empty, signals that the sub-field is on its way
+	// out and explains what to use instead. Same UI semantics as
+	// Variable.Deprecated.
+	Deprecated string `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
 }
 
 // DeploymentSource identifies the agent being deployed.
