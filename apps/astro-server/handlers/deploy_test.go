@@ -40,6 +40,13 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+func testK8sRegistry(client k8s.ClusterClient) *k8s.Registry {
+	if client == nil {
+		return nil
+	}
+	return k8s.NewRegistryWithPrimary(client)
+}
+
 // --- deploymentNamespace tests ---
 
 func TestDeploymentNamespace_Format(t *testing.T) {
@@ -237,7 +244,7 @@ func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engin
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, testK8sRegistry(k8sClient), deployStore, nil, nil, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -1607,6 +1614,77 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 	}
 }
 
+func TestListDeployments_PerDeploymentClusterRouting(t *testing.T) {
+	depPrimary := deployid.New()
+	depAdditional := deployid.New()
+	nsPrimary := "astro-primary111-0"
+	nsAdditional := "astro-additional222-0"
+	clusterID := "eu-west-1"
+
+	router, deployMock, accountMock := setupListDeploymentsTest(t,
+		k8sListHandler(nsPrimary, "agent-primary", "b1"))
+
+	now := time.Now()
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at", "avatar_colors",
+		}).AddRow(
+			depPrimary, "acct-1", nil, "agent-primary", "b1", nsPrimary, "Primary",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		).AddRow(
+			depAdditional, "acct-1", nil, "agent-other", "b1", nsAdditional, "Other region",
+			`{}`, nil, nil, clusterID,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count       int               `json:"count"`
+		Deployments []AgentDeployment `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 2 {
+		t.Fatalf("expected 2 deployments, got %d", resp.Count)
+	}
+
+	byID := make(map[string]AgentDeployment, len(resp.Deployments))
+	for _, d := range resp.Deployments {
+		byID[d.ID] = d
+	}
+	if byID[depPrimary].Namespace != nsPrimary {
+		t.Errorf("primary dep namespace: got %q want %q", byID[depPrimary].Namespace, nsPrimary)
+	}
+	if byID[depAdditional].ID != depAdditional {
+		t.Errorf("missing additional-cluster deployment row")
+	}
+	// Unknown additional cluster id: no K8s enrichment, DB-only entry still returned.
+	if byID[depAdditional].Name != "agent-other" {
+		t.Errorf("additional dep name: got %q", byID[depAdditional].Name)
+	}
+}
+
 func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.T) {
 	depID := deployid.New()
 	namespace := "astro-agentstatus-0"
@@ -1748,7 +1826,7 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, testK8sRegistry(k8sClient), nil, nil, nil, nil, k8scache.NoopCache{}))
 
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
@@ -4313,7 +4391,7 @@ func setupStopRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmoc
 
 	router := gin.New()
 	router.Use(setAuthUser("user-1"))
-	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore, nil, k8scache.NoopCache{}))
+	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, testK8sRegistry(k8sClient), deployStore, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -4472,7 +4550,7 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, testK8sRegistry(k8sClient), deployStore, nil, nil, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -4569,6 +4647,82 @@ func TestGetDeployment_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	depID := deployid.New()
+	clusterID := "cl-disabled"
+	acctID := uuid.New().String()
+	namespace := "astro-disabled-0"
+	now := time.Now()
+
+	accountDB, accountMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployDB, deployMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clusterDB, clusterMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	primary := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("primary cluster client should not be used when cluster_id is set")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	reg := k8s.NewRegistryWithClusterStore(primary, clusterstore.New(clusterDB), logger.New("error", "json"))
+
+	clusterMock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WithArgs(clusterID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
+		}).AddRow(clusterID, "eu-west-1", "eks-name", "https://endpoint", false, now, now))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, &config.Config{}, reg, deployStore, nil, nil, nil, k8scache.NoopCache{}))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(deploymentByIDColumns).AddRow(
+			depID, acctID, nil, "my-agent", "build-1", namespace, "My Agent",
+			`{}`, nil, nil, clusterID,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Error != "cluster disabled" {
+		t.Fatalf("expected error %q, got %q", "cluster disabled", resp.Error)
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -4751,7 +4905,7 @@ func TestGetDeploymentEvents_Success(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id/events",
-		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, k8scache.NoopCache{}))
+		GetDeploymentEvents(log, accountStore, testK8sRegistry(k8sClient), deployStore, k8scache.NoopCache{}))
 
 	// GetDeploymentByID
 	deployMock.ExpectQuery(`SELECT`).
@@ -4899,7 +5053,7 @@ func TestGetDeploymentEvents_CacheHit(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id/events",
-		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, cache))
+		GetDeploymentEvents(log, accountStore, testK8sRegistry(k8sClient), deployStore, cache))
 
 	// GetDeploymentByID — status is "active" so cache should be used.
 	deployMock.ExpectQuery(`SELECT`).
@@ -4978,7 +5132,7 @@ func TestGetDeploymentEvents_CacheBypassDuringDeploy(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id/events",
-		GetDeploymentEvents(log, accountStore, k8sClient, deployStore, cache))
+		GetDeploymentEvents(log, accountStore, testK8sRegistry(k8sClient), deployStore, cache))
 
 	// GetDeploymentByID — status is "pending" (transitional), so cache should be bypassed.
 	deployMock.ExpectQuery(`SELECT`).

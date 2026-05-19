@@ -114,7 +114,7 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 	// No orphan recovery expected — the namespace matches a pending deployment.
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -152,7 +152,7 @@ func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("warn", "json"),
 	}
 
@@ -195,7 +195,7 @@ func TestMaintainNamespaceOwnership_OrphanRecovered_LabeledSource(t *testing.T) 
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("warn", "json"),
 	}
 
@@ -237,7 +237,7 @@ func TestMaintainNamespaceOwnership_AllLiveStatusesIncluded(t *testing.T) {
 	// No orphan recovery expected — all K8s namespaces are in the DB.
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -337,7 +337,7 @@ func TestReconcileOIDCIssuer_SkipsNonOIDCDeployments(t *testing.T) {
 	w := &ReconcileWorker{
 		deployer: &deployer.Deployer{Cfg: cfg},
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -404,7 +404,7 @@ func TestReconcileOIDCIssuer_NoReapplyWhenConfigMatches(t *testing.T) {
 	w := &ReconcileWorker{
 		deployer: &deployer.Deployer{Cfg: cfg},
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -1173,7 +1173,7 @@ func TestEscalatePodFailures_StuckOnImagePull_MarksFailed(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -1199,7 +1199,7 @@ func TestEscalatePodFailures_FreshPod_NoEscalation(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -1230,7 +1230,7 @@ func TestEscalatePodFailures_OnlyScansLiveDeployments(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 
@@ -1290,7 +1290,7 @@ func TestEscalatePodFailures_MultiNamespaceFanIn(t *testing.T) {
 
 	w := &ReconcileWorker{
 		store:    store,
-		registry: k8s.NewRegistryWithFixedPrimary(k8sClient),
+		registry: k8s.NewRegistryWithPrimary(k8sClient),
 		log:      logger.New("error", "json"),
 	}
 

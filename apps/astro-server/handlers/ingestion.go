@@ -21,7 +21,7 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cfg *config.Config, auditStore *auditlog.Store) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cfg *config.Config, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ingestionName := c.Param("ingestion")
 
@@ -36,8 +36,8 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 			return
 		}
 
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 

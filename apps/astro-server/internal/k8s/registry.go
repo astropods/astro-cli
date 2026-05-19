@@ -80,13 +80,28 @@ func NewRegistry(ctx context.Context, clusterStore *clusterstore.Store, cfg Regi
 	}, nil
 }
 
-// NewRegistryWithFixedPrimary returns a registry for tests or narrow call
-// sites where only Default() is needed. Get returns ErrClusterNotFound for
-// any non-empty id (no cluster store).
-func NewRegistryWithFixedPrimary(primary ClusterClient) *Registry {
+// NewRegistryWithPrimary returns a registry whose Default() is the given client.
+// No clusterstore is attached — Get(id) returns ErrClusterNotFound for every id.
+// Use NewRegistry to build the primary from env/config, or NewRegistryWithClusterStore
+// when tests need additional-cluster lookup.
+func NewRegistryWithPrimary(primary ClusterClient) *Registry {
 	return &Registry{
 		primary: primary,
 		cache:   make(map[string]ClusterClient),
+	}
+}
+
+// NewRegistryWithClusterStore returns a registry for tests that need both
+// Default() and Get() backed by clusterstore rows.
+func NewRegistryWithClusterStore(primary ClusterClient, clusterStore *clusterstore.Store, log *logger.Logger) *Registry {
+	if log == nil {
+		log = logger.New("error", "json")
+	}
+	return &Registry{
+		primary:      primary,
+		clusterStore: clusterStore,
+		log:          log,
+		cache:        make(map[string]ClusterClient),
 	}
 }
 

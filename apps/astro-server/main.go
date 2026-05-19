@@ -435,7 +435,7 @@ func runAPI(
 	imagePreflighter := newImagePreflighter(cfg)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, clusterStore, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, registry, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, clusterStore, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -591,7 +591,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, clusterStore *clusterstore.Store, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sReg *k8s.Registry, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, clusterStore *clusterstore.Store, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
 	billing := openmeter.NewBillingStateManager(omClient, db, log)
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
@@ -1198,7 +1198,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sClient, deploymentStore, auditStore, k8sCache),
+			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sReg, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1210,14 +1210,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sClient, deploymentStore, auditStore),
+			api.POST(protected, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartDeploymentResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient, deploymentStore, auditStore),
+			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1225,7 +1225,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartPodResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient, deploymentStore, cfg, auditStore),
+			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sReg, deploymentStore, cfg, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1278,13 +1278,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.DeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sReg, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
+			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, k8sReg, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1296,7 +1296,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			// authorization endpoint is the messaging-facing
 			// /deployments/authorize wired below behind RequireDeployToken.
 
-			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore, lokiClient),
+			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sReg, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1307,7 +1307,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, k8sClient, deploymentStore, lokiClient),
+			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, k8sReg, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1318,13 +1318,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, nil),
 				oapispec.Response(501, &handlers.ErrorResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, k8sClient, deploymentStore, k8sCache),
+			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, k8sReg, deploymentStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DeploymentEventsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient, deploymentStore),
+			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1332,7 +1332,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ConfigMapDataResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient, deploymentStore),
+			api.GET(protected, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),

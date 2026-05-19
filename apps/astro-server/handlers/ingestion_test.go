@@ -76,7 +76,7 @@ func setupIngestionRouter(
 	testCfg := &config.Config{}
 	router.POST(
 		"/api/v1/deployments/:id/ingestion/:ingestion/trigger",
-		TriggerIngestion(log, index, accountStore, k8sClient, deployStore, testCfg, nil),
+		TriggerIngestion(log, index, accountStore, testK8sRegistry(k8sClient), deployStore, testCfg, nil),
 	)
 	return router, accountMock, indexMock, deployMock
 }

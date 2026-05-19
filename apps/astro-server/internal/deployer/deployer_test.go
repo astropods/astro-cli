@@ -81,7 +81,7 @@ func TestTeardown_NotFound(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"namespaces \"test-ns\" not found","reason":"NotFound","code":404}`))
 	}))
 
-	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
+	d := &Deployer{Registry: k8s.NewRegistryWithPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)
@@ -98,7 +98,7 @@ func TestTeardown_Success(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Success"}`))
 	}))
 
-	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
+	d := &Deployer{Registry: k8s.NewRegistryWithPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)
@@ -115,7 +115,7 @@ func TestTeardown_ServerError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"internal error","reason":"InternalError","code":500}`))
 	}))
 
-	d := &Deployer{Registry: k8s.NewRegistryWithFixedPrimary(client)}
+	d := &Deployer{Registry: k8s.NewRegistryWithPrimary(client)}
 	dep := &deploymentstore.Deployment{Namespace: "test-ns"}
 
 	err := d.Teardown(context.Background(), dep)

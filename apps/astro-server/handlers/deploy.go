@@ -1246,7 +1246,7 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -1283,7 +1283,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			"user_id", user.ID,
 		)
 
-		if k8sClient == nil {
+		if !k8sRegistryReady(k8sReg) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "kubernetes client not configured",
 			})
@@ -1315,7 +1315,17 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		g, gctx := errgroup.WithContext(c.Request.Context())
 		for i, dbDep := range dbDeps {
 			g.Go(func() error {
-				enriched[i] = enrichDeployment(gctx, log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
+				kc, kerr := deploymentClusterClient(gctx, k8sReg, dbDep)
+				if kerr != nil {
+					log.Warn("ListDeployments: skip K8s enrichment",
+						"deployment_id", dbDep.ID,
+						"cluster_id", dbDep.EffectiveClusterID(),
+						"error", kerr,
+					)
+					enriched[i] = []AgentDeployment{agentDeploymentFromDB(log, accountStore, agentIdx, dbDep)}
+					return nil
+				}
+				enriched[i] = enrichDeployment(gctx, log, accountStore, kc, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
 				return nil
 			})
 		}
@@ -1467,14 +1477,14 @@ func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, acco
 
 // GetDeployment returns live K8s status for a single deployment.
 // GET /api/v1/deployments/:id
-func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
 
-		if k8sClient == nil {
+		if !k8sRegistryReady(k8sReg) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
@@ -1482,6 +1492,11 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		dbDep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dbDep)
+		if !ok {
 			return
 		}
 
@@ -2405,21 +2420,22 @@ func cronJobOwner(refs []metav1.OwnerReference) string {
 // by patching spec.template.metadata.annotations with kubectl.kubernetes.io/restartedAt.
 // Kubernetes performs a rolling update: new pod starts and becomes ready before the old one is terminated.
 // POST /api/v1/deployments/:id/restart
-func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
-			return
-		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 
@@ -2518,20 +2534,21 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
 // POST /api/v1/deployments/:id/pods/:pod/restart
-func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 
@@ -2560,7 +2577,7 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 }
 
 // GetDeploymentEvents returns Kubernetes events for a deployment's namespace.
-func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
+func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
 	const cachePrefix = "astro:k8s:events:"
 	const cacheTTL = 10 * time.Minute
 
@@ -2569,7 +2586,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		if k8sClient == nil {
+		if !k8sRegistryReady(k8sReg) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
@@ -2577,6 +2594,11 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 
@@ -2640,7 +2662,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 	}
 }
 
-func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
+func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2651,6 +2673,15 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
+		}
+
+		var k8sClient k8s.ClusterClient
+		if lokiClient == nil {
+			var ok bool
+			k8sClient, ok = clusterClientForDeployment(c, k8sReg, dep)
+			if !ok {
+				return
+			}
 		}
 
 		podName := c.Query("pod")
@@ -2766,7 +2797,7 @@ func resolvePodForStream(ctx context.Context, k8sClient k8s.ClusterClient, names
 
 // StreamDeploymentLogs streams log lines for a deployment workload as Server-Sent Events.
 // heartbeatInterval overrides the 5s default keepalive cadence (useful in tests).
-func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client, heartbeatInterval ...time.Duration) gin.HandlerFunc {
+func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, lokiClient *loki.Client, heartbeatInterval ...time.Duration) gin.HandlerFunc {
 	hbInterval := 5 * time.Second
 	if len(heartbeatInterval) > 0 && heartbeatInterval[0] > 0 {
 		hbInterval = heartbeatInterval[0]
@@ -2781,6 +2812,15 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
+		}
+
+		var k8sClient k8s.ClusterClient
+		if lokiClient == nil {
+			var ok bool
+			k8sClient, ok = clusterClientForDeployment(c, k8sReg, dep)
+			if !ok {
+				return
+			}
 		}
 
 		// workload is the K8s Deployment/StatefulSet name for the agent container,
@@ -3917,20 +3957,21 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 
 // GetConfigMapData returns the key-value data of a ConfigMap in a deployment's namespace.
 // GET /api/v1/deployments/:id/configmap/:cmname
-func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 
@@ -3951,20 +3992,21 @@ func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cf
 
 // GetSecretKeys returns the key names (but NOT values) of a Secret in a deployment's namespace.
 // GET /api/v1/deployments/:id/secret/:secretname/keys
-func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 
@@ -4067,20 +4109,21 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 
 // StopDeployment scales all workloads to zero without deleting resources.
 // POST /api/v1/deployments/:id/stop
-func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
+		if !ok {
 			return
 		}
 

@@ -249,10 +249,10 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 		c.Next()
 	})
 	r.GET("/api/v1/deployments", handlers.ListDeployments(
-		log, accountStore, cfg, k8sClient, deployStore, index, nil, nil, k8scache.NoopCache{},
+		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	r.GET("/api/v1/deployments/:id", handlers.GetDeployment(
-		log, accountStore, cfg, k8sClient, deployStore, index, nil, nil, k8scache.NoopCache{},
+		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	return r
 }
