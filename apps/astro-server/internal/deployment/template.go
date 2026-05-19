@@ -159,7 +159,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			if ds.Models == nil {
 				ds.Models = make(map[string]spec.DeploymentModel)
 			}
-			dm := buildDeploymentModel(model, input)
+			dm := buildDeploymentModel(model, name, input)
 			ds.Models[name] = dm
 
 			// Wire references into agent environment
@@ -355,7 +355,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	agentEnv["ASTRO_AGENT_BUILD"] = "${source.build}"
 
 	// Build agent block
-	agentImage := resolveImage(astroSpec.Agent.Image, input)
+	agentImage := resolveBuiltImage(spec.ComponentAgent, "", astroSpec.Agent.Image, astroSpec.Agent.Build, input)
 	if agentImage == "" {
 		return nil, fmt.Errorf("agent image is not set in spec")
 	}
@@ -910,7 +910,7 @@ func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.Ast
 	template.Editable = filtered
 }
 
-func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
+func buildDeploymentModel(model spec.Model, name string, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()
 	port := container.Port
 	if port == 0 {
@@ -918,7 +918,7 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 	}
 
 	dm := spec.DeploymentModel{
-		Image:       resolveImage(container.Image, input),
+		Image:       resolveBuiltImage(spec.ComponentModel, name, container.Image, container.Build, input),
 		Endpoints:   spec.SingleEndpoint("http", port, "http"),
 		Replicas:    1,
 		Resources:   spec.StandardResources,
@@ -1010,16 +1010,8 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input Templ
 		port = 8080
 	}
 
-	// When the source spec uses container.build without an explicit image,
-	// synthesize an image name so the deployment spec passes validation.
-	// This mirrors the naming convention in TransformSpecForRegistry.
-	image := container.Image
-	if image == "" && knowledge.Container != nil && knowledge.Container.Build != nil {
-		image = fmt.Sprintf("%s-knowledge-%s", input.AgentName, name)
-	}
-
 	dk := spec.DeploymentKnowledge{
-		Image:       resolveImage(image, input),
+		Image:       resolveBuiltImage(spec.ComponentKnowledge, name, container.Image, container.Build, input),
 		Endpoints:   spec.SingleEndpoint("http", port, "http"),
 		Replicas:    1,
 		Resources:   spec.StandardResources,
@@ -1102,11 +1094,7 @@ func buildDeploymentIntegration(tool spec.Integration, name string, input Templa
 		Update:    spec.DefaultUpdateStrategy(),
 	}
 	if tool.Container != nil {
-		image := tool.Container.Image
-		if image == "" && tool.Container.Build != nil {
-			image = fmt.Sprintf("%s-integration-%s", input.AgentName, name)
-		}
-		dt.Image = resolveImage(image, input)
+		dt.Image = resolveBuiltImage(spec.ComponentIntegration, name, tool.Container.Image, tool.Container.Build, input)
 		if tool.Container.Port != 0 {
 			port = tool.Container.Port
 		}
@@ -1120,13 +1108,8 @@ func buildDeploymentIntegration(tool spec.Integration, name string, input Templa
 }
 
 func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input TemplateInput) spec.DeploymentIngestion {
-	imageName := ingestion.Container.Image
-	if imageName == "" && ingestion.Container.Build != nil {
-		imageName = fmt.Sprintf("%s-ingestion-%s", input.AgentName, name)
-	}
-	image := resolveImage(imageName, input)
 	di := spec.DeploymentIngestion{
-		Image:     image,
+		Image:     resolveBuiltImage(spec.ComponentIngestion, name, ingestion.Container.Image, ingestion.Container.Build, input),
 		Resources: spec.StandardResources,
 		Trigger: spec.DeploymentTrigger{
 			Type: ingestion.Trigger.Type,
@@ -1145,6 +1128,19 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input Templ
 		di.Trigger.Schedule = ""
 	}
 	return di
+}
+
+// resolveBuiltImage is resolveImage with a fallback for components whose source
+// spec uses container.build without an explicit image. In that case the image
+// name is synthesized using the canonical {agent}-{kind}-{name} convention so
+// the deployment spec passes validation. This mirrors what the build pipeline
+// does via TransformSpecForRegistry, ensuring the deployment generator works
+// against either a raw or a registry-rewritten spec.
+func resolveBuiltImage(kind spec.ComponentKind, name, image string, build *spec.BuildConfig, input TemplateInput) string {
+	if image == "" && build != nil {
+		image = spec.ComponentImageName(kind, input.AgentName, name)
+	}
+	return resolveImage(image, input)
 }
 
 // resolveImage maps an image reference to its final pull path:

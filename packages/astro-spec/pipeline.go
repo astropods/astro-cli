@@ -31,6 +31,17 @@ func (c Component) Suffix() string {
 	return string(c.Kind) + "-" + c.Name
 }
 
+// ComponentImageName returns the canonical image-name segment for a buildable
+// component. For ComponentAgent the name is ignored and the agent name is
+// returned directly; all other kinds use the {agent}-{kind}-{name} convention
+// (e.g. "my-agent-knowledge-docs").
+func ComponentImageName(kind ComponentKind, agentName, name string) string {
+	if kind == ComponentAgent {
+		return agentName
+	}
+	return fmt.Sprintf("%s-%s-%s", agentName, kind, name)
+}
+
 // CollectComponents returns every component in the spec that has a build block.
 // Components without a build block are omitted. The returned list uses canonical
 // naming: {agent}-integration-{name} for integrations (matching the spec key),
@@ -41,7 +52,7 @@ func CollectComponents(s *AstroSpec, agentName string) []Component {
 	if s.Agent.Build != nil {
 		out = append(out, Component{
 			Kind:      ComponentAgent,
-			ImageName: agentName,
+			ImageName: ComponentImageName(ComponentAgent, agentName, ""),
 			Build:     s.Agent.Build,
 		})
 	}
@@ -51,7 +62,7 @@ func CollectComponents(s *AstroSpec, agentName string) []Component {
 			out = append(out, Component{
 				Kind:      ComponentModel,
 				Name:      name,
-				ImageName: fmt.Sprintf("%s-model-%s", agentName, name),
+				ImageName: ComponentImageName(ComponentModel, agentName, name),
 				Build:     model.Container.Build,
 			})
 		}
@@ -63,7 +74,7 @@ func CollectComponents(s *AstroSpec, agentName string) []Component {
 			out = append(out, Component{
 				Kind:      ComponentKnowledge,
 				Name:      name,
-				ImageName: fmt.Sprintf("%s-knowledge-%s", agentName, name),
+				ImageName: ComponentImageName(ComponentKnowledge, agentName, name),
 				Build:     c.Build,
 			})
 		}
@@ -74,7 +85,7 @@ func CollectComponents(s *AstroSpec, agentName string) []Component {
 			out = append(out, Component{
 				Kind:      ComponentIntegration,
 				Name:      name,
-				ImageName: fmt.Sprintf("%s-integration-%s", agentName, name),
+				ImageName: ComponentImageName(ComponentIntegration, agentName, name),
 				Build:     integration.Container.Build,
 			})
 		}
@@ -85,7 +96,7 @@ func CollectComponents(s *AstroSpec, agentName string) []Component {
 			out = append(out, Component{
 				Kind:      ComponentIngestion,
 				Name:      name,
-				ImageName: fmt.Sprintf("%s-ingestion-%s", agentName, name),
+				ImageName: ComponentImageName(ComponentIngestion, agentName, name),
 				Build:     ingestion.Container.Build,
 			})
 		}
@@ -110,63 +121,38 @@ func TransformSpecForRegistry(specObj map[string]any, agentName string, imageRef
 	if agent, ok := specObj["agent"].(map[string]any); ok {
 		if _, hasBuild := agent["build"]; hasBuild {
 			delete(agent, "build")
-			agent["image"] = imageRefFn(agentName)
+			agent["image"] = imageRefFn(ComponentImageName(ComponentAgent, agentName, ""))
 		}
 	}
 
-	// models.*.container.build → models.*.container.image
-	if models, ok := specObj["models"].(map[string]any); ok {
-		for name, data := range models {
-			if model, ok := data.(map[string]any); ok {
-				if container, ok := model["container"].(map[string]any); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = imageRefFn(fmt.Sprintf("%s-model-%s", agentName, name))
-					}
-				}
-			}
-		}
+	sections := []struct {
+		key  string
+		kind ComponentKind
+	}{
+		{"models", ComponentModel},
+		{"knowledge", ComponentKnowledge},
+		{"integrations", ComponentIntegration},
+		{"ingestion", ComponentIngestion},
 	}
-
-	// knowledge.*.container.build → knowledge.*.container.image
-	if knowledge, ok := specObj["knowledge"].(map[string]any); ok {
-		for name, data := range knowledge {
-			if item, ok := data.(map[string]any); ok {
-				if container, ok := item["container"].(map[string]any); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = imageRefFn(fmt.Sprintf("%s-knowledge-%s", agentName, name))
-					}
-				}
-			}
+	for _, s := range sections {
+		section, ok := specObj[s.key].(map[string]any)
+		if !ok {
+			continue
 		}
-	}
-
-	// integrations.*.container.build → integrations.*.container.image
-	if integrations, ok := specObj["integrations"].(map[string]any); ok {
-		for name, data := range integrations {
-			if item, ok := data.(map[string]any); ok {
-				if container, ok := item["container"].(map[string]any); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = imageRefFn(fmt.Sprintf("%s-integration-%s", agentName, name))
-					}
-				}
+		for name, data := range section {
+			item, ok := data.(map[string]any)
+			if !ok {
+				continue
 			}
-		}
-	}
-
-	// ingestion.*.container.build → ingestion.*.container.image
-	if ingestion, ok := specObj["ingestion"].(map[string]any); ok {
-		for name, data := range ingestion {
-			if item, ok := data.(map[string]any); ok {
-				if container, ok := item["container"].(map[string]any); ok {
-					if _, hasBuild := container["build"]; hasBuild {
-						delete(container, "build")
-						container["image"] = imageRefFn(fmt.Sprintf("%s-ingestion-%s", agentName, name))
-					}
-				}
+			container, ok := item["container"].(map[string]any)
+			if !ok {
+				continue
 			}
+			if _, hasBuild := container["build"]; !hasBuild {
+				continue
+			}
+			delete(container, "build")
+			container["image"] = imageRefFn(ComponentImageName(s.kind, agentName, name))
 		}
 	}
 

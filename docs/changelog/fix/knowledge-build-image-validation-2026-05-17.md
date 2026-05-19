@@ -1,29 +1,37 @@
-# Fix deployment validation for knowledge containers with build config
+# Fix deployment validation for components with build config
 
 ## Summary
 
-Deploying (or upgrading) an agent whose `astropods.yml` defines a knowledge
-entry with `container.build` but no explicit `container.image` fails with
-`knowledge.<name>.image is required`. The source spec is valid — the deployment
-template generator just doesn't synthesize an image name for this case the way
-the build pipeline does.
+Deploying (or upgrading) an agent whose `astropods.yml` defines a component
+(agent, model, knowledge, integration, or ingestion) with `container.build`
+but no explicit `container.image` failed with `<component>.image is required`.
+The source spec is valid — the deployment template generator just didn't
+synthesize an image name for this case the way the build pipeline does.
 
 ## Design
 
 The build pipeline (`TransformSpecForRegistry`) already converts
-`container.build` entries into image references using the naming convention
-`{agentName}-knowledge-{name}`. The deployment template generator now applies
-the same logic: when `container.Image` is empty and `container.Build` is
-present, it synthesizes the image name before passing it to `resolveImage()`.
+`container.build` entries into image references using a canonical naming
+convention. That convention is now exposed from `packages/astro-spec` as a
+single helper so every site shares one source of truth:
 
-The fix covers all three container types that can use `build`:
+```go
+func ComponentImageName(kind ComponentKind, agentName, name string) string
+```
 
-- **Knowledge:** `{agentName}-knowledge-{name}`
-- **Integrations:** `{agentName}-integration-{name}`
-- **Ingestion:** `{agentName}-ingestion-{name}`
+- `ComponentAgent`              → `{agentName}`
+- `Component{Model,Knowledge,Integration,Ingestion}` → `{agentName}-{kind}-{name}`
 
-Each builder function now accepts the entry name so it can construct the
-synthetic image reference.
+The deployment template generator gains a local `resolveBuiltImage` wrapper
+that synthesizes the image name when `Image` is empty but `Build` is set, then
+calls `resolveImage`. All five component builders (agent, model, knowledge,
+integration, ingestion) now go through it, closing the gap that previously
+only existed for knowledge/integration/ingestion and would have hit model and
+agent the moment someone declared them via `build` alone.
+
+`CollectComponents` and `TransformSpecForRegistry` also call
+`ComponentImageName` instead of inlining the format string in ten places, so
+renaming a kind (or adding a new one) is now a single-file change.
 
 ## Migration
 

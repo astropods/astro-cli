@@ -163,6 +163,21 @@ func TestTemplate_AgentImageMissing(t *testing.T) {
 	}
 }
 
+func TestTemplate_AgentBuildWithoutImage(t *testing.T) {
+	// agent.container.build without image must synthesize the canonical name
+	// so deployment generation succeeds against a raw (not registry-rewritten) spec.
+	input := baseInput()
+	input.Spec.Agent.Image = ""
+	input.Spec.Agent.Build = &spec.BuildConfig{Context: ".", Dockerfile: "Dockerfile"}
+
+	ds := mustGenerate(t, input)
+
+	expected := "registry.example.com/dockerhub/library/my-agent"
+	if ds.Agent.Image != expected {
+		t.Errorf("agent.image: expected %s, got %s", expected, ds.Agent.Image)
+	}
+}
+
 func TestTemplate_AgentHealthcheckPassthrough(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Healthcheck = &spec.Healthcheck{Path: "/health", Interval: "30s"}
@@ -240,6 +255,29 @@ func TestTemplate_ContainerModel(t *testing.T) {
 	}
 	if m.Environment["MODEL_NAME"] != "all-MiniLM-L6-v2" {
 		t.Errorf("environment: MODEL_NAME not preserved")
+	}
+}
+
+func TestTemplate_ContainerModel_BuildWithoutImage(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"embedder": {
+			Container: &spec.ContainerConfig{
+				Build: &spec.BuildConfig{Context: ".", Dockerfile: "models/embedder/Dockerfile"},
+				Port:  9999,
+			},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	m := ds.Models["embedder"]
+	expected := "registry.example.com/dockerhub/library/my-agent-model-embedder"
+	if m.Image != expected {
+		t.Errorf("image: expected %s, got %s", expected, m.Image)
+	}
+	if spec.PrimaryPort(m.Endpoints) != 9999 {
+		t.Errorf("endpoints primary port: expected 9999, got %d", spec.PrimaryPort(m.Endpoints))
 	}
 }
 
@@ -1934,6 +1972,44 @@ func TestTemplate_IntegrationImageResolved(t *testing.T) {
 	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/search-tool:latest"
 	if ds.Integrations["search"].Image != expected {
 		t.Errorf("tool image: expected %s, got %s", expected, ds.Integrations["search"].Image)
+	}
+}
+
+func TestTemplate_IntegrationBuildWithoutImage(t *testing.T) {
+	input := baseInput()
+	input.Spec.Integrations = map[string]spec.Integration{
+		"search": {
+			Container: &spec.ContainerConfig{
+				Build: &spec.BuildConfig{Context: ".", Dockerfile: "integrations/search/Dockerfile"},
+				Port:  3000,
+			},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	expected := "registry.example.com/dockerhub/library/my-agent-integration-search"
+	if ds.Integrations["search"].Image != expected {
+		t.Errorf("integration image: expected %s, got %s", expected, ds.Integrations["search"].Image)
+	}
+}
+
+func TestTemplate_IngestionBuildWithoutImage(t *testing.T) {
+	input := baseInput()
+	input.Spec.Ingestion = map[string]spec.Ingestion{
+		"crawler": {
+			Container: spec.ContainerConfig{
+				Build: &spec.BuildConfig{Context: ".", Dockerfile: "ingestion/crawler/Dockerfile"},
+			},
+			Trigger: spec.IngestionTrigger{Type: "startup"},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	expected := "registry.example.com/dockerhub/library/my-agent-ingestion-crawler"
+	if ds.Ingestion["crawler"].Image != expected {
+		t.Errorf("ingestion image: expected %s, got %s", expected, ds.Ingestion["crawler"].Image)
 	}
 }
 

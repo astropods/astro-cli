@@ -176,6 +176,30 @@ func TestComponentSuffix(t *testing.T) {
 	}
 }
 
+// --- ComponentImageName ---
+
+func TestComponentImageName(t *testing.T) {
+	tests := []struct {
+		kind ComponentKind
+		name string
+		want string
+	}{
+		{ComponentAgent, "", "my-agent"},
+		{ComponentAgent, "ignored", "my-agent"}, // agent kind ignores name
+		{ComponentModel, "llm", "my-agent-model-llm"},
+		{ComponentKnowledge, "docs", "my-agent-knowledge-docs"},
+		{ComponentIntegration, "search", "my-agent-integration-search"},
+		{ComponentIngestion, "crawler", "my-agent-ingestion-crawler"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.kind)+"/"+tt.name, func(t *testing.T) {
+			if got := ComponentImageName(tt.kind, "my-agent", tt.name); got != tt.want {
+				t.Errorf("ComponentImageName(%q, my-agent, %q) = %q, want %q", tt.kind, tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- TransformSpecForRegistry ---
 
 func TestTransformSpecForRegistry_AgentBuild(t *testing.T) {
