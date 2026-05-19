@@ -25,6 +25,7 @@ type Tab = "blueprints" | "agents" | "hearts";
 export interface SidebarRenderOpts {
   blueprintCount: number;
   deploymentCount: number;
+  isInternalView: boolean;
   onEditOpen: (() => void) | undefined;
   isBlueprintsLoading: boolean;
   isDeploymentsLoading: boolean;
@@ -214,6 +215,7 @@ export function ProfileLayout({
           : renderViewSidebar({
               blueprintCount,
               deploymentCount: rawDeployments.length,
+              isInternalView,
               onEditOpen: isAdminView ? () => setEditOpen(true) : undefined,
               isBlueprintsLoading,
               isDeploymentsLoading,

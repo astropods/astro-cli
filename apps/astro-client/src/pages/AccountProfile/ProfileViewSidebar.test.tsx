@@ -119,7 +119,7 @@ describe('ProfileViewSidebar stats', () => {
 
   it('shows the Agents stat for the owner', () => {
     renderWithProviders(
-      <ProfileViewSidebar {...personalDefaults} isAdmin canViewDeployments deploymentCount={3} />,
+      <ProfileViewSidebar {...personalDefaults} isAdmin isInternalView deploymentCount={3} />,
     );
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
@@ -322,7 +322,7 @@ describe('ProfileViewSidebar org stats', () => {
   });
 
   it('shows agents count for any org member', () => {
-    renderWithProviders(<ProfileViewSidebar {...orgDefaults} canViewDeployments deploymentCount={4} />);
+    renderWithProviders(<ProfileViewSidebar {...orgDefaults} isInternalView deploymentCount={4} />);
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
   });
@@ -336,10 +336,14 @@ describe('ProfileViewSidebar org stats', () => {
 // ── Org: members section ──────────────────────────────────────────────────────
 
 describe('ProfileViewSidebar org members', () => {
+  // Members section is gated by isInternalView (mirrors the server-side membership
+  // gate). Each rendering case sets it to true; the visitor case is exercised by
+  // AccountProfile.test.tsx end-to-end.
   it('renders active members', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
+        isInternalView
         members={[makeMember({ username: 'testuser', status: 'active' })]}
       />,
     );
@@ -347,7 +351,17 @@ describe('ProfileViewSidebar org members', () => {
   });
 
   it('does not render the members section when there are no active members', () => {
-    renderWithProviders(<ProfileViewSidebar {...orgDefaults} members={[]} />);
+    renderWithProviders(<ProfileViewSidebar {...orgDefaults} isInternalView members={[]} />);
+    expect(screen.queryByText(/^members$/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render the members section when not an internal view', () => {
+    renderWithProviders(
+      <ProfileViewSidebar
+        {...orgDefaults}
+        members={[makeMember({ username: 'testuser', status: 'active' })]}
+      />,
+    );
     expect(screen.queryByText(/^members$/i)).not.toBeInTheDocument();
   });
 
@@ -355,6 +369,7 @@ describe('ProfileViewSidebar org members', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
+        isInternalView
         members={[
           makeMember({ username: 'active-user', display_name: 'Active User', status: 'active' }),
           makeMember({ username: 'pending-user', display_name: 'Pending User', user_id: 'user-2', status: 'pending' }),
@@ -369,6 +384,7 @@ describe('ProfileViewSidebar org members', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
+        isInternalView
         members={[
           makeMember({ username: 'alice', display_name: 'Alice', user_id: 'u1', status: 'active' }),
           makeMember({ username: 'bob', display_name: 'Bob', user_id: 'u2', status: 'active' }),
@@ -383,6 +399,7 @@ describe('ProfileViewSidebar org members', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
+        isInternalView
         members={[
           makeMember({ username: 'alice', display_name: 'Alice', user_id: 'u1', status: 'active' }),
           makeMember({ username: '', display_name: 'No Handle', user_id: 'u2', status: 'active' }),
@@ -401,6 +418,7 @@ describe('ProfileViewSidebar org members', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
+        isInternalView
         members={[
           ...namedMembers,
           makeMember({ username: '', display_name: 'No Handle', user_id: 'nohandle', status: 'active' }),

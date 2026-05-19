@@ -267,6 +267,9 @@ describe('AccountProfile agents stat', () => {
     });
   });
 
+  // Non-member visitor: canViewDeployments is false in AccountProfile's component
+  // scope, so isInternalView is false at the SidebarRenderOpts boundary and the
+  // sidebar would hide Agents regardless. Guards the default (non-member) path.
   it('hides the Agents stat for a visitor', async () => {
     server.use(
       http.get('/api/v1/accounts/otheruser', () =>
@@ -279,6 +282,20 @@ describe('AccountProfile agents stat', () => {
     await waitFor(() => {
       // Wait for the profile to finish loading (sidebar heading present)
       expect(screen.getByRole('heading', { name: 'Other User' })).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Agents')).not.toBeInTheDocument();
+  });
+
+  // Owner with ?visitor: canViewDeployments is true in AccountProfile's scope
+  // (isSelf=true) but ProfileLayout's isInternalView is false. Without the
+  // SidebarRenderOpts.isInternalView plumbing, the sidebar would render Agents
+  // using the stale component-scope flag. Guards the visitor-mode gating path.
+  it('hides the Agents stat when the owner views as visitor (?visitor)', async () => {
+    renderProfile('/testuser?visitor');
+
+    await waitFor(() => {
+      // Wait for the profile to finish loading (sidebar heading present)
+      expect(screen.getByRole('heading', { name: 'Test User' })).toBeInTheDocument();
     });
     expect(screen.queryByText('Agents')).not.toBeInTheDocument();
   });
@@ -411,6 +428,19 @@ describe('AccountProfile org admin', () => {
     });
     expect(screen.queryByRole('button', { name: /^agents/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /customize order/i })).not.toBeInTheDocument();
+  });
+
+  // Members API requires membership (server-side), so non-members see an empty list
+  // and the Members section hides naturally. The owner/admin in ?visitor mode is
+  // still a member server-side, so the API returns data; the UI must hide the
+  // section explicitly to match what a true non-member would see.
+  it('hides the Members section when the org admin views as visitor (?visitor)', async () => {
+    renderProfile('/testorg?visitor', { loaderAccount: mockOrg });
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Test Org' })).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Members')).not.toBeInTheDocument();
   });
 });
 

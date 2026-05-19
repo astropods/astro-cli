@@ -13,7 +13,7 @@ interface ProfileViewSidebarProps {
   data: AccountPublic;
   variant?: "personal" | "org";
   isAdmin: boolean;
-  canViewDeployments?: boolean;
+  isInternalView?: boolean;
   blueprintCount: number;
   deploymentCount: number;
   isBlueprintsLoading?: boolean;
@@ -27,7 +27,7 @@ export function ProfileViewSidebar({
   data,
   variant = "personal",
   isAdmin,
-  canViewDeployments = false,
+  isInternalView = false,
   blueprintCount,
   deploymentCount,
   isBlueprintsLoading,
@@ -43,7 +43,7 @@ export function ProfileViewSidebar({
 
   const stats = [
     { label: "Blueprints", value: blueprintCount, loading: isBlueprintsLoading, icon: <LayersIcon className="size-3.5" /> },
-    ...(canViewDeployments
+    ...(isInternalView
       ? [{ label: "Agents", value: deploymentCount, loading: isDeploymentsLoading, icon: <BotIcon className="size-3.5" /> }]
       : []),
   ];
@@ -70,7 +70,7 @@ export function ProfileViewSidebar({
         pronouns={isOrg ? undefined : data.pronouns}
         email={isOrg ? undefined : data.email}
       >
-        {isOrg && activeMembers.length > 0 && (
+        {isOrg && isInternalView && activeMembers.length > 0 && (
           <>
             <div className="h-px bg-border" />
             <div className="flex flex-col gap-3">

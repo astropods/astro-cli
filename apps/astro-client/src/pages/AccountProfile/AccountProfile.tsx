@@ -97,12 +97,12 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
       rawDeployments={rawDeployments}
       isBlueprintsLoading={isBlueprintsLoading}
       isDeploymentsLoading={isDeploymentsLoading}
-      renderViewSidebar={({ blueprintCount, deploymentCount, onEditOpen, isBlueprintsLoading, isDeploymentsLoading }) => (
+      renderViewSidebar={({ blueprintCount, deploymentCount, isInternalView, onEditOpen, isBlueprintsLoading, isDeploymentsLoading }) => (
         <ProfileViewSidebar
           data={data}
           variant={isOrg ? "org" : "personal"}
           isAdmin={isOwnerOrAdmin}
-          canViewDeployments={canViewDeployments}
+          isInternalView={isInternalView}
           blueprintCount={blueprintCount}
           deploymentCount={deploymentCount}
           isBlueprintsLoading={isBlueprintsLoading}
