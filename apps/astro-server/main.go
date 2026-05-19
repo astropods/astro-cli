@@ -435,7 +435,42 @@ func runAPI(
 	imagePreflighter := newImagePreflighter(cfg)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, accountVarsStore, heartStore, agentMetricsStore, cfg, probeHandler, registry, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, clusterStore, rq, avatarStore, auditStore, k8sCache, ghStore, webhookStore, pipesClient, slackIdentityStore, ksStore, promClient, imagePreflighter)
+	deps := &Deps{
+		Log:   log,
+		Cfg:   cfg,
+		DB:    db,
+		Ent:   ent,
+		Probe: probeHandler,
+		Stores: Stores{
+			Account:      accountStore,
+			Deployment:   deploymentStore,
+			AccountVars:  accountVarsStore,
+			Heart:        heartStore,
+			AgentMetrics: agentMetricsStore,
+			Cluster:      clusterStore,
+			Audit:        auditStore,
+			Avatar:       avatarStore,
+			Knowledge:    ksStore,
+			GH:           ghStore,
+			Webhook:      webhookStore,
+			SlackID:      slackIdentityStore,
+		},
+		Clients: Clients{
+			AgentIndex: agentIndex,
+			K8s:        k8sClient,
+			Registry:   registry,
+			Loki:       lokiClient,
+			Org:        orgClient,
+			OrgSync:    orgSync,
+			OpenMeter:  omClient,
+			Pipes:      pipesClient,
+			Prom:       promClient,
+			K8sCache:   k8sCache,
+			Preflight:  imagePreflighter,
+			Queue:      rq,
+		},
+	}
+	setupRoutes(router, deps)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
@@ -590,8 +625,43 @@ func runWorker(
 	return cancel
 }
 
-// setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, accountVarsStore *accountvars.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sReg *k8s.Registry, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, clusterStore *clusterstore.Store, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store, k8sCache k8scache.Cache, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, slackIdentityStore *slackidentity.Store, ksStore *knowledgestore.Store, promClient *promquery.Client, imagePreflighter *k8s.ImagePreflighter) {
+func setupRoutes(router *gin.Engine, deps *Deps) {
+	// Local aliases keep the route registration body unchanged while the
+	// outer signature stays small. If you're adding a new dependency, add
+	// it to Deps (or one of its sub-structs) rather than re-introducing a
+	// positional parameter here.
+	log := deps.Log
+	cfg := deps.Cfg
+	db := deps.DB
+	ent := deps.Ent
+	probeHandler := deps.Probe
+
+	agentIndex := deps.Clients.AgentIndex
+	k8sClient := deps.Clients.K8s
+	k8sReg := deps.Clients.Registry
+	lokiClient := deps.Clients.Loki
+	orgClient := deps.Clients.Org
+	orgSync := deps.Clients.OrgSync
+	omClient := deps.Clients.OpenMeter
+	pipesClient := deps.Clients.Pipes
+	promClient := deps.Clients.Prom
+	k8sCache := deps.Clients.K8sCache
+	imagePreflighter := deps.Clients.Preflight
+	queue := deps.Clients.Queue
+
+	accountStore := deps.Stores.Account
+	deploymentStore := deps.Stores.Deployment
+	accountVarsStore := deps.Stores.AccountVars
+	heartStore := deps.Stores.Heart
+	agentMetricsStore := deps.Stores.AgentMetrics
+	clusterStore := deps.Stores.Cluster
+	auditStore := deps.Stores.Audit
+	avatarStore := deps.Stores.Avatar
+	ksStore := deps.Stores.Knowledge
+	ghStore := deps.Stores.GH
+	webhookStore := deps.Stores.Webhook
+	slackIdentityStore := deps.Stores.SlackID
+
 	billing := openmeter.NewBillingStateManager(omClient, db, log)
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
