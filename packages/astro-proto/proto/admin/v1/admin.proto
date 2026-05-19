@@ -29,6 +29,11 @@ service AdminService {
   rpc GetPodLogs(GetPodLogsRequest) returns (GetPodLogsResponse);
   rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
   rpc StopDeployment(StopDeploymentRequest) returns (StopDeploymentResponse);
+  rpc RegisterCluster(RegisterClusterRequest) returns (RegisterClusterResponse);
+  rpc EnableCluster(EnableClusterRequest) returns (EnableClusterResponse);
+  rpc DisableCluster(DisableClusterRequest) returns (DisableClusterResponse);
+  rpc DeregisterCluster(DeregisterClusterRequest) returns (DeregisterClusterResponse);
+  rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
 }
 
 message ListDeploymentsRequest {
@@ -371,4 +376,61 @@ message StopDeploymentRequest {
 
 message StopDeploymentResponse {
   string status = 1;
+}
+
+// RegisteredCluster describes the primary cluster (synthesized, is_primary=true)
+// or an additional cluster row from public.clusters.
+message RegisteredCluster {
+  string id = 1;
+  string region = 2;
+  string eks_cluster_name = 3;
+  string eks_cluster_endpoint = 4;
+  bool enabled = 5;
+  bool is_primary = 6;
+  string created_at = 7;  // RFC3339; empty for primary
+  string updated_at = 8;  // RFC3339; empty for primary
+  bool healthy = 9;
+  string health_error = 10;
+}
+
+message RegisterClusterRequest {
+  string id = 1;
+  string region = 2;
+  string eks_cluster_name = 3;
+  string eks_cluster_endpoint = 4;
+  bool enabled = 5;
+}
+
+message RegisterClusterResponse {
+  RegisteredCluster cluster = 1;
+}
+
+message EnableClusterRequest {
+  string id = 1;
+}
+
+message EnableClusterResponse {
+  RegisteredCluster cluster = 1;
+}
+
+message DisableClusterRequest {
+  string id = 1;
+}
+
+message DisableClusterResponse {
+  RegisteredCluster cluster = 1;
+}
+
+message DeregisterClusterRequest {
+  string id = 1;
+}
+
+message DeregisterClusterResponse {}
+
+message ListClustersRequest {
+  bool enabled_only = 1;
+}
+
+message ListClustersResponse {
+  repeated RegisteredCluster clusters = 1;
 }

@@ -13,10 +13,15 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
+
+// PrimaryClusterID is the stable identifier for the env-var-defined primary
+// cluster in admin List/health responses. It is not a clusters table row.
+const PrimaryClusterID = "primary"
 
 // Errors returned by Registry.Get for additional clusters.
 var (
@@ -38,6 +43,18 @@ type Registry struct {
 
 	mu    sync.RWMutex
 	cache map[string]ClusterClient
+}
+
+// ClusterEntry is a registry-level view of one cluster (primary or additional).
+type ClusterEntry struct {
+	ID                 string
+	IsPrimary          bool
+	Region             string
+	EKSClusterName     string
+	EKSClusterEndpoint string
+	Enabled            bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // RegistryConfig is the process-level Kubernetes configuration that the
@@ -105,6 +122,17 @@ func NewRegistryWithClusterStore(primary ClusterClient, clusterStore *clustersto
 	}
 }
 
+// NewRegistryForTest wires clusterstore and RegistryConfig for tests that call List().
+func NewRegistryForTest(primary ClusterClient, clusterStore *clusterstore.Store, cfg RegistryConfig) *Registry {
+	return &Registry{
+		primary:      primary,
+		clusterStore: clusterStore,
+		regCfg:       cfg,
+		log:          logger.New("error", "json"),
+		cache:        make(map[string]ClusterClient),
+	}
+}
+
 // Default returns the primary ClusterClient — the cluster astro-server is
 // configured against via env vars / kubeconfig. Used by every handler and
 // worker without a per-deployment cluster_id, and as the fallback for any
@@ -167,4 +195,64 @@ func (r *Registry) Get(ctx context.Context, id string) (ClusterClient, error) {
 	}
 	r.cache[id] = c
 	return c, nil
+}
+
+func (r *Registry) primaryEntry() ClusterEntry {
+	return ClusterEntry{
+		ID:                 PrimaryClusterID,
+		IsPrimary:          true,
+		Region:             r.regCfg.Region,
+		EKSClusterName:     r.regCfg.EKSBootstrapName,
+		EKSClusterEndpoint: r.regCfg.EKSBootstrapURL,
+		Enabled:            true,
+	}
+}
+
+// List returns the primary cluster (synthesized) plus additional clusters from
+// clusterstore. When enabledOnly is true, disabled additional rows are omitted;
+// the primary is always included and treated as enabled.
+func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, error) {
+	if r == nil {
+		return nil, fmt.Errorf("registry: nil")
+	}
+
+	out := []ClusterEntry{r.primaryEntry()}
+
+	if r.clusterStore == nil {
+		return out, nil
+	}
+
+	rows, err := r.clusterStore.List(ctx, enabledOnly)
+	if err != nil {
+		return nil, fmt.Errorf("registry.List: %w", err)
+	}
+	for _, row := range rows {
+		out = append(out, ClusterEntry{
+			ID:                 row.ID,
+			IsPrimary:          false,
+			Region:             row.Region,
+			EKSClusterName:     row.EKSClusterName,
+			EKSClusterEndpoint: row.EKSClusterEndpoint,
+			Enabled:            row.Enabled,
+			CreatedAt:          row.CreatedAt,
+			UpdatedAt:          row.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
+// Refresh drops a cached additional-cluster client so the next Get re-reads
+// the row. No-op for the primary cluster id.
+func (r *Registry) Refresh(_ context.Context, id string) error {
+	if r == nil {
+		return fmt.Errorf("registry: nil")
+	}
+	if id == "" || id == PrimaryClusterID {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.cache, id)
+	return nil
 }

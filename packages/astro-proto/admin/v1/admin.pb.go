@@ -689,3 +689,58 @@ type ListFeedbackResponse struct {
 	Submissions []*FeedbackSubmission `json:"submissions,omitempty"`
 	Count       int32                 `json:"count,omitempty"`
 }
+
+type RegisteredCluster struct {
+	ID                 string `json:"id,omitempty"`
+	Region             string `json:"region,omitempty"`
+	EKSClusterName     string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled            bool   `json:"enabled,omitempty"`
+	IsPrimary          bool   `json:"is_primary,omitempty"`
+	CreatedAt          string `json:"created_at,omitempty"`
+	UpdatedAt          string `json:"updated_at,omitempty"`
+	Healthy            bool   `json:"healthy,omitempty"`
+	HealthError        string `json:"health_error,omitempty"`
+}
+
+type RegisterClusterRequest struct {
+	ID                 string `json:"id,omitempty"`
+	Region             string `json:"region,omitempty"`
+	EKSClusterName     string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled            *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
+}
+
+type RegisterClusterResponse struct {
+	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+}
+
+type EnableClusterRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type EnableClusterResponse struct {
+	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+}
+
+type DisableClusterRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type DisableClusterResponse struct {
+	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+}
+
+type DeregisterClusterRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type DeregisterClusterResponse struct{}
+
+type ListClustersRequest struct {
+	EnabledOnly bool `json:"enabled_only,omitempty"`
+}
+
+type ListClustersResponse struct {
+	Clusters []*RegisteredCluster `json:"clusters,omitempty"`
+}

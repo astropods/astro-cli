@@ -47,6 +47,11 @@ type AdminServiceClient interface {
 	TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error)
 	StopDeployment(ctx context.Context, in *StopDeploymentRequest, opts ...grpc.CallOption) (*StopDeploymentResponse, error)
+	RegisterCluster(ctx context.Context, in *RegisterClusterRequest, opts ...grpc.CallOption) (*RegisterClusterResponse, error)
+	EnableCluster(ctx context.Context, in *EnableClusterRequest, opts ...grpc.CallOption) (*EnableClusterResponse, error)
+	DisableCluster(ctx context.Context, in *DisableClusterRequest, opts ...grpc.CallOption) (*DisableClusterResponse, error)
+	DeregisterCluster(ctx context.Context, in *DeregisterClusterRequest, opts ...grpc.CallOption) (*DeregisterClusterResponse, error)
+	ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error)
 }
 
 type adminServiceClient struct {
@@ -329,6 +334,46 @@ func (c *adminServiceClient) StopDeployment(ctx context.Context, in *StopDeploym
 	return out, nil
 }
 
+func (c *adminServiceClient) RegisterCluster(ctx context.Context, in *RegisterClusterRequest, opts ...grpc.CallOption) (*RegisterClusterResponse, error) {
+	out := new(RegisterClusterResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RegisterCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) EnableCluster(ctx context.Context, in *EnableClusterRequest, opts ...grpc.CallOption) (*EnableClusterResponse, error) {
+	out := new(EnableClusterResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/EnableCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DisableCluster(ctx context.Context, in *DisableClusterRequest, opts ...grpc.CallOption) (*DisableClusterResponse, error) {
+	out := new(DisableClusterResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/DisableCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeregisterCluster(ctx context.Context, in *DeregisterClusterRequest, opts ...grpc.CallOption) (*DeregisterClusterResponse, error) {
+	out := new(DeregisterClusterResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/DeregisterCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error) {
+	out := new(ListClustersResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListClusters", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -366,6 +411,11 @@ type AdminServiceServer interface {
 	TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error)
 	StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error)
+	RegisterCluster(context.Context, *RegisterClusterRequest) (*RegisterClusterResponse, error)
+	EnableCluster(context.Context, *EnableClusterRequest) (*EnableClusterResponse, error)
+	DisableCluster(context.Context, *DisableClusterRequest) (*DisableClusterResponse, error)
+	DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error)
+	ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -506,6 +556,26 @@ func (UnimplementedAdminServiceServer) TriggerOpenMeterBackfill(context.Context,
 
 func (UnimplementedAdminServiceServer) StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopDeployment not implemented")
+}
+
+func (UnimplementedAdminServiceServer) RegisterCluster(context.Context, *RegisterClusterRequest) (*RegisterClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterCluster not implemented")
+}
+
+func (UnimplementedAdminServiceServer) EnableCluster(context.Context, *EnableClusterRequest) (*EnableClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnableCluster not implemented")
+}
+
+func (UnimplementedAdminServiceServer) DisableCluster(context.Context, *DisableClusterRequest) (*DisableClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DisableCluster not implemented")
+}
+
+func (UnimplementedAdminServiceServer) DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeregisterCluster not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListClusters not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1030,6 +1100,81 @@ func _AdminService_StopDeployment_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RegisterCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RegisterCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RegisterCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RegisterCluster(ctx, req.(*RegisterClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_EnableCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnableClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).EnableCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/EnableCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).EnableCluster(ctx, req.(*EnableClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DisableCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DisableClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DisableCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/DisableCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DisableCluster(ctx, req.(*DisableClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeregisterCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeregisterClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeregisterCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/DeregisterCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeregisterCluster(ctx, req.(*DeregisterClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListClusters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListClustersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListClusters(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListClusters"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListClusters(ctx, req.(*ListClustersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1069,6 +1214,11 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "TriggerOpenMeterBackfill", Handler: _AdminService_TriggerOpenMeterBackfill_Handler},
 		{MethodName: "ListFeedback", Handler: _AdminService_ListFeedback_Handler},
 		{MethodName: "StopDeployment", Handler: _AdminService_StopDeployment_Handler},
+		{MethodName: "RegisterCluster", Handler: _AdminService_RegisterCluster_Handler},
+		{MethodName: "EnableCluster", Handler: _AdminService_EnableCluster_Handler},
+		{MethodName: "DisableCluster", Handler: _AdminService_DisableCluster_Handler},
+		{MethodName: "DeregisterCluster", Handler: _AdminService_DeregisterCluster_Handler},
+		{MethodName: "ListClusters", Handler: _AdminService_ListClusters_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

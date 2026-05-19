@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -45,6 +46,8 @@ type Server struct {
 	log            *logger.Logger
 	deployStore    *deploymentstore.Store
 	k8sClient      k8s.ClusterClient
+	clusterStore   *clusterstore.Store
+	k8sRegistry    *k8s.Registry
 	lokiClient     *loki.Client
 	db             *sql.DB
 	openMeterURL   string
@@ -94,11 +97,15 @@ func New(
 	ingressDomain string,
 	ingestionIngressDomain string,
 	auditStore *auditlog.Store,
+	clusterStore *clusterstore.Store,
+	k8sRegistry *k8s.Registry,
 ) *Server {
 	return &Server{
 		log:                    log,
 		deployStore:            deployStore,
 		k8sClient:              k8sClient,
+		clusterStore:           clusterStore,
+		k8sRegistry:            k8sRegistry,
 		lokiClient:             lokiClient,
 		db:                     db,
 		openMeterURL:           strings.TrimRight(openMeterURL, "/"),

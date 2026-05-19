@@ -366,10 +366,12 @@ func runAPI(
 	registryCancel()
 
 	var k8sClient k8s.ClusterClient
+	var k8sReg *k8s.Registry
 	if registryErr != nil {
 		log.Warn("Failed to initialize K8s registry", "error", registryErr)
 		log.Warn("Kubernetes features will be unavailable")
 	} else {
+		k8sReg = registry
 		k8sClient = registry.Default()
 		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
 			log.Warn("K8s client created but connection failed", "error", connErr)
@@ -473,7 +475,7 @@ func runAPI(
 	setupRoutes(router, deps)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)

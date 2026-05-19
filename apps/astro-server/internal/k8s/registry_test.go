@@ -151,3 +151,80 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
+		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true, now, now))
+
+	r := &Registry{
+		primary:      &fakeClient{id: "primary"},
+		clusterStore: clusterstore.New(db),
+		regCfg: RegistryConfig{
+			Region:           "us-east-1",
+			EKSBootstrapName: "primary-eks",
+			EKSBootstrapURL:  "https://primary.example",
+		},
+		cache: make(map[string]ClusterClient),
+	}
+
+	entries, err := r.List(context.Background(), false)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("len(entries) = %d, want 2", len(entries))
+	}
+	if !entries[0].IsPrimary || entries[0].ID != PrimaryClusterID {
+		t.Fatalf("entries[0] = %+v, want synthesized primary", entries[0])
+	}
+	if entries[0].Region != "us-east-1" || entries[0].EKSClusterName != "primary-eks" {
+		t.Fatalf("primary coords: %+v", entries[0])
+	}
+	if entries[1].ID != "eu-west-1" || entries[1].IsPrimary {
+		t.Fatalf("entries[1] = %+v", entries[1])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistry_Refresh_EvictsCache(t *testing.T) {
+	r := &Registry{
+		primary: &fakeClient{id: "primary"},
+		cache:   map[string]ClusterClient{"cl-1": &fakeClient{id: "cl-1"}},
+	}
+	if err := r.Refresh(context.Background(), "cl-1"); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	r.mu.RLock()
+	_, ok := r.cache["cl-1"]
+	r.mu.RUnlock()
+	if ok {
+		t.Fatal("expected cache entry to be evicted")
+	}
+}
+
+func TestRegistry_Refresh_PrimaryNoOp(t *testing.T) {
+	r := &Registry{
+		primary: &fakeClient{id: "primary"},
+		cache:   map[string]ClusterClient{"cl-1": &fakeClient{id: "cl-1"}},
+	}
+	if err := r.Refresh(context.Background(), PrimaryClusterID); err != nil {
+		t.Fatalf("Refresh primary: %v", err)
+	}
+	r.mu.RLock()
+	_, ok := r.cache["cl-1"]
+	r.mu.RUnlock()
+	if !ok {
+		t.Fatal("Refresh(primary) should not evict other cache entries")
+	}
+}
