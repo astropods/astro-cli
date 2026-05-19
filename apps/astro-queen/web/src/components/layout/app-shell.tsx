@@ -16,6 +16,7 @@ import {
   Zap,
   Waves,
   ArrowUpCircle,
+  Globe,
   MessageSquare,
   ExternalLink,
   ChevronRight,
@@ -32,6 +33,7 @@ const sections = [
       { to: "/admin/quota-requests", label: "Quota Requests", icon: ArrowUpCircle },
       { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
       { to: "/admin/accounts", label: "Accounts", icon: Users },
+      { to: "/admin/clusters", label: "Clusters", icon: Globe },
       { to: "/admin/blueprints", label: "Blueprints", icon: Bot },
 
       { to: "/admin/devices", label: "Devices", icon: Wifi },

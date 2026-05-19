@@ -11,7 +11,7 @@ tasks:
 
   # Build & test
   build:
-    command: "go build -o bin/astro-server main.go"
+    command: "go build -o bin/astro-server ."
     inputs:
       - "**/*.go"
       - "go.mod"

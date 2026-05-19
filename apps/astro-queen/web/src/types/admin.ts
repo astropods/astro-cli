@@ -420,3 +420,40 @@ export interface SendCommandResponse {
   stdout: string;
   stderr: string;
 }
+
+export interface RegisteredCluster {
+  id: string;
+  region: string;
+  eks_cluster_name: string;
+  eks_cluster_endpoint: string;
+  enabled: boolean;
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+  healthy: boolean;
+  health_error: string;
+}
+
+export interface ListClustersResponse {
+  clusters: RegisteredCluster[];
+}
+
+export interface RegisterClusterRequest {
+  id: string;
+  region: string;
+  eks_cluster_name: string;
+  eks_cluster_endpoint: string;
+  enabled?: boolean;
+}
+
+export interface RegisterClusterResponse {
+  cluster: RegisteredCluster;
+}
+
+export interface EnableClusterResponse {
+  cluster: RegisteredCluster;
+}
+
+export interface DisableClusterResponse {
+  cluster: RegisteredCluster;
+}

@@ -8,6 +8,8 @@ export const adminKeys = {
     [...adminKeys.all, "blueprintBuilds", account, name] as const,
   clusterStatus: (ns: string) =>
     [...adminKeys.all, "clusterStatus", ns] as const,
+  clusters: (enabledOnly?: boolean) =>
+    [...adminKeys.all, "clusters", enabledOnly ?? false] as const,
   images: () => [...adminKeys.all, "images"] as const,
   schema: () => [...adminKeys.all, "schema"] as const,
   query: (sql: string) => [...adminKeys.all, "query", sql] as const,

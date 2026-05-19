@@ -15,6 +15,11 @@ import type {
   GetDeploymentEventsResponse,
   GetDeploymentJobsResponse,
   RefreshDriftReportResponse,
+  ListClustersResponse,
+  RegisterClusterRequest,
+  RegisterClusterResponse,
+  EnableClusterResponse,
+  DisableClusterResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -427,6 +432,65 @@ export function useSetAdapters() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
+export function useClusters(enabledOnly?: boolean) {
+  return useQuery({
+    queryKey: adminKeys.clusters(enabledOnly),
+    queryFn: () =>
+      api.get<ListClustersResponse>(
+        `/api/admin/clusters${enabledOnly ? "?enabled_only=true" : ""}`,
+      ),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useRegisterCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RegisterClusterRequest) =>
+      api.post<RegisterClusterResponse>("/api/admin/clusters", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useEnableCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<EnableClusterResponse>(
+        `/api/admin/clusters/${encodeURIComponent(id)}/enable`,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useDisableCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<DisableClusterResponse>(
+        `/api/admin/clusters/${encodeURIComponent(id)}/disable`,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useDeregisterCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.del(`/api/admin/clusters/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
     },
   });
 }

@@ -182,7 +182,7 @@ WORKDIR /app
 COPY go.* ./
 RUN go mod download
 COPY . .
-RUN go build -o astro-server main.go
+RUN go build -o astro-server .
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
