@@ -10,7 +10,9 @@ interface BlueprintQueryOptions {
   refetchInterval?: number | false | ((query: Query<Blueprint>) => number | false | undefined);
 }
 
-export function useBlueprints(opts?: { initialData?: BlueprintsListResponse }) {
+export function useBlueprints(opts?: {
+  initialData?: BlueprintsListResponse;
+}) {
   return useQuery({
     queryKey: blueprintKeys.all,
     queryFn: () => api.listBlueprints(),
@@ -19,12 +21,21 @@ export function useBlueprints(opts?: { initialData?: BlueprintsListResponse }) {
   });
 }
 
-export function useAccountBlueprints(account: string, opts?: { enabled?: boolean; refetchInterval?: number | false | ((query: Query<BlueprintsListResponse>) => number | false | undefined) }) {
-  const enabled = opts?.enabled ?? true;
+/** Profile, deployment history, etc. — unpaginated fetch (server max 100). Use useAccountBlueprintsList on /blueprints. */
+export function useAccountBlueprints(
+  account: string,
+  opts?: {
+    enabled?: boolean;
+    initialData?: BlueprintsListResponse;
+    refetchInterval?: number | false | ((query: Query<BlueprintsListResponse>) => number | false | undefined);
+  },
+) {
   return useQuery({
     queryKey: blueprintKeys.byAccount(account),
     queryFn: () => api.listAccountBlueprints(account),
-    enabled: !!account && enabled,
+    enabled: !!account && (opts?.enabled ?? true),
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
     placeholderData: keepPreviousData,
     refetchInterval: opts?.refetchInterval,
   });

@@ -32,8 +32,11 @@ type ErrorResponse struct {
 
 // ListAgentsResponse wraps the agent catalog listing.
 type ListAgentsResponse struct {
-	Agents []AgentResponse `json:"agents"`
-	Count  int             `json:"count"`
+	Agents  []AgentResponse `json:"agents"`
+	Count   int             `json:"count"`
+	Limit   int             `json:"limit"`
+	Offset  int             `json:"offset"`
+	HasMore bool            `json:"has_more"`
 }
 
 // RegisterAgentResponse is returned on successful agent registration.

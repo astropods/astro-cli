@@ -684,15 +684,15 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 			}
 
 			// Include agent summaries for each account
-			agents, err := agentIndex.ListForAccount(a.ID)
+			page, err := agentIndex.ListForAccount(a.ID, agentindex.BlueprintListOptions{})
 			if err == nil {
-				summaries := make([]AgentSummary, 0, len(agents))
-				for _, agent := range agents {
+				summaries := make([]AgentSummary, 0, len(page.Agents))
+				for _, agent := range page.Agents {
 					summaries = append(summaries, AgentSummary{
 						Name:       agent.Name,
 						Registry:   agent.Registry,
 						Visibility: agent.Visibility,
-						BuildCount: len(agent.Versions),
+						BuildCount: agent.VersionCount,
 					})
 				}
 				resp.Agents = summaries

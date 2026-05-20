@@ -201,17 +201,47 @@ func agentMetrics(lifetimeMessages, deployCount int64) *AgentMetrics {
 
 // ListAgents handles GET /api/v1/agents
 // Lists agents with visibility='public' (public catalog)
+func toBlueprintListOptions(f BlueprintListFilters) agentindex.BlueprintListOptions {
+	return agentindex.BlueprintListOptions{
+		Query:      f.Query,
+		Tag:        f.Tag,
+		Visibility: f.Visibility,
+		Sort:       f.Sort,
+		Limit:      f.Limit,
+		Offset:     f.Offset,
+	}
+}
+
+func writeBlueprintListResponse(c *gin.Context, responses []AgentResponse, filters BlueprintListFilters, total int) {
+	hasMore := filters.Offset+len(responses) < total
+	c.JSON(http.StatusOK, gin.H{
+		"agents":   responses,
+		"count":    total,
+		"limit":    filters.Limit,
+		"offset":   filters.Offset,
+		"has_more": hasMore,
+	})
+}
+
 func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos userGetter) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		filters, err := ParseBlueprintListFilters(c)
+		if err != nil {
+			writeListFilterError(c, err)
+			return
+		}
+		// Public catalog is always public-only; visibility filter applies on GET /agents/:account.
+		if filters.Visibility != "" {
+			writeListFilterError(c, fmt.Errorf("visibility is not supported on the public catalog"))
+			return
+		}
+
 		log.Info("Listing public agents from index")
 
-		agents, err := index.ListPublicAgents()
+		page, err := index.ListPublicAgents(toBlueprintListOptions(filters))
 		if err != nil {
 			log.Error("Failed to list agents", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to list agents from index",
-				"details": err.Error(),
-			})
+			writeBlueprintListInternalError(c, "Failed to list agents from index")
 			return
 		}
 
@@ -230,8 +260,8 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 		publisherActors := make(map[string]map[string][]string) // accountID -> agentName -> actorIDs
 		userCache := make(map[string]*auth.User)
 
-		responses := make([]AgentResponse, 0, len(agents))
-		for _, agent := range agents {
+		responses := make([]AgentResponse, 0, len(page.Agents))
+		for _, agent := range page.Agents {
 			// Resolve account name
 			accountName, ok := accountNames[agent.AccountID]
 			if !ok {
@@ -315,10 +345,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			responses = append(responses, resp)
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"agents": responses,
-			"count":  len(responses),
-		})
+		writeBlueprintListResponse(c, responses, filters, page.Total)
 	}
 }
 
@@ -326,6 +353,12 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 // Lists all public agents for an account. Members also see private agents.
 func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos userGetter) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		filters, err := ParseBlueprintListFilters(c)
+		if err != nil {
+			writeListFilterError(c, err)
+			return
+		}
+
 		accountName := c.Param("account")
 
 		acct, err := accountStore.GetByName(accountName)
@@ -341,13 +374,16 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			}
 		}
 
-		agents, err := index.ListForAccount(acct.ID)
+		listOpts := toBlueprintListOptions(filters)
+		if !isMember {
+			// Restrict SQL to public rows so count/has_more cannot leak private catalog metadata.
+			listOpts.Visibility = "public"
+		}
+
+		page, err := index.ListForAccount(acct.ID, listOpts)
 		if err != nil {
 			log.Error("Failed to list agents for account", "error", err, "account", accountName)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to list agents",
-				"details": err.Error(),
-			})
+			writeBlueprintListInternalError(c, "Failed to list agents")
 			return
 		}
 
@@ -377,12 +413,8 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 		}
 		userCache := make(map[string]*auth.User)
 
-		responses := make([]AgentResponse, 0, len(agents))
-		for _, agent := range agents {
-			if agent.Visibility == "private" && !isMember {
-				continue
-			}
-
+		responses := make([]AgentResponse, 0, len(page.Agents))
+		for _, agent := range page.Agents {
 			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 			for _, v := range agent.Versions {
 				versions = append(versions, buildVersionResponse(v))
@@ -418,10 +450,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			responses = append(responses, resp)
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"agents": responses,
-			"count":  len(responses),
-		})
+		writeBlueprintListResponse(c, responses, filters, page.Total)
 	}
 }
 

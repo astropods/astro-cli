@@ -45,7 +45,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem("astro:theme")||"light";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark");document.cookie="astro-theme="+t+";path=/;max-age=31536000;SameSite=Lax"})()`,
+            __html: `(function(){var t=localStorage.getItem("astro:theme")||"light";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark");document.cookie="astro-theme="+t+";path=/;max-age=31536000;SameSite=Lax";var ps=localStorage.getItem("astro:blueprints:page-size");if(ps==="10"||ps==="20"||ps==="50")document.cookie="astro-blueprints-page-size="+ps+";path=/;max-age=31536000;SameSite=Lax"})()`,
           }}
         />
         <Meta />

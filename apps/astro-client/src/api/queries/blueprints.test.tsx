@@ -180,7 +180,7 @@ describe('useArchiveBlueprint', () => {
   it('invalidates account and global blueprint caches on success', async () => {
     const { wrapper, queryClient } = createHookWrapper();
 
-    queryClient.setQueryData(blueprintKeys.byAccount(testAccount), {
+    queryClient.setQueryData(blueprintKeys.list(testAccount, {}), {
       agents: [{ name: 'code-reviewer' }],
       count: 1,
     });
@@ -194,7 +194,7 @@ describe('useArchiveBlueprint', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(queryClient.getQueryState(blueprintKeys.byAccount(testAccount))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(blueprintKeys.list(testAccount, {}))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(blueprintKeys.all)?.isInvalidated).toBe(true);
   });
 
@@ -278,7 +278,7 @@ describe('useCreateBlueprint', () => {
 
     const { wrapper, queryClient } = createHookWrapper();
 
-    queryClient.setQueryData(blueprintKeys.byAccount(testAccount), { agents: [], count: 0 });
+    queryClient.setQueryData(blueprintKeys.list(testAccount, {}), { agents: [], count: 0 });
     queryClient.setQueryData(blueprintKeys.all, { agents: [], count: 0 });
 
     const { result } = renderHook(() => useCreateBlueprint(testAccount), { wrapper });
@@ -286,7 +286,7 @@ describe('useCreateBlueprint', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(queryClient.getQueryState(blueprintKeys.byAccount(testAccount))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(blueprintKeys.list(testAccount, {}))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(blueprintKeys.all)?.isInvalidated).toBe(true);
   });
 

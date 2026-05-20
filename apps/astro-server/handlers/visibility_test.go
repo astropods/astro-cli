@@ -499,14 +499,15 @@ func TestListAgents_OnlyPublic(t *testing.T) {
 
 	now := time.Now()
 
-	// ListPublicAgents query
+	// ListPublicAgents query (default limit 50 — total via COUNT(*) OVER())
 	indexMock.ExpectQuery("SELECT .+ FROM agents a.+WHERE a.visibility = 'public'").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at",
 			"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "published_at", "updated_at",
+			"list_total",
 		}).
 			AddRow("acct-1", "public-agent", "registry.io", "public", nil, now, now,
-				"build-1", "myorg", `{"name":"test"}`, "", "", now, now))
+				"build-1", "myorg", `{"name":"test"}`, "", "", now, now, 1))
 
 	// Account lookup for name resolution
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
@@ -558,6 +559,7 @@ func TestListAgents_Empty(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at",
 			"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "published_at", "updated_at",
+			"list_total",
 		}))
 
 	req := httptest.NewRequest(http.MethodGet, "/agents", nil)
@@ -572,5 +574,31 @@ func TestListAgents_Empty(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp["count"].(float64) != 0 {
 		t.Errorf("expected count 0, got %v", resp["count"])
+	}
+}
+
+func TestListAgents_VisibilityParamRejected(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	indexDB, _, _ := sqlmock.New()
+	defer indexDB.Close()
+	accountDB, _, _ := sqlmock.New()
+	defer accountDB.Close()
+	heartDB, _, _ := sqlmock.New()
+	defer heartDB.Close()
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	store := account.NewAccountStore(accountDB)
+	hearts := heartstore.New(heartDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/agents", ListAgents(log, index, store, hearts, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/agents?visibility=private", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

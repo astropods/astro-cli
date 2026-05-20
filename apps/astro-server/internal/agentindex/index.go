@@ -29,6 +29,8 @@ type Agent struct {
 	Registry     string           `json:"registry"`
 	Visibility   string           `json:"visibility"`
 	Versions     []*AgentVersion  `json:"versions"`
+	// VersionCount is set by list queries (total builds); use instead of len(Versions) when only the latest version is loaded.
+	VersionCount int `json:"-"`
 	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
 	NameReserved bool             `json:"name_reserved"`
 	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
@@ -322,57 +324,6 @@ func (idx *Index) List() ([]*Agent, error) {
 	return agents, nil
 }
 
-// ListForAccount returns all agents belonging to a specific account, excluding archived
-func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
-	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, avatar_colors, created_at, updated_at
-		FROM agents
-		WHERE account_id = $1 AND archived_at IS NULL
-		ORDER BY name
-	`, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query agents: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var agents []*Agent
-	for rows.Next() {
-		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan agent: %w", err)
-		}
-
-		versionRows, err := idx.db.Query(`
-			SELECT build_id, ecr_namespace, spec_json, readme, agent_card_json, validation_warnings, published_at, updated_at
-			FROM agent_versions
-			WHERE account_id = $1 AND name = $2
-			ORDER BY published_at DESC
-		`, agent.AccountID, agent.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query versions: %w", err)
-		}
-
-		for versionRows.Next() {
-			var v AgentVersion
-			var specJSON, warningsJSON string
-			if err := versionRows.Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.AgentCardJSON, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
-				_ = versionRows.Close()
-				return nil, fmt.Errorf("failed to scan version: %w", err)
-			}
-			if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-				_ = versionRows.Close()
-				return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-			}
-			v.ValidationWarnings = parseValidationWarnings(warningsJSON)
-			agent.Versions = append(agent.Versions, &v)
-		}
-		_ = versionRows.Close()
-
-		agents = append(agents, &agent)
-	}
-
-	return agents, nil
-}
 
 // AgentNames returns the names of all non-archived agents for an account.
 func (idx *Index) AgentNames(accountID string) ([]string, error) {
@@ -511,48 +462,6 @@ func (idx *Index) SetAvatarColors(accountID, name string, colorsJSON []byte) err
 	return err
 }
 
-// ListPublicAgents returns agents with visibility='public' and their latest version
-func (idx *Index) ListPublicAgents() ([]*Agent, error) {
-	rows, err := idx.db.Query(`
-		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.created_at, a.updated_at,
-		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.published_at, v.updated_at
-		FROM agents a
-		JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
-		WHERE a.visibility = 'public' AND a.archived_at IS NULL
-		AND v.published_at = (
-			SELECT MAX(v2.published_at) FROM agent_versions v2
-			WHERE v2.account_id = a.account_id AND v2.name = a.name
-		)
-		ORDER BY a.name
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query public agents: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var agents []*Agent
-	for rows.Next() {
-		var agent Agent
-		var v AgentVersion
-		var specJSON string
-
-		if err := rows.Scan(
-			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt,
-			&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.AgentCardJSON, &v.PublishedAt, &v.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-		}
-
-		agent.Versions = []*AgentVersion{&v}
-		agents = append(agents, &agent)
-	}
-
-	return agents, nil
-}
 
 // GetLatestVersion returns the most recently registered build for an agent
 func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error) {

@@ -158,12 +158,12 @@ func assertAgentInList(t *testing.T, index *agentindex.Index, accountID, name st
 
 func assertAgentInAccountList(t *testing.T, index *agentindex.Index, accountID, name string, want bool) {
 	t.Helper()
-	agents, err := index.ListForAccount(accountID)
+	page, err := index.ListForAccount(accountID, agentindex.BlueprintListOptions{})
 	if err != nil {
 		t.Fatalf("ListForAccount: %v", err)
 	}
 	found := false
-	for _, a := range agents {
+	for _, a := range page.Agents {
 		if a.Name == name {
 			found = true
 			break
@@ -176,12 +176,12 @@ func assertAgentInAccountList(t *testing.T, index *agentindex.Index, accountID, 
 
 func assertAgentInPublicList(t *testing.T, index *agentindex.Index, name string, want bool) {
 	t.Helper()
-	agents, err := index.ListPublicAgents()
+	page, err := index.ListPublicAgents(agentindex.BlueprintListOptions{})
 	if err != nil {
 		t.Fatalf("ListPublicAgents: %v", err)
 	}
 	found := false
-	for _, a := range agents {
+	for _, a := range page.Agents {
 		if a.Name == name {
 			found = true
 			break

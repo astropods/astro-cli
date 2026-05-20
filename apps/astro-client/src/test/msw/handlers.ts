@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw';
+import { BLUEPRINT_LIST_MAX_LIMIT } from '@/lib/blueprint-list-params';
 import type {
   BlueprintsListResponse,
   Blueprint,
@@ -17,6 +18,32 @@ import type {
   AccountPublic,
   AccountOrgsResponse,
 } from '@/lib/api';
+
+function paginateBlueprintList(
+  agents: Blueprint[],
+  request: Request,
+): BlueprintsListResponse {
+  const url = new URL(request.url);
+  const limit = Number(url.searchParams.get('limit') ?? BLUEPRINT_LIST_MAX_LIMIT);
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const q = url.searchParams.get('q')?.toLowerCase();
+  let filtered = agents;
+  if (q) {
+    filtered = agents.filter(
+      (b) =>
+        b.name.toLowerCase().includes(q) ||
+        b.versions?.some((v) => v.agent_card?.description?.toLowerCase().includes(q)),
+    );
+  }
+  const page = filtered.slice(offset, offset + limit);
+  return {
+    agents: page,
+    count: filtered.length,
+    limit,
+    offset,
+    has_more: offset + page.length < filtered.length,
+  };
+}
 
 // Fixture data — realistic but minimal
 export const mockBlueprints: Blueprint[] = [
@@ -253,11 +280,10 @@ export const mockDeploymentEvents: DeploymentEventsResponse = {
 
 export const handlers = [
   // GET /api/v1/agents
-  http.get('/api/v1/agents', () => {
-    return HttpResponse.json<BlueprintsListResponse>({
-      agents: mockBlueprints,
-      count: mockBlueprints.length,
-    });
+  http.get('/api/v1/agents', ({ request }) => {
+    return HttpResponse.json<BlueprintsListResponse>(
+      paginateBlueprintList(mockBlueprints, request),
+    );
   }),
 
   // POST /api/v1/agents/:account/:name/deployment-template (interactive POST)
@@ -305,12 +331,11 @@ export const handlers = [
   }),
 
   // GET /api/v1/agents/:account (list account blueprints)
-  http.get('/api/v1/agents/:account', ({ params }) => {
+  http.get('/api/v1/agents/:account', ({ params, request }) => {
     const accountBlueprints = mockBlueprints.filter((b) => b.account === params.account);
-    return HttpResponse.json<BlueprintsListResponse>({
-      agents: accountBlueprints,
-      count: accountBlueprints.length,
-    });
+    return HttpResponse.json<BlueprintsListResponse>(
+      paginateBlueprintList(accountBlueprints, request),
+    );
   }),
 
   // GET /api/v1/agents/:account/:name

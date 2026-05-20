@@ -167,6 +167,18 @@ func setupAgentTestRouter() (*gin.Engine, *agentindex.Index, sqlmock.Sqlmock) {
 	return router, index, mock
 }
 
+func blueprintAccountListColumns(paginated bool) []string {
+	cols := []string{
+		"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at",
+		"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at",
+		"version_count",
+	}
+	if paginated {
+		cols = append(cols, "list_total")
+	}
+	return cols
+}
+
 // injectTestAccount is a test middleware that sets a fake account in context,
 // simulating what ResolveAccount middleware does in production.
 func injectTestAccount() gin.HandlerFunc {
@@ -767,22 +779,172 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 	}
 }
 
+func TestListAccountAgents_QueryFilterPassedToIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	now := time.Now()
+
+	indexDB, indexMock, _ := sqlmock.New()
+	defer indexDB.Close()
+	index := agentindex.NewIndexWithDB(indexDB)
+	indexMock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
+		WithArgs("test-account-id", "public", "%analytics%", defaultBlueprintListLimit, 0).
+		WillReturnRows(sqlmock.NewRows(blueprintAccountListColumns(true)))
+
+	accountDB, accountMock, _ := sqlmock.New()
+	defer accountDB.Close()
+	accountStore := account.NewAccountStore(accountDB)
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("testaccount").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+
+	heartsDB, _, _ := sqlmock.New()
+	defer heartsDB.Close()
+	metricsDB, _, _ := sqlmock.New()
+	defer metricsDB.Close()
+	deploysDB, _, _ := sqlmock.New()
+	defer deploysDB.Close()
+
+	router := gin.New()
+	router.GET("/api/v1/agents/:account", ListAccountAgents(log, index, accountStore,
+		heartstore.New(heartsDB), metricsstore.New(metricsDB), deploymentstore.NewStore(deploysDB),
+		nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/testaccount?q=analytics", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("index expectations: %v", err)
+	}
+}
+
+func TestListAccountAgents_Member_PrivateVisibilityFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	now := time.Now()
+
+	indexDB, indexMock, _ := sqlmock.New()
+	defer indexDB.Close()
+	index := agentindex.NewIndexWithDB(indexDB)
+	indexMock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
+		WithArgs("test-account-id", "private", defaultBlueprintListLimit, 0).
+		WillReturnRows(sqlmock.NewRows(blueprintAccountListColumns(true)).
+			AddRow("test-account-id", "secret-agent", "registry.example.com", "private", nil, now, now,
+				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, 1, 1))
+
+	accountDB, accountMock, _ := sqlmock.New()
+	defer accountDB.Close()
+	accountStore := account.NewAccountStore(accountDB)
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("testaccount").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("test-account-id", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	heartsDB, _, _ := sqlmock.New()
+	defer heartsDB.Close()
+	metricsDB, _, _ := sqlmock.New()
+	defer metricsDB.Close()
+	deploysDB, _, _ := sqlmock.New()
+	defer deploysDB.Close()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/agents/:account", ListAccountAgents(log, index, accountStore,
+		heartstore.New(heartsDB), metricsstore.New(metricsDB), deploymentstore.NewStore(deploysDB),
+		nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/testaccount?visibility=private", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("index expectations: %v", err)
+	}
+}
+
+func TestListAccountAgents_Member_NoVisibilityFilter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := logger.New("error", "json")
+	now := time.Now()
+
+	indexDB, indexMock, _ := sqlmock.New()
+	defer indexDB.Close()
+	index := agentindex.NewIndexWithDB(indexDB)
+	indexMock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
+		WithArgs("test-account-id", defaultBlueprintListLimit, 0).
+		WillReturnRows(sqlmock.NewRows(blueprintAccountListColumns(true)).
+			AddRow("test-account-id", "public-agent", "registry.example.com", "public", nil, now, now,
+				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, 1, 2).
+			AddRow("test-account-id", "private-agent", "registry.example.com", "private", nil, now, now,
+				"build-2", "ns", `{"name":"test"}`, "", "", "[]", now, now, 1, 2))
+
+	accountDB, accountMock, _ := sqlmock.New()
+	defer accountDB.Close()
+	accountStore := account.NewAccountStore(accountDB)
+	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+		WithArgs("testaccount").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("test-account-id", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	heartsDB, _, _ := sqlmock.New()
+	defer heartsDB.Close()
+	metricsDB, _, _ := sqlmock.New()
+	defer metricsDB.Close()
+	deploysDB, _, _ := sqlmock.New()
+	defer deploysDB.Close()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/agents/:account", ListAccountAgents(log, index, accountStore,
+		heartstore.New(heartsDB), metricsstore.New(metricsDB), deploymentstore.NewStore(deploysDB),
+		nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/testaccount", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := indexMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("index expectations: %v", err)
+	}
+}
+
 func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
 	now := time.Now()
 
-	// agentindex: returns one public agent with no versions
+	// agentindex: returns one public agent with a latest version
 	indexDB, indexMock, _ := sqlmock.New()
 	defer indexDB.Close()
 	index := agentindex.NewIndexWithDB(indexDB)
-	indexMock.ExpectQuery("SELECT account_id, name, registry, visibility").
-		WithArgs("test-account-id").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at"}).
-			AddRow("test-account-id", "test-agent", "registry.example.com", "public", nil, now, now))
-	indexMock.ExpectQuery("SELECT build_id, ecr_namespace, spec_json").
-		WithArgs("test-account-id", "test-agent").
-		WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}))
+	indexMock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
+		WithArgs("test-account-id", "public", defaultBlueprintListLimit, 0).
+		WillReturnRows(sqlmock.NewRows(blueprintAccountListColumns(true)).
+			AddRow("test-account-id", "test-agent", "registry.example.com", "public", nil, now, now,
+				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, 1, 1))
 
 	// accountStore: GetByName returns the account; GetAccountsForUser returns a personal account for resolvePublishers
 	accountDB, accountMock, _ := sqlmock.New()

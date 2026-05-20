@@ -744,6 +744,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		// Agent registry endpoints (public read, with optional auth for visibility)
 		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
 			oapispec.Tags("Agents"),
+			oapispec.QueryParam("q", "Search by name or description", false),
+			oapispec.QueryParam("tag", "Filter by exact tag", false),
+			oapispec.QueryParam("sort", "Sort: name or newest", false),
+			oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+			oapispec.QueryParam("offset", "Page offset (max 10000)", false),
 			oapispec.Response(200, &handlers.ListAgentsResponse{}),
 		)
 		agentDetail := v1.Group("")
@@ -752,6 +757,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
+				oapispec.QueryParam("q", "Search by name or description", false),
+				oapispec.QueryParam("tag", "Filter by exact tag", false),
+				oapispec.QueryParam("visibility", "Filter: public or private", false),
+				oapispec.QueryParam("sort", "Sort: name or newest", false),
+				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+				oapispec.QueryParam("offset", "Page offset (max 10000)", false),
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)

@@ -1,6 +1,11 @@
 // API client for communicating with the astro-server backend
 
 import type { LogEntry } from "./log-utils";
+import {
+  buildBlueprintListQuery,
+  BLUEPRINT_LIST_MAX_LIMIT,
+  type BlueprintListParams,
+} from "./blueprint-list-params";
 
 function buildQS(params?: Record<string, string>): string {
   return params ? `?${new URLSearchParams(params)}` : '';
@@ -408,14 +413,27 @@ class ApiClient {
   }
 
   // Blueprint endpoints
-  async listBlueprints(): Promise<BlueprintsListResponse> {
-    return this.request<BlueprintsListResponse>('/api/v1/agents');
+  async listBlueprints(params?: BlueprintListParams): Promise<BlueprintsListResponse> {
+    const qs = buildBlueprintListQuery({
+      limit: BLUEPRINT_LIST_MAX_LIMIT,
+      offset: 0,
+      ...params,
+    });
+    return this.request<BlueprintsListResponse>(`/api/v1/agents?${qs}`);
   }
 
-  async listAccountBlueprints(account: string): Promise<BlueprintsListResponse> {
-    return this.request<BlueprintsListResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}`
-    );
+  /** Defaults to limit=100 for callers that need a full list in one request (no pagination). */
+  async listAccountBlueprints(
+    account: string,
+    params?: BlueprintListParams,
+  ): Promise<BlueprintsListResponse> {
+    const qs = buildBlueprintListQuery({
+      limit: BLUEPRINT_LIST_MAX_LIMIT,
+      offset: 0,
+      ...params,
+    });
+    const base = `/api/v1/agents/${encodeURIComponent(account)}`;
+    return this.request<BlueprintsListResponse>(`${base}?${qs}`);
   }
 
   async getBlueprint(account: string, name: string): Promise<Blueprint> {
@@ -1146,6 +1164,9 @@ export interface Blueprint {
 export interface BlueprintsListResponse {
   agents: Blueprint[];
   count: number;
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
 }
 
 export interface HeartedAgent {
