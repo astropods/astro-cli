@@ -166,7 +166,7 @@ export function BlueprintsTab({
     <div className="flex flex-col gap-5">
       {/* Toolbar — hidden when there's nothing to filter/sort/reorder */}
       {(blueprints.length > 0 || hasFilters) && (
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
         <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints…" disabled={isEditing} />
 
         {isInternalView && (

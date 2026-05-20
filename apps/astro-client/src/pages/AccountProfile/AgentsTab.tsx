@@ -28,7 +28,7 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
         <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search agents…" />
 
         <TabFilterDropdown
@@ -38,7 +38,7 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
           triggerLabel={sortLabel}
         />
 
-        <span className="ml-auto flex items-center gap-1.5 text-body-sm text-faint-foreground shrink-0">
+        <span className="sm:ml-auto flex items-center gap-1.5 text-body-sm text-faint-foreground shrink-0">
           <EyeOff className="size-3.5" />
           Only visible to you
         </span>

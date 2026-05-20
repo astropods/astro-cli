@@ -117,9 +117,9 @@ export function ProfileSidebarShell({
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="relative z-10 flex flex-col gap-6 px-6 py-7 h-full overflow-y-auto overflow-x-hidden">
+      <div className="relative z-10 flex flex-col gap-6 px-5 py-6 sm:px-6 md:py-7 md:h-full md:overflow-y-auto overflow-x-hidden">
         <div className="flex flex-col gap-2">
-          <UserAvatar handle={data.name} name={displayName} className="size-24 mb-1" />
+          <UserAvatar handle={data.name} name={displayName} className="size-20 sm:size-24 mb-1" />
           <div>
             <h1 className="text-heading-1 text-foreground break-words hyphens-auto">{displayName}</h1>
             <p className="text-body text-muted-foreground font-mono mt-0.5">@{data.name}</p>

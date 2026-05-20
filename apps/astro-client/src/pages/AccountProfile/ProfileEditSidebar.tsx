@@ -71,7 +71,7 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
   }
 
   return (
-    <div className="relative z-10 flex flex-col gap-5 px-6 py-7 h-full overflow-y-auto">
+    <div className="relative z-10 flex flex-col gap-5 px-5 py-6 sm:px-6 md:py-7 md:h-full md:overflow-y-auto">
       <div className="flex items-center justify-between">
         <h2 className="text-heading-4 text-foreground">{isOrg ? "Edit org profile" : "Edit profile"}</h2>
         <Button variant="ghost" size="icon-sm" onClick={onClose} className="text-muted-foreground">

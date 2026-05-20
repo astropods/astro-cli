@@ -199,7 +199,7 @@ export function ProfileLayout({
 
   return (
     <PageContainer
-      className="flex min-h-0"
+      className="flex flex-col px-0 pt-0 pb-0 md:flex-row md:min-h-0 md:px-8 md:pt-8 md:pb-8"
       outerClassName="bg-background"
       outerChildren={
         <GradientGridWash
@@ -209,7 +209,7 @@ export function ProfileLayout({
         />
       }
     >
-      <aside className="w-72 shrink-0 border-r border-border overflow-hidden">
+      <aside className="w-full md:w-72 md:shrink-0 border-b border-border md:border-b-0 md:border-r md:overflow-hidden">
         {editOpen
           ? renderEditSidebar({ onClose: () => setEditOpen(false) })
           : renderViewSidebar({
@@ -222,9 +222,9 @@ export function ProfileLayout({
             })}
       </aside>
 
-      <main className="relative flex flex-1 min-w-0 flex-col min-h-0">
+      <main className="relative flex flex-1 min-w-0 flex-col md:min-h-0">
         {/* Tab bar */}
-        <div className="flex items-end gap-5 px-8 pt-5 border-b border-border">
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-2 px-4 pt-4 sm:px-6 md:px-8 md:pt-5 border-b border-border">
           <TabButton
             active={resolvedTab === "blueprints"}
             onClick={() => setActiveTab("blueprints")}
@@ -271,7 +271,7 @@ export function ProfileLayout({
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 md:overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-6">
           {resolvedTab === "blueprints" && (
             <BlueprintsTab
               blueprints={visibleBlueprints}

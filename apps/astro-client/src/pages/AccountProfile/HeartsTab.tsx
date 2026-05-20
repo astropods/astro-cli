@@ -88,7 +88,7 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
         <TabSearchInput value={search} onChange={onSearchChange} placeholder="Filter this page…" />
         <TabFilterDropdown
           value={sort}
