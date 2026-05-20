@@ -40,11 +40,12 @@ export interface VariableFieldsProps {
   invalidRefKeys?: string[];
   account?: string;
   vaultEntries?: AccountVariable[];
+  vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultSettingsUrl, vaultLoadError }: VariableFieldsProps) {
+export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError }: VariableFieldsProps) {
   if (variables.length === 0) return null;
 
   // Keep a ref so per-field onChange callbacks always see the latest values,
@@ -125,6 +126,7 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
                 refInvalid={invalidRefKeys?.includes(key)}
                 account={account}
                 vaultEntries={vaultEntries}
+                vaultEntriesLoaded={vaultEntriesLoaded}
                 vaultSettingsUrl={vaultSettingsUrl}
                 vaultLoadError={vaultLoadError}
               />

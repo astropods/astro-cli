@@ -887,6 +887,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
 
     vaultEntries: accountVarsData?.variables ?? [],
+    vaultEntriesLoaded: accountVarsLoaded,
     vaultEntriesLoadError,
     vaultSettingsUrl: (() => {
       const acct = accounts.find(a => a.name === targetAccount);

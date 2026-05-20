@@ -163,6 +163,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           onSlackGrantsChange={form.setSlackGrants}
           targetAccount={form.targetAccount}
           vaultEntries={form.vaultEntries}
+          vaultEntriesLoaded={form.vaultEntriesLoaded}
           vaultSettingsUrl={form.vaultSettingsUrl}
           vaultLoadError={form.vaultEntriesLoadError}
         />
@@ -200,6 +201,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             invalidRefKeys={form.invalidVaultRefKeys}
             account={form.targetAccount}
             vaultEntries={form.vaultEntries}
+            vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
           />
@@ -216,6 +218,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             invalidRefKeys={form.invalidVaultRefKeys}
             account={form.targetAccount}
             vaultEntries={form.vaultEntries}
+            vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
           />

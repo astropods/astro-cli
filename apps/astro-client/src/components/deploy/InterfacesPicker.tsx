@@ -33,6 +33,7 @@ export interface InterfacesPickerProps {
   /** Target account name — used by GrantsEditor to scope the user picker to that account's members. */
   targetAccount?: string;
   vaultEntries?: AccountVariable[];
+  vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
 }
@@ -52,6 +53,7 @@ export function InterfacesPicker({
   onSlackGrantsChange,
   targetAccount,
   vaultEntries,
+  vaultEntriesLoaded,
   vaultSettingsUrl,
   vaultLoadError,
 }: InterfacesPickerProps) {
@@ -146,6 +148,7 @@ export function InterfacesPicker({
                       errorKeys={adapterErrorKeys}
                       account={targetAccount}
                       vaultEntries={vaultEntries}
+                      vaultEntriesLoaded={vaultEntriesLoaded}
                       vaultSettingsUrl={vaultSettingsUrl}
                       vaultLoadError={vaultLoadError}
                     />
@@ -181,6 +184,7 @@ export function InterfacesPicker({
                   errorKeys={adapterErrorKeys}
                   account={targetAccount}
                   vaultEntries={vaultEntries}
+                  vaultEntriesLoaded={vaultEntriesLoaded}
                   vaultSettingsUrl={vaultSettingsUrl}
                   vaultLoadError={vaultLoadError}
                 />
