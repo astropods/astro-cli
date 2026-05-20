@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -65,10 +66,18 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 
 	if err := w.deployer.Teardown(ctx, dep); err != nil {
-		if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "undeploy failed: "+err.Error(), nil); sErr != nil {
-			w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
+		if errors.Is(err, deployer.ErrClusterClientUnavailable) {
+			w.log.Warn("Undeploy: cluster client unavailable, skipping K8s teardown",
+				"deployment_id", dep.ID,
+				"cluster_id", dep.EffectiveClusterID(),
+				"error", err,
+			)
+		} else {
+			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "undeploy failed: "+err.Error(), nil); sErr != nil {
+				w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
+			}
+			return fmt.Errorf("teardown failed: %w", err)
 		}
-		return fmt.Errorf("teardown failed: %w", err)
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 

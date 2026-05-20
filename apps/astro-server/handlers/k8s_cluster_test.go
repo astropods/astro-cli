@@ -35,3 +35,27 @@ func TestDeploymentClusterClient_AdditionalDelegatesToGet(t *testing.T) {
 		t.Fatalf("want ErrClusterNotFound, got %v", err)
 	}
 }
+
+func TestClusterHealthForDeploy_Healthy(t *testing.T) {
+	primary := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	reg := k8s.NewRegistryWithPrimary(primary)
+	reg.SetCachedClientForTest("eu-west-1", primary)
+
+	if err := clusterHealthForDeploy(context.Background(), reg, "eu-west-1"); err != nil {
+		t.Fatalf("expected healthy cluster, got error: %v", err)
+	}
+}
+
+func TestClusterHealthForDeploy_Unhealthy(t *testing.T) {
+	primary := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	reg := k8s.NewRegistryWithPrimary(primary)
+	reg.SetCachedClientForTest("bad", unhealthyStubCluster("connection refused"))
+
+	err := clusterHealthForDeploy(context.Background(), reg, "bad")
+	if err == nil {
+		t.Fatal("expected unhealthy cluster error")
+	}
+	if got := k8s.PublicClusterHealthDetail(err); got != "unable to connect to cluster" {
+		t.Fatalf("expected sanitized connect detail, got %q", got)
+	}
+}

@@ -2,6 +2,8 @@ package deployer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -104,6 +106,37 @@ func TestTeardown_Success(t *testing.T) {
 	err := d.Teardown(context.Background(), dep)
 	if err != nil {
 		t.Errorf("Teardown should return nil on success, got: %v", err)
+	}
+}
+
+func TestTeardown_ClusterClientUnavailable(t *testing.T) {
+	clusterID := "eu-west-1-secondary"
+	d := &Deployer{Registry: k8s.NewRegistryWithPrimary(newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))}
+	dep := &deploymentstore.Deployment{
+		Namespace: "astro-test-0",
+		ClusterID: &clusterID,
+	}
+
+	err := d.Teardown(context.Background(), dep)
+	if err == nil {
+		t.Fatal("expected error when additional cluster is not registered")
+	}
+	if !errors.Is(err, ErrClusterClientUnavailable) {
+		t.Fatalf("expected ErrClusterClientUnavailable, got %v", err)
+	}
+}
+
+func TestTeardown_TransientResolutionError_NotUnavailable(t *testing.T) {
+	transient := errors.New("ThrottlingException: Rate exceeded")
+	if k8s.IsPermanentClientResolutionError(transient) {
+		t.Fatal("test setup: throttling must classify as transient")
+	}
+
+	err := fmt.Errorf("resolve k8s client: %w", transient)
+	if errors.Is(err, ErrClusterClientUnavailable) {
+		t.Fatalf("transient resolution error must not wrap ErrClusterClientUnavailable, got %v", err)
 	}
 }
 

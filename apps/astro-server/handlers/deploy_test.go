@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -39,6 +40,25 @@ import (
 	fakeKube "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
+
+// healthStubClusterClient implements k8s.ClusterClient for deploy cluster_id tests.
+type healthStubClusterClient struct {
+	checkHealthErr error
+}
+
+func (h *healthStubClusterClient) Clientset() *kubernetes.Clientset      { return nil }
+func (h *healthStubClusterClient) Config() *rest.Config                  { return nil }
+func (h *healthStubClusterClient) CheckHealth() error                    { return h.checkHealthErr }
+func (h *healthStubClusterClient) GetServerVersion() (string, error)     { return "v1.0.0", nil }
+func (h *healthStubClusterClient) DiagnoseConnection() map[string]string { return nil }
+
+func healthyStubCluster() k8s.ClusterClient {
+	return &healthStubClusterClient{}
+}
+
+func unhealthyStubCluster(msg string) k8s.ClusterClient {
+	return &healthStubClusterClient{checkHealthErr: errors.New(msg)}
+}
 
 func testK8sRegistry(client k8s.ClusterClient) *k8s.Registry {
 	if client == nil {
@@ -2420,7 +2440,7 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, clusterStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -6087,14 +6107,20 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 // means "route to the primary cluster" and is persisted as NULL — already
 // covered by TestDeploy_WithoutDeploymentID_CreatesNew (which submits no
 // cluster_id and expects a successful 202). The cases below cover the
-// validation path for present values: valid+enabled (happy), unknown (400),
-// and present-but-disabled (400).
+// validation path for present values: valid+enabled+healthy (happy), unknown (400),
+// present-but-disabled (400), and present-but-unhealthy (400).
 
 // setupDeployRouterWithClusterStore is a copy of setupDeployRouter that
 // additionally wires a real clusterstore.Store backed by an sqlmock. Returns
 // the cluster mock alongside the existing mocks so callers can prime
 // `clusterstore.Get` lookups.
 func setupDeployRouterWithClusterStore(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	return setupDeployRouterWithClusterStoreClients(userID, map[string]k8s.ClusterClient{
+		"eu-west-1-managed": healthyStubCluster(),
+	})
+}
+
+func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[string]k8s.ClusterClient) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -6114,6 +6140,12 @@ func setupDeployRouterWithClusterStore(userID string) (*gin.Engine, sqlmock.Sqlm
 		},
 	}
 
+	primary := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	k8sReg := k8s.NewRegistryWithClusterStore(primary, clusterStore, log)
+	for id, client := range cachedClients {
+		k8sReg.SetCachedClientForTest(id, client)
+	}
+
 	router := gin.New()
 	if userID != "" {
 		router.Use(func(c *gin.Context) {
@@ -6121,7 +6153,7 @@ func setupDeployRouterWithClusterStore(userID string) (*gin.Engine, sqlmock.Sqlm
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and preflighter skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and preflighter skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, clusterMock
 }
@@ -6207,6 +6239,45 @@ func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
 	}
 	if got := resp["cluster_id"]; got != "staging" {
 		t.Errorf("cluster_id in response = %v, want staging", got)
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled cluster expectations: %v", err)
+	}
+}
+
+func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
+	const clusterID = "eu-west-1-unhealthy"
+	router, _, _, _, clusterMock := setupDeployRouterWithClusterStoreClients("user-1", map[string]k8s.ClusterClient{
+		clusterID: unhealthyStubCluster("connection refused"),
+	})
+
+	now := time.Now()
+	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
+		WithArgs(clusterID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint",
+			"enabled", "created_at", "updated_at",
+		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", true, now, now))
+
+	body := deployableSpecWithClusterID(clusterID)
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if got := resp["error"]; got != "cluster is unhealthy" {
+		t.Errorf("error = %v, want cluster is unhealthy", got)
+	}
+	if got := resp["cluster_id"]; got != clusterID {
+		t.Errorf("cluster_id in response = %v, want %s", got, clusterID)
+	}
+	if got := resp["details"]; got != "unable to connect to cluster" {
+		t.Errorf("details = %v, want unable to connect to cluster", got)
 	}
 	if err := clusterMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled cluster expectations: %v", err)

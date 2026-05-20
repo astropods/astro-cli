@@ -241,6 +241,19 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 	return out, nil
 }
 
+// SetCachedClientForTest pre-seeds Get(id) for tests that must avoid dialing EKS.
+func (r *Registry) SetCachedClientForTest(id string, c ClusterClient) {
+	if r == nil || id == "" || c == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cache == nil {
+		r.cache = make(map[string]ClusterClient)
+	}
+	r.cache[id] = c
+}
+
 // Refresh drops a cached additional-cluster client so the next Get re-reads
 // the row. No-op for the primary cluster id.
 func (r *Registry) Refresh(_ context.Context, id string) error {

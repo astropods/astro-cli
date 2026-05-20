@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,6 +25,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// ErrClusterClientUnavailable means Teardown hit a permanent cluster-client
+// resolution failure (cluster missing/disabled, IAM deny). Callers may proceed
+// with DB-only cleanup. Transient resolution errors are returned unwrapped so
+// undeploy workers retry.
+var ErrClusterClientUnavailable = errors.New("cluster client unavailable")
 
 // Deployer handles K8s apply and teardown operations for deployments.
 type Deployer struct {
@@ -383,6 +390,9 @@ func buildNamespaceLabels(dep *deploymentstore.Deployment, accountName string) m
 func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment) error {
 	k8sForDep, err := d.clusterClient(ctx, dep)
 	if err != nil {
+		if k8s.IsPermanentClientResolutionError(err) {
+			return fmt.Errorf("%w: resolve k8s client: %w", ErrClusterClientUnavailable, err)
+		}
 		return fmt.Errorf("resolve k8s client: %w", err)
 	}
 	err = k8sForDep.Clientset().CoreV1().Namespaces().Delete(

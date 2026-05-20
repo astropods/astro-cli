@@ -537,7 +537,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -575,6 +575,22 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				c.JSON(http.StatusBadRequest, gin.H{
 					"error":      "cluster is disabled",
 					"cluster_id": id,
+				})
+				return
+			}
+			if healthErr := clusterHealthForDeploy(c.Request.Context(), k8sReg, id); healthErr != nil {
+				if !k8sRegistryReady(k8sReg) {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+					return
+				}
+				log.Warn("Deploy rejected: cluster unhealthy",
+					"cluster_id", id,
+					"error", healthErr,
+				)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":      "cluster is unhealthy",
+					"cluster_id": id,
+					"details":    k8s.PublicClusterHealthDetail(healthErr),
 				})
 				return
 			}
