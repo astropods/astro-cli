@@ -1,6 +1,5 @@
 import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { AccountObservabilitySummaryResponse, AccountBlueprintsSummaryResponse } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
@@ -26,34 +25,20 @@ function buildDateParams(from?: string, to?: string): Record<string, string> {
   return p;
 }
 
-export function useAccountActivitySummary(
-  account: string,
-  from?: string,
-  to?: string,
-  opts?: { initialData?: AccountObservabilitySummaryResponse },
-) {
+export function useAccountActivitySummary(account: string, from?: string, to?: string) {
   return useQuery({
     queryKey: observabilityKeys.activitySummary(account, from, to),
     queryFn: () => api.getAccountObservabilitySummary(account, buildDateParams(from, to)),
     enabled: !!account,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
     ...ACTIVITY_QUERY_OPTS,
   });
 }
 
-export function useBlueprintsSummary(
-  account: string,
-  from?: string,
-  to?: string,
-  opts?: { initialData?: AccountBlueprintsSummaryResponse },
-) {
+export function useBlueprintsSummary(account: string, from?: string, to?: string) {
   return useQuery({
     queryKey: observabilityKeys.blueprintsSummary(account, from, to),
     queryFn: () => api.getAccountBlueprintsSummary(account, buildDateParams(from, to)),
     enabled: !!account,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
     ...ACTIVITY_QUERY_OPTS,
   });
 }
@@ -69,6 +54,9 @@ export function useAccountObservabilitySummary(
     enabled: (opts?.enabled ?? true) && !!account,
     staleTime: 0,
     retry: false,
+    // Without keepPreviousData, DashboardStats flashes 0s on org switch
+    // because the loading prop on MetricCard was removed.
+    placeholderData: keepPreviousData,
   });
 }
 

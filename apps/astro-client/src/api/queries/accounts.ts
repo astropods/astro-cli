@@ -3,13 +3,12 @@ import { api } from '../../lib/api';
 import type { AccountPublic, CreateAccountData, AccountMembersResponse, AccountOrgsResponse } from '../../lib/api';
 import { accountKeys } from './keys';
 
-export function useAccountMembers(account: string, opts?: { includePending?: boolean; enabled?: boolean; initialData?: AccountMembersResponse }) {
+export function useAccountMembers(account: string, opts?: { includePending?: boolean; enabled?: boolean }) {
   return useQuery({
     queryKey: opts?.includePending ? accountKeys.pendingMembers(account) : accountKeys.members(account),
     queryFn: () => api.getAccountMembers(account, opts),
     enabled: (opts?.enabled ?? true) && !!account,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -25,6 +24,7 @@ export function useAccount(name: string, opts?: { initialData?: AccountPublic })
     queryKey: accountKeys.detail(name),
     queryFn: () => api.getAccount(name),
     enabled: !!name,
+    placeholderData: keepPreviousData,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
@@ -120,14 +120,13 @@ export function useUpdateAccountProfile() {
   });
 }
 
-export function useAccountOrgs(account: string, opts?: { enabled?: boolean; initialData?: AccountOrgsResponse }) {
+export function useAccountOrgs(account: string, opts?: { enabled?: boolean }) {
   return useQuery<AccountOrgsResponse>({
     queryKey: accountKeys.orgs(account),
     queryFn: () => api.getAccountOrgs(account),
     enabled: (opts?.enabled ?? true) && !!account,
     staleTime: 60_000,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    placeholderData: keepPreviousData,
   });
 }
 

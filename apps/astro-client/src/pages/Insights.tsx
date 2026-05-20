@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { motion } from "motion/react";
 import { ChartBarIcon } from "@heroicons/react/24/outline";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { AgentFilterBar } from "@/components/activity/AgentFilterBar";
 import { StatCards } from "@/components/activity/StatCards";
@@ -9,13 +11,14 @@ import { CostOverTimeChart } from "@/components/activity/CostOverTimeChart";
 import { TopSpendersTable } from "@/components/activity/TopSpendersTable";
 import { useInsightsData } from "@/components/activity/use-insights-data";
 import { buildPeriodParams, type ActivityRange } from "@/components/activity/ranges";
+import { observabilityKeys } from "@/api/queries/keys";
 import { formatDateShort } from "@/lib/format-utils";
 import { dashboardPath } from "@/lib/routes";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageHeader } from "@/components/PageLayout";
 import { EmptyState } from "@/components/EmptyState";
 import { PageStarField } from "@/components/agent-detail/starfield/PageStarField";
-import { getPersonalAccount } from "@/lib/api.server";
+import { getActiveAccount } from "@/lib/api.server";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30 };
@@ -31,8 +34,8 @@ function parseRange(raw: string | null): ActivityRange {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const ctx = await getPersonalAccount(request);
-  if (!ctx) return { summary: null, blueprintsData: null, blueprintCount: 0 };
+  const ctx = await getActiveAccount(request);
+  if (!ctx) return { account: null, summary: null, blueprintsData: null, from: null, to: null };
 
   const url = new URL(request.url);
   const range = parseRange(url.searchParams.get("range"));
@@ -46,7 +49,29 @@ export async function loader({ request }: Route.LoaderArgs) {
     ctx.api.getAccountBlueprintsSummary(ctx.accountName, params).catch(() => null),
   ]);
 
-  return { summary, blueprintsData, blueprintCount: blueprintsData?.blueprints?.length ?? 0, from: from ?? null, to: to ?? null };
+  return {
+    account: ctx.accountName,
+    summary,
+    blueprintsData,
+    from: from ?? null,
+    to: to ?? null,
+  };
+}
+
+// Range/agent toggles change search params client-side — only org switches
+// (programmatic revalidations, currentUrl === nextUrl) need the loader.
+export function shouldRevalidate({
+  currentUrl,
+  nextUrl,
+  defaultShouldRevalidate,
+}: {
+  currentUrl: URL;
+  nextUrl: URL;
+  defaultShouldRevalidate: boolean;
+}) {
+  if (currentUrl.toString() === nextUrl.toString()) return true;
+  if (currentUrl.pathname === nextUrl.pathname) return false;
+  return defaultShouldRevalidate;
 }
 
 export default function Insights({ loaderData }: Route.ComponentProps) {
@@ -64,27 +89,37 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     }, { replace: true });
   }
 
+  // Prefer the loader's timestamps (the ones the SSR data is keyed under);
+  // fall back to client-computed window on CSR range toggles where the
+  // loader didn't re-run.
+  const clientWindow = useMemo(() => buildPeriodParams(range), [range]);
+  const from = loaderData?.from ?? clientWindow.from;
+  const to = loaderData?.to ?? clientWindow.to;
+
+  usePrimeQueryCache(loaderData, (qc, ld) => {
+    if (!ld?.account) return;
+    if (ld.summary) {
+      qc.setQueryData(observabilityKeys.activitySummary(ld.account, from, to), ld.summary);
+    }
+    if (ld.blueprintsData) {
+      qc.setQueryData(observabilityKeys.blueprintsSummary(ld.account, from, to), ld.blueprintsData);
+    }
+  });
+
   const {
-    from,
-    to,
     allAgentNames,
     filteredBlueprints,
     agentCostOverTime,
     displaySummary,
     allAgentColorMap,
     activeColorMap,
-    summaryLoading,
-    blueprintsLoading,
     isLoading,
     hasData,
   } = useInsightsData({
     account: activeAccount,
-    range,
     selectedAgents,
-    initialSummary: loaderData?.summary,
-    initialBlueprintsData: loaderData?.blueprintsData,
-    ssrFrom: loaderData?.from,
-    ssrTo: loaderData?.to,
+    from,
+    to,
   });
 
   const dateLabel = buildDateLabel(range, from, to);
@@ -132,7 +167,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
           >
             <StatCards
               data={displaySummary}
-              loading={summaryLoading}
               showChange={range !== "all"}
               range={range}
             />
@@ -153,7 +187,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
               <div className="mb-6 h-[300px]">
                 <CostOverTimeChart
                   data={agentCostOverTime}
-                  loading={blueprintsLoading}
                   days={days}
                   colorMap={activeColorMap}
                   seriesLabels={{ __all__: "All Agents" }}
@@ -163,7 +196,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
               <TopSpendersTable
                 blueprints={filteredBlueprints}
-                loading={blueprintsLoading}
                 groupLabel="Agent"
               />
             </motion.div>

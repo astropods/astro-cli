@@ -128,18 +128,22 @@ export function DeployedAgentCard({
   const deploymentAvatarBust = useDeploymentAvatarBust(deploymentId);
   const deploymentAvatarUrl = deploymentAvatarBust ?? getDeploymentAvatarUrl(deploymentId);
 
-  const cardData = useMemo<CardData>(() => ({
-    name,
-    displayName,
-    account,
-    avatar: { url: deploymentAvatarUrl },
-    stats: [
-      { label: "Deployed", value: formatDateTime(installedAt) },
-      { label: "From", value: `${account}/${name}` },
-    ],
-    barcodeId: deploymentId,
-    qrUrl: `${window.location.origin}/${account}/${name}`,
-  }), [name, displayName, account, deploymentAvatarUrl, installedAt, deploymentId]);
+  const cardData = useMemo<CardData>(() => {
+    // SSR-safe: window is undefined on the server. Same guard as LiveRevealOverlay.
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return {
+      name,
+      displayName,
+      account,
+      avatar: { url: deploymentAvatarUrl },
+      stats: [
+        { label: "Deployed", value: formatDateTime(installedAt) },
+        { label: "From", value: `${account}/${name}` },
+      ],
+      barcodeId: deploymentId,
+      qrUrl: `${origin}/${account}/${name}`,
+    };
+  }, [name, displayName, account, deploymentAvatarUrl, installedAt, deploymentId]);
 
   const cardClassName = cn(
     "group relative flex flex-col gap-3 rounded-md border border-border bg-card dark:bg-surface px-4 py-3 transition-all duration-150",

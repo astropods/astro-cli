@@ -3,7 +3,6 @@ import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath } from "@/lib/routes";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
-import { AgentCardSkeleton } from "@/components/dashboard/DeployedAgentsSection";
 import { EyeOff } from "lucide-react";
 
 export type AgentSort = "modified" | "name";
@@ -45,13 +44,7 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
         </span>
       </div>
 
-      {isLoading && deployments.length === 0 && !hasFilters ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading agents">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <AgentCardSkeleton key={i} />
-          ))}
-        </div>
-      ) : deployments.length === 0 ? (
+      {isLoading && deployments.length === 0 && !hasFilters ? null : deployments.length === 0 ? (
         <p className="text-body text-muted-foreground">
           {hasFilters ? "No agents match your search." : "No agents deployed yet."}
         </p>

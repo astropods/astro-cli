@@ -8,6 +8,10 @@ import { deploymentPath } from "@/lib/routes";
 import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
+// Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
+// into its slot, we show this placeholder card in its spot until the real
+// deployment row arrives. NOT used for generic loading — page data comes from
+// the loader's cache-primed deployments, so there's nothing to skeleton.
 export function AgentCardSkeleton() {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-background px-4 pb-[22px] pt-3 animate-pulse">
@@ -80,7 +84,6 @@ interface DeployedAgentsSectionProps {
   account: string;
   isLoading: boolean;
   skeletonDeploymentId?: string | null;
-  skeletonCount?: number;
 }
 
 export function DeployedAgentsSection({
@@ -88,7 +91,6 @@ export function DeployedAgentsSection({
   account,
   isLoading,
   skeletonDeploymentId,
-  skeletonCount = 4,
 }: DeployedAgentsSectionProps) {
   const summaryResults = useObservabilitySummaries(deployments.map((d) => d.id));
 
@@ -115,21 +117,6 @@ export function DeployedAgentsSection({
       ),
     );
   }, [deployments]);
-
-  if (isLoading) {
-    return (
-      <>
-        <div className="mb-4">
-          <DashboardToolbar {...toolbarProps} disabled />
-        </div>
-        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
-          {Array.from({ length: skeletonCount }).map((_, i) => (
-            <AgentCardSkeleton key={i} />
-          ))}
-        </div>
-      </>
-    );
-  }
 
   if (isEmpty) {
     return <DashboardAgentsEmptyState />;

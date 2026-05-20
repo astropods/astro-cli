@@ -289,7 +289,6 @@ export function ProfileLayout({
               onEnterReorder={handleEnterReorder}
               onSaveReorder={handleSaveReorder}
               isLoading={isBlueprintsLoading}
-              skeletonCount={data.blueprint_order?.length || 3}
             />
           )}
           {resolvedTab === "agents" && canSeeAgentsTab && (

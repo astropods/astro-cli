@@ -98,9 +98,7 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
         />
       </div>
 
-      {isLoading ? (
-        <p className="text-body text-muted-foreground">Loading…</p>
-      ) : filtered.length === 0 ? (
+      {isLoading && filtered.length === 0 ? null : filtered.length === 0 ? (
         <p className="text-body text-muted-foreground">
           {hasFilters ? "No hearts match your search." : "No hearted blueprints yet."}
         </p>

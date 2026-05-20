@@ -47,25 +47,12 @@ function SortableHead({ label, sortKey, currentSort, asc, onSort, align = "right
   );
 }
 
-function GhostRow() {
-  return (
-    <TableRow>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <TableCell key={i} className={i === 0 ? "pr-4" : ""}>
-          <div className={cn("h-3.5 animate-pulse rounded bg-muted", i === 0 ? "w-[70%]" : "w-1/2")} />
-        </TableCell>
-      ))}
-    </TableRow>
-  );
-}
-
 interface TopSpendersTableProps {
   blueprints: Blueprint[];
-  loading: boolean;
   groupLabel?: string;
 }
 
-export function TopSpendersTable({ blueprints, loading, groupLabel = "Agent" }: TopSpendersTableProps) {
+export function TopSpendersTable({ blueprints, groupLabel = "Agent" }: TopSpendersTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("cost_usd");
   const [asc, setAsc] = useState(false);
 
@@ -107,9 +94,7 @@ export function TopSpendersTable({ blueprints, loading, groupLabel = "Agent" }: 
           </TableRow>
         </TableHeader>
         <TableBody>
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} />)
-          ) : sorted.length === 0 ? (
+          {sorted.length === 0 ? (
             <TableRow>
               <TableCell colSpan={6} className="py-10 text-center text-body-sm text-faint-foreground">
                 No agent activity in this period

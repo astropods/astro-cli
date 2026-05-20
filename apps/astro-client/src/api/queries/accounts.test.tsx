@@ -102,28 +102,21 @@ describe('useAccountOrgs', () => {
     expect(result.current.data?.orgs[0].name).toBe('acme-corp');
   });
 
-  it('seeds the cache with initialData and skips the network request', async () => {
-    server.use(
-      http.get('/api/v1/accounts/testuser/orgs', () =>
-        HttpResponse.json<AccountOrgsResponse>({ orgs: [] }),
-      ),
-    );
-
-    const initialData: AccountOrgsResponse = {
+  it('reads pre-primed cache data synchronously on mount (setQueryData replacement for the old initialData seeding)', async () => {
+    // The hook's initialData option was removed app-wide in favor of
+    // queryClient.setQueryData (driven by usePrimeQueryCache). Verify the
+    // same outcome: data is available on the first render without waiting
+    // for a network fetch.
+    const seeded: AccountOrgsResponse = {
       orgs: [{ name: 'preloaded-org', display_name: 'Preloaded' }],
     };
 
-    const { wrapper } = createHookWrapper();
-    const { result } = renderHook(
-      () => useAccountOrgs('testuser', { initialData }),
-      { wrapper },
-    );
+    const { wrapper, queryClient } = createHookWrapper();
+    queryClient.setQueryData(accountKeys.orgs('testuser'), seeded);
 
-    // Data is synchronously available from initialData
+    const { result } = renderHook(() => useAccountOrgs('testuser'), { wrapper });
+
     expect(result.current.data?.orgs[0].name).toBe('preloaded-org');
-
-    // staleTime: 0 means a background refetch will fire, so we just verify
-    // the data was available immediately without waiting for the network
     expect(result.current.isLoading).toBe(false);
   });
 

@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useAccountActivitySummary, useBlueprintsSummary } from "@/api/queries/observability";
-import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
 import type { AccountBlueprintsSummaryResponse, AccountObservabilitySummaryResponse } from "@/lib/api";
 
@@ -86,33 +85,21 @@ export function buildFilteredSummary(
 
 interface UseInsightsDataOpts {
   account: string;
-  range: ActivityRange;
   selectedAgents: string[];
-  initialSummary?: AccountObservabilitySummaryResponse | null;
-  initialBlueprintsData?: AccountBlueprintsSummaryResponse | null;
-  ssrFrom?: string | null;
-  ssrTo?: string | null;
+  // Caller passes from/to so the hook keys queries under the same window
+  // the page primed the cache with.
+  from?: string;
+  to?: string;
 }
 
 export function useInsightsData({
   account,
-  range,
   selectedAgents,
-  initialSummary,
-  initialBlueprintsData,
-  ssrFrom,
-  ssrTo,
+  from,
+  to,
 }: UseInsightsDataOpts) {
-  const { from: computedFrom, to: computedTo } = useMemo(() => buildPeriodParams(range), [range]);
-  const from = ssrFrom ?? computedFrom;
-  const to = ssrTo ?? computedTo;
-
-  const { data: summary, isLoading: summaryLoading } = useAccountActivitySummary(
-    account, from, to, { initialData: initialSummary ?? undefined },
-  );
-  const { data: blueprintsData, isLoading: blueprintsLoading } = useBlueprintsSummary(
-    account, from, to, { initialData: initialBlueprintsData ?? undefined },
-  );
+  const { data: summary, isLoading: summaryLoading } = useAccountActivitySummary(account, from, to);
+  const { data: blueprintsData, isLoading: blueprintsLoading } = useBlueprintsSummary(account, from, to);
 
   const allAgentNames = useMemo(
     () => blueprintsData?.blueprints.map((b) => b.agent_name) ?? [],
@@ -163,16 +150,12 @@ export function useInsightsData({
   );
 
   return {
-    from,
-    to,
     allAgentNames,
     filteredBlueprints,
     agentCostOverTime,
     displaySummary,
     allAgentColorMap,
     activeColorMap,
-    summaryLoading,
-    blueprintsLoading,
     isLoading: summaryLoading || blueprintsLoading,
     hasData: filteredBlueprints.some((b) => b.requests > 0),
   };

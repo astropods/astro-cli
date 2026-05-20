@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { knowledgeKeys } from "./keys";
 import type {
@@ -13,6 +13,7 @@ export function useKnowledgeStores(account: string, enabled = true) {
     queryKey: knowledgeKeys.all(account),
     queryFn: () => api.listKnowledgeStores(account),
     enabled: !!account && enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const stores = query.state.data ?? [];
       const hasTransitional = stores.some((s) =>
@@ -29,6 +30,7 @@ export function useKnowledgeStore(account: string, name: string, enabled = true)
     queryKey: knowledgeKeys.detail(account, name),
     queryFn: () => api.getKnowledgeStore(account, name),
     enabled: !!account && !!name && enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status && ["provisioning", "connecting", "pending-acceptance"].includes(status)) {
@@ -75,6 +77,7 @@ export function useKnowledgeMetrics(account: string, name: string, enabled = tru
     queryKey: knowledgeKeys.metrics(account, name),
     queryFn: () => api.getKnowledgeMetrics(account, name),
     enabled: !!account && !!name && enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
 }

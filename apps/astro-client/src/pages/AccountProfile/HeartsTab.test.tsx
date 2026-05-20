@@ -49,17 +49,6 @@ const defaultProps = {
   onSortChange: vi.fn(),
 };
 
-// ── Loading ───────────────────────────────────────────────────────────────────
-
-describe('HeartsTab loading', () => {
-  it('shows loading text while fetching', () => {
-    vi.mocked(useHeartedBlueprints).mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<typeof useHeartedBlueprints>);
-    vi.mocked(useHeartToggleInList).mockReturnValue({ mutate: mockMutate } as unknown as ReturnType<typeof useHeartToggleInList>);
-    renderWithProviders(<HeartsTab {...defaultProps} />);
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
-  });
-});
-
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 describe('HeartsTab rendering', () => {

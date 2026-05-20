@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
-import { api, type Blueprint, type BlueprintsListResponse, type HeartedListResponse } from '../../lib/api';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, type Blueprint, type BlueprintsListResponse } from '../../lib/api';
 import { blueprintKeys, heartKeys } from './keys';
 
 function patchBlueprint(blueprint: Blueprint, hearted: boolean, heartCount: number): Blueprint {
@@ -22,16 +22,12 @@ export function useHeartToggleInList() {
   });
 }
 
-export function useHeartedBlueprints(
-  account: string,
-  cursor?: string,
-  options?: Pick<UseQueryOptions<HeartedListResponse>, 'initialData' | 'enabled'>,
-) {
+export function useHeartedBlueprints(account: string, cursor?: string, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...heartKeys.byAccount(account), cursor ?? ''],
     queryFn: () => api.listHearted(account, cursor),
-    initialDataUpdatedAt: options?.initialData ? 0 : undefined,
-    ...options,
+    enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
   });
 }
 

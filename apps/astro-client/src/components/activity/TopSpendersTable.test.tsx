@@ -37,27 +37,20 @@ const sampleBlueprints: Blueprint[] = [
 ];
 
 describe("TopSpendersTable", () => {
-  it("shows ghost (skeleton) rows when loading=true", () => {
-    const { container } = render(
-      <TopSpendersTable blueprints={[]} loading={true} />
-    );
-    expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
-  });
-
-  it("shows empty state message when blueprints is empty and not loading", () => {
-    render(<TopSpendersTable blueprints={[]} loading={false} />);
+  it("shows empty state message when blueprints is empty", () => {
+    render(<TopSpendersTable blueprints={[]} />);
     expect(screen.getByText("No agent activity in this period")).toBeInTheDocument();
   });
 
   it("renders each blueprint's agent_name", () => {
-    render(<TopSpendersTable blueprints={sampleBlueprints} loading={false} />);
+    render(<TopSpendersTable blueprints={sampleBlueprints} />);
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.getByText("beta")).toBeInTheDocument();
     expect(screen.getByText("gamma")).toBeInTheDocument();
   });
 
   it("clicking 'Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
-    render(<TopSpendersTable blueprints={sampleBlueprints} loading={false} />);
+    render(<TopSpendersTable blueprints={sampleBlueprints} />);
 
     const spendHeader = screen.getByText("Spend");
 
@@ -79,14 +72,14 @@ describe("TopSpendersTable", () => {
   });
 
   it("initial sort is cost_usd descending — alpha(30) first, beta(10) last", () => {
-    render(<TopSpendersTable blueprints={sampleBlueprints} loading={false} />);
+    render(<TopSpendersTable blueprints={sampleBlueprints} />);
     const rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
     expect(rows[0].textContent).toBe("alpha");
     expect(rows[rows.length - 1].textContent).toBe("beta");
   });
 
   it("groupLabel column header ('Agent') has no sort icon (no ↕, ↑, or ↓)", () => {
-    render(<TopSpendersTable blueprints={sampleBlueprints} loading={false} />);
+    render(<TopSpendersTable blueprints={sampleBlueprints} />);
     const agentHeader = screen.getByRole("columnheader", { name: /^Agent$/ });
     expect(agentHeader.textContent).not.toContain("↕");
     expect(agentHeader.textContent).not.toContain("↑");
@@ -94,9 +87,7 @@ describe("TopSpendersTable", () => {
   });
 
   it("respects custom groupLabel prop", () => {
-    render(
-      <TopSpendersTable blueprints={sampleBlueprints} loading={false} groupLabel="Model" />
-    );
+    render(<TopSpendersTable blueprints={sampleBlueprints} groupLabel="Model" />);
     expect(screen.getByRole("columnheader", { name: /^Model$/ })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CreateAccountVariableInput, UpdateAccountVariableInput } from '@/lib/api';
 import { variableKeys } from './keys';
@@ -8,6 +8,7 @@ export function useAccountVariables(account: string) {
     queryKey: variableKeys.byAccount(account),
     queryFn: () => api.listAccountVariables(account),
     enabled: !!account,
+    placeholderData: keepPreviousData,
   });
 }
 

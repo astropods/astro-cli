@@ -13,7 +13,8 @@ import {
 import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { createServerApi } from "./lib/api.server";
+import { getCurrentUserForRequest } from "./lib/api.server";
+import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./lib/active-account";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
@@ -77,18 +78,31 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export function shouldRevalidate() {
-  return false;
+// Root revalidates only on programmatic revalidations (currentUrl === nextUrl),
+// which is the signal setActiveAccount sends after writing the cookie. That
+// keeps URL navigations cheap (no /me fetch per click) while still letting
+// org switches refresh the resolved active account at the root level.
+export function shouldRevalidate({ currentUrl, nextUrl }: { currentUrl: URL; nextUrl: URL }) {
+  return currentUrl.toString() === nextUrl.toString();
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const api = createServerApi(request);
-  const serverTheme = parseCookieTheme(request.headers.get("cookie"));
+  const cookieHeader = request.headers.get("cookie");
+  const serverTheme = parseCookieTheme(cookieHeader);
   try {
-    const serverAuth = await api.getCurrentUser();
-    return { serverAuth, serverTheme };
+    // readCookieValue can throw URIError on malformed percent-encoding —
+    // keep it inside the try so the existing fallback catches it.
+    const rawCookieAccount = readCookieValue(cookieHeader, ACTIVE_ACCOUNT_COOKIE);
+    const serverAuth = await getCurrentUserForRequest(request);
+    // Validate the cookie against the user's accounts list so a stale cookie
+    // (e.g. account they no longer belong to) doesn't poison the initial UI.
+    const matched =
+      (rawCookieAccount && serverAuth.accounts?.find((a) => a.name === rawCookieAccount)) ||
+      serverAuth.accounts?.find((a) => a.type === "personal") ||
+      serverAuth.accounts?.[0];
+    return { serverAuth, serverTheme, activeAccount: matched?.name ?? "" };
   } catch {
-    return { serverAuth: null, serverTheme };
+    return { serverAuth: null, serverTheme, activeAccount: "" };
   }
 }
 

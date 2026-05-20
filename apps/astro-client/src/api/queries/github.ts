@@ -77,6 +77,7 @@ export function useGitHubAccountStatus(account: string, opts?: { enabled?: boole
     queryKey: githubKeys.accountStatus(account),
     queryFn: () => api.gitHubAccountStatus(account),
     enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
     initialData: opts?.initialData,
     // Mark seeded data as immediately stale so a background refetch follows.
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
@@ -134,5 +135,6 @@ export function useGitHubAccountConnections(account: string, opts?: { enabled?: 
     queryKey: githubKeys.accountConnections(account),
     queryFn: () => api.gitHubListAccountConnections(account),
     enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
   });
 }

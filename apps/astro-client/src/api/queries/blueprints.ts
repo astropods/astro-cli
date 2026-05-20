@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
 import { api, type BlueprintsListResponse, type Blueprint, type DeploymentSpec, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
 import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
@@ -19,14 +19,13 @@ export function useBlueprints(opts?: { initialData?: BlueprintsListResponse }) {
   });
 }
 
-export function useAccountBlueprints(account: string, opts?: { enabled?: boolean; initialData?: BlueprintsListResponse; refetchInterval?: number | false | ((query: Query<BlueprintsListResponse>) => number | false | undefined) }) {
+export function useAccountBlueprints(account: string, opts?: { enabled?: boolean; refetchInterval?: number | false | ((query: Query<BlueprintsListResponse>) => number | false | undefined) }) {
   const enabled = opts?.enabled ?? true;
   return useQuery({
     queryKey: blueprintKeys.byAccount(account),
     queryFn: () => api.listAccountBlueprints(account),
     enabled: !!account && enabled,
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
+    placeholderData: keepPreviousData,
     refetchInterval: opts?.refetchInterval,
   });
 }

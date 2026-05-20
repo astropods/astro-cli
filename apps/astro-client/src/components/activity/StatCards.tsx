@@ -5,7 +5,6 @@ import type { ActivityRange } from "./ranges";
 
 interface StatCardsProps {
   data?: AccountObservabilitySummaryResponse | null;
-  loading: boolean;
   showChange: boolean;
   range: ActivityRange;
 }
@@ -20,7 +19,13 @@ const RANGE_LABELS: Record<ActivityRange, string> = {
 const fmtRequests = (v: number) => `${formatCompact(v)} req`;
 const fmtTokens = (v: number) => `${formatCompact(v)} tok`;
 
-export function StatCards({ data, loading, showChange, range }: StatCardsProps) {
+// `loading` prop intentionally dropped: MetricCard renders an animate-pulse
+// SkeletonBar in place of the value when loading=true, which was the visible
+// flash on /insights refresh. placeholderData on the underlying queries keeps
+// the previous window's data on screen during refetches; on a cold load the
+// cards briefly show "0" / "—" before data lands, which is preferable to a
+// shimmer.
+export function StatCards({ data, showChange, range }: StatCardsProps) {
   const cost = data?.totals?.cost_usd ?? 0;
   const requests = data?.totals?.requests ?? 0;
   const tokens = (data?.totals?.input_tokens ?? 0) + (data?.totals?.output_tokens ?? 0);
@@ -29,7 +34,7 @@ export function StatCards({ data, loading, showChange, range }: StatCardsProps) 
   const sparklineDates = data?.cost_over_time?.map((d) => d.date);
   const costSparkline = data?.sparklines?.cost ?? data?.cost_over_time?.map((d) => d.models.reduce((s, m) => s + m.cost_usd, 0));
 
-  const shared = { changeLabel, showChange, loading, sparklineDates };
+  const shared = { changeLabel, showChange, sparklineDates };
 
   return (
     <div className="mb-6 grid grid-cols-1 gap-3 @sm:grid-cols-3">

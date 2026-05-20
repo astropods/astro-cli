@@ -2,28 +2,34 @@ import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { useAccountBlueprints } from "@/api/queries";
+import { blueprintKeys } from "@/api/queries/keys";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { getPersonalAccount } from "@/lib/api.server";
+import { loadAccountScoped } from "@/lib/api.server";
 import type { Route } from "./+types/Blueprints";
 
 export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const ctx = await getPersonalAccount(request);
-  if (!ctx) return { count: 0 };
-  return ctx.api.listAccountBlueprints(ctx.accountName).catch(() => ({ count: 0 }));
+  return loadAccountScoped(request, (api, account) => api.listAccountBlueprints(account));
 }
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const { activeAccount, setActiveAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  usePrimeQueryCache(loaderData, (qc, ld) => {
+    if (ld?.account && ld?.data) {
+      qc.setQueryData(blueprintKeys.byAccount(ld.account), ld.data);
+    }
+  });
 
   // Consume ?account= param once accounts have loaded so deep-links and
   // org-switcher redirects land on the right scope without a flash.
@@ -68,7 +74,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         refetch={refetch}
         emptyContent={<BlueprintsEmptyState />}
         ownerAccounts={ownerAccounts}
-        skeletonCount={loaderData?.count}
         showAuthor
       />
     </PageContainer>

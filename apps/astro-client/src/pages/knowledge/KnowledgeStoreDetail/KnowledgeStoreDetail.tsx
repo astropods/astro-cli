@@ -9,12 +9,11 @@ import {
 } from "@heroicons/react/24/outline";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tag } from "@/components/Tag";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { useAuth } from "@/lib/auth";
-import { useDefaultAccount } from "@/hooks/use-default-account";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { useKnowledgeStore } from "@/api/queries/knowledge";
 import {
   statusToColor,
@@ -37,9 +36,8 @@ type Tab = "overview" | "logs" | "settings";
 
 function KnowledgeStoreDetailContent() {
   const { storeName } = useParams();
-  const { personalAccount, isAuthenticated } = useAuth();
-  const { validStoredDefault } = useDefaultAccount();
-  const account = validStoredDefault || personalAccount?.name || "";
+  const { isAuthenticated } = useAuth();
+  const { activeAccount: account } = useActiveAccount();
 
   const { data: store, isLoading } = useKnowledgeStore(account, storeName ?? "", isAuthenticated && !!storeName);
   const [tab, setTab] = useState<Tab>("overview");
@@ -50,15 +48,8 @@ function KnowledgeStoreDetailContent() {
     { key: "settings", label: "Settings", icon: <Cog6ToothIcon className="size-3.5 shrink-0" /> },
   ];
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 bg-background">
-        <div className="px-8 py-6 space-y-4">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-64 w-full rounded-md" />
-        </div>
-      </div>
-    );
+  if (isLoading && !store) {
+    return null;
   }
 
   if (!store) {

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type SlackStatusResponse } from '../../lib/api';
 import { slackKeys } from './keys';
 
@@ -10,6 +10,7 @@ export function useSlackAccountStatus(account: string, opts?: { enabled?: boolea
     queryKey: slackKeys.accountStatus(account),
     queryFn: () => api.slackAccountStatus(account),
     enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
     initialData: opts?.initialData,
     // Seeded data is shown immediately, then a background refetch confirms.
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,

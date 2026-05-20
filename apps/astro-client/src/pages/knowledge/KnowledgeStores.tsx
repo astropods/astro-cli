@@ -3,7 +3,6 @@ import { useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, EllipsisVerticalIcon, CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -24,7 +23,9 @@ import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
+import { knowledgeKeys } from "@/api/queries/keys";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import {
   statusToColor,
@@ -34,9 +35,14 @@ import {
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
 import { getIntegrationIconUrl } from "@/lib/assets";
+import { loadAccountScoped } from "@/lib/api.server";
 import type { KnowledgeStore, KnowledgeProvider } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
+
+export async function loader({ request }: Route.LoaderArgs) {
+  return loadAccountScoped(request, (api, account) => api.listKnowledgeStores(account));
+}
 
 const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
 
@@ -88,27 +94,7 @@ function KnowledgeStoresContent() {
         }
       />
 
-        {isLoading ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {tableHeaders.map((header) => (
-                  <TableHead key={header}>{header}</TableHead>
-                ))}
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {[1, 2, 3].map((i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={tableHeaders.length + 1}>
-                    <Skeleton className="h-5 w-full rounded" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : stores.length === 0 ? (
+        {isLoading && stores.length === 0 ? null : stores.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
             <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-border">
               <CircleStackIcon className="size-6 text-muted-foreground" />
@@ -216,6 +202,12 @@ function KnowledgeStoresContent() {
   );
 }
 
-export default function KnowledgeStores() {
+export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
+  usePrimeQueryCache(loaderData, (qc, ld) => {
+    if (ld?.account && ld?.data) {
+      qc.setQueryData(knowledgeKeys.all(ld.account), ld.data);
+    }
+  });
+
   return <KnowledgeStoresContent />;
 }

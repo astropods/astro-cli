@@ -16,7 +16,6 @@ import { buildModelColorMap } from "./model-colors";
 
 interface CostOverTimeProps {
   data: Array<{ date: string; models: Array<{ model: string; cost_usd: number }> }>;
-  loading?: boolean;
   days?: number;
   colorMap?: Record<string, string>;
   seriesLabels?: Record<string, string>;
@@ -41,20 +40,6 @@ function dayKeysForRange(days: number): string[] {
     keys.push(`${y}-${m}-${day}`);
   }
   return keys;
-}
-
-function SkeletonChart() {
-  return (
-    <div className="flex h-[220px] items-end gap-1.5 px-4 pb-4">
-      {Array.from({ length: 14 }).map((_, i) => (
-        <div
-          key={i}
-          className="flex-1 animate-pulse rounded-t bg-muted"
-          style={{ height: `${20 + Math.sin(i * 0.7) * 40 + 40}%` }}
-        />
-      ))}
-    </div>
-  );
 }
 
 function CustomTooltip({
@@ -92,7 +77,7 @@ function CustomTooltip({
   );
 }
 
-export function CostOverTimeChart({ data, loading, days, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
+export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
   const { chartData, allModels, colorMap } = useMemo(() => {
     const models = [...new Set(data.flatMap((d) => d.models.map((m) => m.model)))];
     const cMap = externalColorMap ?? buildModelColorMap(models);
@@ -109,16 +94,18 @@ export function CostOverTimeChart({ data, loading, days, colorMap: externalColor
     return { chartData: rows, allModels: models, colorMap: cMap };
   }, [data, days, externalColorMap]);
 
-  const isEmpty = !loading && data.length === 0;
+  // Skeleton intentionally removed: account-scoped queries use placeholderData
+  // so the previous window's chart stays mounted during cross-key refetches,
+  // and the global progress bar signals navigation. On a true cold load we
+  // render the empty state briefly before data arrives.
+  const isEmpty = data.length === 0;
 
   return (
     <Card className="flex h-full flex-col dark:bg-surface p-5">
       <div className="mb-4 shrink-0">
         <h3 className="text-heading-4 text-foreground">Spend over time</h3>
       </div>
-      {loading ? (
-        <SkeletonChart />
-      ) : isEmpty ? (
+      {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-body-sm text-faint-foreground">No cost data for this period</p>
         </div>

@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, type InitialEntry } from 'react-router';
+import { MemoryRouter, Outlet, type InitialEntry } from 'react-router';
 import { createRoutesStub } from 'react-router';
 import { AuthContext, type AuthContextType } from '@/lib/auth-context';
 import { ActiveAccountProvider } from '@/hooks/use-active-account';
@@ -89,30 +89,43 @@ export const mockAuthContext: AuthContextType = {
   hydrateAuth: () => {},
 };
 
-// Render a route using createRoutesStub (RR v7 test API)
+// Render a route using createRoutesStub (RR v7 test API).
+//
+// ActiveAccountProvider must live INSIDE the router stub because it calls
+// useRevalidator() — that hook requires the data router context and throws
+// if invoked outside it. We wrap the test's routes in a synthetic layout
+// route that mounts AuthContext + ActiveAccountProvider around an <Outlet />,
+// matching how Layout.tsx does it in the real app.
 export function renderRoute(
   routes: Parameters<typeof createRoutesStub>[0],
   options?: { initialEntries?: InitialEntry[]; auth?: AuthContextType | null } & Omit<RenderOptions, 'wrapper'>,
 ) {
   const { initialEntries = ['/'], auth, ...renderOptions } = options ?? {};
   const queryClient = createTestQueryClient();
-  const Stub = createRoutesStub(routes);
 
-  let tree = (
+  const wrappedRoutes: Parameters<typeof createRoutesStub>[0] =
+    auth === null
+      ? routes
+      : [
+          {
+            Component: () => (
+              <AuthContext.Provider value={auth ?? mockAuthContext}>
+                <ActiveAccountProvider>
+                  <Outlet />
+                </ActiveAccountProvider>
+              </AuthContext.Provider>
+            ),
+            children: routes,
+          },
+        ];
+
+  const Stub = createRoutesStub(wrappedRoutes);
+
+  const tree = (
     <QueryClientProvider client={queryClient}>
       <Stub initialEntries={initialEntries} />
     </QueryClientProvider>
   );
-
-  if (auth !== null) {
-    tree = (
-      <AuthContext.Provider value={auth ?? mockAuthContext}>
-        <ActiveAccountProvider>
-          {tree}
-        </ActiveAccountProvider>
-      </AuthContext.Provider>
-    );
-  }
 
   const result = render(tree, renderOptions);
 

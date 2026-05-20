@@ -9,11 +9,10 @@ export interface UsageCardProps {
   quota: number | undefined;
   unit: string;
   account: string;
-  loading?: boolean;
   className?: string;
 }
 
-export function UsageCard({ label, value, quota, unit, account, loading, className }: UsageCardProps) {
+export function UsageCard({ label, value, quota, unit, account, className }: UsageCardProps) {
   const pct = quota ? Math.min((value / quota) * 100, 100) : 0;
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -32,31 +31,22 @@ export function UsageCard({ label, value, quota, unit, account, loading, classNa
             Request increase
           </button>
         )}
-        {loading ? (
-          <div className="flex items-center gap-3 animate-pulse">
-            <div className="h-6 w-2/5 rounded bg-muted shrink-0" />
-            <div className="flex-1 h-1.5 rounded-full bg-muted" />
+        <div className="flex items-start gap-3">
+          <div className="flex items-baseline gap-1.5 shrink-0">
+            <span className="font-sans text-heading-2 font-bold text-foreground">
+              {formatNumber(value, 1)}
+            </span>
+            <span className="font-sans text-body-sm text-muted-foreground">
+              / {quota ?? "—"} {unit}
+            </span>
           </div>
-        ) : (
-          <>
-            <div className="flex items-start gap-3">
-              <div className="flex items-baseline gap-1.5 shrink-0">
-                <span className="font-sans text-heading-2 font-bold text-foreground">
-                  {formatNumber(value, 1)}
-                </span>
-                <span className="font-sans text-body-sm text-muted-foreground">
-                  / {quota ?? "—"} {unit}
-                </span>
-              </div>
-              <div className="flex-1 self-center h-1.5 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-300"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          </>
-        )}
+          <div className="flex-1 self-center h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
       </Card>
       {quota != null && (
         <RequestIncreaseDialog

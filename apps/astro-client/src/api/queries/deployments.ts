@@ -1,4 +1,4 @@
-import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
@@ -36,12 +36,15 @@ export function useDeploymentsSummary() {
   });
 }
 
-export function useDeployments(account: string, enabled = true, opts?: { initialData?: DeploymentsListResponse }) {
+export function useDeployments(account: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.all(account),
     queryFn: () => api.listDeployments(account),
     enabled: !!account && enabled,
+    // Keep showing the previous account's deployments while the new account's
+    // list fetches. Prevents the dashboard from flashing empty on org switch.
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const deployments = query.state.data?.deployments ?? [];
       const hasTransitional = deployments.some((deployment) => {
@@ -55,8 +58,6 @@ export function useDeployments(account: string, enabled = true, opts?: { initial
       });
       return hasTransitional ? 3000 : false;
     },
-    initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
@@ -265,6 +266,7 @@ export function useActiveDeploymentSpec(account: string, name: string, enabled =
     queryKey: deploymentKeys.spec(account, name),
     queryFn: () => api.getActiveDeploymentSpec(account, name),
     enabled: !!account && !!name && enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -280,6 +282,7 @@ export function useDeploymentHistory(
     queryKey: deploymentKeys.history(account, name, deploymentId),
     queryFn: () => api.getDeploymentHistory(account, name, deploymentId),
     enabled: !!account && !!name && enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: options?.refetchInterval,
   });
 }

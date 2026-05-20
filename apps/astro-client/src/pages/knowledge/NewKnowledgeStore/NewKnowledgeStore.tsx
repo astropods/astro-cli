@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { Route } from "./+types/NewKnowledgeStore";
-import { useAuth } from "@/lib/auth";
-import { useDefaultAccount } from "@/hooks/use-default-account";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -13,11 +12,8 @@ import { ConfigureForm } from "./ConfigureForm";
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
 
 function NewKnowledgeStoreContent() {
-  const { personalAccount } = useAuth();
-  const { validStoredDefault } = useDefaultAccount();
+  const { activeAccount: account } = useActiveAccount();
   const [provider, setProvider] = useState<KnowledgeProvider | null>(null);
-
-  const account = validStoredDefault || personalAccount?.name || "";
 
   return (
     <div className="flex-1 bg-background">

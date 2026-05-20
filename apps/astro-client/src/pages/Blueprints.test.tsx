@@ -41,12 +41,6 @@ describe('Blueprints – Discover page', () => {
       expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
     });
 
-    it('shows a loading spinner while fetching', () => {
-      renderDiscover();
-
-      expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument();
-    });
-
     it('shows an error state with retry button on fetch failure', async () => {
       server.use(
         http.get('/api/v1/agents', () =>

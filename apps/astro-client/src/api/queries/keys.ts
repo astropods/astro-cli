@@ -23,6 +23,10 @@ export const heartKeys = {
   byAccount: (account: string) => ['hearts', account] as const,
 };
 
+// Window literal shared by the dashboard's all-time stats — keep prime and
+// read sites in sync.
+export const OBSERVABILITY_WINDOW_ALL_TIME = "all-time" as const;
+
 export const observabilityKeys = {
   metrics: (deploymentId: string, window?: string) =>
     ['observability', 'metrics', deploymentId, window] as const,

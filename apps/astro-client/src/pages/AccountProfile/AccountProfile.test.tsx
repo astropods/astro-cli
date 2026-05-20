@@ -72,11 +72,16 @@ function renderProfile(
         path: '/:account',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AccountProfile as any,
+        // Mirror the real loader shape (see AccountProfile.tsx loader) so
+        // usePrimeQueryCache runs against realistic data — otherwise the
+        // cache-priming code path stays untested in component tests.
         loader: () => ({
           account: loaderAccount,
-          blueprints: null,
           orgs: null,
+          members: null,
+          blueprints: null,
           deployments: null,
+          hearted: null,
         }),
       },
     ],

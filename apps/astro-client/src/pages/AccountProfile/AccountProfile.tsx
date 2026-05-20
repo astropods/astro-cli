@@ -8,6 +8,8 @@ import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useHeartedBlueprints } from "@/api/queries/hearts";
+import { accountKeys } from "@/api/queries/keys";
+import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { ProfileEditSidebar } from "./ProfileEditSidebar";
 import { ProfileViewSidebar } from "./ProfileViewSidebar";
 import { ProfileLayout } from "./ProfileLayout";
@@ -30,22 +32,24 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
 export default function AccountProfile({ loaderData }: Route.ComponentProps) {
   const { account } = useParams<{ account: string }>();
-  const { data } = useAccount(account ?? "", {
-    initialData: loaderData.account ?? undefined,
+
+  usePrimeQueryCache(loaderData, (qc, ld) => {
+    if (ld.account) {
+      qc.setQueryData(accountKeys.detail(ld.account.name), ld.account);
+    }
+    if (ld.members && account) {
+      qc.setQueryData(accountKeys.members(account), ld.members);
+    }
   });
+
+  const { data } = useAccount(account ?? "");
   const { isAuthenticated, accounts, user } = useAuth();
 
   const isOrg = data?.type === "organization";
   const isSelf = isAuthenticated && accounts.some((a) => a.id === data?.id);
 
-  const { data: orgsData } = useAccountOrgs(account ?? "", {
-    enabled: !isOrg,
-    initialData: loaderData.orgs ?? undefined,
-  });
-  const { data: membersData } = useAccountMembers(account ?? "", {
-    enabled: isOrg,
-    initialData: loaderData.members ?? undefined,
-  });
+  const { data: orgsData } = useAccountOrgs(account ?? "", { enabled: !isOrg });
+  const { data: membersData } = useAccountMembers(account ?? "", { enabled: isOrg });
 
   const viewerMember = isAuthenticated && isOrg
     ? membersData?.members.find((m) => m.user_id === user?.id)
@@ -55,17 +59,9 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
   const isOwnerOrAdmin = isSelf || isOrgAdmin;
   const canViewDeployments = isSelf || isOrgMember;
 
-  const { data: deploymentsData, isLoading: isDeploymentsLoading } = useDeployments(data?.name ?? "", canViewDeployments, {
-    initialData: loaderData.deployments ?? undefined,
-  });
-  const { data: blueprintsData, isLoading: isBlueprintsLoading } = useAccountBlueprints(data?.name ?? "", {
-    enabled: !!data,
-    initialData: loaderData.blueprints ?? undefined,
-  });
-  const { data: heartsData } = useHeartedBlueprints(data?.name ?? "", undefined, {
-    enabled: !!data && !isOrg,
-    initialData: loaderData.hearted ?? undefined,
-  });
+  const { data: deploymentsData, isLoading: isDeploymentsLoading } = useDeployments(data?.name ?? "", canViewDeployments);
+  const { data: blueprintsData, isLoading: isBlueprintsLoading } = useAccountBlueprints(data?.name ?? "", { enabled: !!data });
+  const { data: heartsData } = useHeartedBlueprints(data?.name ?? "", undefined, { enabled: !!data && !isOrg });
 
   const rawBlueprints = blueprintsData?.agents ?? [];
   const rawDeployments = deploymentsData?.deployments ?? [];

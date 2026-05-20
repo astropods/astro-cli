@@ -3,26 +3,6 @@ import { BlueprintCard } from "@/components/BlueprintCard";
 import { getBlueprintDescription } from "@/lib/blueprint-utils";
 import type { Blueprint } from "@/lib/api";
 
-export function BlueprintCardSkeleton() {
-  return (
-    <div className="relative overflow-hidden rounded-sm border border-border bg-background animate-pulse">
-      <div className="flex items-start gap-3 p-4 pb-3">
-        <div className="size-9 shrink-0 rounded-[3px] bg-muted" />
-        <div className="flex-1 space-y-2 pt-0.5">
-          <div className="h-4 w-32 rounded bg-muted" />
-          <div className="h-3 w-full rounded bg-muted" />
-          <div className="h-3 w-3/4 rounded bg-muted" />
-        </div>
-      </div>
-      <div className="mx-[5px] border-t border-border" />
-      <div className="flex items-center justify-between px-4 py-2.5 pb-3.5">
-        <div className="h-3 w-14 rounded bg-muted" />
-        <div className="h-3 w-20 rounded bg-muted" />
-      </div>
-    </div>
-  );
-}
-
 export interface BlueprintListViewProps {
   blueprints: Blueprint[];
   isLoading: boolean;
@@ -34,7 +14,6 @@ export interface BlueprintListViewProps {
   emptyContent?: ReactNode;
   ownerAccounts?: Set<string>;
   variant?: "grid" | "list";
-  skeletonCount?: number;
   showAuthor?: boolean;
   /** Forwarded to each BlueprintCard so the blueprint-detail breadcrumb can
    *  reflect the surface the user came from. */
@@ -52,22 +31,11 @@ export function BlueprintListView({
   emptyContent,
   ownerAccounts,
   variant = "grid",
-  skeletonCount = 6,
   showAuthor = false,
   from,
 }: BlueprintListViewProps) {
-  if (isLoading) {
-    return (
-      <div
-        role="status"
-        aria-label="Loading blueprints"
-        className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 content-start"
-      >
-        {Array.from({ length: skeletonCount }).map((_, i) => (
-          <BlueprintCardSkeleton key={i} />
-        ))}
-      </div>
-    );
+  if (isLoading && blueprints.length === 0) {
+    return null;
   }
 
   if (isError) {

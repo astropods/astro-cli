@@ -43,7 +43,14 @@ function renderDashboard(path = '/agents', auth = mockAuthContext) {
         path: '/agents',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AgentDashboard as any,
-        loader: () => ({ count: 0 }),
+        // Match the real loader's shape so usePrimeQueryCache runs against
+        // realistic data (otherwise the cache-priming code path is untested).
+        loader: () => ({
+          account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
+          deployments: { deployments: [], count: 0 },
+          summary: null,
+          usage: null,
+        }),
       },
     ],
     { initialEntries: [path], auth },
@@ -206,7 +213,13 @@ describe('reveal overlay after deploy', () => {
           path: '/agents',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Component: AgentDashboard as any,
-          loader: () => null,
+          // Match the real loader's shape (account + deployments + summary + usage).
+          loader: () => ({
+            account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
+            deployments: { deployments: [], count: 0 },
+            summary: null,
+            usage: null,
+          }),
         },
         {
           path: '/:account/agents/:deploymentId',
