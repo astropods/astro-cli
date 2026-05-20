@@ -1,23 +1,18 @@
-import { describe, it, expect } from 'vitest';
-import { buildBlueprintPageItems, totalBlueprintPages } from '@/lib/blueprint-page-numbers';
+import { describe, expect, it } from 'vitest';
+import { blueprintGridSlotCount } from './blueprint-page-numbers';
 
-describe('totalBlueprintPages', () => {
-  it('returns 0 when there are no items', () => {
-    expect(totalBlueprintPages(0, 10)).toBe(0);
+describe('blueprintGridSlotCount', () => {
+  const base = {
+    pageSizeReady: true,
+    showFilteredEmpty: false,
+    pageSize: 10,
+  };
+
+  it('returns undefined when all items fit on one page', () => {
+    expect(blueprintGridSlotCount({ ...base, totalCount: 5 })).toBeUndefined();
   });
 
-  it('ceil-divides total count by page size', () => {
-    expect(totalBlueprintPages(25, 10)).toBe(3);
-    expect(totalBlueprintPages(20, 10)).toBe(2);
-  });
-});
-
-describe('buildBlueprintPageItems', () => {
-  it('returns all pages when there are seven or fewer', () => {
-    expect(buildBlueprintPageItems(1, 5)).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  it('collapses distant pages with ellipses', () => {
-    expect(buildBlueprintPageItems(5, 12)).toEqual([1, 'ellipsis', 4, 5, 6, 'ellipsis', 12]);
+  it('returns page size when the list spans multiple pages', () => {
+    expect(blueprintGridSlotCount({ ...base, totalCount: 25 })).toBe(10);
   });
 });

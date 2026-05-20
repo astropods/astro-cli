@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/auth";
 import type { Blueprint } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { loadAccountScoped } from "@/lib/api.server";
+import { blueprintGridSlotCount } from "@/lib/blueprint-page-numbers";
 import { useAccountBlueprintsList } from "./use-account-blueprints-list";
 import { useBlueprintSearch } from "./use-blueprint-search";
 import { BlueprintPageSizeControl } from "./BlueprintPageSizeControl";
@@ -118,6 +119,13 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const showFilteredEmpty = fetchSettled && isEmpty && hasActiveFilters;
   const showRegistryEmpty = fetchSettled && isEmpty && !hasBlueprintListFilters(params);
 
+  const gridSlotCount = blueprintGridSlotCount({
+    pageSizeReady,
+    showFilteredEmpty,
+    totalCount,
+    pageSize: pageSize ?? BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
+  });
+
   return (
     <PageContainer outerClassName="bg-background">
       <IndeterminateProgressBar active={listRefetching} />
@@ -142,7 +150,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         totalCount={totalCount}
         page={page}
         pageSize={pageSize ?? BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
-        pageSizeReady={pageSizeReady}
+        gridSlotCount={gridSlotCount}
         listLoading={listLoading}
         paginationDisabled={isFetching}
         isError={isError}
@@ -212,7 +220,7 @@ function BlueprintsListArea({
   totalCount,
   page,
   pageSize,
-  pageSizeReady,
+  gridSlotCount,
   listLoading,
   paginationDisabled,
   isError,
@@ -227,7 +235,7 @@ function BlueprintsListArea({
   totalCount: number;
   page: number;
   pageSize: number;
-  pageSizeReady: boolean;
+  gridSlotCount?: number;
   listLoading: boolean;
   paginationDisabled: boolean;
   isError: boolean;
@@ -250,7 +258,7 @@ function BlueprintsListArea({
         refetch={refetch}
         emptyContent={<BlueprintsRegistryEmpty visible={showRegistryEmpty} />}
         ownerAccounts={ownerAccounts}
-        slotCount={showFilteredEmpty ? undefined : pageSizeReady ? pageSize : undefined}
+        slotCount={gridSlotCount}
         showAuthor
       />
       <BlueprintsPagination

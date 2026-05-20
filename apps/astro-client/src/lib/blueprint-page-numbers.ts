@@ -6,6 +6,22 @@ export function totalBlueprintPages(totalCount: number, pageSize: number): numbe
   return Math.ceil(totalCount / pageSize);
 }
 
+/** Pad the grid to pageSize when paginated so page controls stay put; skip when everything fits one page. */
+export function blueprintGridSlotCount(opts: {
+  pageSizeReady: boolean;
+  showFilteredEmpty: boolean;
+  totalCount: number;
+  pageSize: number;
+}): number | undefined {
+  if (!opts.pageSizeReady || opts.showFilteredEmpty) {
+    return undefined;
+  }
+  if (totalBlueprintPages(opts.totalCount, opts.pageSize) <= 1) {
+    return undefined;
+  }
+  return opts.pageSize;
+}
+
 export function buildBlueprintPageItems(currentPage: number, totalPages: number): BlueprintPageItem[] {
   if (totalPages <= 0) return [];
   if (totalPages <= 7) {
