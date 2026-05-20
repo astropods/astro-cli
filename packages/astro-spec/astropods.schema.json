@@ -1128,6 +1128,13 @@
                           "type": "array",
                           "description": "Slack user IDs allowed to interact with the agent. Empty means allow all users."
                         },
+                        "observe_channel_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array",
+                          "description": "Slack channel IDs whose non-mention messages are forwarded to the agent instead of dropped."
+                        },
                         "socket_mode": {
                           "type": "boolean",
                           "description": "Use Slack Socket Mode for real-time events. Default: true"
