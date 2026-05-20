@@ -163,16 +163,20 @@ interface GeneralTabProps {
 }
 
 function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
-  // Combine workload-level URLs with deployment external URLs for agent component
+  // Combine workload-level URLs with deployment external URLs for agent component.
+  // Dedupe by url string — the deployment's external URL for the agent pod is
+  // also present on the workload's own service endpoints, so concatenating
+  // would otherwise show the same URL twice.
   const urls = useMemo(() => {
-    const all: ServiceEndpointInfo[] = [];
+    const byUrl = new Map<string, ServiceEndpointInfo>();
+    const add = (entry: ServiceEndpointInfo) => {
+      if (!byUrl.has(entry.url)) byUrl.set(entry.url, entry);
+    };
     if (workload.component === "agent" && externalUrls?.length) {
-      all.push(...externalUrls);
+      externalUrls.forEach(add);
     }
-    if (workload.urls?.length) {
-      all.push(...workload.urls);
-    }
-    return all;
+    workload.urls?.forEach(add);
+    return Array.from(byUrl.values());
   }, [workload, externalUrls]);
 
   // Group env vars per container, sorted alphabetically within each

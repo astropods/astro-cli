@@ -286,6 +286,27 @@ describe("user inspects pod details", () => {
     expect(await screen.findByText("https://public.example.com")).toBeInTheDocument();
   });
 
+  it("dedupes URLs shared between deployment external URLs and the agent workload's own service endpoints", async () => {
+    const { user } = renderDeployments(
+      makeDeployment({
+        components: ["agent", "frontend"],
+        external_urls: [
+          { name: "agent", url: "https://agent.example.com", type: "http" },
+          { name: "frontend", url: "https://frontend.example.com", type: "http" },
+        ],
+        workloads: [
+          makeWorkload({
+            urls: [{ name: "http", url: "https://agent.example.com", type: "http" }],
+          }),
+        ],
+      }),
+    );
+    await user.click(await screen.findByText("agent"));
+    await screen.findByText("Domains");
+    expect(screen.getAllByText("https://agent.example.com")).toHaveLength(1);
+    expect(screen.getByText("https://frontend.example.com")).toBeInTheDocument();
+  });
+
   it("masks sensitive environment variables", async () => {
     const { user } = renderDeployments();
     await user.click(await screen.findByText("agent"));
