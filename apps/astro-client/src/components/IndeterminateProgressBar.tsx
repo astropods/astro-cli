@@ -1,32 +1,71 @@
-import { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { useEffect, useRef, useState, type TransitionEvent } from "react";
 
-/** Top-of-viewport indeterminate sweep used for navigation and in-page refetches. */
+// nprogress-style trickle on `active` (snap-in → ease toward ceiling → snap-to-done).
+// Design rationale (why not useIsFetching) lives in the PR changelog.
+const INITIAL_PROGRESS = 15;
+const TRICKLE_CEILING = 90;
+const TRICKLE_INTERVAL_MS = 200;
+const TRICKLE_DECAY = 0.05;
+const FINISH_MS = 300;
+
 export function IndeterminateProgressBar({ active }: { active: boolean }) {
-  // Keep the bar mounted briefly after activity ends so the sweep
-  // completes visibly instead of disappearing mid-animation.
-  const [show, setShow] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [progress, setProgress] = useState(0);
+  // `finishing` means we've snapped to 100 and are fading out; unmount is
+  // tied to the actual opacity transition end below, not a parallel timer.
+  const [finishing, setFinishing] = useState(false);
+
+  const trickleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     if (active) {
-      setShow(true);
-      return;
+      setVisible(true);
+      setFinishing(false);
+      setProgress(INITIAL_PROGRESS);
+      trickleRef.current = setInterval(() => {
+        setProgress((p) => (p < TRICKLE_CEILING ? p + (TRICKLE_CEILING - p) * TRICKLE_DECAY : p));
+      }, TRICKLE_INTERVAL_MS);
+    } else {
+      if (trickleRef.current) {
+        clearInterval(trickleRef.current);
+        trickleRef.current = null;
+      }
+      setProgress(100);
+      setFinishing(true);
     }
-    const t = setTimeout(() => setShow(false), 250);
-    return () => clearTimeout(t);
+    return () => {
+      if (trickleRef.current) clearInterval(trickleRef.current);
+    };
   }, [active]);
 
-  if (!show) return null;
+  // Unmount when the opacity fade actually completes. Filters out the inner
+  // bar's `width` transition-end events that bubble up to the wrapper, and
+  // skips spurious fires when `finishing` was reset by a fast re-activation.
+  function handleTransitionEnd(e: TransitionEvent<HTMLDivElement>) {
+    if (!finishing || e.propertyName !== "opacity") return;
+    setVisible(false);
+    setProgress(0);
+    setFinishing(false);
+  }
+
+  if (!visible) return null;
 
   return (
     <div
       aria-hidden
+      onTransitionEnd={handleTransitionEnd}
       className="pointer-events-none fixed inset-x-0 top-0 z-[9999] h-0.5 overflow-hidden"
+      style={{
+        opacity: finishing ? 0 : 1,
+        transition: `opacity ${FINISH_MS}ms ease`,
+      }}
     >
-      <motion.div
-        className="h-full w-1/3 bg-gradient-to-r from-transparent via-primary to-transparent"
-        initial={{ x: "-100%" }}
-        animate={{ x: "400%" }}
-        transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+      <div
+        className="h-full bg-primary"
+        style={{
+          width: `${progress}%`,
+          transition: "width 200ms ease-out",
+        }}
       />
     </div>
   );
