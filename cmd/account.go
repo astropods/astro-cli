@@ -3,10 +3,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -114,6 +116,9 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		var err error
 		name, err = selectAccountInteractive(storage)
 		if err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -234,12 +239,25 @@ func selectAccountInteractive(storage *auth.Storage) (string, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select account").
+				Description("esc to quit without changing account").
 				Options(options...).
 				Value(&selected),
 		),
-	)
+	).WithKeyMap(accountSwitchKeyMap())
 	if err := form.Run(); err != nil {
 		return "", err
 	}
 	return selected, nil
+}
+
+// accountSwitchKeyMap extends the default huh keymap so that pressing esc
+// aborts the interactive selector (returning huh.ErrUserAborted) in addition
+// to the default ctrl+c.
+func accountSwitchKeyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(
+		key.WithKeys("esc", "ctrl+c"),
+		key.WithHelp("esc", "quit"),
+	)
+	return km
 }
