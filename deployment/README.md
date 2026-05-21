@@ -29,11 +29,8 @@ Build context for collector, registry, server, and client is the workspace root 
 Note that `adapters`, `messaging`, and `playground` are git submodules; run `git submodule update --init --recursive` after clone.
 
 ```bash
-# Messaging sidecar → astro-messaging:latest
+# Messaging sidecar → astro-messaging:latest (bundles the playground as well)
 moon run deployment:messaging
-
-# Playground → astro-playground:latest
-moon run deployment:playground
 
 # Collector (OpenTelemetry collector) → prod-astro-collector:latest
 moon run deployment:collector
