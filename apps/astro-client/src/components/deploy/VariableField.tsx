@@ -32,6 +32,7 @@ const LABEL_ACRONYMS: Record<string, string> = {
   Sdk: "SDK",
   Jwt: "JWT",
   Github: "GitHub",
+  Grc: "GRC",
 };
 
 /** Convert "SLACK_API_KEY" → "Slack API Key", "ORG_IDS" → "Org IDs" */
@@ -40,7 +41,7 @@ export function humanizeKey(key: string): string {
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/\b(Api|Ids|Id|Url|Oauth|Openai|Ai|Llm|Db|Sdk|Jwt|Github)\b/g, (m) => LABEL_ACRONYMS[m] ?? m);
+    .replace(/\b(Api|Ids|Id|Url|Oauth|Openai|Ai|Llm|Db|Sdk|Jwt|Github|Grc)\b/g, (m) => LABEL_ACRONYMS[m] ?? m);
 }
 
 /** Returns the implicit default value for a variable based on its type. */

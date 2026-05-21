@@ -54,6 +54,10 @@ describe("humanizeKey", () => {
     expect(humanizeKey("GITHUB_TOKEN")).toBe("GitHub Token");
   });
 
+  it("capitalizes GRC correctly", () => {
+    expect(humanizeKey("GRC_POLICY")).toBe("GRC Policy");
+  });
+
   it("handles plain keys without acronyms", () => {
     expect(humanizeKey("BOT_TOKEN")).toBe("Bot Token");
     expect(humanizeKey("MAX_TOKENS")).toBe("Max Tokens");

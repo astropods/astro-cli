@@ -26,7 +26,7 @@ The CLI uses a noun-verb command tree that groups commands by resource, establis
 | Command | Description |
 |---|---|
 | `account list` | List all accounts you belong to |
-| `account switch <name>` | Set working account; scopes all subsequent commands |
+| `account switch [name]` | Set working account; scopes all subsequent commands. With no name, opens an interactive picker (esc to quit without changing). Use `-` to switch back to the previous account. |
 | `account token` | Print an API token scoped to the active account |
 
 The active account is persisted in the credential store alongside auth tokens.
