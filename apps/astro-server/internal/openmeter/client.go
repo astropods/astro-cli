@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -234,6 +235,75 @@ func (c *Client) ValidateMeters(ctx context.Context) (missing []string, err erro
 	}
 
 	return missing, nil
+}
+
+// MeterQueryParams controls a meter value query.
+type MeterQueryParams struct {
+	Subject       string
+	From          time.Time
+	To            time.Time
+	GroupBy       []string
+	FilterGroupBy map[string]string
+}
+
+// MeterQueryRow is a single row from a meter value query response.
+type MeterQueryRow struct {
+	Subject     string            `json:"subject"`
+	Value       float64           `json:"value"`
+	GroupBy     map[string]string `json:"groupBy"`
+	WindowStart string            `json:"windowStart"`
+	WindowEnd   string            `json:"windowEnd"`
+}
+
+// MeterQueryResponse is the response from GET /api/v1/meters/{slug}/query.
+type MeterQueryResponse struct {
+	Data []MeterQueryRow `json:"data"`
+	From string          `json:"from"`
+	To   string          `json:"to"`
+}
+
+// QueryMeter queries aggregated meter values for a given slug and parameters.
+func (c *Client) QueryMeter(ctx context.Context, slug string, params MeterQueryParams) (*MeterQueryResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/meters/"+url.PathEscape(slug)+"/query", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	q := req.URL.Query()
+	if params.Subject != "" {
+		q.Set("subject", params.Subject)
+	}
+	if !params.From.IsZero() {
+		q.Set("from", params.From.UTC().Format(time.RFC3339))
+	}
+	if !params.To.IsZero() {
+		q.Set("to", params.To.UTC().Format(time.RFC3339))
+	}
+	for _, g := range params.GroupBy {
+		q.Add("groupBy", g)
+	}
+	for k, v := range params.FilterGroupBy {
+		q.Set("filterGroupBy["+k+"]", v)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
+	if err != nil {
+		return nil, fmt.Errorf("query meter request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("query meter: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result MeterQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode meter query response: %w", err)
+	}
+
+	return &result, nil
 }
 
 // EntitlementValue represents an OpenMeter entitlement value.

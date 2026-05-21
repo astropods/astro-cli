@@ -989,6 +989,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)
+				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log, omClient, nil),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.InfrastructureUsageResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
 
 				// Knowledge store routes
 				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg, omClient, db), "knowledge_stores", "knowledge_storage"),
@@ -1184,9 +1194,30 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 			}
 
+			// Base group for all per-agent routes — resolves account once, shared by read and write sub-groups.
+			agentRoutes := protected.Group("/agents/:account/:name")
+			agentRoutes.Use(middleware.ResolveAccount(accountStore))
+
+			// Agent read operations (requires account membership)
+			agentReadRoutes := agentRoutes.Group("")
+			agentReadRoutes.Use(middleware.RequireAccountMember(accountStore))
+			{
+				api.GET(agentReadRoutes, "/usage/infrastructure", "Get agent infrastructure usage", handlers.GetInfrastructureUsage(log, omClient, agentIndex),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.InfrastructureUsageResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
+					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
+			}
+
 			// Agent write operations (requires agents:write permission)
-			agentWriteRoutes := protected.Group("/agents/:account/:name")
-			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))
+			agentWriteRoutes := agentRoutes.Group("")
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
