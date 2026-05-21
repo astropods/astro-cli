@@ -257,11 +257,17 @@ type AccountSummaryPeriod struct {
 }
 
 // AccountSummaryTotals holds aggregate totals for the period.
+//
+// TotalTokens is the new source of truth: clients should prefer it over
+// (InputTokens + OutputTokens). InputTokens/OutputTokens are retained for
+// backwards compatibility but may be 0 in views that derive tokens from the
+// traces view (which only exposes the combined sum).
 type AccountSummaryTotals struct {
 	CostUSD      float64 `json:"cost_usd"`
 	Requests     int     `json:"requests"`
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
+	TotalTokens  int     `json:"total_tokens"`
 	ActiveAgents int     `json:"active_agents"`
 }
 
@@ -378,9 +384,15 @@ type BlueprintDailyTokens struct {
 	Date         string `json:"date"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
+	TotalTokens  int    `json:"total_tokens"`
 }
 
 // BlueprintSummaryEntry holds per-agent-name aggregated observability for the blueprints summary.
+//
+// TotalTokens is the new source of truth — clients should prefer it. Input/
+// OutputTokens stay populated when the daily-metrics fan-out provides them
+// (legacy per-deployment endpoint), but are 0 when the batched traces-view
+// path supplies tokens (combined-only).
 type BlueprintSummaryEntry struct {
 	AgentName        string                   `json:"agent_name"`
 	Requests         int                      `json:"requests"`
@@ -388,6 +400,7 @@ type BlueprintSummaryEntry struct {
 	CostPerRequest   float64                  `json:"cost_per_request"`
 	InputTokens      int                      `json:"input_tokens"`
 	OutputTokens     int                      `json:"output_tokens"`
+	TotalTokens      int                      `json:"total_tokens"`
 	TokPerRequest    float64                  `json:"tok_per_request"`
 	P95LatencyMs     int                      `json:"p95_latency_ms"`
 	TopModel         string                   `json:"top_model"`

@@ -341,8 +341,9 @@ func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
 				}{Page: 1, Limit: 50, TotalItems: 1, TotalPages: 1},
 			})
 		} else {
+			// Batched P95 query groups by tags — emit a row per deployment tag.
 			json.NewEncoder(w).Encode(langfuse.MetricsResponse{ //nolint:errcheck
-				Data: []map[string]any{{"p95_latency": 1200.0}},
+				Data: []map[string]any{{"tags": "deployment:dep-1", "p95_latency": 1200.0}},
 			})
 		}
 	}))

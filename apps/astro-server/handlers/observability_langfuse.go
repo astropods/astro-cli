@@ -156,24 +156,36 @@ func GetAccountLangfuseSummary(
 			return
 		}
 
-		visibleDepIDs := make([]string, len(deps))
+		// Cap fan-out to bound worst-case Langfuse load — same threshold the
+		// blueprints-summary handler enforces.
+		const maxDeployments = 100
+		if len(deps) > maxDeployments {
+			log.Warn("Truncating deployments for account summary",
+				"account", acct.Name, "total", len(deps), "cap", maxDeployments)
+			deps = deps[:maxDeployments]
+		}
+
 		visibleTagValues := make([]string, len(deps))
 		for i, d := range deps {
-			visibleDepIDs[i] = d.ID
 			visibleTagValues[i] = "deployment:" + d.ID
 		}
 
 		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
+		// Bound the per-request Langfuse work so a slow upstream can't pin a
+		// gin worker indefinitely — matches the blueprints-summary handler.
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
 		// Parallel fetch: current period + prior period (only when bounded) + optional user-grouped breakdown.
 		var currentMetrics, priorMetrics []langfuse.DailyMetric
 		var activeDepIDs map[string]bool
 		var userCostRows []map[string]any
-		g, gCtx := errgroup.WithContext(c.Request.Context())
+		g, gCtx := errgroup.WithContext(ctx)
 
 		g.Go(func() error {
 			var err error
-			currentMetrics, activeDepIDs, err = mergedDailyMetrics(gCtx, client, log, visibleDepIDs, from, to)
+			currentMetrics, activeDepIDs, err = accountDailyMetrics(gCtx, client, visibleTagValues, from, to)
 			return err
 		})
 
@@ -182,7 +194,7 @@ func GetAccountLangfuseSummary(
 			g.Go(func() error {
 				// Prior-period failures degrade the % change tile to "—" but
 				// shouldn't fail the whole response — fail-open.
-				priorMetrics, _, _ = mergedDailyMetrics(gCtx, client, log, visibleDepIDs, priorFrom, priorTo)
+				priorMetrics, _, _ = accountDailyMetrics(gCtx, client, visibleTagValues, priorFrom, priorTo)
 				return nil
 			})
 		}
@@ -416,6 +428,7 @@ func buildAccountSummary(
 		Requests:     totalRequests,
 		InputTokens:  totalInput,
 		OutputTokens: totalOutput,
+		TotalTokens:  totalInput + totalOutput,
 		ActiveAgents: activeAgents,
 	}
 
@@ -522,108 +535,177 @@ func pctChange(current, prior float64) *float64 {
 	return &v
 }
 
-// mergedDailyMetrics fans out GetDailyMetrics per visible deployment so account
-// totals exclude deleted-deployment traces, matching the deployment-detail
-// page contract. Returns the merged timeline, the set of deployments that had
-// activity (used to count active agents by trace presence), and an error iff
-// every per-deployment call failed. The fan-out is required because
-// /api/public/metrics/daily accepts only one `tags` param — see the PR
-// changelog (usertoggleimple-2026-05-20.md) for the migration path.
-func mergedDailyMetrics(
+// accountDailyMetrics builds the per-day account timeline from two batched
+// /metrics queries instead of the N per-deployment fan-out we used to do.
+//
+//   - Q_traces: traces view, grouped by [tags, time]. Per-(deployment, day)
+//     trace count — drives CountTraces per day plus the active-deployment set
+//     (any tag with count > 0 in any day).
+//   - Q_obs: observations view, grouped by [providedModelName, time]. Per-
+//     (model, day) totalCost + input/output usage — drives Usage breakdown and
+//     daily totalCost (sum across models matches the legacy /metrics/daily
+//     invariant). Observations view does NOT support `tags` as a grouping
+//     dimension (only as a filter), so we cannot get per-(deployment, model)
+//     split — only the global model breakdown.
+//
+// Returns merged []DailyMetric + active deps + error. Caller's downstream
+// logic (buildAccountSummary) is unchanged.
+func accountDailyMetrics(
 	ctx context.Context,
 	client *langfuse.Client,
-	log *logger.Logger,
-	depIDs []string,
+	tagValues []string,
 	from, to string,
 ) ([]langfuse.DailyMetric, map[string]bool, error) {
-	if len(depIDs) == 0 {
+	if len(tagValues) == 0 {
 		return nil, map[string]bool{}, nil
 	}
 
-	// Each goroutine writes a distinct perDep[i] / errs[i] — no shared mutation.
-	perDep := make([][]langfuse.DailyMetric, len(depIDs))
-	errs := make([]error, len(depIDs))
+	qFrom, qTo := metricsTimeRange(from, to)
+	tagFilter := []langfuse.MetricsFilter{
+		{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+	}
+
+	var (
+		tracesRows []map[string]any
+		obsRows    []map[string]any
+	)
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(10)
-	for i, id := range depIDs {
-		g.Go(func() error {
-			m, err := client.GetDailyMetrics(gCtx, id, from, to)
-			if err != nil {
-				errs[i] = err
-				return nil // capture but don't abort other fetches
-			}
-			perDep[i] = m
-			return nil
-		})
-	}
-	_ = g.Wait()
 
-	failed := 0
-	var firstErr error
-	for _, e := range errs {
-		if e != nil {
-			failed++
-			if firstErr == nil {
-				firstErr = e
+	g.Go(func() error {
+		q := langfuse.MetricsQuery{
+			View: "traces",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "count", Aggregation: "count"},
+			},
+			Dimensions:    []langfuse.MetricsDimension{{Field: "tags"}},
+			TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
+			Filters:       tagFilter,
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		resp, err := client.GetMetrics(gCtx, q)
+		if err != nil {
+			return fmt.Errorf("traces query: %w", err)
+		}
+		tracesRows = resp.Data
+		return nil
+	})
+
+	g.Go(func() error {
+		q := langfuse.MetricsQuery{
+			View: "observations",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "totalCost", Aggregation: "sum"},
+				{Measure: "inputTokens", Aggregation: "sum"},
+				{Measure: "outputTokens", Aggregation: "sum"},
+			},
+			Dimensions:    []langfuse.MetricsDimension{{Field: "providedModelName"}},
+			TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
+			Filters:       tagFilter,
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		resp, err := client.GetMetrics(gCtx, q)
+		if err != nil {
+			return fmt.Errorf("observations query: %w", err)
+		}
+		obsRows = resp.Data
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	// Q_traces → per-day count + active deployments.
+	countByDate := make(map[string]int)
+	activeDeps := make(map[string]bool)
+	for _, row := range tracesRows {
+		date := dateFromTimeDim(row[langfuseTimeDimensionKey])
+		cnt := toInt(row["count_count"])
+		if cnt == 0 {
+			continue
+		}
+		countByDate[date] += cnt
+		for _, tag := range tagStrings(row["tags"]) {
+			if strings.HasPrefix(tag, "deployment:") {
+				activeDeps[strings.TrimPrefix(tag, "deployment:")] = true
 			}
 		}
 	}
-	if failed == len(depIDs) {
-		return nil, nil, fmt.Errorf("all %d daily-metrics fetches failed: %w", failed, firstErr)
-	}
-	if failed > 0 {
-		log.Warn("Partial failure querying Langfuse daily metrics",
-			"failed", failed, "total", len(depIDs), "first_error", firstErr)
-	}
 
-	type bucket struct {
-		traces       int
-		cost         float64
-		usageByModel map[string]langfuse.DailyMetricUsage
-	}
-	byDate := make(map[string]*bucket)
-	activeDeps := make(map[string]bool, len(depIDs))
-
-	for i, daily := range perDep {
-		if len(daily) > 0 {
-			activeDeps[depIDs[i]] = true
+	// Q_obs → per-(date, model) usage.
+	usageByDate := make(map[string]map[string]langfuse.DailyMetricUsage)
+	for _, row := range obsRows {
+		date := dateFromTimeDim(row[langfuseTimeDimensionKey])
+		if date == "" {
+			continue
 		}
-		for _, d := range daily {
-			b, ok := byDate[d.Date]
-			if !ok {
-				b = &bucket{usageByModel: make(map[string]langfuse.DailyMetricUsage)}
-				byDate[d.Date] = b
-			}
-			b.traces += d.CountTraces
-			b.cost += d.TotalCost
-			for _, u := range d.Usage {
-				prev := b.usageByModel[u.Model]
-				b.usageByModel[u.Model] = langfuse.DailyMetricUsage{
-					Model:       u.Model,
-					InputUsage:  prev.InputUsage + u.InputUsage,
-					OutputUsage: prev.OutputUsage + u.OutputUsage,
-					TotalUsage:  prev.TotalUsage + u.TotalUsage,
-					TotalCost:   prev.TotalCost + u.TotalCost,
-				}
-			}
+		model, _ := row["providedModelName"].(string)
+		if model == "" {
+			// Langfuse returns nil for traces without a model attribution
+			// (non-LLM observations). Skip — they don't belong in the model
+			// breakdown and their cost is captured via the traces-view query.
+			continue
+		}
+		cost := toFloat(row["sum_totalCost"])
+		input := toInt(row["sum_inputTokens"])
+		output := toInt(row["sum_outputTokens"])
+		if cost == 0 && input == 0 && output == 0 {
+			continue
+		}
+		byModel := usageByDate[date]
+		if byModel == nil {
+			byModel = make(map[string]langfuse.DailyMetricUsage)
+			usageByDate[date] = byModel
+		}
+		prev := byModel[model]
+		byModel[model] = langfuse.DailyMetricUsage{
+			Model:       model,
+			InputUsage:  prev.InputUsage + input,
+			OutputUsage: prev.OutputUsage + output,
+			TotalUsage:  prev.TotalUsage + input + output,
+			TotalCost:   prev.TotalCost + cost,
 		}
 	}
 
-	out := make([]langfuse.DailyMetric, 0, len(byDate))
-	for date, b := range byDate {
-		usage := make([]langfuse.DailyMetricUsage, 0, len(b.usageByModel))
-		for _, u := range b.usageByModel {
+	// Merge into DailyMetric shape. Dates can appear in either query (e.g.
+	// non-LLM days appear only in traces). Use union of both date sets.
+	allDates := make(map[string]struct{})
+	for d := range countByDate {
+		allDates[d] = struct{}{}
+	}
+	for d := range usageByDate {
+		allDates[d] = struct{}{}
+	}
+
+	out := make([]langfuse.DailyMetric, 0, len(allDates))
+	for date := range allDates {
+		usage := make([]langfuse.DailyMetricUsage, 0, len(usageByDate[date]))
+		var totalCost float64
+		for _, u := range usageByDate[date] {
 			usage = append(usage, u)
+			totalCost += u.TotalCost
 		}
 		out = append(out, langfuse.DailyMetric{
 			Date:        date,
-			CountTraces: b.traces,
-			TotalCost:   b.cost,
+			CountTraces: countByDate[date],
+			TotalCost:   totalCost,
 			Usage:       usage,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
 	return out, activeDeps, nil
+}
+
+// dateFromTimeDim normalizes Langfuse's RFC3339 time-bucket value to YYYY-MM-DD
+// to match the legacy /metrics/daily endpoint's Date field shape.
+func dateFromTimeDim(v any) string {
+	ts, _ := v.(string)
+	if len(ts) >= 10 {
+		return ts[:10]
+	}
+	return ts
 }
 
 // ── blueprints-summary ────────────────────────────────────────────────────────
@@ -635,32 +717,71 @@ type deploymentMetrics struct {
 	P95LatencyMs float64
 }
 
-// fetchDeploymentMetrics fetches cost/token/request metrics and P95 latency for one
-// deployment. Errors are swallowed — missing data is treated as zero so the
-// blueprint row still appears in the aggregated response.
-func fetchDeploymentMetrics(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) deploymentMetrics {
+// fetchDeploymentDaily fetches the per-deployment daily metrics (cost / tokens
+// / request count + per-model usage). Stays per-deployment because the legacy
+// /metrics/daily endpoint is the only path to the per-(deployment, model)
+// breakdown that powers TopModel — Langfuse's /metrics endpoint can't group
+// observations by tags, so it can't produce per-(deployment, model) rows.
+// Errors are swallowed — missing data is treated as zero so the blueprint row
+// still appears in the aggregated response.
+func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) deploymentMetrics {
 	result := deploymentMetrics{AgentName: dep.AgentName}
-
 	daily, err := client.GetDailyMetrics(ctx, dep.ID, from, to)
 	if err == nil {
 		result.DailyMetrics = daily
 	}
-
-	traceQ := langfuse.MetricsQuery{
-		View:    "traces",
-		Metrics: []langfuse.MetricsQueryField{{Measure: "latency", Aggregation: "p95"}},
-		Filters: []langfuse.MetricsFilter{
-			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + dep.ID}},
-		},
-		FromTimestamp: from,
-		ToTimestamp:   to,
-	}
-	traceResp, err := client.GetMetrics(ctx, traceQ)
-	if err == nil && len(traceResp.Data) > 0 {
-		result.P95LatencyMs = toFloat(traceResp.Data[0]["p95_latency"])
-	}
-
 	return result
+}
+
+// batchedP95Latencies fetches per-deployment P95 latency in a single batched
+// /metrics call (traces view grouped by tags) instead of N separate ones.
+// Returns map[deploymentID]p95Ms. Failures fail-open: returns empty map; the
+// per-blueprint P95 column then renders as "—" but the rest of the row is
+// untouched.
+func batchedP95Latencies(
+	ctx context.Context,
+	client *langfuse.Client,
+	log *logger.Logger,
+	tagValues []string,
+	from, to string,
+) map[string]float64 {
+	out := make(map[string]float64)
+	if len(tagValues) == 0 {
+		return out
+	}
+	qFrom, qTo := metricsTimeRange(from, to)
+	q := langfuse.MetricsQuery{
+		View:       "traces",
+		Metrics:    []langfuse.MetricsQueryField{{Measure: "latency", Aggregation: "p95"}},
+		Dimensions: []langfuse.MetricsDimension{{Field: "tags"}},
+		Filters: []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+		},
+		FromTimestamp: qFrom,
+		ToTimestamp:   qTo,
+	}
+	resp, err := client.GetMetrics(ctx, q)
+	if err != nil {
+		log.Warn("Batched P95 query failed — per-blueprint latency will render as zero", "error", err)
+		return out
+	}
+	for _, row := range resp.Data {
+		p95 := toFloat(row["p95_latency"])
+		if p95 <= 0 {
+			continue
+		}
+		for _, tag := range tagStrings(row["tags"]) {
+			if strings.HasPrefix(tag, "deployment:") {
+				depID := strings.TrimPrefix(tag, "deployment:")
+				// Take max across rows that might both touch a deployment
+				// (Langfuse can return tag-array rows per group).
+				if p95 > out[depID] {
+					out[depID] = p95
+				}
+			}
+		}
+	}
+	return out
 }
 
 // buildBlueprintsSummary aggregates per-deployment metrics into per-agent-name
@@ -754,6 +875,7 @@ func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry
 				Date:         d,
 				InputTokens:  tok[0],
 				OutputTokens: tok[1],
+				TotalTokens:  tok[0] + tok[1],
 			})
 		}
 
@@ -764,6 +886,7 @@ func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry
 			CostPerRequest:   costPerRequest,
 			InputTokens:      g.inputTokens,
 			OutputTokens:     g.outputTokens,
+			TotalTokens:      g.inputTokens + g.outputTokens,
 			TokPerRequest:    tokPerRequest,
 			P95LatencyMs:     int(math.Round(g.p95LatencyMs)),
 			TopModel:         topModel,
@@ -860,23 +983,46 @@ func GetAccountBlueprintsSummary(
 
 		const maxDeployments = 100
 		if len(deployments) > maxDeployments {
+			log.Warn("Truncating deployments for blueprints summary",
+				"account", acct.Name, "total", len(deployments), "cap", maxDeployments)
 			deployments = deployments[:maxDeployments]
 		}
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
+		tagValues := make([]string, len(deployments))
+		for i, d := range deployments {
+			tagValues[i] = "deployment:" + d.ID
+		}
+
+		// Per-deployment daily metrics fan-out + ONE batched P95 query run in
+		// parallel. The daily fan-out is unavoidable today (per-deployment
+		// per-model breakdown isn't expressible in a batched /metrics query
+		// because Langfuse's observations view can't group by trace tags);
+		// the P95 batch saves N calls.
 		g, gCtx := errgroup.WithContext(ctx)
 		g.SetLimit(10)
+
+		var p95ByDep map[string]float64
+		g.Go(func() error {
+			p95ByDep = batchedP95Latencies(gCtx, client, log, tagValues, from, to)
+			return nil
+		})
 
 		results := make([]deploymentMetrics, len(deployments))
 		for i, dep := range deployments {
 			g.Go(func() error {
-				results[i] = fetchDeploymentMetrics(gCtx, client, dep, from, to)
-				return nil // errors swallowed inside fetchDeploymentMetrics
+				results[i] = fetchDeploymentDaily(gCtx, client, dep, from, to)
+				return nil
 			})
 		}
 		_ = g.Wait()
+
+		// Stitch the batched P95 into per-deployment results.
+		for i, dep := range deployments {
+			results[i].P95LatencyMs = p95ByDep[dep.ID]
+		}
 
 		c.JSON(http.StatusOK, AccountBlueprintsSummaryResponse{
 			Blueprints: buildBlueprintsSummary(results),

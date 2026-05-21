@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -591,118 +590,110 @@ func TestBuildCostOverTimeByUser_TruncatesDateAndExcludesZeroCost(t *testing.T) 
 	}
 }
 
-// ── mergedDailyMetrics ────────────────────────────────────────────────────────
+// ── accountDailyMetrics (batched /metrics) ──────────────────────────────────
 
-// dailyMetricsHandler builds an httptest handler that responds to
-// /api/public/metrics/daily based on the `tags` query param, looking up the
-// per-deployment response in the supplied table. If a depID is absent, returns
-// 500 — used to simulate per-deployment failures.
-func dailyMetricsHandler(t *testing.T, responses map[string]langfuse.DailyMetricsResponse) http.HandlerFunc {
+// batchedMetricsHandler responds to /api/public/metrics with one of two row
+// sets depending on the query view: traces (per-(tags, day) count) or
+// observations (per-(model, day) cost + tokens). Returns 500 to either by
+// setting the corresponding response to nil.
+func batchedMetricsHandler(t *testing.T, tracesRows, obsRows []map[string]any) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
-		tag := r.URL.Query().Get("tags")
-		depID := strings.TrimPrefix(tag, "deployment:")
-		resp, ok := responses[depID]
-		if !ok {
+		q := r.URL.Query().Get("query")
+		var parsed struct {
+			View string `json:"view"`
+		}
+		_ = json.Unmarshal([]byte(q), &parsed)
+		var rows []map[string]any
+		switch parsed.View {
+		case "traces":
+			rows = tracesRows
+		case "observations":
+			rows = obsRows
+		}
+		if rows == nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if resp.Meta.TotalPages == 0 {
-			resp.Meta.TotalPages = 1
-		}
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": rows})
 	}
 }
 
-func TestMergedDailyMetrics_MergesPerDateAndTracksActiveDeps(t *testing.T) {
-	responses := map[string]langfuse.DailyMetricsResponse{
-		"dep-a": {Data: []langfuse.DailyMetric{
-			{Date: "2026-04-01", CountTraces: 10, TotalCost: 1.0,
-				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 100, OutputUsage: 50, TotalCost: 1.0}}},
-			{Date: "2026-04-02", CountTraces: 5, TotalCost: 0.5,
-				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 50, OutputUsage: 25, TotalCost: 0.5}}},
-		}},
-		"dep-b": {Data: []langfuse.DailyMetric{
-			{Date: "2026-04-01", CountTraces: 3, TotalCost: 0.2,
-				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 20, OutputUsage: 10, TotalCost: 0.2}}},
-		}},
-		// dep-c returns an empty page — should not appear in activeDeps.
-		"dep-c": {Data: []langfuse.DailyMetric{}},
+func TestAccountDailyMetrics_MergesPerDateAndTracksActiveDeps(t *testing.T) {
+	// Q_traces — per-(tags, day) trace count
+	tracesRows := []map[string]any{
+		{"time_dimension": "2026-04-01T00:00:00Z", "tags": "deployment:dep-a", "count_count": 10},
+		{"time_dimension": "2026-04-01T00:00:00Z", "tags": "deployment:dep-b", "count_count": 3},
+		{"time_dimension": "2026-04-02T00:00:00Z", "tags": "deployment:dep-a", "count_count": 5},
+		// dep-c sends nothing — should NOT show up in activeDeps.
 	}
-	srv := httptest.NewServer(dailyMetricsHandler(t, responses))
+	// Q_obs — per-(providedModelName, day) cost + tokens
+	obsRows := []map[string]any{
+		{"time_dimension": "2026-04-01T00:00:00Z", "providedModelName": "gpt-4o",
+			"sum_totalCost": 1.2, "sum_inputTokens": 120, "sum_outputTokens": 60},
+		{"time_dimension": "2026-04-02T00:00:00Z", "providedModelName": "gpt-4o",
+			"sum_totalCost": 0.5, "sum_inputTokens": 50, "sum_outputTokens": 25},
+	}
+	srv := httptest.NewServer(batchedMetricsHandler(t, tracesRows, obsRows))
 	defer srv.Close()
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
-	log := logger.New("error", "json")
 
-	out, activeDeps, err := mergedDailyMetrics(context.Background(), client, log,
-		[]string{"dep-a", "dep-b", "dep-c"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	out, activeDeps, err := accountDailyMetrics(context.Background(), client,
+		[]string{"deployment:dep-a", "deployment:dep-b", "deployment:dep-c"},
+		"2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(out) != 2 {
 		t.Fatalf("expected 2 merged date buckets, got %d", len(out))
 	}
-	// Ascending date order.
 	if out[0].Date != "2026-04-01" || out[1].Date != "2026-04-02" {
 		t.Errorf("dates not sorted: %q, %q", out[0].Date, out[1].Date)
 	}
-	// 2026-04-01 = dep-a (10 traces, $1.0) + dep-b (3 traces, $0.2)
+	// 2026-04-01: traces = 10 (dep-a) + 3 (dep-b) = 13; cost from obs = 1.2.
 	if out[0].CountTraces != 13 || out[0].TotalCost != 1.2 {
-		t.Errorf("2026-04-01 merge: traces=%d cost=%v, want 13 / 1.2", out[0].CountTraces, out[0].TotalCost)
+		t.Errorf("2026-04-01: traces=%d cost=%v, want 13 / 1.2", out[0].CountTraces, out[0].TotalCost)
 	}
-	// activeDeps only includes dep-a and dep-b — dep-c had zero rows.
 	if !activeDeps["dep-a"] || !activeDeps["dep-b"] {
 		t.Errorf("dep-a/dep-b should be active, got %+v", activeDeps)
 	}
 	if activeDeps["dep-c"] {
-		t.Errorf("dep-c should not be active (zero rows), got active=true")
+		t.Errorf("dep-c should not be active, got active=true")
 	}
 }
 
-func TestMergedDailyMetrics_AllFailReturnsError(t *testing.T) {
-	// Every request returns 500 → all per-dep calls error → mergedDailyMetrics
-	// returns a non-nil error so the handler can respond 502.
+func TestAccountDailyMetrics_TracesQueryFailFailsAll(t *testing.T) {
+	// Batched semantics: any sub-query failure surfaces an error (no partial
+	// success). The handler's prior-period path wraps this in fail-open via
+	// the caller; the function itself returns the error.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
-	log := logger.New("error", "json")
 
-	_, _, err := mergedDailyMetrics(context.Background(), client, log,
-		[]string{"dep-a", "dep-b"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	_, _, err := accountDailyMetrics(context.Background(), client,
+		[]string{"deployment:dep-a"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
 	if err == nil {
-		t.Fatal("expected error when all per-deployment calls fail, got nil")
+		t.Fatal("expected error when /metrics returns 500")
 	}
 }
 
-func TestMergedDailyMetrics_PartialFailReturnsNoError(t *testing.T) {
-	// dep-a succeeds, dep-b returns 500 → partial failure → no error returned
-	// (the caller still gets dep-a's data; partial failure is logged at WARN).
-	responses := map[string]langfuse.DailyMetricsResponse{
-		"dep-a": {Data: []langfuse.DailyMetric{
-			{Date: "2026-04-01", CountTraces: 10, TotalCost: 1.0,
-				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", TotalCost: 1.0}}},
-		}},
-	}
-	srv := httptest.NewServer(dailyMetricsHandler(t, responses))
+func TestAccountDailyMetrics_NoTagsReturnsEmpty(t *testing.T) {
+	// Empty tag list = no live deployments. Should return zero state without
+	// issuing any requests.
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Fatal("expected zero HTTP calls when tag list is empty")
+	}))
 	defer srv.Close()
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
-	log := logger.New("error", "json")
 
-	out, activeDeps, err := mergedDailyMetrics(context.Background(), client, log,
-		[]string{"dep-a", "dep-b"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	out, active, err := accountDailyMetrics(context.Background(), client, nil, "", "")
 	if err != nil {
-		t.Fatalf("unexpected error on partial failure: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(out) != 1 {
-		t.Fatalf("expected 1 date bucket (only dep-a succeeded), got %d", len(out))
-	}
-	if !activeDeps["dep-a"] {
-		t.Errorf("dep-a should be active")
-	}
-	if activeDeps["dep-b"] {
-		t.Errorf("dep-b should not be active (call failed)")
+	if len(out) != 0 || len(active) != 0 {
+		t.Errorf("expected empty results, got out=%d active=%d", len(out), len(active))
 	}
 }

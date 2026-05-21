@@ -15,6 +15,7 @@ type Blueprint = {
   p95_latency_ms: number;
   input_tokens: number;
   output_tokens: number;
+  total_tokens: number;
   top_model: string;
 };
 
@@ -27,6 +28,7 @@ function makeBlueprint(overrides: Partial<Blueprint> & { agent_name: string }): 
     p95_latency_ms: 300,
     input_tokens: 50,
     output_tokens: 50,
+    total_tokens: 100,
     top_model: "",
     ...overrides,
   };

@@ -13,7 +13,10 @@ export function DashboardStats({ account }: DashboardStatsProps) {
   const { data: usageData } = useAccountUsage(account);
 
   const totalRequests = allTimeSummary?.totals?.requests ?? 0;
-  const totalTokens = (allTimeSummary?.totals?.input_tokens ?? 0) + (allTimeSummary?.totals?.output_tokens ?? 0);
+  // Prefer total_tokens (new source of truth); fall back to input+output for
+  // any pre-migration cached responses.
+  const totalTokens = allTimeSummary?.totals?.total_tokens
+    ?? (allTimeSummary?.totals?.input_tokens ?? 0) + (allTimeSummary?.totals?.output_tokens ?? 0);
 
   return (
     <div className="mb-9 grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">

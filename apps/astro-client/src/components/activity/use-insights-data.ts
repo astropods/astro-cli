@@ -46,15 +46,17 @@ export function buildFilteredSummary(
     dateSet.add(date);
   };
 
+  let totalTok = 0;
   for (const b of blueprints) {
     totalCost += b.cost_usd;
     totalReqs += b.requests;
     totalIn   += b.input_tokens;
     totalOut  += b.output_tokens;
+    totalTok  += b.total_tokens;
     const perAgentCost = new Map<string, number>();
     for (const d of b.cost_over_time ?? [])     { perAgentCost.set(d.date, d.cost_usd); addToDate(totalsByDate.cost, d.date, d.cost_usd); }
     for (const d of b.requests_over_time ?? []) { addToDate(totalsByDate.req,  d.date, d.requests); }
-    for (const d of b.tokens_over_time ?? [])   { addToDate(totalsByDate.tok,  d.date, d.input_tokens + d.output_tokens); }
+    for (const d of b.tokens_over_time ?? [])   { addToDate(totalsByDate.tok,  d.date, d.total_tokens); }
     costIndex.set(b.agent_name, perAgentCost);
   }
 
@@ -70,9 +72,19 @@ export function buildFilteredSummary(
   // Split by calendar midpoint so sparse agents don't skew the comparison.
   // Array-index splitting would compare 1 active day vs 2 active days for a
   // 30-day period where the agent was only active 3 days.
-  const midTime = (new Date(period.start).getTime() + new Date(period.end).getTime()) / 2;
-  const midDate = new Date(midTime).toISOString().slice(0, 10);
-  const prevIdx = allDates.filter((d) => d < midDate).length;
+  //
+  // The all-time range omits period.start/end on the server side, so the
+  // Date math below would yield NaN and toISOString would throw. In that
+  // case there's no meaningful prior window to compare against — leave
+  // prevIdx at 0 so half(... 0, prevIdx) is 0 and change% comes out as null.
+  const startMs = new Date(period.start || "").getTime();
+  const endMs = new Date(period.end || "").getTime();
+  const haveBounds = Number.isFinite(startMs) && Number.isFinite(endMs);
+  let prevIdx = 0;
+  if (haveBounds) {
+    const midDate = new Date((startMs + endMs) / 2).toISOString().slice(0, 10);
+    prevIdx = allDates.filter((d) => d < midDate).length;
+  }
 
   return {
     period,
@@ -81,12 +93,13 @@ export function buildFilteredSummary(
       requests: totalReqs,
       input_tokens: totalIn,
       output_tokens: totalOut,
+      total_tokens: totalTok,
       active_agents: blueprints.length,
     },
     daily_avg: {
       cost_usd: parseFloat((totalCost / n).toFixed(2)),
       requests: Math.round(totalReqs / n),
-      tokens: Math.round((totalIn + totalOut) / n),
+      tokens: Math.round(totalTok / n),
     },
     change: {
       cost_pct:     pct(half(costByDate, prevIdx, allDates.length), half(costByDate, 0, prevIdx)),
@@ -245,10 +258,12 @@ function recomputeTotalsFromUsers(
     totals: {
       cost_usd: parseFloat(totalCost.toFixed(2)),
       requests: totalReqs,
-      // Users view exposes combined tokens only (traces view doesn't split);
-      // stash in input_tokens so downstream `input + output` sums render right.
-      input_tokens: totalTokens,
+      // Users view derives tokens from the traces view, which only exposes
+      // the combined sum. total_tokens is the canonical field; input/output
+      // stay at 0 here and consumers should read total_tokens.
+      input_tokens: 0,
       output_tokens: 0,
+      total_tokens: totalTokens,
       active_agents: 0,
     },
     daily_avg: {

@@ -15,13 +15,14 @@ type Blueprint = {
   requests: number;
   input_tokens: number;
   output_tokens: number;
+  total_tokens: number;
   tok_per_request: number;
   p95_latency_ms: number;
   top_model: string;
   cost_per_request: number;
   cost_over_time?: { date: string; cost_usd: number }[];
   requests_over_time?: { date: string; requests: number }[];
-  tokens_over_time?: { date: string; input_tokens: number; output_tokens: number }[];
+  tokens_over_time?: { date: string; input_tokens: number; output_tokens: number; total_tokens: number }[];
 };
 
 const period = { start: "2026-01-01T00:00:00Z", end: "2026-01-07T00:00:00Z", days: 7 };
@@ -33,6 +34,7 @@ function makeBlueprint(overrides: Partial<Blueprint> = {}): Blueprint {
     requests: 5,
     input_tokens: 100,
     output_tokens: 50,
+    total_tokens: 150,
     tok_per_request: 30,
     p95_latency_ms: 300,
     top_model: "",
@@ -56,6 +58,18 @@ describe("buildFilteredSummary", () => {
     expect(result.sparklines!.cost).toHaveLength(0);
     expect(result.sparklines!.requests).toHaveLength(0);
     expect(result.sparklines!.tokens).toHaveLength(0);
+  });
+
+  it("does not throw on the all-time range where period.start/end are empty", () => {
+    // /insights?range=all → server omits period.start / period.end. Date math
+    // on empty strings yields NaN and naive `new Date(NaN).toISOString()`
+    // throws "Invalid time value" — guard against that.
+    const allTimePeriod = { start: "", end: "", days: 365 };
+    const bp = makeBlueprint({ cost_over_time: [{ date: "2026-01-01", cost_usd: 1 }] });
+    expect(() => buildFilteredSummary([bp], allTimePeriod)).not.toThrow();
+    const result = buildFilteredSummary([bp], allTimePeriod);
+    // No meaningful midpoint → change% is null across the board.
+    expect(result.change?.cost_pct).toBeNull();
   });
 
   it("totals match single blueprint fields", () => {

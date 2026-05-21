@@ -28,7 +28,10 @@ const fmtTokens = (v: number) => `${formatCompact(v)} tok`;
 export function StatCards({ data, showChange, range }: StatCardsProps) {
   const cost = data?.totals?.cost_usd ?? 0;
   const requests = data?.totals?.requests ?? 0;
-  const tokens = (data?.totals?.input_tokens ?? 0) + (data?.totals?.output_tokens ?? 0);
+  // Prefer total_tokens (new source of truth); fall back to input+output for
+  // safety while clients catch up to the new contract.
+  const tokens = data?.totals?.total_tokens
+    ?? (data?.totals?.input_tokens ?? 0) + (data?.totals?.output_tokens ?? 0);
 
   const changeLabel = showChange && RANGE_LABELS[range] ? `vs. ${RANGE_LABELS[range]}` : undefined;
   const sparklineDates = data?.cost_over_time?.map((d) => d.date);

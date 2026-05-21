@@ -1680,8 +1680,14 @@ export interface AccountObservabilitySummaryResponse {
   totals: {
     cost_usd: number;
     requests: number;
+    /** @deprecated prefer total_tokens; kept for back-compat. May be 0 in
+     *  views derived from the traces view (combined-only). */
     input_tokens: number;
+    /** @deprecated prefer total_tokens; kept for back-compat. May be 0 in
+     *  views derived from the traces view (combined-only). */
     output_tokens: number;
+    /** Combined token count. New source of truth for token totals. */
+    total_tokens: number;
     active_agents: number;
   };
   daily_avg: { cost_usd: number; requests: number; tokens: number };
@@ -1727,14 +1733,24 @@ export interface AccountBlueprintsSummaryResponse {
     requests: number;
     cost_usd: number;
     cost_per_request: number;
+    /** @deprecated prefer total_tokens. */
     input_tokens: number;
+    /** @deprecated prefer total_tokens. */
     output_tokens: number;
+    /** Combined token count for the blueprint. New source of truth. */
+    total_tokens: number;
     tok_per_request: number;
     p95_latency_ms: number;
     top_model: string;
     cost_over_time?: Array<{ date: string; cost_usd: number }>;
     requests_over_time?: Array<{ date: string; requests: number }>;
-    tokens_over_time?: Array<{ date: string; input_tokens: number; output_tokens: number }>;
+    tokens_over_time?: Array<{
+      date: string;
+      input_tokens: number;
+      output_tokens: number;
+      /** Combined per-day token count. Prefer over input+output. */
+      total_tokens: number;
+    }>;
   }>;
   period: { start: string; end: string; days: number };
 }
