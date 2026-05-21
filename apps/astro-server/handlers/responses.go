@@ -445,6 +445,71 @@ type ObservabilityTracesResponse struct {
 	Offset int          `json:"offset"`
 }
 
+// --- Network (Beyla eBPF) ---
+
+// DirectionSummary is one direction's aggregate RED metrics over a window.
+// Latency fields are nil when no samples landed in the window.
+type DirectionSummary struct {
+	RequestCount    int64    `json:"request_count"`
+	ErrorCount      int64    `json:"error_count"`
+	ErrorRate       float64  `json:"error_rate"`
+	LatencyP50Ms    *float64 `json:"latency_p50_ms"`
+	LatencyP95Ms    *float64 `json:"latency_p95_ms"`
+	LatencyP99Ms    *float64 `json:"latency_p99_ms"`
+	UniquePeerCount int      `json:"unique_peer_count"`
+	BytesTotal      int64    `json:"bytes_total"`
+}
+
+// NetworkSummaryResponse is returned by the per-deployment network summary endpoint.
+type NetworkSummaryResponse struct {
+	Inbound    DirectionSummary `json:"inbound"`
+	Outbound   DirectionSummary `json:"outbound"`
+	Database   DirectionSummary `json:"database"`
+	WindowFrom time.Time        `json:"window_from"`
+	WindowTo   time.Time        `json:"window_to"`
+}
+
+// NetworkFlow is one peer's aggregate over the requested window.
+// StatusCodes is populated only for HTTP directions; keys are "2xx"/"4xx"/"5xx".
+type NetworkFlow struct {
+	Peer         string           `json:"peer"`
+	PeerKind     string           `json:"peer_kind"` // "route" | "address" | "db_system"
+	RequestCount int64            `json:"request_count"`
+	ErrorCount   int64            `json:"error_count"`
+	ErrorRate    float64          `json:"error_rate"`
+	LatencyP50Ms *float64         `json:"latency_p50_ms"`
+	LatencyP95Ms *float64         `json:"latency_p95_ms"`
+	BytesTotal   int64            `json:"bytes_total"`
+	StatusCodes  map[string]int64 `json:"status_codes,omitempty"`
+}
+
+// NetworkFlowsResponse is returned by the per-deployment network flows endpoint.
+type NetworkFlowsResponse struct {
+	Direction string        `json:"direction"`
+	Flows     []NetworkFlow `json:"flows"`
+}
+
+// NetworkPoint is one (timestamp, value) sample in a NetworkSeries.
+type NetworkPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     float64   `json:"value"`
+}
+
+// NetworkSeries is one labeled time series. Label is "total" when no group_by
+// was requested, or the group-by value (route name, peer address, status class).
+type NetworkSeries struct {
+	Label  string         `json:"label"`
+	Points []NetworkPoint `json:"points"`
+}
+
+// NetworkTimeseriesResponse is returned by the per-deployment network timeseries endpoint.
+type NetworkTimeseriesResponse struct {
+	Direction string          `json:"direction"`
+	Metric    string          `json:"metric"`
+	Step      string          `json:"step"`
+	Series    []NetworkSeries `json:"series"`
+}
+
 // --- Deployment Events ---
 
 // K8sEventItem represents a single Kubernetes event for API responses.

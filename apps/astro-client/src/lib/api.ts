@@ -680,6 +680,33 @@ class ApiClient {
     );
   }
 
+  async getNetworkSummary(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<NetworkSummaryResponse> {
+    return this.request<NetworkSummaryResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/summary${buildQS(params)}`
+    );
+  }
+
+  async getNetworkFlows(
+    deploymentId: string,
+    params: Record<string, string>,
+  ): Promise<NetworkFlowsResponse> {
+    return this.request<NetworkFlowsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/flows${buildQS(params)}`
+    );
+  }
+
+  async getNetworkTimeseries(
+    deploymentId: string,
+    params: Record<string, string>,
+  ): Promise<NetworkTimeseriesResponse> {
+    return this.request<NetworkTimeseriesResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/timeseries${buildQS(params)}`
+    );
+  }
+
   async archiveBlueprint(account: string, name: string): Promise<void> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
@@ -1750,6 +1777,66 @@ export interface TraceDetailResponse {
   trace: TraceDetail;
   observations: TraceObservation[];
   scores: TraceScore[];
+}
+
+// --- Network (Beyla eBPF) ---
+
+export type NetworkDirection = 'inbound' | 'outbound' | 'database';
+export type NetworkMetric = 'rate' | 'errors' | 'latency_p95' | 'bytes';
+export type NetworkGroupBy = 'peer' | 'status_class';
+export type NetworkFlowsSort = 'requests' | 'latency_p95' | 'errors';
+
+export interface NetworkDirectionSummary {
+  request_count: number;
+  error_count: number;
+  error_rate: number;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  latency_p99_ms: number | null;
+  unique_peer_count: number;
+  bytes_total: number;
+}
+
+export interface NetworkSummaryResponse {
+  inbound: NetworkDirectionSummary;
+  outbound: NetworkDirectionSummary;
+  database: NetworkDirectionSummary;
+  window_from: string;
+  window_to: string;
+}
+
+export interface NetworkFlow {
+  peer: string;
+  peer_kind: 'route' | 'address' | 'db_system';
+  request_count: number;
+  error_count: number;
+  error_rate: number;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  bytes_total: number;
+  status_codes?: Record<string, number>;
+}
+
+export interface NetworkFlowsResponse {
+  direction: NetworkDirection;
+  flows: NetworkFlow[];
+}
+
+export interface NetworkPoint {
+  timestamp: string;
+  value: number;
+}
+
+export interface NetworkSeries {
+  label: string;
+  points: NetworkPoint[];
+}
+
+export interface NetworkTimeseriesResponse {
+  direction: NetworkDirection;
+  metric: NetworkMetric;
+  step: string;
+  series: NetworkSeries[];
 }
 
 export interface TriggerIngestionResponse {

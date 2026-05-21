@@ -35,6 +35,22 @@ export const heartKeys = {
 // read sites in sync.
 export const OBSERVABILITY_WINDOW_ALL_TIME = "all-time" as const;
 
+export const networkKeys = {
+  summary: (deploymentId: string, window?: string) =>
+    ['network', 'summary', deploymentId, window] as const,
+  flows: (deploymentId: string, direction: string, window?: string, sort?: string) =>
+    ['network', 'flows', deploymentId, direction, window, sort] as const,
+  timeseries: (
+    deploymentId: string,
+    direction: string,
+    metric: string,
+    window?: string,
+    step?: string,
+    groupBy?: string,
+  ) =>
+    ['network', 'timeseries', deploymentId, direction, metric, window, step, groupBy] as const,
+};
+
 export const observabilityKeys = {
   metrics: (deploymentId: string, window?: string) =>
     ['observability', 'metrics', deploymentId, window] as const,

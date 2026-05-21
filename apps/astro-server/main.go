@@ -1475,6 +1475,39 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountBlueprintsSummaryResponse{}),
 			)
+
+			// Network endpoints (deployment-scoped, backed by Beyla eBPF metrics in Prometheus)
+			api.GET(protected, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, promClient),
+				oapispec.Tags("Network"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339); defaults to one hour ago", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339); defaults to now", false),
+				oapispec.Response(200, &handlers.NetworkSummaryResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/network/flows", "Get top network peers for a deployment", handlers.GetNetworkFlows(log, accountStore, deploymentStore, promClient),
+				oapispec.Tags("Network"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("direction", "inbound | outbound | database", true),
+				oapispec.QueryParam("start_time", "Start time (RFC3339); defaults to one hour ago", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339); defaults to now", false),
+				oapispec.QueryParam("limit", "Max rows (default 50, max 200)", false),
+				oapispec.QueryParam("sort", "requests | latency_p95 | errors (default requests)", false),
+				oapispec.Response(200, &handlers.NetworkFlowsResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/network/timeseries", "Get bucketed network metrics for a deployment", handlers.GetNetworkTimeseries(log, accountStore, deploymentStore, promClient),
+				oapispec.Tags("Network"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("direction", "inbound | outbound | database", true),
+				oapispec.QueryParam("metric", "rate | errors | latency_p95 | bytes", true),
+				oapispec.QueryParam("start_time", "Start time (RFC3339); defaults to one hour ago", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339); defaults to now", false),
+				oapispec.QueryParam("step", "Bucket size as a Go duration; default 30s, minimum 15s", false),
+				oapispec.QueryParam("group_by", "peer | status_class — capped at 8 series for peer", false),
+				oapispec.Response(200, &handlers.NetworkTimeseriesResponse{}),
+			)
 		}
 
 		// GitHub connection routes

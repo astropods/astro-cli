@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestNewClient_EmptyURL(t *testing.T) {
@@ -183,5 +184,171 @@ func TestQuery_WrongResultType(t *testing.T) {
 	_, err := c.Query(context.Background(), "up")
 	if err == nil {
 		t.Fatal("expected error for non-vector result type")
+	}
+}
+
+func TestQueryRange_Success(t *testing.T) {
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000600, 0)
+	step := 30 * time.Second
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/query_range" {
+			t.Errorf("path = %q, want /api/v1/query_range", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("query") != "up" {
+			t.Errorf("query = %q, want up", q.Get("query"))
+		}
+		if q.Get("start") != "1700000000" {
+			t.Errorf("start = %q, want 1700000000", q.Get("start"))
+		}
+		if q.Get("end") != "1700000600" {
+			t.Errorf("end = %q, want 1700000600", q.Get("end"))
+		}
+		if q.Get("step") != "30s" {
+			t.Errorf("step = %q, want 30s", q.Get("step"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "matrix",
+				"result": [
+					{
+						"metric": {"agent": "acct.bot"},
+						"values": [
+							[1700000000, "1"],
+							[1700000030, "2.5"],
+							[1700000060, "3"]
+						]
+					},
+					{
+						"metric": {"agent": "acct.helper"},
+						"values": [
+							[1700000000, "10"]
+						]
+					}
+				]
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	series, err := c.QueryRange(context.Background(), "up", start, end, step)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(series) != 2 {
+		t.Fatalf("expected 2 series, got %d", len(series))
+	}
+	if series[0].Labels["agent"] != "acct.bot" {
+		t.Errorf("series[0] agent = %q", series[0].Labels["agent"])
+	}
+	if len(series[0].Points) != 3 {
+		t.Fatalf("series[0] points = %d, want 3", len(series[0].Points))
+	}
+	if series[0].Points[1].Value != 2.5 {
+		t.Errorf("series[0].Points[1].Value = %f, want 2.5", series[0].Points[1].Value)
+	}
+	if !series[0].Points[1].Timestamp.Equal(time.Unix(1700000030, 0)) {
+		t.Errorf("series[0].Points[1].Timestamp = %v, want %v",
+			series[0].Points[1].Timestamp, time.Unix(1700000030, 0))
+	}
+	if len(series[1].Points) != 1 || series[1].Points[0].Value != 10 {
+		t.Errorf("series[1] points wrong: %+v", series[1].Points)
+	}
+}
+
+func TestQueryRange_EmptyMatrix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	series, err := c.QueryRange(context.Background(), "up", time.Unix(0, 0), time.Unix(60, 0), time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(series) != 0 {
+		t.Errorf("expected 0 series, got %d", len(series))
+	}
+}
+
+func TestQueryRange_PrometheusError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"status":"error","errorType":"bad_data","error":"parse error"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	_, err := c.QueryRange(context.Background(), "bad{", time.Unix(0, 0), time.Unix(60, 0), time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestQueryRange_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	_, err := c.QueryRange(context.Background(), "up", time.Unix(0, 0), time.Unix(60, 0), time.Second)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestQueryRange_WrongResultType(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	_, err := c.QueryRange(context.Background(), "up", time.Unix(0, 0), time.Unix(60, 0), time.Second)
+	if err == nil {
+		t.Fatal("expected error for non-matrix result type")
+	}
+}
+
+func TestQueryRange_SkipsMalformedPoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "matrix",
+				"result": [
+					{
+						"metric": {"a": "1"},
+						"values": [
+							[1700000000, "42"],
+							[1700000030, "not-a-number"],
+							[1700000060],
+							["bad-ts", "1"],
+							[1700000090, 999]
+						]
+					}
+				]
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	series, err := c.QueryRange(context.Background(), "up", time.Unix(0, 0), time.Unix(60, 0), time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(series) != 1 {
+		t.Fatalf("expected 1 series, got %d", len(series))
+	}
+	if len(series[0].Points) != 1 || series[0].Points[0].Value != 42 {
+		t.Errorf("expected single valid point with value 42, got %+v", series[0].Points)
 	}
 }
