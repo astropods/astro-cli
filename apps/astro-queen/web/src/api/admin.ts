@@ -95,6 +95,19 @@ export function useRenameAccount() {
   });
 }
 
+export function useSetAccountCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, clusterId }: { id: string; clusterId: string }) =>
+      api.put(`/api/admin/accounts/${encodeURIComponent(id)}/cluster`, {
+        cluster_id: clusterId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+    },
+  });
+}
+
 export function useBlueprints() {
   return useQuery({
     queryKey: adminKeys.blueprints(),

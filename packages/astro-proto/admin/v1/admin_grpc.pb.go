@@ -52,6 +52,7 @@ type AdminServiceClient interface {
 	DisableCluster(ctx context.Context, in *DisableClusterRequest, opts ...grpc.CallOption) (*DisableClusterResponse, error)
 	DeregisterCluster(ctx context.Context, in *DeregisterClusterRequest, opts ...grpc.CallOption) (*DeregisterClusterResponse, error)
 	ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error)
+	SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
 }
@@ -376,6 +377,14 @@ func (c *adminServiceClient) ListClusters(ctx context.Context, in *ListClustersR
 	return out, nil
 }
 
+func (c *adminServiceClient) SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error) {
+	out := new(SetAccountClusterResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAccountCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error) {
 	out := new(UpdateClusterResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/UpdateCluster", in, out, opts...); err != nil {
@@ -434,6 +443,7 @@ type AdminServiceServer interface {
 	DisableCluster(context.Context, *DisableClusterRequest) (*DisableClusterResponse, error)
 	DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error)
 	ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error)
+	SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
@@ -596,6 +606,10 @@ func (UnimplementedAdminServiceServer) DeregisterCluster(context.Context, *Dereg
 
 func (UnimplementedAdminServiceServer) ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListClusters not implemented")
+}
+
+func (UnimplementedAdminServiceServer) SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountCluster not implemented")
 }
 
 func (UnimplementedAdminServiceServer) UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error) {
@@ -1203,6 +1217,21 @@ func _AdminService_ListClusters_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_SetAccountCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetAccountCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAccountCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetAccountCluster(ctx, req.(*SetAccountClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_UpdateCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateClusterRequest)
 	if err := dec(in); err != nil {
@@ -1277,6 +1306,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "DisableCluster", Handler: _AdminService_DisableCluster_Handler},
 		{MethodName: "DeregisterCluster", Handler: _AdminService_DeregisterCluster_Handler},
 		{MethodName: "ListClusters", Handler: _AdminService_ListClusters_Handler},
+		{MethodName: "SetAccountCluster", Handler: _AdminService_SetAccountCluster_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
 	},

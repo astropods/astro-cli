@@ -274,6 +274,7 @@ type AdminAccount struct {
 	DeletedAt    string `json:"deleted_at,omitempty"`
 	CreatedAt    string `json:"created_at,omitempty"`
 	UpdatedAt    string `json:"updated_at,omitempty"`
+	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
 type ListAccountsResponse struct {
@@ -743,6 +744,16 @@ type ListClustersRequest struct {
 
 type ListClustersResponse struct {
 	Clusters []*RegisteredCluster `json:"clusters,omitempty"`
+}
+
+type SetAccountClusterRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
+}
+
+type SetAccountClusterResponse struct {
+	Status    string `json:"status,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
 }
 
 type UpdateClusterRequest struct {

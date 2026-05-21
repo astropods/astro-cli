@@ -42,8 +42,8 @@ func expectHeartAccountLookup(mock sqlmock.Sqlmock, name, id string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs(name).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow(id, name, "personal", nil, nil, now, now)...))
 }
 
 func TestToggleHeart_AddHeart(t *testing.T) {
@@ -119,7 +119,7 @@ func TestToggleHeart_AccountNotFound(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/my-agent/heart", nil)
 	rec := httptest.NewRecorder()
@@ -148,18 +148,12 @@ func setupListHeartedRouter() (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	return router, accountMock, heartMock
 }
 
-var heartAccountColumns = []string{
-	"id", "name", "type", "workos_org_id", "deleted_at",
-	"created_at", "updated_at", "display_name", "avatar_colors",
-	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-}
-
 func expectListHeartedAccountLookup(mock sqlmock.Sqlmock, name, id string) {
 	now := time.Now()
-	mock.ExpectQuery("SELECT a.id, a.name, a.type").
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs(name).
-		WillReturnRows(sqlmock.NewRows(heartAccountColumns).
-			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow(id, name, "personal", nil, nil, now, now)...))
 }
 
 func TestListHearted_EmptyList(t *testing.T) {
@@ -232,9 +226,9 @@ func TestListHearted_WithResults(t *testing.T) {
 func TestListHearted_AccountNotFound(t *testing.T) {
 	router, accountMock, _ := setupListHeartedRouter()
 
-	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("nobody").
-		WillReturnRows(sqlmock.NewRows(heartAccountColumns))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/nobody/hearts", nil)
 	rec := httptest.NewRecorder()
@@ -275,10 +269,10 @@ func TestListHearted_OrgAccountReturns404(t *testing.T) {
 	router, accountMock, _ := setupListHeartedRouter()
 
 	now := time.Now()
-	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("astro-inc").
-		WillReturnRows(sqlmock.NewRows(heartAccountColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/hearts", nil)
 	rec := httptest.NewRecorder()

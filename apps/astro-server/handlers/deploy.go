@@ -199,6 +199,89 @@ func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
 	return spec.ParseDeploymentSpec(body)
 }
 
+// applyAccountClusterPlacement sets target.cluster_id from the target account's
+// placement binding. Empty binding clears cluster_id (primary cluster).
+func applyAccountClusterPlacement(ds *spec.AstroDeploymentSpec, targetAcct *account.Account) {
+	if ds == nil || targetAcct == nil {
+		return
+	}
+	if targetAcct.ClusterID != nil && *targetAcct.ClusterID != "" {
+		ds.Target.ClusterID = *targetAcct.ClusterID
+	} else {
+		ds.Target.ClusterID = ""
+	}
+}
+
+// validateDeployTargetCluster rejects deploys to unknown, disabled, or unhealthy
+// additional clusters. Empty clusterID means primary and skips validation.
+func validateDeployTargetCluster(
+	c *gin.Context,
+	log *logger.Logger,
+	clusterStore *clusterstore.Store,
+	k8sReg *k8s.Registry,
+	clusterID string,
+) bool {
+	if clusterID == "" {
+		return true
+	}
+	if clusterStore == nil {
+		log.Error("Deploy specifies cluster_id but clusterStore is not configured", "cluster_id", clusterID)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster store not configured"})
+		return false
+	}
+	cluster, lookupErr := clusterStore.Get(c.Request.Context(), clusterID)
+	if lookupErr != nil {
+		if errors.Is(lookupErr, clusterstore.ErrNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      "unknown cluster_id",
+				"cluster_id": clusterID,
+			})
+			return false
+		}
+		log.Error("Failed to look up cluster", "cluster_id", clusterID, "error", lookupErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster lookup failed"})
+		return false
+	}
+	if !cluster.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      "cluster is disabled",
+			"cluster_id": clusterID,
+		})
+		return false
+	}
+	if healthErr := clusterHealthForDeploy(c.Request.Context(), k8sReg, clusterID); healthErr != nil {
+		if !k8sRegistryReady(k8sReg) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return false
+		}
+		log.Warn("Deploy rejected: cluster unhealthy",
+			"cluster_id", clusterID,
+			"error", healthErr,
+		)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      "cluster is unhealthy",
+			"cluster_id": clusterID,
+			"details":    k8s.PublicClusterHealthDetail(healthErr),
+		})
+		return false
+	}
+	return true
+}
+
+func respondDeploymentTemplate(
+	c *gin.Context,
+	cfg *config.Config,
+	resp *spec.TemplateResponse,
+	targetAcct *account.Account,
+	finalize bool,
+) {
+	applyAccountClusterPlacement(&resp.Template, targetAcct)
+	if finalize {
+		resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // prepareDeployment parses the submitted spec, authenticates the caller, looks up
 // the registered agent build, regenerates the server's template, enforces Rule 19,
 // and returns everything needed to proceed with deployment or validation.
@@ -285,6 +368,8 @@ func prepareDeployment(
 		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for target account"})
 		return nil, false
 	}
+
+	applyAccountClusterPlacement(submittedSpec, targetAcct)
 
 	// Auth: user must have deployment visibility on the source agent.
 	// Same-account deploys may use private blueprints. Cross-account deploys
@@ -549,55 +634,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		// Validate target.cluster_id against the registered additional
-		// clusters. Empty (the common case) means "route to primary" and
-		// is persisted as NULL; non-empty must reference an enabled row.
-		if id := submittedSpec.Target.ClusterID; id != "" {
-			if clusterStore == nil {
-				log.Error("Deploy specifies cluster_id but clusterStore is not configured", "cluster_id", id)
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster store not configured"})
-				return
-			}
-			cluster, lookupErr := clusterStore.Get(c.Request.Context(), id)
-			if lookupErr != nil {
-				if errors.Is(lookupErr, clusterstore.ErrNotFound) {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error":      "unknown cluster_id",
-						"cluster_id": id,
-					})
-					return
-				}
-				log.Error("Failed to look up cluster", "cluster_id", id, "error", lookupErr)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster lookup failed"})
-				return
-			}
-			if !cluster.Enabled {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":      "cluster is disabled",
-					"cluster_id": id,
-				})
-				return
-			}
-			if healthErr := clusterHealthForDeploy(c.Request.Context(), k8sReg, id); healthErr != nil {
-				if !k8sRegistryReady(k8sReg) {
-					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
-					return
-				}
-				log.Warn("Deploy rejected: cluster unhealthy",
-					"cluster_id", id,
-					"error", healthErr,
-				)
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":      "cluster is unhealthy",
-					"cluster_id": id,
-					"details":    k8s.PublicClusterHealthDetail(healthErr),
-				})
-				return
-			}
-		}
-
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
 		if !ok {
+			return
+		}
+
+		if !validateDeployTargetCluster(c, log, clusterStore, k8sReg, submittedSpec.Target.ClusterID) {
 			return
 		}
 
@@ -3382,6 +3424,13 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
+			targetAcct, err := accountStore.GetByID(existing.AccountID)
+			if err != nil {
+				log.Error("Failed to look up deployment target account", "error", err, "account_id", existing.AccountID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up account"})
+				return
+			}
+
 			// Use deployment's build unless the request overrides it.
 			if buildIDOverride == "" {
 				buildIDOverride = existing.BuildID
@@ -3446,10 +3495,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				// Display name is mutable outside the deploy flow — always
 				// apply the current value from the DB, not the cached one.
 				resp.Template.Target.DisplayName = prefillExisting.DisplayName
-				if req.Finalize {
-					resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
-				}
-				c.JSON(http.StatusOK, resp)
+				respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 				return
 			}
 
@@ -3481,21 +3527,21 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			cache.set(cacheKey, template)
 			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
-			if req.Finalize {
-				resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
-			}
-			c.JSON(http.StatusOK, resp)
+			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 			return
 		}
 
 		// No deployment_id — fresh template.
+		targetAcct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found", "error_code": "account_not_found"})
+			return
+		}
+
 		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
 		if base, ok := cache.get(cacheKey); ok {
 			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
-			if req.Finalize {
-				resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
-			}
-			c.JSON(http.StatusOK, resp)
+			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 			return
 		}
 
@@ -3523,10 +3569,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 		cache.set(cacheKey, template)
 		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
-		if req.Finalize {
-			resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
-		}
-		c.JSON(http.StatusOK, resp)
+		respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 	}
 }
 

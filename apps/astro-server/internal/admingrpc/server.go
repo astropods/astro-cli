@@ -1098,7 +1098,8 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			EXISTS(SELECT 1 FROM account_langfuse WHERE account_id = a.id) AS has_langfuse,
 			a.deleted_at,
 			a.created_at,
-			a.updated_at
+			a.updated_at,
+			COALESCE(a.cluster_id, '') AS cluster_id
 		FROM accounts a
 		ORDER BY a.deleted_at NULLS FIRST, a.created_at DESC
 	`)
@@ -1112,7 +1113,7 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 		var acct adminv1.AdminAccount
 		var deletedAt sql.NullTime
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasOpenMeter, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasOpenMeter, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if deletedAt.Valid {

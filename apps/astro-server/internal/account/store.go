@@ -113,13 +113,14 @@ func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, e
 func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
+	var clusterID sql.NullString
 	var deletedAt sql.NullTime
 	var accountNumber sql.NullInt32
 	var bio, location, email, localTimezone, pronouns, website sql.NullString
 	var socialLinks, blueprintOrder pq.StringArray
 	err := row.Scan(
 		&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt,
-		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors,
+		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &clusterID,
 		&accountNumber, &bio, &location, &email, &localTimezone, &pronouns, &website, &socialLinks, &blueprintOrder,
 	)
 	if err != nil {
@@ -127,6 +128,10 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	}
 	if workosOrgID.Valid {
 		acct.WorkOSOrganizationID = workosOrgID.String
+	}
+	if clusterID.Valid {
+		cid := clusterID.String
+		acct.ClusterID = &cid
 	}
 	if deletedAt.Valid {
 		acct.DeletedAt = &deletedAt.Time
@@ -157,7 +162,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -176,7 +181,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -195,7 +200,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
@@ -209,6 +214,30 @@ func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error)
 		return nil, fmt.Errorf("failed to query account: %w", err)
 	}
 	return acct, nil
+}
+
+// SetClusterID assigns an additional cluster to an account, or clears placement when
+// clusterID is empty (routes deploys to the primary cluster).
+func (s *AccountStore) SetClusterID(accountID, clusterID string) error {
+	var cid sql.NullString
+	if clusterID != "" {
+		cid = sql.NullString{String: clusterID, Valid: true}
+	}
+	res, err := s.db.Exec(`
+		UPDATE accounts SET cluster_id = $1, updated_at = now()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, cid, accountID)
+	if err != nil {
+		return fmt.Errorf("set account cluster_id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set account cluster_id rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("account not found: %s", accountID)
+	}
+	return nil
 }
 
 // SetWorkOSOrganizationID links an account to a WorkOS organization.
@@ -442,7 +471,7 @@ func nullablePtrStr(s *string) sql.NullString {
 // GetOrgAccountsForUser returns all organization accounts the given user belongs to.
 func (s *AccountStore) GetOrgAccountsForUser(userID string) ([]Account, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors,
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_members am ON am.account_id = a.id

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useAccounts, useRenameAccount } from "@/api/admin";
+import { useAccounts, useClusters, useRenameAccount, useSetAccountCluster } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +12,7 @@ type StatusFilter = "all" | "active" | "deleted";
 type IntegrationFilter = "all" | "openmeter" | "no-openmeter" | "langfuse" | "no-langfuse";
 
 const PAGE_SIZE = 25;
+const PRIMARY_CLUSTER_VALUE = "__primary__";
 
 function filterAccounts(
   accounts: AdminAccount[],
@@ -36,7 +37,10 @@ function filterAccounts(
 
 export function AccountsPage() {
   const { data, isLoading, error } = useAccounts();
+  const { data: clustersData } = useClusters(true);
   const renameMut = useRenameAccount();
+  const setClusterMut = useSetAccountCluster();
+  const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [search, setSearch] = useState("");
@@ -110,6 +114,7 @@ export function AccountsPage() {
                 <tr className="border-b border-glass-border-honey glass-subtle">
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Type</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Cluster</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
                   <th className="px-2 py-0.5 text-right font-medium text-muted-foreground">Members</th>
                   <th className="px-2 py-0.5 text-center font-medium text-muted-foreground">OpenMeter</th>
@@ -158,6 +163,36 @@ export function AccountsPage() {
                         )}
                       </td>
                       <td className="px-2 py-0.5 text-muted-foreground">{a.type}</td>
+                      <td className="px-2 py-0.5">
+                        {isDeleted ? (
+                          <span className="text-muted-foreground">
+                            {a.cluster_id || "primary"}
+                          </span>
+                        ) : (
+                          <Select
+                            value={a.cluster_id || PRIMARY_CLUSTER_VALUE}
+                            onValueChange={(v) =>
+                              setClusterMut.mutate({
+                                id: a.id,
+                                clusterId: v === PRIMARY_CLUSTER_VALUE ? "" : v,
+                              })
+                            }
+                            disabled={setClusterMut.isPending}
+                          >
+                            <SelectTrigger className="h-7 w-44 text-xs">
+                              <SelectValue placeholder="Primary (default)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={PRIMARY_CLUSTER_VALUE}>Primary (default)</SelectItem>
+                              {additionalClusters.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.id}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </td>
                       <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{a.owner_user_id ? truncateUUID(a.owner_user_id) : "-"}</td>
                       <td className="px-2 py-0.5 text-right">{a.member_count}</td>
                       <td className="px-2 py-0.5 text-center">
@@ -202,7 +237,7 @@ export function AccountsPage() {
                 })}
                 {pageAccounts.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-2 py-4 text-center text-muted-foreground">
+                    <td colSpan={10} className="px-2 py-4 text-center text-muted-foreground">
                       No accounts match the current filters.
                     </td>
                   </tr>

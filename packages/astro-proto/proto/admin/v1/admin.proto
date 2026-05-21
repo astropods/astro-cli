@@ -34,6 +34,9 @@ service AdminService {
   rpc DisableCluster(DisableClusterRequest) returns (DisableClusterResponse);
   rpc DeregisterCluster(DeregisterClusterRequest) returns (DeregisterClusterResponse);
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
+  rpc SetAccountCluster(SetAccountClusterRequest) returns (SetAccountClusterResponse);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
 }
@@ -435,6 +438,46 @@ message ListClustersRequest {
 
 message ListClustersResponse {
   repeated RegisteredCluster clusters = 1;
+}
+
+message ListAccountsRequest {}
+
+message AdminAccount {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+  string owner_user_id = 4;
+  int32 member_count = 5;
+  bool has_openmeter = 6;
+  bool has_langfuse = 7;
+  string deleted_at = 8;
+  string created_at = 9;
+  string updated_at = 10;
+  string cluster_id = 11; // empty = primary cluster
+}
+
+message ListAccountsResponse {
+  repeated AdminAccount accounts = 1;
+  int32 count = 2;
+}
+
+message RenameAccountRequest {
+  string account_id = 1;
+  string new_name = 2;
+}
+
+message RenameAccountResponse {
+  string status = 1;
+}
+
+message SetAccountClusterRequest {
+  string account_id = 1;
+  string cluster_id = 2; // empty clears placement (primary)
+}
+
+message SetAccountClusterResponse {
+  string status = 1;
+  string cluster_id = 2;
 }
 
 message UpdateClusterRequest {

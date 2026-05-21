@@ -629,18 +629,12 @@ func TestUpdateAccount_SocialLinksAccepted(t *testing.T) {
 
 // --- GetAccountOrgs handler tests ---
 
-var fullAccountColumns = []string{
-	"id", "name", "type", "workos_org_id", "deleted_at",
-	"created_at", "updated_at", "display_name", "avatar_colors",
-	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-}
-
 func expectGetByName(mock sqlmock.Sqlmock, name, id string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs(name).
-		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
-			AddRow(id, name, "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow(id, name, "personal", nil, nil, now, now)...))
 }
 
 func expectGetFirstMemberUserID(mock sqlmock.Sqlmock, accountID, userID string) {
@@ -662,11 +656,11 @@ func TestGetAccountOrgs_Success(t *testing.T) {
 	expectGetByName(mock, "taylor", "acct-1")
 	expectGetFirstMemberUserID(mock, "acct-1", "user-1")
 
-	orgColumns := fullAccountColumns
+	orgColumns := account.SQLMockScanColumns
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows(orgColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -705,7 +699,7 @@ func TestGetAccountOrgs_AccountNotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("nobody").
-		WillReturnRows(sqlmock.NewRows(fullAccountColumns))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/nobody/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -762,8 +756,8 @@ func TestGetAccountOrgs_OrgAccountReturns404(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("astro-inc").
-		WillReturnRows(sqlmock.NewRows(fullAccountColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/orgs", nil)
 	rec := httptest.NewRecorder()

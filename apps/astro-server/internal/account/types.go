@@ -15,6 +15,7 @@ type Account struct {
 	CreatedAt            time.Time        `json:"created_at"`
 	UpdatedAt            time.Time        `json:"updated_at"`
 	DisplayName          string           `json:"display_name"`
+	ClusterID            *string          `json:"cluster_id,omitempty"`
 	AvatarColors         *json.RawMessage `json:"avatar_colors,omitempty"`
 	AccountNumber        *int             `json:"account_number,omitempty"`
 	Bio                  string           `json:"bio,omitempty"`

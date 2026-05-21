@@ -10,6 +10,7 @@ import (
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts", s.handleListAccounts)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
+	mux.HandleFunc("PUT /api/admin/accounts/{id}/cluster", s.handleSetAccountCluster)
 	mux.HandleFunc("GET /api/admin/deployments", s.handleListDeployments)
 	mux.HandleFunc("GET /api/admin/deployments/{id}", s.handleGetDeployment)
 	mux.HandleFunc("DELETE /api/admin/deployments/{id}", s.handleDeleteDeployment)
@@ -56,6 +57,26 @@ func (s *Server) handleRenameAccount(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.RenameAccount(r.Context(), &adminv1.RenameAccountRequest{
 		AccountID: id,
 		NewName:   body.NewName,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetAccountCluster(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		ClusterID string `json:"cluster_id"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.SetAccountCluster(r.Context(), &adminv1.SetAccountClusterRequest{
+		AccountID: id,
+		ClusterID: body.ClusterID,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

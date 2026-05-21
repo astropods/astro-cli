@@ -121,7 +121,6 @@ func (m *mockAdminClient) TriggerOpenMeterBackfill(context.Context, *adminv1.Tri
 func (m *mockAdminClient) ListFeedback(context.Context, *adminv1.ListFeedbackRequest, ...grpc.CallOption) (*adminv1.ListFeedbackResponse, error) {
 	panic("not implemented")
 }
-
 func (m *mockAdminClient) RegisterCluster(context.Context, *adminv1.RegisterClusterRequest, ...grpc.CallOption) (*adminv1.RegisterClusterResponse, error) {
 	panic("not implemented")
 }
@@ -135,6 +134,9 @@ func (m *mockAdminClient) DeregisterCluster(context.Context, *adminv1.Deregister
 	panic("not implemented")
 }
 func (m *mockAdminClient) ListClusters(context.Context, *adminv1.ListClustersRequest, ...grpc.CallOption) (*adminv1.ListClustersResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) SetAccountCluster(context.Context, *adminv1.SetAccountClusterRequest, ...grpc.CallOption) (*adminv1.SetAccountClusterResponse, error) {
 	panic("not implemented")
 }
 func (m *mockAdminClient) UpdateCluster(context.Context, *adminv1.UpdateClusterRequest, ...grpc.CallOption) (*adminv1.UpdateClusterResponse, error) {
