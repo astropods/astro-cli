@@ -744,3 +744,22 @@ type ListClustersRequest struct {
 type ListClustersResponse struct {
 	Clusters []*RegisteredCluster `json:"clusters,omitempty"`
 }
+
+type UpdateClusterRequest struct {
+	ID                 string `json:"id,omitempty"`
+	Region             string `json:"region,omitempty"`
+	EKSClusterName     string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint string `json:"eks_cluster_endpoint,omitempty"`
+}
+
+type UpdateClusterResponse struct {
+	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+}
+
+type CheckClusterHealthRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type CheckClusterHealthResponse struct {
+	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+}

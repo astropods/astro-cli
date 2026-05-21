@@ -5,6 +5,8 @@ import {
   useEnableCluster,
   useDisableCluster,
   useDeregisterCluster,
+  useUpdateCluster,
+  useCheckClusterHealth,
 } from "@/api/admin";
 import type { RegisteredCluster } from "@/types/admin";
 import { Button } from "@/components/ui/button";
@@ -22,7 +24,16 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown, CircleCheck, CircleX, Plus } from "lucide-react";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ChevronDown, CircleCheck, CircleX, Copy, Pencil, Plus, RefreshCw } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 
 function mutationErrorMessage(err: unknown): string {
@@ -144,6 +155,7 @@ export function ClustersPage() {
               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Primary</th>
               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Enabled</th>
               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Healthy</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Health error</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Created</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
@@ -151,7 +163,7 @@ export function ClustersPage() {
           <tbody>
             {clusters.length === 0 && !isLoading && (
               <tr>
-                <td colSpan={9} className="px-2 py-4 text-center text-muted-foreground">
+                <td colSpan={10} className="px-2 py-4 text-center text-muted-foreground">
                   No clusters found.
                 </td>
               </tr>
@@ -194,14 +206,61 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
   const enableMut = useEnableCluster();
   const disableMut = useDisableCluster();
   const deregisterMut = useDeregisterCluster();
+  const updateMut = useUpdateCluster();
+  const healthMut = useCheckClusterHealth();
 
-  const busy = enableMut.isPending || disableMut.isPending || deregisterMut.isPending;
+  const [editOpen, setEditOpen] = useState(false);
+  const [region, setRegion] = useState(cluster.region);
+  const [eksName, setEksName] = useState(cluster.eks_cluster_name);
+  const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
+
+  const busy =
+    enableMut.isPending ||
+    disableMut.isPending ||
+    deregisterMut.isPending ||
+    updateMut.isPending ||
+    healthMut.isPending;
   const actionError =
-    enableMut.error ?? disableMut.error ?? deregisterMut.error;
+    enableMut.error ??
+    disableMut.error ??
+    deregisterMut.error ??
+    updateMut.error ??
+    healthMut.error;
 
   const runEnable = () => enableMut.mutate(cluster.id);
   const runDisable = () => disableMut.mutate(cluster.id);
   const runDeregister = () => deregisterMut.mutate(cluster.id);
+  const runHealthCheck = () => healthMut.mutate(cluster.id);
+
+  const resetEditForm = () => {
+    setRegion(cluster.region);
+    setEksName(cluster.eks_cluster_name);
+    setEksEndpoint(cluster.eks_cluster_endpoint);
+  };
+
+  const handleEditOpenChange = (open: boolean) => {
+    setEditOpen(open);
+    if (open) {
+      resetEditForm();
+    }
+  };
+
+  const handleSaveEdit = () => {
+    updateMut.mutate(
+      {
+        id: cluster.id,
+        region: region.trim(),
+        eks_cluster_name: eksName.trim(),
+        eks_cluster_endpoint: eksEndpoint.trim(),
+      },
+      {
+        onSuccess: () => setEditOpen(false),
+      },
+    );
+  };
+
+  const canSaveEdit =
+    region.trim() !== "" && eksName.trim() !== "" && eksEndpoint.trim() !== "";
 
   return (
     <tr className="border-b border-glass-border-honey/50 hover:glass-subtle">
@@ -228,11 +287,29 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
           <span className="text-muted-foreground">No</span>
         )}
       </td>
-      <td className="px-2 py-1.5 text-center" title={cluster.health_error || undefined}>
-        {cluster.healthy ? (
-          <CircleCheck className="mx-auto size-3.5 text-green-600" />
+      <td className="px-2 py-1.5 text-center">
+        <div className="flex items-center justify-center gap-1">
+          {cluster.healthy ? (
+            <CircleCheck className="size-3.5 text-green-600" />
+          ) : (
+            <CircleX className="size-3.5 text-red-500" />
+          )}
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            disabled={busy}
+            title="Retry health check"
+            onClick={runHealthCheck}
+          >
+            <RefreshCw className={cn("size-3", healthMut.isPending && "animate-spin")} />
+          </Button>
+        </div>
+      </td>
+      <td className="max-w-md px-2 py-1.5 align-top whitespace-normal">
+        {!cluster.healthy && cluster.health_error ? (
+          <HealthErrorMessage message={cluster.health_error} />
         ) : (
-          <CircleX className="mx-auto size-3.5 text-red-500" />
+          <span className="text-muted-foreground">—</span>
         )}
       </td>
       <td className="px-2 py-1.5 text-muted-foreground">
@@ -243,6 +320,48 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
           <span className="text-[10px] text-muted-foreground">Env kubeconfig</span>
         ) : (
           <div className="flex flex-wrap items-center gap-1">
+            <Dialog open={editOpen} onOpenChange={handleEditOpenChange}>
+              <DialogTrigger asChild>
+                <Button size="xs" variant="outline" disabled={busy}>
+                  <Pencil className="size-3" />
+                  Edit
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit cluster {cluster.id}</DialogTitle>
+                  <DialogDescription>
+                    Update region, EKS name, or endpoint. The cluster id cannot be changed.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2">
+                  <Field label="Region" value={region} onChange={setRegion} placeholder="us-west-2" />
+                  <Field
+                    label="EKS cluster name"
+                    value={eksName}
+                    onChange={setEksName}
+                    placeholder="astro-preview-us-west-2"
+                  />
+                  <Field
+                    label="EKS endpoint"
+                    value={eksEndpoint}
+                    onChange={setEksEndpoint}
+                    placeholder="https://..."
+                  />
+                </div>
+                {updateMut.isError && (
+                  <p className="text-destructive text-xs">{mutationErrorMessage(updateMut.error)}</p>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setEditOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveEdit} disabled={updateMut.isPending || !canSaveEdit}>
+                    {updateMut.isPending ? "Saving…" : "Save"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             {cluster.enabled ? (
               <Button size="xs" variant="outline" disabled={busy} onClick={runDisable}>
                 Disable
@@ -262,6 +381,38 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
         )}
       </td>
     </tr>
+  );
+}
+
+function HealthErrorMessage({ message }: { message: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard may be unavailable; text remains selectable in the pre block.
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-1.5">
+      <pre className="min-w-0 flex-1 select-all whitespace-pre-wrap break-all rounded border border-red-500/20 bg-red-500/5 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-red-600">
+        {message}
+      </pre>
+      <Button
+        size="xs"
+        variant="outline"
+        className="shrink-0"
+        onClick={handleCopy}
+        title="Copy error message"
+      >
+        <Copy className="size-3" />
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
   );
 }
 

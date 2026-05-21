@@ -20,6 +20,9 @@ import type {
   RegisterClusterResponse,
   EnableClusterResponse,
   DisableClusterResponse,
+  UpdateClusterRequest,
+  UpdateClusterResponse,
+  CheckClusterHealthResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -489,6 +492,33 @@ export function useDeregisterCluster() {
   return useMutation({
     mutationFn: (id: string) =>
       api.del(`/api/admin/clusters/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useUpdateCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: UpdateClusterRequest & { id: string }) =>
+      api.put<UpdateClusterResponse>(
+        `/api/admin/clusters/${encodeURIComponent(id)}`,
+        body,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useCheckClusterHealth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<CheckClusterHealthResponse>(
+        `/api/admin/clusters/${encodeURIComponent(id)}/health-check`,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
     },

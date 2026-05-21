@@ -203,3 +203,68 @@ func TestEnableCluster_PrimaryRejected(t *testing.T) {
 		t.Fatalf("code = %v, want InvalidArgument", status.Code(err))
 	}
 }
+
+func TestUpdateCluster_Success(t *testing.T) {
+	srv, mock := newClusterTestServer(t)
+	now := time.Now()
+
+	mock.ExpectExec("UPDATE clusters SET region").
+		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "eu-west-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WithArgs("eu-west-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
+		}).AddRow("eu-west-1", "eu-central-1", "eks-eu-new", "https://eu-new.example", true, now, now))
+
+	resp, err := srv.UpdateCluster(context.Background(), &adminv1.UpdateClusterRequest{
+		ID:                 "eu-west-1",
+		Region:             "eu-central-1",
+		EKSClusterName:     "eks-eu-new",
+		EKSClusterEndpoint: "https://eu-new.example",
+	})
+	if err != nil {
+		t.Fatalf("UpdateCluster: %v", err)
+	}
+	if resp.Cluster == nil || resp.Cluster.Region != "eu-central-1" {
+		t.Fatalf("cluster: %+v", resp.Cluster)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateCluster_PrimaryRejected(t *testing.T) {
+	srv, _ := newClusterTestServer(t)
+	_, err := srv.UpdateCluster(context.Background(), &adminv1.UpdateClusterRequest{
+		ID:                 k8s.PrimaryClusterID,
+		Region:             "us-east-1",
+		EKSClusterName:     "primary",
+		EKSClusterEndpoint: "https://primary.example",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestCheckClusterHealth_Primary(t *testing.T) {
+	srv, mock := newClusterTestServer(t)
+
+	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
+		}))
+
+	resp, err := srv.CheckClusterHealth(context.Background(), &adminv1.CheckClusterHealthRequest{
+		ID: k8s.PrimaryClusterID,
+	})
+	if err != nil {
+		t.Fatalf("CheckClusterHealth: %v", err)
+	}
+	if resp.Cluster == nil || !resp.Cluster.IsPrimary || !resp.Cluster.Healthy {
+		t.Fatalf("cluster: %+v", resp.Cluster)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

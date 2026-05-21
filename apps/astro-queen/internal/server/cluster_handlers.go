@@ -9,8 +9,10 @@ import (
 func (s *Server) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/clusters", s.handleListClusters)
 	mux.HandleFunc("POST /api/admin/clusters", s.handleRegisterCluster)
+	mux.HandleFunc("PUT /api/admin/clusters/{id}", s.handleUpdateCluster)
 	mux.HandleFunc("POST /api/admin/clusters/{id}/enable", s.handleEnableCluster)
 	mux.HandleFunc("POST /api/admin/clusters/{id}/disable", s.handleDisableCluster)
+	mux.HandleFunc("POST /api/admin/clusters/{id}/health-check", s.handleCheckClusterHealth)
 	mux.HandleFunc("DELETE /api/admin/clusters/{id}", s.handleDeregisterCluster)
 }
 
@@ -50,6 +52,41 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := s.admin.RegisterCluster(r.Context(), req)
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Region             string `json:"region"`
+		EKSClusterName     string `json:"eks_cluster_name"`
+		EKSClusterEndpoint string `json:"eks_cluster_endpoint"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp, err := s.admin.UpdateCluster(r.Context(), &adminv1.UpdateClusterRequest{
+		ID:                 id,
+		Region:             body.Region,
+		EKSClusterName:     body.EKSClusterName,
+		EKSClusterEndpoint: body.EKSClusterEndpoint,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleCheckClusterHealth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	resp, err := s.admin.CheckClusterHealth(r.Context(), &adminv1.CheckClusterHealthRequest{ID: id})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

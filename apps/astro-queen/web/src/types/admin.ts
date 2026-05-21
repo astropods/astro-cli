@@ -457,3 +457,17 @@ export interface EnableClusterResponse {
 export interface DisableClusterResponse {
   cluster: RegisteredCluster;
 }
+
+export interface UpdateClusterRequest {
+  region: string;
+  eks_cluster_name: string;
+  eks_cluster_endpoint: string;
+}
+
+export interface UpdateClusterResponse {
+  cluster: RegisteredCluster;
+}
+
+export interface CheckClusterHealthResponse {
+  cluster: RegisteredCluster;
+}

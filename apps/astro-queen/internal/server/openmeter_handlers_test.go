@@ -122,6 +122,28 @@ func (m *mockAdminClient) ListFeedback(context.Context, *adminv1.ListFeedbackReq
 	panic("not implemented")
 }
 
+func (m *mockAdminClient) RegisterCluster(context.Context, *adminv1.RegisterClusterRequest, ...grpc.CallOption) (*adminv1.RegisterClusterResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) EnableCluster(context.Context, *adminv1.EnableClusterRequest, ...grpc.CallOption) (*adminv1.EnableClusterResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) DisableCluster(context.Context, *adminv1.DisableClusterRequest, ...grpc.CallOption) (*adminv1.DisableClusterResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) DeregisterCluster(context.Context, *adminv1.DeregisterClusterRequest, ...grpc.CallOption) (*adminv1.DeregisterClusterResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) ListClusters(context.Context, *adminv1.ListClustersRequest, ...grpc.CallOption) (*adminv1.ListClustersResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) UpdateCluster(context.Context, *adminv1.UpdateClusterRequest, ...grpc.CallOption) (*adminv1.UpdateClusterResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) CheckClusterHealth(context.Context, *adminv1.CheckClusterHealthRequest, ...grpc.CallOption) (*adminv1.CheckClusterHealthResponse, error) {
+	panic("not implemented")
+}
+
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -231,3 +231,65 @@ func (s *Server) ListClusters(ctx context.Context, req *adminv1.ListClustersRequ
 	}
 	return &adminv1.ListClustersResponse{Clusters: out}, nil
 }
+
+// UpdateCluster updates mutable fields on an additional cluster row.
+func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRequest) (*adminv1.UpdateClusterResponse, error) {
+	if err := s.requireClusterAdmin(); err != nil {
+		return nil, err
+	}
+	if req.ID == "" {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+	if err := rejectPrimaryMutation(req.ID); err != nil {
+		return nil, err
+	}
+	if req.Region == "" || req.EKSClusterName == "" || req.EKSClusterEndpoint == "" {
+		return nil, status.Error(codes.InvalidArgument, "region, eks_cluster_name, and eks_cluster_endpoint are required")
+	}
+
+	if err := s.clusterStore.Update(ctx, req.ID, req.Region, req.EKSClusterName, req.EKSClusterEndpoint); err != nil {
+		return nil, clusterStoreErr(err)
+	}
+	if err := s.k8sRegistry.Refresh(ctx, req.ID); err != nil {
+		return nil, status.Errorf(codes.Internal, "refresh registry: %v", err)
+	}
+	entry, err := s.loadAdditionalEntry(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &adminv1.UpdateClusterResponse{Cluster: entryToProto(ctx, s, entry)}, nil
+}
+
+// CheckClusterHealth evicts any cached client and re-runs the Kubernetes health check.
+func (s *Server) CheckClusterHealth(ctx context.Context, req *adminv1.CheckClusterHealthRequest) (*adminv1.CheckClusterHealthResponse, error) {
+	if err := s.requireClusterAdmin(); err != nil {
+		return nil, err
+	}
+	if req.ID == "" {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+
+	if err := s.k8sRegistry.Refresh(ctx, req.ID); err != nil {
+		return nil, status.Errorf(codes.Internal, "refresh registry: %v", err)
+	}
+
+	var entry k8s.ClusterEntry
+	if req.ID == k8s.PrimaryClusterID {
+		entries, err := s.k8sRegistry.List(ctx, false)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "list clusters: %v", err)
+		}
+		if len(entries) == 0 {
+			return nil, status.Error(codes.NotFound, "cluster not found")
+		}
+		entry = entries[0]
+	} else {
+		var err error
+		entry, err = s.loadAdditionalEntry(ctx, req.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &adminv1.CheckClusterHealthResponse{Cluster: entryToProto(ctx, s, entry)}, nil
+}

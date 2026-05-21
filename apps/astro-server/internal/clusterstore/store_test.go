@@ -208,6 +208,53 @@ func TestSetEnabled_NotFound(t *testing.T) {
 	}
 }
 
+func TestUpdate_Success(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("UPDATE clusters SET region = \\$1").
+		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "eu-west-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.Update(context.Background(), "eu-west-1", "eu-central-1", "eks-eu-new", "https://eu-new.example"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("UPDATE clusters SET region = \\$1").
+		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := store.Update(context.Background(), "missing", "eu-central-1", "eks-eu-new", "https://eu-new.example"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdate_RejectsMissingRequiredFields(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	cases := []struct {
+		name   string
+		region string
+		eks    string
+		ep     string
+	}{
+		{"missing region", "", "n", "https://e"},
+		{"missing eks name", "r", "", "https://e"},
+		{"missing endpoint", "r", "n", ""},
+	}
+	for _, tc := range cases {
+		if err := store.Update(context.Background(), "eu-west-1", tc.region, tc.eks, tc.ep); err == nil {
+			t.Errorf("%s: expected error, got nil", tc.name)
+		}
+	}
+}
+
 func TestDeregister_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)

@@ -34,6 +34,8 @@ service AdminService {
   rpc DisableCluster(DisableClusterRequest) returns (DisableClusterResponse);
   rpc DeregisterCluster(DeregisterClusterRequest) returns (DeregisterClusterResponse);
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
+  rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
+  rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
 }
 
 message ListDeploymentsRequest {
@@ -433,4 +435,23 @@ message ListClustersRequest {
 
 message ListClustersResponse {
   repeated RegisteredCluster clusters = 1;
+}
+
+message UpdateClusterRequest {
+  string id = 1;
+  string region = 2;
+  string eks_cluster_name = 3;
+  string eks_cluster_endpoint = 4;
+}
+
+message UpdateClusterResponse {
+  RegisteredCluster cluster = 1;
+}
+
+message CheckClusterHealthRequest {
+  string id = 1;
+}
+
+message CheckClusterHealthResponse {
+  RegisteredCluster cluster = 1;
 }

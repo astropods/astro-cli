@@ -136,6 +136,36 @@ func (s *Store) List(ctx context.Context, enabledOnly bool) ([]*Cluster, error) 
 	return clusters, rows.Err()
 }
 
+// Update changes mutable fields on an additional cluster row.
+func (s *Store) Update(ctx context.Context, id, region, eksName, eksEndpoint string) error {
+	if region == "" {
+		return fmt.Errorf("region is required")
+	}
+	if eksName == "" {
+		return fmt.Errorf("eks_cluster_name is required")
+	}
+	if eksEndpoint == "" {
+		return fmt.Errorf("eks_cluster_endpoint is required")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE clusters SET region = $1, eks_cluster_name = $2, eks_cluster_endpoint = $3, updated_at = now()
+		WHERE id = $4`,
+		region, eksName, eksEndpoint, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update cluster: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetEnabled flips the enabled flag for a cluster. Returns ErrNotFound if no
 // row matches.
 func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
