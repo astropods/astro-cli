@@ -1,31 +1,10 @@
 import { keepPreviousData, useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
+import { hasContainerMismatch } from '@/lib/deployment-utils';
 import { deploymentKeys } from './keys';
 
-/**
- * Returns true when workload container readiness hasn't caught up with the
- * deployment's desired replica count. This happens briefly after pause/resume:
- *  - After pause: replicas=0 but containers may still report ready:true
- *  - After resume: replicas>0 but containers may still report ready:false
- * We keep polling in these windows so the service accordion updates without
- * requiring a hard refresh.
- *
- * Scoped to Deployment/StatefulSet — Job/CronJob health lives on `wl.status`,
- * not `containers[].ready`. Their spec-seeded entries serialize as
- * `ready: false` whenever a live pod isn't matched (Idle CronJobs, finished
- * Jobs), which would otherwise trap this query in a 3s refetch loop.
- */
-export function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean {
-  if (!dep) return false;
-  const workloads = (dep.workloads ?? []).filter(
-    (wl) => wl.kind === "Deployment" || wl.kind === "StatefulSet",
-  );
-  if (dep.replicas === 0) {
-    return workloads.some((wl) => (wl.containers ?? []).some((c) => c.ready));
-  }
-  return workloads.some((wl) => (wl.containers ?? []).some((c) => !c.ready));
-}
+export { hasContainerMismatch } from '@/lib/deployment-utils';
 
 export function useDeploymentsSummary() {
   const api = useApiClient();

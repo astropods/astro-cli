@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mapDeploymentStatus } from "./deployment-utils";
-import type { AgentDeployment } from "./api";
+import { hasContainerMismatch, mapDeploymentStatus } from "./deployment-utils";
+import type { AgentDeployment, WorkloadDetail } from "./api";
 
 const baseDeployment: AgentDeployment = {
   id: "dep-1",
@@ -18,6 +18,17 @@ const make = (overrides: Partial<AgentDeployment>): AgentDeployment => ({
   ...baseDeployment,
   ...overrides,
 });
+
+function makeWorkload(overrides: Partial<WorkloadDetail> = {}): WorkloadDetail {
+  return {
+    name: "wl",
+    kind: "Deployment",
+    component: "agent",
+    age: "1h",
+    containers: [],
+    ...overrides,
+  };
+}
 
 describe("mapDeploymentStatus", () => {
   it("returns active when ready === replicas and no error", () => {
@@ -61,5 +72,128 @@ describe("mapDeploymentStatus", () => {
 
   it("returns deploying when ready=0 and replicas>0 with benign status", () => {
     expect(mapDeploymentStatus(make({ status: "Running", replicas: 1, ready: 0 }))).toBe("deploying");
+  });
+
+  it("returns deploying when ready === replicas but a container is not ready", () => {
+    expect(
+      mapDeploymentStatus(
+        make({
+          status: "Running",
+          replicas: 1,
+          ready: 1,
+          workloads: [
+            makeWorkload({
+              name: "my-agent",
+              containers: [
+                { name: "app", state: "running", ready: true, restart_count: 0 },
+                { name: "messaging", state: "waiting", ready: false, restart_count: 0 },
+              ],
+            }),
+          ],
+        }),
+      ),
+    ).toBe("deploying");
+  });
+
+  it("returns active when all Deployment containers are ready", () => {
+    expect(
+      mapDeploymentStatus(
+        make({
+          status: "Running",
+          replicas: 1,
+          ready: 1,
+          workloads: [
+            makeWorkload({
+              name: "my-agent",
+              containers: [
+                { name: "app", state: "running", ready: true, restart_count: 0 },
+                { name: "messaging", state: "running", ready: true, restart_count: 0 },
+              ],
+            }),
+          ],
+        }),
+      ),
+    ).toBe("active");
+  });
+});
+
+// Regression: server-side `containersFromSpecWithEnv` (deploy.go) seeds Job and
+// CronJob containers with `Ready` zero-valued. Without `omitempty` on the JSON
+// tag, that lands on the client as `ready: false`. Idle CronJobs and finished
+// Jobs therefore look like a readiness mismatch to `hasContainerMismatch` —
+// before the kind-gate, that pinned `useDeployment` to a permanent 3s refetch
+// for any deployment with ingestion. Job/CronJob health lives on `wl.status`,
+// not container readiness, so the helper must ignore those kinds entirely.
+describe("hasContainerMismatch", () => {
+  it("returns false for null/undefined deployments", () => {
+    expect(hasContainerMismatch(null)).toBe(false);
+    expect(hasContainerMismatch(undefined)).toBe(false);
+  });
+
+  it("flags non-ready containers on Deployment workloads when replicas > 0", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "waiting", ready: false, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(true);
+  });
+
+  it("flags ready containers when replicas === 0 (paused but not yet drained)", () => {
+    const dep = make({
+      replicas: 0,
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "running", ready: true, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(true);
+  });
+
+  it("returns false when a Deployment is fully ready", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "running", ready: true, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(false);
+  });
+
+  it("ignores Job workloads with spec-seeded ready: false (regression)", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "running", ready: true, restart_count: 0 }] }),
+        makeWorkload({ name: "startup-1", kind: "Job", status: "Succeeded", containers: [{ name: "init", state: "", ready: false, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(false);
+  });
+
+  it("ignores CronJob workloads with spec-seeded ready: false (regression)", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "running", ready: true, restart_count: 0 }] }),
+        makeWorkload({ name: "ingest-acme", kind: "CronJob", status: "Idle", containers: [{ name: "ingest", state: "", ready: false, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(false);
+  });
+
+  it("still flags a real Deployment mismatch even when an ingestion CronJob is present", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "Deployment", containers: [{ name: "app", state: "waiting", ready: false, restart_count: 0 }] }),
+        makeWorkload({ name: "ingest-acme", kind: "CronJob", status: "Idle", containers: [{ name: "ingest", state: "", ready: false, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(true);
+  });
+
+  it("also covers StatefulSet workloads", () => {
+    const dep = make({
+      workloads: [
+        makeWorkload({ kind: "StatefulSet", containers: [{ name: "redis", state: "waiting", ready: false, restart_count: 0 }] }),
+      ],
+    });
+    expect(hasContainerMismatch(dep)).toBe(true);
   });
 });

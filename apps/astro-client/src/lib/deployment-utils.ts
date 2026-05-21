@@ -24,6 +24,28 @@ export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
   resuming: "Resuming",
 };
 
+/**
+ * Returns true when workload container readiness hasn't caught up with the
+ * deployment's desired replica count. This happens briefly after pause/resume:
+ *  - After pause: replicas=0 but containers may still report ready:true
+ *  - After resume: replicas>0 but containers may still report ready:false
+ *
+ * Scoped to Deployment/StatefulSet — Job/CronJob health lives on `wl.status`,
+ * not `containers[].ready`. Their spec-seeded entries serialize as
+ * `ready: false` whenever a live pod isn't matched (Idle CronJobs, finished
+ * Jobs), which would otherwise trap polling in a 3s refetch loop.
+ */
+export function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean {
+  if (!dep) return false;
+  const workloads = (dep.workloads ?? []).filter(
+    (wl) => wl.kind === "Deployment" || wl.kind === "StatefulSet",
+  );
+  if (dep.replicas === 0) {
+    return workloads.some((wl) => (wl.containers ?? []).some((c) => c.ready));
+  }
+  return workloads.some((wl) => (wl.containers ?? []).some((c) => !c.ready));
+}
+
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
   const s = deployment.status?.toLowerCase() ?? "";
   if (s === "undeploying") {
@@ -40,6 +62,9 @@ export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentS
   }
   if (deployment.replicas === 0) {
     return "inactive";
+  }
+  if (hasContainerMismatch(deployment)) {
+    return "deploying";
   }
   return "active";
 }

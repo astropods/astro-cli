@@ -506,6 +506,29 @@ describe("user views deployment history", () => {
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
 
+  it("shows Deploying on history tile when replica count is ready but a sidecar is not", async () => {
+    renderDeployments(
+      makeDeployment({
+        status: "Running",
+        replicas: 1,
+        ready: 1,
+        workloads: [
+          makeWorkload({
+            kind: "Deployment",
+            name: "my-agent",
+            containers: [
+              makeContainer({ name: "app", ready: true }),
+              makeContainer({ name: "messaging", ready: false, state: "waiting" }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(await screen.findByText("Fix auth flow")).toBeInTheDocument();
+    expect(screen.getByText("Deploying")).toBeInTheDocument();
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+  });
+
   it("View all expands to show full history", async () => {
     server.use(
       http.get("/api/v1/agents/:account/:name/deployment/history", () =>
