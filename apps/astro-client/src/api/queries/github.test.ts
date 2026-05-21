@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useGitHubStatus, useGitHubRebuild, useGitHubAccountConnections, useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect } from './github';
+import { useGitHubStatus, useGitHubRebuild, useGitHubAccountConnections, useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountOrgs } from './github';
 import { createHookWrapper } from '@/test/test-utils';
 import type { GitHubStatusResponse } from '@/lib/api';
 import { githubKeys } from '@/api/queries/keys';
@@ -160,6 +160,39 @@ describe('useGitHubAccountConnections', () => {
     const { wrapper } = createHookWrapper();
     const { result } = renderHook(
       () => useGitHubAccountConnections('testuser', { enabled: false }),
+      { wrapper },
+    );
+
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+});
+
+describe('useGitHubAccountOrgs', () => {
+  it('fetches the OAuth org scope', async () => {
+    server.use(
+      http.get('/api/v1/accounts/:account/github/orgs', () =>
+        HttpResponse.json({
+          orgs: [
+            { login: 'org-a', avatar_url: 'https://example.com/a.png' },
+            { login: 'org-b', avatar_url: 'https://example.com/b.png' },
+          ],
+        }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useGitHubAccountOrgs('testuser'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.orgs).toHaveLength(2);
+    expect(result.current.data?.orgs[0]).toEqual({ login: 'org-a', avatar_url: 'https://example.com/a.png' });
+  });
+
+  it('does not fetch when disabled (e.g. account not connected)', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useGitHubAccountOrgs('testuser', { enabled: false }),
       { wrapper },
     );
 

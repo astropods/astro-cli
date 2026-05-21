@@ -138,3 +138,12 @@ export function useGitHubAccountConnections(account: string, opts?: { enabled?: 
     placeholderData: keepPreviousData,
   });
 }
+
+export function useGitHubAccountOrgs(account: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: githubKeys.accountOrgs(account),
+    queryFn: () => api.gitHubListAccountOrgs(account),
+    enabled: (opts?.enabled ?? true) && !!account,
+    placeholderData: keepPreviousData,
+  });
+}

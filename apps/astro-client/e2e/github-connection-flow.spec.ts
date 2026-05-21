@@ -68,9 +68,9 @@ test("linking a repo via BP panel shows account as globally connected in setting
   }).toPass({ timeout: 10_000 });
 
   // Account status query fires fresh and must return connected:true.
-  await page.goto("/settings/account", { waitUntil: "networkidle" });
+  await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("switch")).toBeChecked({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /^disconnect$/i })).toBeVisible({ timeout: 10_000 });
 });
 
 // ─── Test 2: Unlinking a BP repo does NOT disconnect GitHub globally ──────────
@@ -84,7 +84,7 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
   await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connect`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ redirect_to: "/settings/account" }),
+    body: JSON.stringify({ redirect_to: "/settings/connectors" }),
   });
   await fetch(`${MOCK_BACKEND}/api/v1/agents/${ACCOUNT}/${AGENT}/github/link`, {
     method: "POST",
@@ -104,14 +104,14 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
   };
   expect(after.connections.some((c) => c.agent_name === AGENT)).toBe(false);
 
-  await page.goto("/settings/account", { waitUntil: "networkidle" });
+  await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("switch")).toBeChecked({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /^disconnect$/i })).toBeVisible({ timeout: 10_000 });
 });
 
-// ─── Test 3: Global disconnect from account settings clears all BP connections ─
+// ─── Test 3: Global disconnect from connectors settings clears all BP connections ─
 //
-// Disconnecting from the account settings page (which removes the WorkOS Pipes
+// Disconnecting from the connectors settings page (which removes the WorkOS Pipes
 // token) should also wipe every github_connection row. Navigating to any BP
 // panel afterward must show the "not connected" state.
 
@@ -121,7 +121,7 @@ test("global GitHub disconnect from settings severs all BP connections", async (
   await fetch(`${MOCK_BACKEND}/api/v1/accounts/${ACCOUNT}/github/connect`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ redirect_to: "/settings/account" }),
+    body: JSON.stringify({ redirect_to: "/settings/connectors" }),
   });
   await fetch(`${MOCK_BACKEND}/api/v1/agents/${ACCOUNT}/${AGENT}/github/link`, {
     method: "POST",
@@ -129,12 +129,12 @@ test("global GitHub disconnect from settings severs all BP connections", async (
     body: JSON.stringify({ repo_full_name: "testuser/my-repo", branch: "main" }),
   });
 
-  await page.goto("/settings/account", { waitUntil: "networkidle" });
+  await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 20_000 });
-  const toggle = page.getByRole("switch");
-  await expect(toggle).toBeChecked({ timeout: 10_000 });
+  const disconnectTrigger = page.getByRole("button", { name: /^disconnect$/i });
+  await expect(disconnectTrigger).toBeVisible({ timeout: 10_000 });
 
-  await toggle.click();
+  await disconnectTrigger.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
 

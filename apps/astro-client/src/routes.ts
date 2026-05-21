@@ -36,6 +36,7 @@ export default [
           route("account", "pages/settings/AccountSettings.tsx"),
           route("usage", "pages/settings/UsageSettings.tsx"),
           route("secrets", "pages/settings/SecretsSettings.tsx"),
+          route("connectors", "pages/settings/ConnectorsSettings.tsx"),
           route("organizations", "pages/settings/OrganizationsSettings.tsx"),
           route("experiments", "pages/settings/ExperimentsSettings.tsx"),
           route("audit-log", "pages/settings/AuditLogSettings.tsx"),

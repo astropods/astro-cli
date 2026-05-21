@@ -1069,6 +1069,12 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`
     );
   }
+
+  async gitHubListAccountOrgs(account: string): Promise<{ orgs: Array<{ login: string; avatar_url: string }> }> {
+    return this.request<{ orgs: Array<{ login: string; avatar_url: string }> }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/orgs`
+    );
+  }
 }
 
 export interface ConfigMapResponse {

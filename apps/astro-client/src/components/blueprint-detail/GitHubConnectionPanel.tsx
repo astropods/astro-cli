@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { repoHref, repoLabel } from "@/lib/github-utils";
 import { useSearchParams } from "react-router";
+import { useCleanupOAuthParams } from "@/hooks/use-cleanup-oauth-params";
 import { GitBranch, CheckCircle2, XCircle, Clock, Loader2, MinusCircle, Link2Off, ExternalLink, ScrollText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import { Button } from "@/components/ui/button";
@@ -36,9 +37,12 @@ interface GitHubConnectionPanelProps {
   preConnectedBranch?: string;
 }
 
+const GITHUB_OAUTH_PARAMS = ["github_connected"] as const;
+
 export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConnectedBranch }: GitHubConnectionPanelProps) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const githubConnected = searchParams.get("github_connected") === "true";
+  useCleanupOAuthParams(GITHUB_OAUTH_PARAMS);
 
   const { data: status, isLoading: statusLoading } = useGitHubStatus(account, name);
   const { data: accountStatus } = useGitHubAccountStatus(account, { enabled: !!account });
@@ -48,13 +52,6 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
 
   // After OAuth callback, open the repo selector automatically.
   const [repoDialogOpen, setRepoDialogOpen] = useState(githubConnected);
-
-  // Clean up the query param once dialog is open.
-  useEffect(() => {
-    if (githubConnected) {
-      setSearchParams((p) => { p.delete("github_connected"); return p; }, { replace: true });
-    }
-  }, [githubConnected, setSearchParams]);
 
   function handleConnect() {
     connect.mutate(`/${account}/${name}?github_connected=true`, {

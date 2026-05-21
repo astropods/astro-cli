@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -147,6 +148,51 @@ func TestClient_GetOrgs(t *testing.T) {
 	}
 	if len(orgs) != 2 || orgs[0] != "org-a" || orgs[1] != "org-b" {
 		t.Fatalf("unexpected orgs: %v", orgs)
+	}
+}
+
+func TestClient_ListOrgs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/orgs" {
+			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Mix populated and null description fields to exercise the *string decode.
+		_, _ = w.Write([]byte(`[
+			{"login": "org-a", "avatar_url": "https://example.com/a.png", "description": "first org"},
+			{"login": "org-b", "avatar_url": "https://example.com/b.png", "description": null}
+		]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	orgs, err := c.ListOrgs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(orgs) != 2 {
+		t.Fatalf("expected 2 orgs, got %d", len(orgs))
+	}
+	if orgs[0].Login != "org-a" || orgs[0].AvatarURL != "https://example.com/a.png" {
+		t.Errorf("unexpected first org: %+v", orgs[0])
+	}
+	if orgs[1].Login != "org-b" || orgs[1].AvatarURL != "https://example.com/b.png" {
+		t.Errorf("unexpected second org: %+v", orgs[1])
+	}
+}
+
+func TestClient_ListOrgs_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.ListOrgs(context.Background())
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expected ErrUnauthorized, got %v", err)
 	}
 }
 

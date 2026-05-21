@@ -1300,6 +1300,111 @@ func TestGitHubAccountCallback_InvalidatesOrgsCache(t *testing.T) {
 	}
 }
 
+func TestGitHubAccountListOrgs_Unauthenticated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/accounts/:account/github/orgs", GitHubAccountListOrgs(logger.New("error", "json"), nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status %d, got %d: %s", http.StatusUnauthorized, rec.Code, rec.Body.String())
+	}
+}
+
+// TestGitHubAccountListOrgs_StaleToken verifies that when WorkOS hands back a
+// token but GitHub rejects it on /user/orgs, the handler returns 422
+// github_not_connected so the client can prompt reconnect.
+func TestGitHubAccountListOrgs_StaleToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	restore := installStaleGitHubTokenStub(t)
+	defer restore()
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/api/v1/accounts/:account/github/orgs",
+		GitHubAccountListOrgs(logger.New("error", "json"), pipes.New("fake-workos-key")))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["error"] != "github_not_connected" {
+		t.Errorf("expected github_not_connected error, got %v", resp["error"])
+	}
+}
+
+// TestGitHubAccountListOrgs_Success verifies the happy path: WorkOS hands back
+// a live token and GitHub returns the user's orgs with avatar URLs.
+func TestGitHubAccountListOrgs_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": "fresh-token",
+				"scopes":       []string{"repo", "read:org"},
+			},
+		})
+	})
+	mux.HandleFunc("/user/orgs", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"login": "org-a", "avatar_url": "https://example.com/a.png", "description": "first"},
+			{"login": "org-b", "avatar_url": "https://example.com/b.png", "description": null}
+		]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	defer func() { http.DefaultTransport = old }()
+
+	router := gin.New()
+	router.Use(injectTestSession())
+	router.GET("/api/v1/accounts/:account/github/orgs",
+		GitHubAccountListOrgs(logger.New("error", "json"), pipes.New("fake-workos-key")))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/testaccount/github/orgs", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Orgs []struct {
+			Login     string `json:"login"`
+			AvatarURL string `json:"avatar_url"`
+		} `json:"orgs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Orgs) != 2 {
+		t.Fatalf("expected 2 orgs, got %d", len(resp.Orgs))
+	}
+	if resp.Orgs[0].Login != "org-a" || resp.Orgs[0].AvatarURL != "https://example.com/a.png" {
+		t.Errorf("unexpected first org: %+v", resp.Orgs[0])
+	}
+	if resp.Orgs[1].Login != "org-b" || resp.Orgs[1].AvatarURL != "https://example.com/b.png" {
+		t.Errorf("unexpected second org: %+v", resp.Orgs[1])
+	}
+}
+
 // Ensure unused imports don't cause compilation errors.
 var _ = bytes.NewReader
 var _ = json.Marshal

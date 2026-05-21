@@ -115,6 +115,23 @@ func (c *Client) GetOrgs(ctx context.Context) ([]string, error) {
 	return logins, nil
 }
 
+// Org is the subset of /user/orgs fields surfaced to the client UI.
+type Org struct {
+	Login     string `json:"login"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// ListOrgs returns the orgs the authenticated user is a member of, with the
+// metadata needed to render them. Distinct from GetOrgs, which returns only
+// logins for repo-search filtering.
+func (c *Client) ListOrgs(ctx context.Context) ([]Org, error) {
+	var orgs []Org
+	if err := c.get(ctx, "/user/orgs?per_page=100", &orgs); err != nil {
+		return nil, fmt.Errorf("github: list orgs: %w", err)
+	}
+	return orgs, nil
+}
+
 // SearchRepos searches repositories the authenticated user has access to via the GitHub Search API.
 // login scopes results to user:{login}; if empty, GetLogin is called first.
 // orgs is a pre-fetched list of org logins added as org:{login} qualifiers so org repos are included.

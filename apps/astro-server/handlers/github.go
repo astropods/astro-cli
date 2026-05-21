@@ -524,6 +524,42 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 	}
 }
 
+// GitHubAccountListOrgs handles GET /api/v1/accounts/:account/github/orgs.
+// Returns the orgs the user has granted Astro access to via OAuth. Used by the
+// connectors settings page to show the user's OAuth org scope.
+func GitHubAccountListOrgs(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+			return
+		}
+
+		gh := githubclient.New(token.AccessToken)
+		orgs, err := gh.ListOrgs(c.Request.Context())
+		if err != nil {
+			if errors.Is(err, githubclient.ErrUnauthorized) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+				return
+			}
+			log.Error("github: list account orgs", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list GitHub orgs"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"orgs": orgs})
+	}
+}
+
 // GitHubAccountDisconnect handles DELETE /api/v1/accounts/:account/github.
 // Removes all agent repo connections and their webhooks for the account.
 func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, cache k8scache.Cache) gin.HandlerFunc {

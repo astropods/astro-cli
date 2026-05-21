@@ -1558,6 +1558,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 			)
+			api.GET(accountGitHubRoutes, "/github/orgs", "List GitHub orgs the user has granted access to",
+				handlers.GitHubAccountListOrgs(log, pipesClient),
+				oapispec.Tags("GitHub"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
 			// Callback is a browser GET from the OAuth redirect — same auth middleware, no body
 			api.GET(accountGitHubRoutes, "/github/callback", "Account-level GitHub OAuth callback",
 				handlers.GitHubAccountCallback(log, pipesClient, githubCfg, k8sCache),
