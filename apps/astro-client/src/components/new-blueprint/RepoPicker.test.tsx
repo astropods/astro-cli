@@ -114,7 +114,7 @@ describe("RepoPicker", () => {
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
     expect(screen.getByText("Path")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("services/my-agent")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. path/to/my-agent")).toBeInTheDocument();
   });
 
   it("typing a subpath includes it in onChange repoFullName", () => {
@@ -123,7 +123,7 @@ describe("RepoPicker", () => {
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
     onChange.mockClear();
-    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "svc/worker" } });
+    fireEvent.change(screen.getByPlaceholderText("e.g. path/to/my-agent"), { target: { value: "svc/worker" } });
     expect(onChange).toHaveBeenCalledWith({ repoFullName: "testuser/my-agent/svc/worker", branch: "main" });
   });
 
@@ -132,9 +132,9 @@ describe("RepoPicker", () => {
     render(<RepoPicker {...baseProps()} onChange={onChange} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
-    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "svc/worker" } });
+    fireEvent.change(screen.getByPlaceholderText("e.g. path/to/my-agent"), { target: { value: "svc/worker" } });
     onChange.mockClear();
-    fireEvent.change(screen.getByPlaceholderText("services/my-agent"), { target: { value: "" } });
+    fireEvent.change(screen.getByPlaceholderText("e.g. path/to/my-agent"), { target: { value: "" } });
     expect(onChange).toHaveBeenCalledWith({ repoFullName: "testuser/my-agent", branch: "main" });
   });
 

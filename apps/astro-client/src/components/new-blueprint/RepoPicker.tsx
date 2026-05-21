@@ -224,34 +224,6 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
         </div>
       </div>
 
-      {/* Subpath — slides in when a repo is selected */}
-      <div className={cn(
-        "grid transition-[grid-template-rows] duration-150 ease-out",
-        selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-      )}>
-        <div className="overflow-hidden">
-          <div className="space-y-1.5 pt-0.5">
-            <Label size="md" className="flex items-center gap-1.5">
-              <FolderOpen className="size-3.5" />
-              Path
-              <span className="font-normal text-muted-foreground">(optional)</span>
-            </Label>
-            <div className={cn(inputBase, inputFocusWithin, "flex h-9 items-center gap-2 px-3")}>
-              <input
-                type="text"
-                className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
-                placeholder="services/my-agent"
-                value={subpath}
-                onChange={e => handleSubpathChange(e.target.value)}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Only trigger builds when files inside this path change.
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Branch selector — slides in when a repo is selected */}
       <div className={cn(
         "grid transition-[grid-template-rows] duration-150 ease-out",
@@ -299,6 +271,34 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Subpath — slides in when a repo is selected */}
+      <div className={cn(
+        "grid transition-[grid-template-rows] duration-150 ease-out",
+        selectedRepo ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}>
+        <div className="overflow-hidden">
+          <div className="space-y-1.5 pt-0.5">
+            <Label size="md" className="flex items-center gap-1.5">
+              <FolderOpen className="size-3.5" />
+              Path
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <div className={cn(inputBase, inputFocusWithin, "flex h-9 items-center gap-2 px-3")}>
+              <input
+                type="text"
+                className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
+                placeholder="e.g. path/to/my-agent"
+                value={subpath}
+                onChange={e => handleSubpathChange(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Only trigger builds when files inside this path change.
+            </p>
           </div>
         </div>
       </div>
