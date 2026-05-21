@@ -306,15 +306,59 @@ type AccountSparklines struct {
 	Tokens   []int     `json:"tokens"`
 }
 
+// AccountUserCost is a per-user cost contribution within a single day,
+// used in the user-grouped cost-over-time view.
+type AccountUserCost struct {
+	UserID  string  `json:"user_id"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// AccountCostOverTimeByUserEntry is one day's user-level cost breakdown for the chart.
+// Only populated when the summary endpoint is called with group_by=user.
+type AccountCostOverTimeByUserEntry struct {
+	Date  string            `json:"date"`
+	Users []AccountUserCost `json:"users"`
+}
+
 // AccountObservabilitySummaryResponse is returned by the account-level summary endpoint.
 type AccountObservabilitySummaryResponse struct {
-	Period       AccountSummaryPeriod       `json:"period"`
-	Totals       AccountSummaryTotals       `json:"totals"`
-	DailyAvg     AccountSummaryDailyAvg     `json:"daily_avg"`
-	Change       *AccountSummaryChange      `json:"change,omitempty"`
-	CostOverTime []AccountCostOverTimeEntry `json:"cost_over_time"`
-	CostByModel  []AccountCostByModelEntry  `json:"cost_by_model"`
-	Sparklines   AccountSparklines          `json:"sparklines"`
+	Period             AccountSummaryPeriod             `json:"period"`
+	Totals             AccountSummaryTotals             `json:"totals"`
+	DailyAvg           AccountSummaryDailyAvg           `json:"daily_avg"`
+	Change             *AccountSummaryChange            `json:"change,omitempty"`
+	CostOverTime       []AccountCostOverTimeEntry       `json:"cost_over_time"`
+	CostByModel        []AccountCostByModelEntry        `json:"cost_by_model"`
+	Sparklines         AccountSparklines                `json:"sparklines"`
+	CostOverTimeByUser []AccountCostOverTimeByUserEntry `json:"cost_over_time_by_user,omitempty"`
+}
+
+// UserAgentRef is one entry in UserSummaryEntry.AgentsUsed. The Account is the
+// avatar/route-segment account — the publishing account when the deployment
+// was sourced from a public blueprint (SourceAccountID set), otherwise the
+// deploying account. Carrying it per entry lets the client resolve avatars
+// for both same-account and cross-account (public) deployments.
+type UserAgentRef struct {
+	Name    string `json:"name"`
+	Account string `json:"account"`
+}
+
+// UserSummaryEntry holds per-user aggregated observability for the users summary.
+// Counts traces (one per user-facing request) to match the agent-view "requests"
+// unit; tokens are combined (input + output) since the traces view only exposes
+// the sum, not the split.
+type UserSummaryEntry struct {
+	UserID     string         `json:"user_id"`
+	Requests   int            `json:"requests"`
+	CostUSD    float64        `json:"cost_usd"`
+	Tokens     int            `json:"tokens"`
+	LastSeen   string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
+	AgentsUsed []UserAgentRef `json:"agents_used"`
+}
+
+// AccountUsersSummaryResponse is returned by the users-summary endpoint.
+type AccountUsersSummaryResponse struct {
+	Users  []UserSummaryEntry   `json:"users"`
+	Period AccountSummaryPeriod `json:"period"`
 }
 
 // BlueprintDailyCost is one day's total cost for a single blueprint.

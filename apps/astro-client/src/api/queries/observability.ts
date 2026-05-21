@@ -25,20 +25,49 @@ function buildDateParams(from?: string, to?: string): Record<string, string> {
   return p;
 }
 
-export function useAccountActivitySummary(account: string, from?: string, to?: string) {
+export function useAccountActivitySummary(
+  account: string,
+  from?: string,
+  to?: string,
+  opts?: { groupBy?: 'user'; enabled?: boolean },
+) {
+  const groupBy = opts?.groupBy;
   return useQuery({
-    queryKey: observabilityKeys.activitySummary(account, from, to),
-    queryFn: () => api.getAccountObservabilitySummary(account, buildDateParams(from, to)),
-    enabled: !!account,
+    queryKey: observabilityKeys.activitySummary(account, from, to, groupBy),
+    queryFn: () => {
+      const p = buildDateParams(from, to);
+      if (groupBy) p.group_by = groupBy;
+      return api.getAccountObservabilitySummary(account, p);
+    },
+    enabled: (opts?.enabled ?? true) && !!account,
     ...ACTIVITY_QUERY_OPTS,
   });
 }
 
-export function useBlueprintsSummary(account: string, from?: string, to?: string) {
+export function useBlueprintsSummary(
+  account: string,
+  from?: string,
+  to?: string,
+  opts?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: observabilityKeys.blueprintsSummary(account, from, to),
     queryFn: () => api.getAccountBlueprintsSummary(account, buildDateParams(from, to)),
-    enabled: !!account,
+    enabled: (opts?.enabled ?? true) && !!account,
+    ...ACTIVITY_QUERY_OPTS,
+  });
+}
+
+export function useUsersSummary(
+  account: string,
+  from?: string,
+  to?: string,
+  opts?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.usersSummary(account, from, to),
+    queryFn: () => api.getAccountUsersSummary(account, buildDateParams(from, to)),
+    enabled: (opts?.enabled ?? true) && !!account,
     ...ACTIVITY_QUERY_OPTS,
   });
 }

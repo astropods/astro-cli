@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -414,3 +417,292 @@ func TestPctChange(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+// ── buildUsersSummary ─────────────────────────────────────────────────────────
+
+func TestBuildUsersSummary_AggregationAndAgents(t *testing.T) {
+	// Two hour-buckets per user → verify sums + last_seen takes the max ts.
+	mainRows := []map[string]any{
+		{"userId": "u_alice", "count_count": 10.0, "sum_totalCost": 1.5, "sum_totalTokens": 500.0, "time_dimension": "2026-04-01T10:00:00Z"},
+		{"userId": "u_alice", "count_count": 5.0, "sum_totalCost": 0.5, "sum_totalTokens": 200.0, "time_dimension": "2026-04-01T14:00:00Z"},
+		{"userId": "u_bob", "count_count": 3.0, "sum_totalCost": 0.25, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T11:00:00Z"},
+	}
+	// Tags fan-out: alice hit dep-1 and dep-2 (with dep-2 appearing twice → dedup), bob only dep-1.
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": "deployment:dep-1"},
+		{"userId": "u_alice", "tags": "deployment:dep-2"},
+		{"userId": "u_alice", "tags": "deployment:dep-2"},
+		{"userId": "u_bob", "tags": "deployment:dep-1"},
+		// Unknown tag — should be ignored.
+		{"userId": "u_alice", "tags": "env:prod"},
+	}
+	// dep-2 is a cross-account/public-blueprint deployment — its avatar account
+	// (publisher) differs from the deploying account, exercising the new
+	// per-entry account field.
+	depToAgent := map[string]UserAgentRef{
+		"dep-1": {Name: "customer-support", Account: "acme"},
+		"dep-2": {Name: "code-reviewer", Account: "anthropic-public"},
+	}
+
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+
+	if len(out) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(out))
+	}
+	// Sorted by cost desc: alice (2.0) before bob (0.25).
+	if out[0].UserID != "u_alice" {
+		t.Errorf("first user = %q, want u_alice", out[0].UserID)
+	}
+	if out[0].Requests != 15 {
+		t.Errorf("alice.requests = %d, want 15", out[0].Requests)
+	}
+	if out[0].CostUSD != 2.0 {
+		t.Errorf("alice.cost = %v, want 2.0", out[0].CostUSD)
+	}
+	if out[0].Tokens != 700 {
+		t.Errorf("alice.tokens = %d, want 700", out[0].Tokens)
+	}
+	// last_seen tracks the most recent non-zero bucket.
+	if out[0].LastSeen != "2026-04-01T14:00:00Z" {
+		t.Errorf("alice.last_seen = %q, want 2026-04-01T14:00:00Z", out[0].LastSeen)
+	}
+	// agents_used deduplicated + sorted by name. Each entry carries its
+	// publishing account so the client can resolve avatars correctly.
+	if len(out[0].AgentsUsed) != 2 {
+		t.Fatalf("alice.agents_used len = %d, want 2: %+v", len(out[0].AgentsUsed), out[0].AgentsUsed)
+	}
+	if out[0].AgentsUsed[0].Name != "code-reviewer" || out[0].AgentsUsed[0].Account != "anthropic-public" {
+		t.Errorf("alice[0] = %+v, want {code-reviewer, anthropic-public}", out[0].AgentsUsed[0])
+	}
+	if out[0].AgentsUsed[1].Name != "customer-support" || out[0].AgentsUsed[1].Account != "acme" {
+		t.Errorf("alice[1] = %+v, want {customer-support, acme}", out[0].AgentsUsed[1])
+	}
+	if out[1].UserID != "u_bob" || len(out[1].AgentsUsed) != 1 || out[1].AgentsUsed[0].Name != "customer-support" {
+		t.Errorf("bob row mismatch: %+v", out[1])
+	}
+}
+
+func TestBuildUsersSummary_TagsReturnedAsArray(t *testing.T) {
+	// Langfuse's grouped `tags` value can come back as an array rather than a
+	// single string. Earlier code asserted string and silently dropped every
+	// row in the array case, leaving agents_used empty.
+	mainRows := []map[string]any{
+		{"userId": "u_alice", "count_count": 1.0, "sum_totalCost": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T00:00:00Z"},
+	}
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": []any{"deployment:dep-1", "env:prod", "deployment:dep-2"}},
+	}
+	depToAgent := map[string]UserAgentRef{
+		"dep-1": {Name: "customer-support", Account: "acme"},
+		"dep-2": {Name: "code-reviewer", Account: "acme"},
+	}
+
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(out))
+	}
+	if len(out[0].AgentsUsed) != 2 {
+		t.Fatalf("expected 2 agents (env:prod ignored), got %v", out[0].AgentsUsed)
+	}
+	if out[0].AgentsUsed[0].Name != "code-reviewer" || out[0].AgentsUsed[1].Name != "customer-support" {
+		t.Errorf("agents_used = %v, want sorted [code-reviewer customer-support]", out[0].AgentsUsed)
+	}
+}
+
+func TestBuildUsersSummary_MaxAgentsPerUserCap(t *testing.T) {
+	mainRows := []map[string]any{
+		{"userId": "u_heavy", "count_count": 1.0, "sum_totalCost": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T00:00:00Z"},
+	}
+	// 15 distinct deployments tagged to one user — cap should trim to maxAgentsPerUser=10.
+	depToAgent := make(map[string]UserAgentRef, 15)
+	tagsRows := make([]map[string]any, 0, 15)
+	for i := 0; i < 15; i++ {
+		depID := "dep-" + strconv.Itoa(i)
+		depToAgent[depID] = UserAgentRef{Name: "agent-" + strconv.Itoa(i), Account: "acme"}
+		tagsRows = append(tagsRows, map[string]any{"userId": "u_heavy", "tags": "deployment:" + depID})
+	}
+
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(out))
+	}
+	if len(out[0].AgentsUsed) != maxAgentsPerUser {
+		t.Errorf("agents_used len = %d, want %d", len(out[0].AgentsUsed), maxAgentsPerUser)
+	}
+}
+
+// ── buildCostOverTimeByUser ───────────────────────────────────────────────────
+
+func TestBuildCostOverTimeByUser_AggregatesSameUserPerDate(t *testing.T) {
+	// Two rows for u_alice on the same day with different RFC3339 timestamps
+	// (Langfuse can return multiple rows per day-bucket). Expect one entry
+	// with summed cost.
+	rows := []map[string]any{
+		{"userId": "u_alice", "sum_totalCost": 1.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
+		{"userId": "u_alice", "sum_totalCost": 0.5, "time_dimension": "2026-04-01T16:00:00.000Z"},
+		{"userId": "u_bob", "sum_totalCost": 2.0, "time_dimension": "2026-04-01T12:00:00.000Z"},
+	}
+
+	out := buildCostOverTimeByUser(rows)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 date entry, got %d", len(out))
+	}
+	users := out[0].Users
+	if len(users) != 2 {
+		t.Fatalf("expected 2 user entries (alice merged, bob), got %d: %+v", len(users), users)
+	}
+	costByUser := map[string]float64{}
+	for _, u := range users {
+		costByUser[u.UserID] = u.CostUSD
+	}
+	if costByUser["u_alice"] != 1.5 {
+		t.Errorf("u_alice cost = %v, want 1.5 (1.0 + 0.5 merged)", costByUser["u_alice"])
+	}
+	if costByUser["u_bob"] != 2.0 {
+		t.Errorf("u_bob cost = %v, want 2.0", costByUser["u_bob"])
+	}
+}
+
+func TestBuildCostOverTimeByUser_TruncatesDateAndExcludesZeroCost(t *testing.T) {
+	rows := []map[string]any{
+		// Same date bucket as a different row; both contribute.
+		{"userId": "u_alice", "sum_totalCost": 1.25, "time_dimension": "2026-04-02T08:00:00.000Z"},
+		{"userId": "u_bob", "sum_totalCost": 0.75, "time_dimension": "2026-04-02T16:00:00.000Z"},
+		// Zero-cost row — must be excluded.
+		{"userId": "u_carol", "sum_totalCost": 0.0, "time_dimension": "2026-04-02T18:00:00.000Z"},
+		// Earlier date — verifies ascending sort.
+		{"userId": "u_alice", "sum_totalCost": 0.5, "time_dimension": "2026-04-01T08:00:00.000Z"},
+	}
+
+	out := buildCostOverTimeByUser(rows)
+
+	if len(out) != 2 {
+		t.Fatalf("expected 2 date entries, got %d (%+v)", len(out), out)
+	}
+	if out[0].Date != "2026-04-01" || out[1].Date != "2026-04-02" {
+		t.Errorf("dates not sorted ascending: %q, %q", out[0].Date, out[1].Date)
+	}
+	if len(out[0].Users) != 1 || out[0].Users[0].UserID != "u_alice" || out[0].Users[0].CostUSD != 0.5 {
+		t.Errorf("first day mismatch: %+v", out[0])
+	}
+	// u_carol's zero-cost row is filtered before bucketing → only alice + bob present.
+	if len(out[1].Users) != 2 {
+		t.Errorf("2026-04-02 should have 2 users (zero-cost excluded), got %d: %+v", len(out[1].Users), out[1].Users)
+	}
+}
+
+// ── mergedDailyMetrics ────────────────────────────────────────────────────────
+
+// dailyMetricsHandler builds an httptest handler that responds to
+// /api/public/metrics/daily based on the `tags` query param, looking up the
+// per-deployment response in the supplied table. If a depID is absent, returns
+// 500 — used to simulate per-deployment failures.
+func dailyMetricsHandler(t *testing.T, responses map[string]langfuse.DailyMetricsResponse) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		tag := r.URL.Query().Get("tags")
+		depID := strings.TrimPrefix(tag, "deployment:")
+		resp, ok := responses[depID]
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if resp.Meta.TotalPages == 0 {
+			resp.Meta.TotalPages = 1
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func TestMergedDailyMetrics_MergesPerDateAndTracksActiveDeps(t *testing.T) {
+	responses := map[string]langfuse.DailyMetricsResponse{
+		"dep-a": {Data: []langfuse.DailyMetric{
+			{Date: "2026-04-01", CountTraces: 10, TotalCost: 1.0,
+				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 100, OutputUsage: 50, TotalCost: 1.0}}},
+			{Date: "2026-04-02", CountTraces: 5, TotalCost: 0.5,
+				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 50, OutputUsage: 25, TotalCost: 0.5}}},
+		}},
+		"dep-b": {Data: []langfuse.DailyMetric{
+			{Date: "2026-04-01", CountTraces: 3, TotalCost: 0.2,
+				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", InputUsage: 20, OutputUsage: 10, TotalCost: 0.2}}},
+		}},
+		// dep-c returns an empty page — should not appear in activeDeps.
+		"dep-c": {Data: []langfuse.DailyMetric{}},
+	}
+	srv := httptest.NewServer(dailyMetricsHandler(t, responses))
+	defer srv.Close()
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+	log := logger.New("error", "json")
+
+	out, activeDeps, err := mergedDailyMetrics(context.Background(), client, log,
+		[]string{"dep-a", "dep-b", "dep-c"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 merged date buckets, got %d", len(out))
+	}
+	// Ascending date order.
+	if out[0].Date != "2026-04-01" || out[1].Date != "2026-04-02" {
+		t.Errorf("dates not sorted: %q, %q", out[0].Date, out[1].Date)
+	}
+	// 2026-04-01 = dep-a (10 traces, $1.0) + dep-b (3 traces, $0.2)
+	if out[0].CountTraces != 13 || out[0].TotalCost != 1.2 {
+		t.Errorf("2026-04-01 merge: traces=%d cost=%v, want 13 / 1.2", out[0].CountTraces, out[0].TotalCost)
+	}
+	// activeDeps only includes dep-a and dep-b — dep-c had zero rows.
+	if !activeDeps["dep-a"] || !activeDeps["dep-b"] {
+		t.Errorf("dep-a/dep-b should be active, got %+v", activeDeps)
+	}
+	if activeDeps["dep-c"] {
+		t.Errorf("dep-c should not be active (zero rows), got active=true")
+	}
+}
+
+func TestMergedDailyMetrics_AllFailReturnsError(t *testing.T) {
+	// Every request returns 500 → all per-dep calls error → mergedDailyMetrics
+	// returns a non-nil error so the handler can respond 502.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+	log := logger.New("error", "json")
+
+	_, _, err := mergedDailyMetrics(context.Background(), client, log,
+		[]string{"dep-a", "dep-b"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	if err == nil {
+		t.Fatal("expected error when all per-deployment calls fail, got nil")
+	}
+}
+
+func TestMergedDailyMetrics_PartialFailReturnsNoError(t *testing.T) {
+	// dep-a succeeds, dep-b returns 500 → partial failure → no error returned
+	// (the caller still gets dep-a's data; partial failure is logged at WARN).
+	responses := map[string]langfuse.DailyMetricsResponse{
+		"dep-a": {Data: []langfuse.DailyMetric{
+			{Date: "2026-04-01", CountTraces: 10, TotalCost: 1.0,
+				Usage: []langfuse.DailyMetricUsage{{Model: "gpt-4o", TotalCost: 1.0}}},
+		}},
+	}
+	srv := httptest.NewServer(dailyMetricsHandler(t, responses))
+	defer srv.Close()
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+	log := logger.New("error", "json")
+
+	out, activeDeps, err := mergedDailyMetrics(context.Background(), client, log,
+		[]string{"dep-a", "dep-b"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+	if err != nil {
+		t.Fatalf("unexpected error on partial failure: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 date bucket (only dep-a succeeded), got %d", len(out))
+	}
+	if !activeDeps["dep-a"] {
+		t.Errorf("dep-a should be active")
+	}
+	if activeDeps["dep-b"] {
+		t.Errorf("dep-b should not be active (call failed)")
+	}
+}

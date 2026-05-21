@@ -652,6 +652,15 @@ class ApiClient {
     );
   }
 
+  async getAccountUsersSummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountUsersSummaryResponse> {
+    return this.request<AccountUsersSummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/users-summary${buildQS(params)}`
+    );
+  }
+
   async triggerIngestion(data: {
     deploymentId: string;
     ingestion: string;
@@ -1687,6 +1696,29 @@ export interface AccountObservabilitySummaryResponse {
   }>;
   cost_by_model: Array<{ model: string; cost_usd: number; cost_pct: number }>;
   sparklines?: { cost: number[]; requests: number[]; tokens: number[] };
+  /** Present only when the endpoint was called with ?group_by=user. */
+  cost_over_time_by_user?: Array<{
+    date: string;
+    users: Array<{ user_id: string; cost_usd: number }>;
+  }>;
+}
+
+export interface AccountUsersSummaryResponse {
+  users: Array<{
+    user_id: string;
+    requests: number;
+    cost_usd: number;
+    /** Combined input + output tokens. Traces view only exposes the sum. */
+    tokens: number;
+    /** RFC3339 timestamp of the user's most recent hour-bucket with activity.
+     *  Omitted when the user had no activity in the period. */
+    last_seen?: string;
+    /** Each entry carries the publishing account so the client can build
+     *  the correct avatar URL — public-blueprint deploys resolve under the
+     *  original publisher's account, not the deploying org. */
+    agents_used: Array<{ name: string; account: string }>;
+  }>;
+  period: { start: string; end: string; days: number };
 }
 
 export interface AccountBlueprintsSummaryResponse {

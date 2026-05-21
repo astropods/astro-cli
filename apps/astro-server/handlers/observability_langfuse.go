@@ -3,12 +3,14 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -106,9 +108,15 @@ func GetAccountLangfuseSummary(
 
 		from := c.Query("from")
 		to := c.Query("to")
+		groupBy := c.Query("group_by") // "", "user"
 
 		if (from == "") != (to == "") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
+			return
+		}
+
+		if groupBy != "" && groupBy != "user" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'group_by'; must be empty or 'user'"})
 			return
 		}
 
@@ -131,24 +139,80 @@ func GetAccountLangfuseSummary(
 			return
 		}
 
+		// Scope all Langfuse queries to currently-live deployments. Deleted
+		// (undeployed) deployments' historical traces are NOT surfaced — same
+		// contract as the deployment-detail page.
+		var deps []*deploymentstore.Deployment
+		if deploymentStore != nil {
+			deps, err = deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+			if err != nil {
+				log.Error("Failed to list visible deployments for account summary", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+				return
+			}
+		}
+		if len(deps) == 0 {
+			c.JSON(http.StatusOK, zeroAccountSummary(from, to, hasPeriod))
+			return
+		}
+
+		visibleDepIDs := make([]string, len(deps))
+		visibleTagValues := make([]string, len(deps))
+		for i, d := range deps {
+			visibleDepIDs[i] = d.ID
+			visibleTagValues[i] = "deployment:" + d.ID
+		}
+
 		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
-		// Parallel fetch: current period + prior period (only when bounded).
+		// Parallel fetch: current period + prior period (only when bounded) + optional user-grouped breakdown.
 		var currentMetrics, priorMetrics []langfuse.DailyMetric
+		var activeDepIDs map[string]bool
+		var userCostRows []map[string]any
 		g, gCtx := errgroup.WithContext(c.Request.Context())
 
 		g.Go(func() error {
-			m, ferr := client.GetDailyMetrics(gCtx, "", from, to)
-			currentMetrics = m
-			return ferr
+			var err error
+			currentMetrics, activeDepIDs, err = mergedDailyMetrics(gCtx, client, log, visibleDepIDs, from, to)
+			return err
 		})
 
 		if hasPeriod {
 			priorFrom, priorTo := shiftPrior(from, to)
 			g.Go(func() error {
-				m, ferr := client.GetDailyMetrics(gCtx, "", priorFrom, priorTo)
-				priorMetrics = m
-				return ferr
+				// Prior-period failures degrade the % change tile to "—" but
+				// shouldn't fail the whole response — fail-open.
+				priorMetrics, _, _ = mergedDailyMetrics(gCtx, client, log, visibleDepIDs, priorFrom, priorTo)
+				return nil
+			})
+		}
+
+		if groupBy == "user" {
+			g.Go(func() error {
+				// View: "traces" mirrors the users-summary Q_main query so the
+				// chart's per-user cost matches the table's per-user cost. The
+				// observations view double-counts spans within a trace and
+				// produced a chart that didn't reconcile with the row totals.
+				qFrom, qTo := metricsTimeRange(from, to)
+				q := langfuse.MetricsQuery{
+					View: "traces",
+					Metrics: []langfuse.MetricsQueryField{
+						{Measure: "totalCost", Aggregation: "sum"},
+					},
+					Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
+					TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
+					Filters: []langfuse.MetricsFilter{
+						{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+					},
+					FromTimestamp: qFrom,
+					ToTimestamp:   qTo,
+				}
+				resp, ferr := client.GetMetrics(gCtx, q)
+				if ferr != nil {
+					return ferr
+				}
+				userCostRows = resp.Data
+				return nil
 			})
 		}
 
@@ -158,21 +222,82 @@ func GetAccountLangfuseSummary(
 			return
 		}
 
-		// Active-agent count: always a snapshot of currently-deployed agents,
-		// independent of the selected time window.
+		// Active agents = currently-live agents that drove ≥1 trace in the
+		// period. When no window is bounded, falls back to live-agent count.
 		activeAgents := 0
-		if deploymentStore != nil {
-			now := time.Now()
-			var agentErr error
-			activeAgents, agentErr = deploymentStore.CountActiveAgentsDuringPeriod(acct.ID, now, now)
-			if agentErr != nil {
-				log.Error("Failed to count active agents", "error", agentErr)
+		if hasPeriod {
+			seen := make(map[string]bool)
+			for _, d := range deps {
+				if activeDepIDs[d.ID] {
+					seen[d.AgentName] = true
+				}
 			}
+			activeAgents = len(seen)
+		} else {
+			names := make(map[string]bool, len(deps))
+			for _, d := range deps {
+				names[d.AgentName] = true
+			}
+			activeAgents = len(names)
 		}
 
 		resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
+		if groupBy == "user" {
+			resp.CostOverTimeByUser = buildCostOverTimeByUser(userCostRows)
+			// Model-mode chart data isn't shown in user view; keep cost_over_time
+			// populated for sparklines/totals consumers but blank cost_by_model
+			// since the donut isn't rendered.
+			resp.CostByModel = []AccountCostByModelEntry{}
+		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// buildCostOverTimeByUser groups the per-(user, day) Langfuse rows into per-day
+// entries with the user breakdown nested inside. Sorted by date ascending.
+func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserEntry {
+	costByDateUser := make(map[string]map[string]float64)
+	for _, row := range rows {
+		ts, _ := row[langfuseTimeDimensionKey].(string)
+		if ts == "" {
+			continue
+		}
+		// Langfuse returns the day bucket as RFC3339; strip to YYYY-MM-DD so it
+		// lines up with the model-grouped cost_over_time dates.
+		date := ts
+		if len(ts) >= 10 {
+			date = ts[:10]
+		}
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		cost := toFloat(row["sum_totalCost"])
+		if cost <= 0 {
+			continue
+		}
+		byUser, ok := costByDateUser[date]
+		if !ok {
+			byUser = make(map[string]float64)
+			costByDateUser[date] = byUser
+		}
+		byUser[userID] += cost
+	}
+
+	dates := make([]string, 0, len(costByDateUser))
+	for d := range costByDateUser {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+
+	out := make([]AccountCostOverTimeByUserEntry, 0, len(dates))
+	for _, d := range dates {
+		byUser := costByDateUser[d]
+		users := make([]AccountUserCost, 0, len(byUser))
+		for uid, c := range byUser {
+			users = append(users, AccountUserCost{UserID: uid, CostUSD: math.Round(c*10000) / 10000})
+		}
+		out = append(out, AccountCostOverTimeByUserEntry{Date: d, Users: users})
+	}
+	return out
 }
 
 // zeroAccountSummary returns an empty response with the correct shape when
@@ -346,6 +471,47 @@ func shiftPrior(from, to string) (string, string) {
 	return f.Add(-d).UTC().Format(time.RFC3339), f.UTC().Format(time.RFC3339)
 }
 
+// metricsTimeRange returns a (from, to) pair safe to pass to /api/public/metrics,
+// which 400s on empty timestamps. When the caller asked for all-time (both
+// inputs empty), backfill a 5-year lookback ending now — long enough to be
+// "all-time" for any account in practice and avoids divergent semantics between
+// the legacy /metrics/daily endpoint (which accepts empty timestamps natively)
+// and /metrics (which doesn't).
+func metricsTimeRange(from, to string) (string, string) {
+	if from != "" && to != "" {
+		return from, to
+	}
+	now := time.Now().UTC()
+	return now.AddDate(-5, 0, 0).Format(time.RFC3339), now.Format(time.RFC3339)
+}
+
+// normalizeUserID collapses the SDK-emitted "-" sentinel into "" so callers
+// only need to check one shape of "no user".
+func normalizeUserID(s string) string {
+	if s == "-" {
+		return ""
+	}
+	return s
+}
+
+// tagStrings flattens a Langfuse `tags` group-by value, which can come back
+// as either a single string or a JSON array, into a slice.
+func tagStrings(v any) []string {
+	switch t := v.(type) {
+	case string:
+		return []string{t}
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 // pctChange returns the % change from prior to current rounded to one decimal place,
 // or nil when prior is 0 (undefined).
 func pctChange(current, prior float64) *float64 {
@@ -354,6 +520,110 @@ func pctChange(current, prior float64) *float64 {
 	}
 	v := math.Round((current-prior)/prior*1000) / 10
 	return &v
+}
+
+// mergedDailyMetrics fans out GetDailyMetrics per visible deployment so account
+// totals exclude deleted-deployment traces, matching the deployment-detail
+// page contract. Returns the merged timeline, the set of deployments that had
+// activity (used to count active agents by trace presence), and an error iff
+// every per-deployment call failed. The fan-out is required because
+// /api/public/metrics/daily accepts only one `tags` param — see the PR
+// changelog (usertoggleimple-2026-05-20.md) for the migration path.
+func mergedDailyMetrics(
+	ctx context.Context,
+	client *langfuse.Client,
+	log *logger.Logger,
+	depIDs []string,
+	from, to string,
+) ([]langfuse.DailyMetric, map[string]bool, error) {
+	if len(depIDs) == 0 {
+		return nil, map[string]bool{}, nil
+	}
+
+	// Each goroutine writes a distinct perDep[i] / errs[i] — no shared mutation.
+	perDep := make([][]langfuse.DailyMetric, len(depIDs))
+	errs := make([]error, len(depIDs))
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+	for i, id := range depIDs {
+		g.Go(func() error {
+			m, err := client.GetDailyMetrics(gCtx, id, from, to)
+			if err != nil {
+				errs[i] = err
+				return nil // capture but don't abort other fetches
+			}
+			perDep[i] = m
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	failed := 0
+	var firstErr error
+	for _, e := range errs {
+		if e != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = e
+			}
+		}
+	}
+	if failed == len(depIDs) {
+		return nil, nil, fmt.Errorf("all %d daily-metrics fetches failed: %w", failed, firstErr)
+	}
+	if failed > 0 {
+		log.Warn("Partial failure querying Langfuse daily metrics",
+			"failed", failed, "total", len(depIDs), "first_error", firstErr)
+	}
+
+	type bucket struct {
+		traces       int
+		cost         float64
+		usageByModel map[string]langfuse.DailyMetricUsage
+	}
+	byDate := make(map[string]*bucket)
+	activeDeps := make(map[string]bool, len(depIDs))
+
+	for i, daily := range perDep {
+		if len(daily) > 0 {
+			activeDeps[depIDs[i]] = true
+		}
+		for _, d := range daily {
+			b, ok := byDate[d.Date]
+			if !ok {
+				b = &bucket{usageByModel: make(map[string]langfuse.DailyMetricUsage)}
+				byDate[d.Date] = b
+			}
+			b.traces += d.CountTraces
+			b.cost += d.TotalCost
+			for _, u := range d.Usage {
+				prev := b.usageByModel[u.Model]
+				b.usageByModel[u.Model] = langfuse.DailyMetricUsage{
+					Model:       u.Model,
+					InputUsage:  prev.InputUsage + u.InputUsage,
+					OutputUsage: prev.OutputUsage + u.OutputUsage,
+					TotalUsage:  prev.TotalUsage + u.TotalUsage,
+					TotalCost:   prev.TotalCost + u.TotalCost,
+				}
+			}
+		}
+	}
+
+	out := make([]langfuse.DailyMetric, 0, len(byDate))
+	for date, b := range byDate {
+		usage := make([]langfuse.DailyMetricUsage, 0, len(b.usageByModel))
+		for _, u := range b.usageByModel {
+			usage = append(usage, u)
+		}
+		out = append(out, langfuse.DailyMetric{
+			Date:        date,
+			CountTraces: b.traces,
+			TotalCost:   b.cost,
+			Usage:       usage,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out, activeDeps, nil
 }
 
 // ── blueprints-summary ────────────────────────────────────────────────────────
@@ -613,6 +883,352 @@ func GetAccountBlueprintsSummary(
 			Period:     buildPeriod(from, to),
 		})
 	}
+}
+
+// ── users-summary ─────────────────────────────────────────────────────────────
+
+// userAgg holds in-flight per-user state while we accumulate Q_main rows.
+type userAgg struct {
+	requests   int
+	cost       float64
+	tokens     int    // combined input + output — traces view only exposes the sum
+	lastSeenTS string // RFC3339 — Langfuse's hour-bucket timestamp, kept as-is for the response
+}
+
+// maxAgentsPerUser caps the size of agents_used in each row of the response so
+// the JSON stays small for high-fan-out users.
+const maxAgentsPerUser = 10
+
+// maxTagFilterValues caps the deployment-tag list passed to Langfuse's
+// arrayOptions filter. Langfuse hasn't published an explicit limit but very
+// large any-of lists slow query planning and risk URL/body bloat. Accounts
+// with more deployments degrade to the top-N tag set (truncation is logged).
+const maxTagFilterValues = 100
+
+// maxUsersInResponse caps the per-user rows returned by users-summary so a
+// single account with very high userId cardinality (e.g. public-facing agents
+// with thousands of end users) can't return an unbounded response. Top spenders
+// are kept; the rest is truncated with a warn log. Real pagination is tracked
+// as a follow-up.
+const maxUsersInResponse = 500
+
+// GetAccountUsersSummary returns per-user aggregated cost / tokens / requests +
+// last-seen and the set of agents touched.
+// Two parallel Langfuse queries (see docs/01-spec/users-toggle-spec.md):
+//   - Q_main: traces grouped by userId at hour granularity →
+//     totals per user + last_seen (max non-zero hour-bucket).
+//   - Q_tags: traces grouped by [userId, tags] → deployment-tag set per user,
+//     mapped to agent_name via the deployments table.
+//
+// GET /api/v1/accounts/:account/observability/users-summary
+func GetAccountUsersSummary(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(c.Param("account"))
+		if err != nil || acct == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		from := c.Query("from")
+		to := c.Query("to")
+
+		if (from == "") != (to == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
+			return
+		}
+
+		if from != "" {
+			if _, err := time.Parse(time.RFC3339, from); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp: must be RFC3339"})
+				return
+			}
+		}
+		if to != "" {
+			if _, err := time.Parse(time.RFC3339, to); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp: must be RFC3339"})
+				return
+			}
+		}
+
+		creds, err := langfuseStore.Get(acct.ID)
+		if err != nil || creds == nil {
+			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
+				Users:  []UserSummaryEntry{},
+				Period: buildPeriod(from, to),
+			})
+			return
+		}
+
+		// Deployment ID → agent ref (name + publishing account). Only currently-live
+		// (non-undeployed) deployments are included — deleted deployments' traces
+		// are excluded from totals via the tag filter below (deployment-detail-page
+		// contract). The publishing account is the SourceAccountID when set (cross-
+		// account / public-blueprint deploys), otherwise the deploying account —
+		// the client needs this to construct avatar URLs that actually resolve.
+		depToAgent := make(map[string]UserAgentRef)
+		if deploymentStore != nil {
+			deployments, derr := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+			if derr != nil {
+				// Failing this silently would surface as an empty users view —
+				// indistinguishable from "no deployments" to the user. Mirror
+				// the summary endpoint and 500 so the failure is visible.
+				log.Error("Failed to list deployments for users summary", "error", derr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+				return
+			}
+			srcAccountIDs := make(map[string]struct{})
+			for _, d := range deployments {
+				if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
+					srcAccountIDs[*d.SourceAccountID] = struct{}{}
+				}
+			}
+			// Lookup failures fall back to the deploying account name below —
+			// the avatar will 404 to the placeholder rather than break the page.
+			srcAccountName := make(map[string]string, len(srcAccountIDs))
+			var srcMu sync.Mutex
+			lookupGroup, lookupCtx := errgroup.WithContext(c.Request.Context())
+			lookupGroup.SetLimit(10)
+			for id := range srcAccountIDs {
+				lookupGroup.Go(func() error {
+					if lookupCtx.Err() != nil {
+						return nil
+					}
+					if a, lookupErr := accountStore.GetByID(id); lookupErr == nil && a != nil {
+						srcMu.Lock()
+						srcAccountName[id] = a.Name
+						srcMu.Unlock()
+					}
+					return nil
+				})
+			}
+			_ = lookupGroup.Wait()
+			for _, d := range deployments {
+				avatarAccount := acct.Name
+				if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
+					if name, ok := srcAccountName[*d.SourceAccountID]; ok && name != "" {
+						avatarAccount = name
+					}
+				}
+				depToAgent[d.ID] = UserAgentRef{Name: d.AgentName, Account: avatarAccount}
+			}
+		}
+
+		if len(depToAgent) == 0 {
+			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
+				Users:  []UserSummaryEntry{},
+				Period: buildPeriod(from, to),
+			})
+			return
+		}
+
+		visibleTagValues := make([]string, 0, len(depToAgent))
+		for id := range depToAgent {
+			visibleTagValues = append(visibleTagValues, "deployment:"+id)
+		}
+		if len(visibleTagValues) > maxTagFilterValues {
+			log.Warn("Truncating deployment-tag filter for users-summary",
+				"total", len(visibleTagValues), "cap", maxTagFilterValues)
+			// Stable order so the same accounts get truncated reproducibly across
+			// requests, making partial-data symptoms easier to diagnose.
+			sort.Strings(visibleTagValues)
+			visibleTagValues = visibleTagValues[:maxTagFilterValues]
+		}
+		tagFilter := []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+		}
+
+		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		g, gCtx := errgroup.WithContext(ctx)
+
+		// Backfill empty all-time timestamps so /api/public/metrics doesn't 400.
+		qFrom, qTo := metricsTimeRange(from, to)
+
+		var mainRows, tagsRows []map[string]any
+
+		// Q_main: per-(user, hour) trace count / total cost / total tokens.
+		// Uses the *traces* view so "requests" counts user-facing requests
+		// (1 trace = 1 request), matching the agent-view denominator.
+		// totalTokens is combined; traces view does not expose input/output split.
+		g.Go(func() error {
+			q := langfuse.MetricsQuery{
+				View: "traces",
+				Metrics: []langfuse.MetricsQueryField{
+					{Measure: "totalCost", Aggregation: "sum"},
+					{Measure: "totalTokens", Aggregation: "sum"},
+					{Measure: "count", Aggregation: "count"},
+				},
+				Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
+				TimeDimension: &langfuse.TimeDimension{Granularity: "hour"},
+				Filters:       tagFilter,
+				FromTimestamp: qFrom,
+				ToTimestamp:   qTo,
+			}
+			resp, ferr := client.GetMetrics(gCtx, q)
+			if ferr != nil {
+				return ferr
+			}
+			mainRows = resp.Data
+			return nil
+		})
+
+		// Q_tags: per-(user, tag) — value ignored, only the tag dim matters.
+		g.Go(func() error {
+			q := langfuse.MetricsQuery{
+				View: "traces",
+				Metrics: []langfuse.MetricsQueryField{
+					{Measure: "count", Aggregation: "count"},
+				},
+				Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}, {Field: "tags"}},
+				Filters:       tagFilter,
+				FromTimestamp: qFrom,
+				ToTimestamp:   qTo,
+			}
+			resp, ferr := client.GetMetrics(gCtx, q)
+			if ferr != nil {
+				return ferr
+			}
+			tagsRows = resp.Data
+			return nil
+		})
+
+		if err := g.Wait(); err != nil {
+			log.Error("Failed to get Langfuse users metrics", "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
+			return
+		}
+
+		users := buildUsersSummary(mainRows, tagsRows, depToAgent)
+		if len(users) > maxUsersInResponse {
+			log.Warn("Truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
+			users = users[:maxUsersInResponse]
+		}
+		c.JSON(http.StatusOK, AccountUsersSummaryResponse{
+			Users:  users,
+			Period: buildPeriod(from, to),
+		})
+	}
+}
+
+// buildUsersSummary aggregates the two Langfuse query responses into per-user
+// summary rows sorted by cost descending.
+func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[string]UserAgentRef) []UserSummaryEntry {
+	aggs := make(map[string]*userAgg)
+	getOrCreate := func(userID string) *userAgg {
+		a, ok := aggs[userID]
+		if !ok {
+			a = &userAgg{}
+			aggs[userID] = a
+		}
+		return a
+	}
+
+	// Q_main rollup: sum metrics across hour-buckets, track max-non-zero bucket
+	// timestamp as last_seen.
+	for _, row := range mainRows {
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		count := toInt(row["count_count"])
+		cost := toFloat(row["sum_totalCost"])
+		tokens := toInt(row["sum_totalTokens"])
+		ts, _ := row[langfuseTimeDimensionKey].(string)
+
+		a := getOrCreate(userID)
+		a.requests += count
+		a.cost += cost
+		a.tokens += tokens
+		if count > 0 && ts > a.lastSeenTS {
+			// String compare on RFC3339 timestamps is lexicographically correct.
+			a.lastSeenTS = ts
+		}
+	}
+
+	// Q_tags rollup: extract deployment tags per user, map to (agent_name, account).
+	// The Langfuse `tags` column is an array on the source trace. When grouped,
+	// Langfuse may return the value either as a single string (one row per tag)
+	// or as the full JSON array. Handle both shapes — earlier code assumed
+	// only string and silently dropped every row in the array case, leaving
+	// agents_used empty.
+	// Dedupe key is "account/name" so two different accounts publishing the
+	// same agent name don't collapse to one entry.
+	agentsByUser := make(map[string]map[string]UserAgentRef)
+	for _, row := range tagsRows {
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		for _, tag := range tagStrings(row["tags"]) {
+			if !strings.HasPrefix(tag, "deployment:") {
+				continue
+			}
+			depID := strings.TrimPrefix(tag, "deployment:")
+			ref, ok := depToAgent[depID]
+			if !ok || ref.Name == "" {
+				continue
+			}
+			if _, exists := aggs[userID]; !exists {
+				// Tag-only user (no cost in Q_main) shouldn't really happen —
+				// if it does, surface them with zero metrics.
+				getOrCreate(userID)
+			}
+			set := agentsByUser[userID]
+			if set == nil {
+				set = make(map[string]UserAgentRef)
+				agentsByUser[userID] = set
+			}
+			set[ref.Account+"/"+ref.Name] = ref
+		}
+	}
+
+	out := make([]UserSummaryEntry, 0, len(aggs))
+	for userID, a := range aggs {
+		agents := make([]UserAgentRef, 0, len(agentsByUser[userID]))
+		for _, ref := range agentsByUser[userID] {
+			agents = append(agents, ref)
+		}
+		sort.Slice(agents, func(i, j int) bool {
+			if agents[i].Name != agents[j].Name {
+				return agents[i].Name < agents[j].Name
+			}
+			return agents[i].Account < agents[j].Account
+		})
+		if len(agents) > maxAgentsPerUser {
+			agents = agents[:maxAgentsPerUser]
+		}
+		out = append(out, UserSummaryEntry{
+			UserID:     userID,
+			Requests:   a.requests,
+			CostUSD:    math.Round(a.cost*10000) / 10000,
+			Tokens:     a.tokens,
+			LastSeen:   a.lastSeenTS,
+			AgentsUsed: agents,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CostUSD > out[j].CostUSD
+	})
+
+	return out
 }
 
 // granularityIntervalMinutes maps Langfuse granularity names to their bucket

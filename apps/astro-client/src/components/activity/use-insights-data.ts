@@ -1,10 +1,29 @@
 import { useMemo } from "react";
-import { useAccountActivitySummary, useBlueprintsSummary } from "@/api/queries/observability";
+import {
+  useAccountActivitySummary,
+  useBlueprintsSummary,
+  useUsersSummary,
+} from "@/api/queries/observability";
+import { useAccountMembers } from "@/api/queries/accounts";
+import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
-import type { AccountBlueprintsSummaryResponse, AccountObservabilitySummaryResponse } from "@/lib/api";
+import { ALL_USERS_KEY, UNATTRIBUTED_USER_KEY, UNAUTHORIZED_USER_KEY, classifyUserId } from "./user-classification";
+import type {
+  AccountBlueprintsSummaryResponse,
+  AccountObservabilitySummaryResponse,
+  AccountUsersSummaryResponse,
+} from "@/lib/api";
 
 export const ALL_AGENTS_KEY = "__all__";
 export const ALL_AGENTS_COLOR = "var(--color-indigo-500)";
+
+/** Both insights hooks accept `enabled` (default true) so a future caller
+ *  that mounts both tabs simultaneously can gate the inactive view's
+ *  Langfuse-backed queries. */
+function useResolvedPeriod(range: ActivityRange, ssrFrom?: string | null, ssrTo?: string | null) {
+  const { from: computedFrom, to: computedTo } = useMemo(() => buildPeriodParams(range), [range]);
+  return { from: ssrFrom ?? computedFrom, to: ssrTo ?? computedTo };
+}
 
 type Blueprint = AccountBlueprintsSummaryResponse["blueprints"][number];
 
@@ -85,21 +104,30 @@ export function buildFilteredSummary(
 
 interface UseInsightsDataOpts {
   account: string;
+  range: ActivityRange;
   selectedAgents: string[];
-  // Caller passes from/to so the hook keys queries under the same window
-  // the page primed the cache with.
-  from?: string;
-  to?: string;
+  ssrFrom?: string | null;
+  ssrTo?: string | null;
+  enabled?: boolean;
 }
 
 export function useInsightsData({
   account,
+  range,
   selectedAgents,
-  from,
-  to,
+  ssrFrom,
+  ssrTo,
+  enabled = true,
 }: UseInsightsDataOpts) {
-  const { data: summary, isLoading: summaryLoading } = useAccountActivitySummary(account, from, to);
-  const { data: blueprintsData, isLoading: blueprintsLoading } = useBlueprintsSummary(account, from, to);
+  const { from, to } = useResolvedPeriod(range, ssrFrom, ssrTo);
+
+  const summaryQ = useAccountActivitySummary(account, from, to, { enabled });
+  const blueprintsQ = useBlueprintsSummary(account, from, to, { enabled });
+
+  const summary = summaryQ.data;
+  const summaryLoading = summaryQ.isLoading;
+  const blueprintsData = blueprintsQ.data;
+  const blueprintsLoading = blueprintsQ.isLoading;
 
   const allAgentNames = useMemo(
     () => blueprintsData?.blueprints.map((b) => b.agent_name) ?? [],
@@ -119,7 +147,7 @@ export function useInsightsData({
   }, [selectedAgents, filteredBlueprints, blueprintsData]);
 
   const agentCostOverTime = useMemo(() => {
-    const isAll = selectedAgents[0] === ALL_AGENTS_KEY;
+    const isAll = selectedAgents.length > 0 && selectedAgents[0] === ALL_AGENTS_KEY;
     const source = isAll ? (blueprintsData?.blueprints ?? []) : chartBlueprints;
     const allDates = [...new Set(source.flatMap((b) => b.cost_over_time?.map((d) => d.date) ?? []))].sort();
     const costIndex = new Map(source.map((b) => [b.agent_name, new Map(b.cost_over_time?.map((d) => [d.date, d.cost_usd]) ?? [])]));
@@ -150,13 +178,201 @@ export function useInsightsData({
   );
 
   return {
+    from,
+    to,
     allAgentNames,
     filteredBlueprints,
     agentCostOverTime,
     displaySummary,
     allAgentColorMap,
     activeColorMap,
+    summaryLoading,
+    blueprintsLoading,
     isLoading: summaryLoading || blueprintsLoading,
     hasData: filteredBlueprints.some((b) => b.requests > 0),
+  };
+}
+
+// ── Users-view data hook ─────────────────────────────────────────────────────
+
+type UserRow = AccountUsersSummaryResponse["users"][number];
+
+interface UseUsersInsightsDataOpts {
+  account: string;
+  range: ActivityRange;
+  selectedUsers: string[];
+  ssrFrom?: string | null;
+  ssrTo?: string | null;
+  enabled?: boolean;
+}
+
+function buildUserCostOverTime(
+  summary: AccountObservabilitySummaryResponse | undefined,
+  visibleUserIds: string[],
+  memberIds: Set<string>,
+): Array<{ date: string; models: Array<{ model: string; cost_usd: number }> }> {
+  const rows = summary?.cost_over_time_by_user ?? [];
+  if (rows.length === 0 || visibleUserIds.length === 0) return [];
+  // An empty visibleUserIds set means "nothing to show yet" (usersData still
+  // loading, or empty period) — NOT "show every user." Treating it as "all"
+  // would flash every user before the top-5 filter resolves.
+  const visible = new Set(visibleUserIds);
+  return rows.map((r) => {
+    const byKey = new Map<string, number>();
+    for (const u of r.users) {
+      const key = classifyUserId(u.user_id, memberIds);
+      byKey.set(key, (byKey.get(key) ?? 0) + u.cost_usd);
+    }
+    return {
+      date: r.date,
+      models: [...byKey.entries()]
+        .filter(([key]) => visible.has(key))
+        .map(([model, cost_usd]) => ({ model, cost_usd })),
+    };
+  });
+}
+
+function recomputeTotalsFromUsers(
+  users: UserRow[],
+  period: { start: string; end: string; days: number },
+): AccountObservabilitySummaryResponse {
+  const totalCost   = users.reduce((s, u) => s + u.cost_usd, 0);
+  const totalReqs   = users.reduce((s, u) => s + u.requests, 0);
+  const totalTokens = users.reduce((s, u) => s + u.tokens, 0);
+  const n = Math.max(period.days, 1);
+  return {
+    period,
+    totals: {
+      cost_usd: parseFloat(totalCost.toFixed(2)),
+      requests: totalReqs,
+      // Users view exposes combined tokens only (traces view doesn't split);
+      // stash in input_tokens so downstream `input + output` sums render right.
+      input_tokens: totalTokens,
+      output_tokens: 0,
+      active_agents: 0,
+    },
+    daily_avg: {
+      cost_usd: parseFloat((totalCost / n).toFixed(2)),
+      requests: Math.round(totalReqs / n),
+      tokens: Math.round(totalTokens / n),
+    },
+    change: null,
+    cost_over_time: [],
+    cost_by_model: [],
+    sparklines: { cost: [], requests: [], tokens: [] },
+  };
+}
+
+export function useUsersInsightsData({
+  account,
+  range,
+  selectedUsers,
+  ssrFrom,
+  ssrTo,
+  enabled = true,
+}: UseUsersInsightsDataOpts) {
+  const { from, to } = useResolvedPeriod(range, ssrFrom, ssrTo);
+
+  const summaryQ = useAccountActivitySummary(account, from, to, { groupBy: "user", enabled });
+  const usersQ = useUsersSummary(account, from, to, { enabled });
+  // Members query is intentionally NOT gated by `enabled` — it's cached app-wide
+  // for avatar/badge resolution and worth keeping warm even when this view is idle.
+  const membersQ = useAccountMembers(account);
+
+  const summary = summaryQ.data;
+  const summaryLoading = summaryQ.isLoading;
+  const usersData = usersQ.data;
+  const usersLoading = usersQ.isLoading;
+  const membersData = membersQ.data;
+  const membersLoading = membersQ.isLoading;
+
+  const memberIds = useMemo(
+    () => new Set(membersData?.members.map((m) => m.user_id) ?? []),
+    [membersData],
+  );
+
+  const allUserIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const u of usersData?.users ?? []) ids.add(classifyUserId(u.user_id, memberIds));
+    for (const row of summary?.cost_over_time_by_user ?? []) {
+      for (const u of row.users) ids.add(classifyUserId(u.user_id, memberIds));
+    }
+    return [...ids];
+  }, [usersData, summary, memberIds]);
+
+  const allUserColorMap = useMemo(() => buildModelColorMap(allUserIds), [allUserIds]);
+
+  const userLabelMap = useMemo(() => {
+    const map: Record<string, string> = {
+      [UNATTRIBUTED_USER_KEY]: "Unattributed",
+      [UNAUTHORIZED_USER_KEY]: "Unauthorized",
+      [ALL_USERS_KEY]: "All Users",
+    };
+    const memberById = new Map(membersData?.members.map((m) => [m.user_id, m]) ?? []);
+    for (const uid of allUserIds) {
+      if (uid === UNATTRIBUTED_USER_KEY || uid === UNAUTHORIZED_USER_KEY) continue;
+      const m = memberById.get(uid);
+      map[uid] = m ? (m.display_name || m.username) : uid;
+    }
+    return map;
+  }, [allUserIds, membersData]);
+
+  const isAllSelected = selectedUsers.length > 0 && selectedUsers[0] === ALL_USERS_KEY;
+  const noSelection = selectedUsers.length === 0;
+
+  const filteredUsers = useMemo(() => {
+    const all = usersData?.users ?? [];
+    if (noSelection || isAllSelected) return all;
+    return all.filter((u) => selectedUsers.includes(classifyUserId(u.user_id, memberIds)));
+  }, [usersData, selectedUsers, noSelection, isAllSelected, memberIds]);
+
+  const chartVisibleUserIds = useMemo(() => {
+    if (noSelection || isAllSelected) {
+      const byKey = new Map<string, number>();
+      for (const u of usersData?.users ?? []) {
+        const key = classifyUserId(u.user_id, memberIds);
+        byKey.set(key, (byKey.get(key) ?? 0) + u.cost_usd);
+      }
+      return [...byKey.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([k]) => k);
+    }
+    return selectedUsers;
+  }, [usersData, selectedUsers, noSelection, isAllSelected, memberIds]);
+
+  const userCostOverTime = useMemo(
+    () => buildUserCostOverTime(summary, chartVisibleUserIds, memberIds),
+    [summary, chartVisibleUserIds, memberIds],
+  );
+
+  const displaySummary = useMemo(() => {
+    const isFiltered = !noSelection && !isAllSelected && usersData?.period;
+    if (isFiltered) return recomputeTotalsFromUsers(filteredUsers, usersData.period);
+    return summary;
+  }, [filteredUsers, usersData, summary, noSelection, isAllSelected]);
+
+  const activeColorMap = useMemo(
+    () => ({ ...allUserColorMap, [ALL_USERS_KEY]: "var(--color-indigo-500)" }),
+    [allUserColorMap],
+  );
+
+  return {
+    from,
+    to,
+    allUserIds,
+    filteredUsers,
+    userCostOverTime,
+    displaySummary,
+    allUserColorMap,
+    activeColorMap,
+    userLabelMap,
+    summaryLoading,
+    // usersLoading reports both the users-summary endpoint AND the members
+    // query — classification depends on both, so until members lands every
+    // named user would be misclassified as Unauthorized.
+    usersLoading: usersLoading || membersLoading,
+    isLoading: summaryLoading || usersLoading || membersLoading,
+    hasData: (usersData?.users ?? []).some((u) => u.requests > 0),
   };
 }
