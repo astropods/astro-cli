@@ -70,7 +70,7 @@ export function useNetworkFlows(
   if (opts?.sort) params.sort = opts.sort;
 
   return useQuery({
-    queryKey: networkKeys.flows(deploymentId, direction, windowKey(opts?.from, opts?.to), opts?.sort),
+    queryKey: networkKeys.flows(deploymentId, direction, windowKey(opts?.from, opts?.to), opts?.sort, opts?.limit),
     queryFn: () => api.getNetworkFlows(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     ...TABLE_QUERY_OPTS,

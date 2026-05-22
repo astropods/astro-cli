@@ -7,6 +7,7 @@ import {
   useObservabilityMetrics,
   useObservabilityTraces,
 } from "@/api/queries/observability";
+import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
 import { TokenUsageChart } from "@/components/agent-detail/charts/TokenUsageChart";
 import {
   CHART_COLORS,
@@ -17,7 +18,9 @@ import { RequestVolumeChart } from "@/components/agent-detail/charts/RequestVolu
 import { LatencyCard } from "@/components/agent-detail/charts/LatencyCard";
 import { TracesTable } from "@/components/agent-detail/traces/TracesTable";
 import { TraceDetailPanel } from "@/components/agent-detail/traces/TraceDetailPanel";
-import type { TraceEntry } from "@/lib/api";
+import { NetworkSummaryCard } from "@/components/agent-detail/network/NetworkSummaryCard";
+import { NetworkFlowsTable } from "@/components/agent-detail/network/NetworkFlowsTable";
+import type { NetworkDirection, TraceEntry } from "@/lib/api";
 import { useContainerSize } from "@/hooks/use-container-size";
 import {
   aggregateByLocalDay,
@@ -29,6 +32,12 @@ const RANGES: { key: DayRange; label: string; days: number }[] = [
   { key: "7d", label: "7D", days: 7 },
   { key: "14d", label: "14D", days: 14 },
   { key: "30d", label: "30D", days: 30 },
+];
+
+const NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
+  { key: "inbound", label: "Inbound" },
+  { key: "outbound", label: "Outbound" },
+  { key: "database", label: "Database" },
 ];
 
 function buildTimeParams(days: number) {
@@ -70,6 +79,22 @@ export default function AgentMonitor() {
   const totalOutput = bars.reduce((s, b) => s + b.outputTokens, 0);
 
   const totalRequests = requestPoints.reduce((s, p) => s + p.requests, 0);
+
+  // Network traffic (Beyla eBPF)
+  const [networkDirection, setNetworkDirection] = useState<NetworkDirection>("inbound");
+  const networkWindow = useMemo(
+    () => ({ from: timeParams.start_time, to: timeParams.end_time }),
+    [timeParams.start_time, timeParams.end_time],
+  );
+  const { data: networkSummary, isLoading: networkSummaryLoading } = useNetworkSummary(
+    deploymentId,
+    networkWindow,
+  );
+  const { data: networkFlows, isLoading: networkFlowsLoading } = useNetworkFlows(
+    deploymentId,
+    networkDirection,
+    networkWindow,
+  );
 
   // Trace detail panel
   const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
@@ -168,6 +193,54 @@ export default function AgentMonitor() {
                   loading={isLoading}
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Network Traffic */}
+          <div className="mt-10">
+            <div className="mb-6">
+              <h2 className="text-heading-4 text-foreground">Network Traffic</h2>
+              <p className="mt-1 text-body-sm text-muted-foreground">
+                HTTP traffic to and from your agent
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 @[540px]/monitor:grid-cols-3">
+              <NetworkSummaryCard
+                title="Inbound"
+                summary={networkSummary?.inbound}
+                colors={colors}
+                loading={networkSummaryLoading}
+              />
+              <NetworkSummaryCard
+                title="Outbound"
+                summary={networkSummary?.outbound}
+                colors={colors}
+                loading={networkSummaryLoading}
+              />
+              <NetworkSummaryCard
+                title="Database"
+                summary={networkSummary?.database}
+                colors={colors}
+                loading={networkSummaryLoading}
+              />
+            </div>
+
+            <div className="mt-6 flex items-center justify-between">
+              <TimeRangeSelector
+                value={networkDirection}
+                ranges={NETWORK_DIRECTIONS}
+                onChange={(d) => setNetworkDirection(d as NetworkDirection)}
+                layoutId="network-direction-pill"
+              />
+            </div>
+
+            <div className="mt-4">
+              <NetworkFlowsTable
+                flows={networkFlows?.flows ?? []}
+                direction={networkDirection}
+                loading={networkFlowsLoading}
+              />
             </div>
           </div>
 

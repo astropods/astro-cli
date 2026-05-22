@@ -38,8 +38,8 @@ export const OBSERVABILITY_WINDOW_ALL_TIME = "all-time" as const;
 export const networkKeys = {
   summary: (deploymentId: string, window?: string) =>
     ['network', 'summary', deploymentId, window] as const,
-  flows: (deploymentId: string, direction: string, window?: string, sort?: string) =>
-    ['network', 'flows', deploymentId, direction, window, sort] as const,
+  flows: (deploymentId: string, direction: string, window?: string, sort?: string, limit?: number) =>
+    ['network', 'flows', deploymentId, direction, window, sort, limit] as const,
   timeseries: (
     deploymentId: string,
     direction: string,
