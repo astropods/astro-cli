@@ -64,7 +64,6 @@ function AgentCard({
       deploymentId={deployment.id}
       account={account}
       href={detailHref}
-      deploymentDetailHref={detailHref}
       status={status}
       requests={requests}
       lastActive={lastActive}

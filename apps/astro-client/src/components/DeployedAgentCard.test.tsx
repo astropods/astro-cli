@@ -1,8 +1,15 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { screen, cleanup, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/test-utils';
 import { DeployedAgentCard } from './DeployedAgentCard';
 
+const mockNavigate = vi.fn();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
+beforeEach(() => mockNavigate.mockClear());
 afterEach(cleanup);
 
 const baseProps = {
@@ -50,7 +57,6 @@ describe('DeployedAgentCard', () => {
         hasNewBuildAvailable
         latestBuildId="build-new"
         currentBuildId="build-old"
-        deploymentDetailHref="/dep/dep-123"
       />,
     );
 
@@ -64,7 +70,7 @@ describe('DeployedAgentCard', () => {
     expect(screen.queryByText('Update available')).not.toBeInTheDocument();
   });
 
-  // Without a latestBuildId or detail href the badge has nothing to upgrade to,
+  // Without a latestBuildId the badge has nothing to upgrade to,
   // so it falls back to the static Tag — clicking shouldn't pop the modal.
   it('renders non-clickable badge when latestBuildId is missing', () => {
     renderWithProviders(
@@ -72,7 +78,6 @@ describe('DeployedAgentCard', () => {
         {...baseProps}
         hasNewBuildAvailable
         currentBuildId="build-old"
-        deploymentDetailHref="/dep/dep-123"
       />,
     );
 
@@ -87,7 +92,6 @@ describe('DeployedAgentCard', () => {
         hasNewBuildAvailable
         latestBuildId="build-new12345"
         currentBuildId="build-old12345"
-        deploymentDetailHref="/dep/dep-123"
       />,
     );
 
@@ -96,6 +100,24 @@ describe('DeployedAgentCard', () => {
     // Truncated build IDs (first 8 chars) appear in the description.
     expect(screen.getByText(/build-ne/)).toBeInTheDocument();
     expect(screen.getByText(/build-ol/)).toBeInTheDocument();
+  });
+
+  it('navigates to configure?build=<latestBuildId> when upgrade is confirmed', () => {
+    renderWithProviders(
+      <DeployedAgentCard
+        {...baseProps}
+        hasNewBuildAvailable
+        latestBuildId="build-new12345"
+        currentBuildId="build-old12345"
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Upgrade to newest build'));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/testuser/agents/dep-123/configure?build=build-new12345',
+    );
   });
 
   it('renders error_message as accessible label on the status badge when status=error', () => {

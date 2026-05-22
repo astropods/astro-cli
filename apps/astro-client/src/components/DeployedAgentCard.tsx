@@ -31,6 +31,7 @@ import type { AvatarColors } from "@/lib/api";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { deploymentConfigurePath } from "@/lib/routes";
 
 export type DeployedAgentStatus = "active" | "inactive" | "deploying" | "undeploying" | "error" | "restarting" | "pausing" | "resuming";
 
@@ -65,12 +66,6 @@ export interface DeployedAgentCardProps {
   latestBuildId?: string;
   currentBuildId?: string;
   /**
-   * Path to the deployment's detail page; used by the upgrade affordance to
-   * navigate the user there in "configure with new build" mode after
-   * confirming. When omitted the upgrade UI is hidden.
-   */
-  deploymentDetailHref?: string;
-  /**
    * Server-supplied reason a deployment is in error/failed. Surfaced as a
    * tooltip on the status badge so dashboard viewers see why a deployment is
    * unhealthy without drilling in.
@@ -104,7 +99,6 @@ export function DeployedAgentCard({
   hasNewBuildAvailable = false,
   latestBuildId,
   currentBuildId,
-  deploymentDetailHref,
   errorMessage,
   avatarColors,
   className,
@@ -151,14 +145,11 @@ export function DeployedAgentCard({
     className,
   );
 
-  const upgradeTarget = deploymentDetailHref ?? href ?? null;
-  const upgradeEnabled = hasNewBuildAvailable && !!upgradeTarget && !!latestBuildId;
+  const upgradeEnabled = hasNewBuildAvailable && !!latestBuildId;
   const handleUpgradeConfirm = () => {
-    if (!upgradeTarget) return;
+    if (!latestBuildId) return;
     setUpgradeOpen(false);
-    navigate(upgradeTarget, {
-      state: { ...(linkState ?? {}), autoConfigureNewBuild: true },
-    });
+    navigate(`${deploymentConfigurePath(account, deploymentId)}?build=${latestBuildId}`);
   };
 
   const cardContent = (
