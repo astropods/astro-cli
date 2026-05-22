@@ -51,11 +51,17 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// templateCache caches generated base templates (after generateTemplate + mergeDeploymentPrefill)
+// TemplateCache caches generated base templates (after generateTemplate + mergeDeploymentPrefill)
 // so that adapter re-triggers in the POST template endpoint only run ShapeTemplate.
-type templateCache struct {
+type TemplateCache struct {
 	m   sync.Map
 	ttl time.Duration
+}
+
+const templateCacheTTL = 5 * time.Minute
+
+func NewTemplateCache() *TemplateCache {
+	return &TemplateCache{ttl: templateCacheTTL}
 }
 
 type templateCacheEntry struct {
@@ -63,7 +69,10 @@ type templateCacheEntry struct {
 	expiresAt time.Time
 }
 
-func (tc *templateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
+func (tc *TemplateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
+	if tc == nil {
+		return nil, false
+	}
 	val, ok := tc.m.Load(key)
 	if !ok {
 		return nil, false
@@ -76,10 +85,28 @@ func (tc *templateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
 	return entry.template, true
 }
 
-func (tc *templateCache) set(key string, tmpl *spec.AstroDeploymentSpec) {
+func (tc *TemplateCache) set(key string, tmpl *spec.AstroDeploymentSpec) {
+	if tc == nil {
+		return
+	}
 	tc.m.Store(key, &templateCacheEntry{
 		template:  tmpl,
 		expiresAt: time.Now().Add(tc.ttl),
+	})
+}
+
+// DeleteByDeploymentID removes all cached entries for the given deployment ID so
+// the next template prefill re-fetches live state (e.g. after a redeploy updates grants).
+func (tc *TemplateCache) DeleteByDeploymentID(deploymentID string) {
+	if tc == nil {
+		return
+	}
+	needle := ":" + deploymentID + ":"
+	tc.m.Range(func(k, _ any) bool {
+		if key, ok := k.(string); ok && strings.Contains(key, needle) {
+			tc.m.Delete(key)
+		}
+		return true
 	})
 }
 
@@ -622,7 +649,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -811,6 +838,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
 		}
+
+		tmplCache.DeleteByDeploymentID(dctx.deploymentID)
 
 		// Reserve the blueprint name on first deploy — best-effort, never blocks the response.
 		if !dctx.isUpdate {
@@ -3376,8 +3405,7 @@ func generateTemplate(
 
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
 // POST /api/v1/agents/:account/:name/deployment-template
-func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store) gin.HandlerFunc {
-	cache := &templateCache{ttl: 5 * time.Minute}
+func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, cache *TemplateCache) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		var req spec.TemplateRequest

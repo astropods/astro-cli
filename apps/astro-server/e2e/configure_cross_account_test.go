@@ -198,7 +198,7 @@ func newConfigureE2ERouter(userID string, index *agentindex.Index, accountStore 
 		c.Next()
 	})
 	r.POST("/agents/:account/:name/deployment-template",
-		handlers.PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil, nil))
+		handlers.PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil, nil, nil))
 	return r
 }
 

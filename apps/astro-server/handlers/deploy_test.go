@@ -102,6 +102,40 @@ func TestDeploymentNamespace_UniquePerID(t *testing.T) {
 	}
 }
 
+// --- TemplateCache tests ---
+
+func TestTemplateCache_DeleteByDeploymentID_RemovesMatchingEntry(t *testing.T) {
+	cache := NewTemplateCache()
+	depID := "abc-123-def"
+	key := "myorg:myorg:my-agent:build-1:" + depID + ":0"
+	cache.set(key, &spec.AstroDeploymentSpec{})
+
+	cache.DeleteByDeploymentID(depID)
+
+	if _, ok := cache.get(key); ok {
+		t.Error("expected cache entry to be deleted, but it still exists")
+	}
+}
+
+func TestTemplateCache_DeleteByDeploymentID_LeavesOtherEntriesIntact(t *testing.T) {
+	cache := NewTemplateCache()
+	targetID := "abc-123-def"
+	otherID := "zzz-999-qqq"
+	targetKey := "myorg:myorg:my-agent:build-1:" + targetID + ":0"
+	otherKey := "myorg:myorg:other-agent:build-2:" + otherID + ":0"
+	cache.set(targetKey, &spec.AstroDeploymentSpec{})
+	cache.set(otherKey, &spec.AstroDeploymentSpec{})
+
+	cache.DeleteByDeploymentID(targetID)
+
+	if _, ok := cache.get(targetKey); ok {
+		t.Error("expected target entry to be deleted, but it still exists")
+	}
+	if _, ok := cache.get(otherKey); !ok {
+		t.Error("expected unrelated entry to remain in cache, but it was deleted")
+	}
+}
+
 // --- Undeploy handler tests ---
 
 // setupUndeployTest creates a gin engine wired with the UndeployAgent handler.
@@ -2440,7 +2474,7 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, and authzStore skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -5252,7 +5286,7 @@ func setupPostTemplateRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmoc
 		c.Next()
 	})
 	router.POST("/agents/:account/:name/deployment-template",
-		PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil, nil))
+		PostDeploymentTemplate(log, index, accountStore, cfg, deployStore, nil, nil, nil))
 
 	return router, indexMock, accountMock, deployMock
 }
@@ -6161,7 +6195,7 @@ func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[s
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and preflighter skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, clusterMock
 }
