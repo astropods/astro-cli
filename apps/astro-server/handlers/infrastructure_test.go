@@ -6,10 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/gin-gonic/gin"
@@ -20,48 +17,9 @@ func setupInfrastructureRouter(omClient *openmeter.Client) *gin.Engine {
 	router := gin.New()
 	log := logger.New("error", "json")
 	router.Use(injectAccount(testAccount()))
-	router.GET("/usage/infrastructure", GetInfrastructureUsage(log, omClient, nil))
-	router.GET("/agents/:account/:name/usage/infrastructure", GetInfrastructureUsage(log, omClient, nil))
+	router.GET("/usage/infrastructure", GetInfrastructureUsage(log, omClient))
+	router.GET("/agents/:account/:name/usage/infrastructure", GetInfrastructureUsage(log, omClient))
 	return router
-}
-
-func setupInfrastructureRouterWithIndex(omClient *openmeter.Client, index *agentindex.Index) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	log := logger.New("error", "json")
-	router.Use(injectAccount(testAccount()))
-	router.GET("/agents/:account/:name/usage/infrastructure", GetInfrastructureUsage(log, omClient, index))
-	return router
-}
-
-// indexWithAgent returns an agentindex backed by a sqlmock DB. When found is true, the
-// mock expects index.Get to return the named agent; when false, it returns no rows (not found).
-func indexWithAgent(t *testing.T, agentName string, found bool) (*agentindex.Index, sqlmock.Sqlmock) {
-	t.Helper()
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	cols := []string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}
-	rows := sqlmock.NewRows(cols)
-	if found {
-		now := time.Now()
-		rows.AddRow(testAccount().ID, agentName, "registry.example.com", "private", nil, false, nil, now, now)
-		mock.ExpectQuery("SELECT account_id, name").
-			WithArgs(testAccount().ID, agentName).
-			WillReturnRows(rows)
-		mock.ExpectQuery("SELECT build_id").
-			WithArgs(testAccount().ID, agentName).
-			WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}))
-	} else {
-		mock.ExpectQuery("SELECT account_id, name").
-			WithArgs(testAccount().ID, agentName).
-			WillReturnRows(rows)
-	}
-
-	return agentindex.NewIndexWithDB(db), mock
 }
 
 func meterQueryResponse(value float64) string {
@@ -207,8 +165,7 @@ func TestGetAgentInfrastructureUsage_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	index, _ := indexWithAgent(t, "my-agent", true)
-	router := setupInfrastructureRouterWithIndex(openmeter.NewClient(srv.URL), index)
+	router := setupInfrastructureRouter(openmeter.NewClient(srv.URL))
 
 	req := httptest.NewRequest(http.MethodGet, "/agents/acme/my-agent/usage/infrastructure", nil)
 	rec := httptest.NewRecorder()
@@ -223,19 +180,6 @@ func TestGetAgentInfrastructureUsage_Success(t *testing.T) {
 	}
 	if resp.Usage.DeploymentCompute != 46.38 {
 		t.Errorf("deployment_compute: want 46.38, got %f", resp.Usage.DeploymentCompute)
-	}
-}
-
-func TestGetAgentInfrastructureUsage_NotFound(t *testing.T) {
-	index, _ := indexWithAgent(t, "my-agent", false)
-	router := setupInfrastructureRouterWithIndex(openmeter.NewClient("http://unused"), index)
-
-	req := httptest.NewRequest(http.MethodGet, "/agents/acme/my-agent/usage/infrastructure", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -260,6 +204,43 @@ func TestGetAccountInfrastructureUsage_InvalidTo(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetAgentInfrastructureUsage_CrossAccountBlueprint(t *testing.T) {
+	// "foreign-agent" is a blueprint originally published by another account.
+	// The deploying account (testAccount) calls with their own account in the URL;
+	// the query must succeed and be scoped to the deploying account.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("subject") != testAccount().ID {
+			t.Errorf("subject should be deploying account %q, got %q", testAccount().ID, r.URL.Query().Get("subject"))
+		}
+		if r.URL.Query().Get("filterGroupBy[agent_name]") != "foreign-agent" {
+			t.Errorf("filterGroupBy[agent_name]: want %q, got %q", "foreign-agent", r.URL.Query().Get("filterGroupBy[agent_name]"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"value":22.5,"groupBy":{"agent_name":"foreign-agent"},"subject":"acct-test","windowStart":"2026-05-01T00:00:00Z","windowEnd":"2026-05-20T23:59:59Z"}],"from":"2026-05-01T00:00:00Z","to":"2026-05-20T23:59:59Z"}`)
+	}))
+	defer srv.Close()
+
+	router := setupInfrastructureRouter(openmeter.NewClient(srv.URL))
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/acme/foreign-agent/usage/infrastructure", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp InfrastructureUsageResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Usage.DeploymentCompute != 22.5 {
+		t.Errorf("deployment_compute: want 22.5, got %f", resp.Usage.DeploymentCompute)
+	}
+	if resp.AccountID != testAccount().ID {
+		t.Errorf("account_id: want %q, got %q", testAccount().ID, resp.AccountID)
 	}
 }
 

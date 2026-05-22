@@ -989,7 +989,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log, omClient, nil),
+				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log, omClient),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1202,7 +1202,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentReadRoutes := agentRoutes.Group("")
 			agentReadRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(agentReadRoutes, "/usage/infrastructure", "Get agent infrastructure usage", handlers.GetInfrastructureUsage(log, omClient, agentIndex),
+				api.GET(agentReadRoutes, "/usage/infrastructure", "Get agent infrastructure usage", handlers.GetInfrastructureUsage(log, omClient),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

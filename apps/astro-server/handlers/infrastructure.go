@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
@@ -51,9 +50,9 @@ func parseTimeRange(c *gin.Context) (from, to time.Time, err error) {
 }
 
 // GetInfrastructureUsage handles infrastructure usage for both account and agent scopes.
-// When registered on a route with a :name param it validates the agent exists and returns
-// total compute across all deployments; otherwise returns the account total.
-func GetInfrastructureUsage(log *logger.Logger, omClient *openmeter.Client, index *agentindex.Index) gin.HandlerFunc {
+// When registered on a route with a :name param it returns total compute for that agent;
+// otherwise returns the account total.
+func GetInfrastructureUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if omClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "usage metering is not configured"})
@@ -73,12 +72,6 @@ func GetInfrastructureUsage(log *logger.Logger, omClient *openmeter.Client, inde
 		}
 
 		agentName := c.Param("name")
-		if agentName != "" && index != nil {
-			if _, err := index.Get(acct.ID, agentName); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "blueprint not found"})
-				return
-			}
-		}
 
 		params := openmeter.MeterQueryParams{
 			Subject: acct.ID,
