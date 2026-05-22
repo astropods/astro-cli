@@ -215,7 +215,7 @@ describe('Blueprints – page size preference', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /code-reviewer/i })).toBeInTheDocument();
-      expect(screen.getByLabelText('20 per page')).toHaveAttribute('data-state', 'on');
+      expect(screen.getByLabelText('20 per page')).toHaveAttribute('aria-pressed', 'true');
     });
   });
 

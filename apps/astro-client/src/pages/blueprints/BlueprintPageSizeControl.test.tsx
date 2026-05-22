@@ -21,7 +21,7 @@ describe('BlueprintPageSizeControl', () => {
 
   it('renders the current value', () => {
     render(<BlueprintPageSizeControl value={20} onChange={() => {}} />);
-    expect(screen.getByLabelText('20 per page')).toHaveAttribute('data-state', 'on');
+    expect(screen.getByLabelText('20 per page')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('persists and reports changes', () => {

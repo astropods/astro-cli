@@ -5,6 +5,7 @@ import { ACTIVITY_RANGES } from "./ranges";
 interface RangeOption {
   key: string;
   label: string;
+  ariaLabel?: string;
 }
 
 interface TimeRangeSelectorProps {
@@ -22,11 +23,12 @@ export function TimeRangeSelector({
 }: TimeRangeSelectorProps) {
   return (
     <div className="flex items-center rounded-md border border-border bg-surface/60 p-0.5">
-      {ranges.map(({ key, label }) => (
+      {ranges.map(({ key, label, ariaLabel }) => (
         <button
           key={key}
           type="button"
           onClick={() => onChange(key)}
+          aria-label={ariaLabel}
           aria-pressed={key === value}
           className={cn(
             "relative rounded-[10px] px-3 py-1 text-mono-sm font-medium transition-colors",

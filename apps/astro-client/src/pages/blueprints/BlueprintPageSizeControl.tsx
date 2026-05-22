@@ -3,7 +3,13 @@ import {
   type BlueprintPageSize,
 } from '@/lib/blueprint-list-params';
 import { persistBlueprintPageSize } from '@/lib/blueprint-page-size-preference';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { TimeRangeSelector } from '@/components/activity/TimeRangeSelector';
+
+const PAGE_SIZE_RANGES = BLUEPRINT_PAGE_SIZE_OPTIONS.map((size) => ({
+  key: String(size),
+  label: String(size),
+  ariaLabel: `${size} per page`,
+}));
 
 export function BlueprintPageSizeControl({
   value,
@@ -15,25 +21,16 @@ export function BlueprintPageSizeControl({
   return (
     <div className="flex shrink-0 items-center gap-2">
       <span className="text-body-sm text-muted-foreground whitespace-nowrap">Per page</span>
-      <ToggleGroup
-        type="single"
-        variant="word"
+      <TimeRangeSelector
         value={String(value)}
-        onValueChange={(next) => {
-          if (!next) return;
+        ranges={PAGE_SIZE_RANGES}
+        onChange={(next) => {
           const size = Number(next) as BlueprintPageSize;
           persistBlueprintPageSize(size);
           onChange(size);
         }}
-        aria-label="Blueprints per page"
-        className="shrink-0 [&_button]:min-w-[2.25rem] [&_button]:cursor-pointer [&_button]:px-2.5 [&_button]:text-body-sm"
-      >
-        {BLUEPRINT_PAGE_SIZE_OPTIONS.map((size) => (
-          <ToggleGroupItem key={size} value={String(size)} aria-label={`${size} per page`}>
-            {size}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+        layoutId="blueprint-page-size-pill"
+      />
     </div>
   );
 }
