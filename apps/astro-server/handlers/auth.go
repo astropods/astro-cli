@@ -177,13 +177,16 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 		}
 
 		// Determine screen hint for WorkOS AuthKit (sign-up vs sign-in)
-		var screenHint usermanagement.ScreenHint
+		var loginOpts auth.AuthorizationURLOpts
 		if sh := c.Query("screen_hint"); sh == "sign-up" {
-			screenHint = usermanagement.SignUp
+			loginOpts.ScreenHint = usermanagement.SignUp
+		}
+		if token := c.Query("invitation_token"); token != "" {
+			loginOpts.InvitationToken = token
 		}
 
 		// Get the authorization URL
-		authURL, err := h.workos.GetAuthorizationURL(state, screenHint)
+		authURL, err := h.workos.GetAuthorizationURL(state, loginOpts)
 		if err != nil {
 			h.log.Error("Failed to get authorization URL", "error", err)
 			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{

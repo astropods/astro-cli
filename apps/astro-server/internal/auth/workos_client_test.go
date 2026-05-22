@@ -13,7 +13,7 @@ func TestGetAuthorizationURL_IncludesState(t *testing.T) {
 		frontendURL: "https://app.astro.dev",
 	}
 
-	authURL, err := client.GetAuthorizationURL("test_state_abc")
+	authURL, err := client.GetAuthorizationURL("test_state_abc", AuthorizationURLOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestGetAuthorizationURL_IncludesRedirectURI(t *testing.T) {
 		frontendURL: "https://app.astro.dev",
 	}
 
-	authURL, err := client.GetAuthorizationURL("state")
+	authURL, err := client.GetAuthorizationURL("state", AuthorizationURLOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestGetAuthorizationURL_UsesAuthKit(t *testing.T) {
 		frontendURL: "https://app.astro.dev",
 	}
 
-	authURL, err := client.GetAuthorizationURL("state")
+	authURL, err := client.GetAuthorizationURL("state", AuthorizationURLOpts{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

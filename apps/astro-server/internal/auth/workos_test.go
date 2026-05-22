@@ -7,6 +7,53 @@ import (
 	"testing"
 )
 
+func TestGetAuthorizationURL_InvitationToken(t *testing.T) {
+	client := &WorkOSClient{
+		clientID:    "client_test",
+		redirectURI: "http://localhost:8080/auth/callback",
+	}
+
+	t.Run("empty opts — no invitation_token in URL", func(t *testing.T) {
+		u, err := client.GetAuthorizationURL("state123", AuthorizationURLOpts{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(u, "invitation_token") {
+			t.Errorf("expected no invitation_token in URL, got %s", u)
+		}
+	})
+
+	t.Run("empty InvitationToken — no invitation_token in URL", func(t *testing.T) {
+		u, err := client.GetAuthorizationURL("state123", AuthorizationURLOpts{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(u, "invitation_token") {
+			t.Errorf("expected no invitation_token in URL, got %s", u)
+		}
+	})
+
+	t.Run("InvitationToken set — appended to URL", func(t *testing.T) {
+		u, err := client.GetAuthorizationURL("state123", AuthorizationURLOpts{InvitationToken: "tok_abc"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(u, "invitation_token=tok_abc") {
+			t.Errorf("expected invitation_token=tok_abc in URL, got %s", u)
+		}
+	})
+
+	t.Run("InvitationToken does not replace state", func(t *testing.T) {
+		u, err := client.GetAuthorizationURL("state123", AuthorizationURLOpts{InvitationToken: "tok_abc"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(u, "state=state123") {
+			t.Errorf("expected state=state123 still in URL, got %s", u)
+		}
+	})
+}
+
 func TestExtractSessionIDFromToken(t *testing.T) {
 	tests := []struct {
 		name     string

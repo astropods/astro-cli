@@ -31,21 +31,32 @@ func NewWorkOSClient(apiKey, clientID, redirectURI, frontendURL string) *WorkOSC
 	}
 }
 
+type AuthorizationURLOpts struct {
+	ScreenHint      usermanagement.ScreenHint
+	InvitationToken string
+}
+
 // GetAuthorizationURL generates the WorkOS authorization URL for AuthKit.
-// An optional screen hint can be passed to direct WorkOS to the sign-up or sign-in screen.
-func (c *WorkOSClient) GetAuthorizationURL(state string, screenHint ...usermanagement.ScreenHint) (string, error) {
-	opts := usermanagement.GetAuthorizationURLOpts{
+func (c *WorkOSClient) GetAuthorizationURL(state string, opts AuthorizationURLOpts) (string, error) {
+	wopts := usermanagement.GetAuthorizationURLOpts{
 		ClientID:    c.clientID,
 		RedirectURI: c.redirectURI,
 		Provider:    "authkit",
 		State:       state,
 	}
-	if len(screenHint) > 0 && screenHint[0] != "" {
-		opts.ScreenHint = screenHint[0]
+	if opts.ScreenHint != "" {
+		wopts.ScreenHint = opts.ScreenHint
 	}
-	authURL, err := usermanagement.GetAuthorizationURL(opts)
+	authURL, err := usermanagement.GetAuthorizationURL(wopts)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate authorization URL: %w", err)
+	}
+	// The v6 SDK does not expose InvitationToken on GetAuthorizationURLOpts, so
+	// append it manually — WorkOS's authorization endpoint accepts it as a query param.
+	if opts.InvitationToken != "" {
+		q := authURL.Query()
+		q.Set("invitation_token", opts.InvitationToken)
+		authURL.RawQuery = q.Encode()
 	}
 	return authURL.String(), nil
 }
