@@ -27,9 +27,15 @@ const (
 // deploymentContext holds the resolved deployment plus the Prometheus filter
 // derived from it. Returned by resolveDeploymentContext for handlers that need
 // to query metrics scoped to a single deployment's pods.
+//
+// Beyla doesn't expose arbitrary pod labels, so we scope by the two labels it
+// always emits with k8s decoration enabled: k8s_namespace_name (per-account)
+// and service_name (per-agent, derived from app.kubernetes.io/name). Together
+// they uniquely identify a deployment's series.
 type deploymentContext struct {
 	Deployment    *deploymentstore.Deployment
-	AgentLabel    string // value of the astro.dev/agent Prom label
+	Namespace     string // k8s_namespace_name label value
+	ServiceName   string // service_name label value (sanitized agent name)
 	ClusterFilter string // ",cluster=\"X\"" or "" — append inside metric selectors
 }
 
@@ -67,7 +73,8 @@ func resolveDeploymentContext(
 
 	return &deploymentContext{
 		Deployment:    dep,
-		AgentLabel:    deployment.AgentLabelValue(dep.AccountID, dep.AgentName),
+		Namespace:     dep.Namespace,
+		ServiceName:   deployment.SanitizeName(dep.AgentName),
 		ClusterFilter: clusterFilter,
 	}, true
 }
@@ -159,9 +166,11 @@ var directionSpecs = map[string]directionSpec{
 	},
 }
 
-// nameSelector builds a {__name__=~"a|b",agent="X",cluster="Y",extra} matcher
-// for the requested metric suffix (e.g. "_count", "_bucket").
-func nameSelector(metrics []string, suffix, agentLabel, clusterFilter, extra string) string {
+// nameSelector builds a {__name__=~"a|b",k8s_namespace_name="ns",service_name="svc",cluster="Y",extra}
+// matcher for the requested metric suffix (e.g. "_count", "_bucket"). The
+// namespace + service_name pair is what Beyla actually emits and is what the
+// OBI Grafana dashboard filters on.
+func nameSelector(metrics []string, suffix, namespace, serviceName, clusterFilter, extra string) string {
 	expr := ""
 	for i, m := range metrics {
 		if i > 0 {
@@ -169,7 +178,8 @@ func nameSelector(metrics []string, suffix, agentLabel, clusterFilter, extra str
 		}
 		expr += m + suffix
 	}
-	return fmt.Sprintf(`{__name__=~"%s",agent="%s"%s%s}`, expr, agentLabel, clusterFilter, extra)
+	return fmt.Sprintf(`{__name__=~"%s",k8s_namespace_name="%s",service_name="%s"%s%s}`,
+		expr, namespace, serviceName, clusterFilter, extra)
 }
 
 // GetNetworkSummary returns RED-style aggregates per direction over a time window.
@@ -238,13 +248,14 @@ func fillDirectionSummary(
 	window networkWindow,
 	out *DirectionSummary,
 ) error {
-	agent := dctx.AgentLabel
+	ns := dctx.Namespace
+	svc := dctx.ServiceName
 	cluster := dctx.ClusterFilter
 	w := window.Range
 
 	// Request count: sum increase of *_count across the window.
 	reqQL := fmt.Sprintf(`sum(increase(%s[%s]))`,
-		nameSelector(spec.histogramMetrics, "_count", agent, cluster, ""), w)
+		nameSelector(spec.histogramMetrics, "_count", ns, svc, cluster, ""), w)
 	if s, err := promClient.Query(ctx, reqQL); err != nil {
 		return fmt.Errorf("request count: %w", err)
 	} else if len(s) > 0 {
@@ -255,7 +266,7 @@ func fillDirectionSummary(
 	// metrics carry http_response_status_code, so this stays zero for database.
 	if spec.hasStatusCode {
 		errQL := fmt.Sprintf(`sum(increase(%s[%s]))`,
-			nameSelector(spec.histogramMetrics, "_count", agent, cluster, `,http_response_status_code=~"4..|5.."`), w)
+			nameSelector(spec.histogramMetrics, "_count", ns, svc, cluster, `,http_response_status_code=~"4..|5.."`), w)
 		if s, err := promClient.Query(ctx, errQL); err != nil {
 			return fmt.Errorf("error count: %w", err)
 		} else if len(s) > 0 {
@@ -267,7 +278,7 @@ func fillDirectionSummary(
 	}
 
 	// Latency percentiles from histogram_quantile on the bucket family.
-	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", agent, cluster, "")
+	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", ns, svc, cluster, "")
 	for q, dst := range map[float64]**float64{
 		0.5:  &out.LatencyP50Ms,
 		0.95: &out.LatencyP95Ms,
@@ -287,7 +298,7 @@ func fillDirectionSummary(
 	// Unique peers: count of distinct peer-label values that had traffic.
 	peerQL := fmt.Sprintf(`count(sum by (%s) (increase(%s[%s])) > 0)`,
 		spec.peerLabel,
-		nameSelector(spec.histogramMetrics, "_count", agent, cluster, ""),
+		nameSelector(spec.histogramMetrics, "_count", ns, svc, cluster, ""),
 		w,
 	)
 	if s, err := promClient.Query(ctx, peerQL); err != nil {
@@ -299,7 +310,7 @@ func fillDirectionSummary(
 	// Bytes total. db_client metrics have no request-size counter.
 	if len(spec.sizeMetrics) > 0 {
 		bytesQL := fmt.Sprintf(`sum(increase(%s[%s]))`,
-			nameSelector(spec.sizeMetrics, "", agent, cluster, ""), w)
+			nameSelector(spec.sizeMetrics, "", ns, svc, cluster, ""), w)
 		if s, err := promClient.Query(ctx, bytesQL); err != nil {
 			return fmt.Errorf("bytes total: %w", err)
 		} else if len(s) > 0 {
@@ -403,7 +414,8 @@ func collectFlows(
 	window networkWindow,
 	direction string,
 ) ([]NetworkFlow, error) {
-	agent := dctx.AgentLabel
+	ns := dctx.Namespace
+	svc := dctx.ServiceName
 	cluster := dctx.ClusterFilter
 	w := window.Range
 	peerLabel := spec.peerLabel
@@ -412,8 +424,8 @@ func collectFlows(
 	// Per-peer request count + (for HTTP) status-code breakdown in one query.
 	// Sum by (peer, status_code) — collapsing status_code in Go gives requests,
 	// errors, and the 2xx/4xx/5xx buckets.
-	countSel := nameSelector(spec.histogramMetrics, "_count", agent, cluster, "")
-	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", agent, cluster, "")
+	countSel := nameSelector(spec.histogramMetrics, "_count", ns, svc, cluster, "")
+	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", ns, svc, cluster, "")
 
 	groupLabels := peerLabel
 	if spec.hasStatusCode {
@@ -444,7 +456,7 @@ func collectFlows(
 	})
 	if len(spec.sizeMetrics) > 0 {
 		bytesQL := fmt.Sprintf(`sum by (%s) (increase(%s[%s]))`,
-			peerLabel, nameSelector(spec.sizeMetrics, "", agent, cluster, ""), w)
+			peerLabel, nameSelector(spec.sizeMetrics, "", ns, svc, cluster, ""), w)
 		g.Go(func() error {
 			s, err := promClient.Query(gCtx, bytesQL)
 			bytesSamples = s
@@ -652,7 +664,8 @@ func queryTimeseries(
 	step time.Duration,
 	metric, groupBy string,
 ) ([]NetworkSeries, error) {
-	agent := dctx.AgentLabel
+	ns := dctx.Namespace
+	svc := dctx.ServiceName
 	cluster := dctx.ClusterFilter
 
 	// rateWindow is the lookback inside rate()/increase() — Beyla scrapes every
@@ -663,7 +676,7 @@ func queryTimeseries(
 	}
 	rw := fmt.Sprintf("%ds", int(rateWindow.Seconds()))
 
-	q, labelKey := buildTimeseriesQL(spec, metric, groupBy, agent, cluster, rw)
+	q, labelKey := buildTimeseriesQL(spec, metric, groupBy, ns, svc, cluster, rw)
 	matrix, err := promClient.QueryRange(ctx, q, window.From, window.To, step)
 	if err != nil {
 		return nil, err
@@ -695,12 +708,12 @@ func queryTimeseries(
 // buildTimeseriesQL produces the PromQL for a (metric, group_by) combination
 // and returns the label key the response should pull from each series' metric
 // labels (empty when no grouping → series labelled "total").
-func buildTimeseriesQL(spec directionSpec, metric, groupBy, agent, cluster, rw string) (string, string) {
-	countSel := nameSelector(spec.histogramMetrics, "_count", agent, cluster, "")
-	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", agent, cluster, "")
+func buildTimeseriesQL(spec directionSpec, metric, groupBy, namespace, serviceName, cluster, rw string) (string, string) {
+	countSel := nameSelector(spec.histogramMetrics, "_count", namespace, serviceName, cluster, "")
+	bucketSel := nameSelector(spec.histogramMetrics, "_bucket", namespace, serviceName, cluster, "")
 	bytesSel := ""
 	if len(spec.sizeMetrics) > 0 {
-		bytesSel = nameSelector(spec.sizeMetrics, "", agent, cluster, "")
+		bytesSel = nameSelector(spec.sizeMetrics, "", namespace, serviceName, cluster, "")
 	}
 
 	groupLabel := ""
@@ -713,7 +726,7 @@ func buildTimeseriesQL(spec directionSpec, metric, groupBy, agent, cluster, rw s
 
 	// errors restricts the same _count metric to 4xx/5xx via an extra matcher.
 	if metric == "errors" {
-		countSel = nameSelector(spec.histogramMetrics, "_count", agent, cluster, `,http_response_status_code=~"4..|5.."`)
+		countSel = nameSelector(spec.histogramMetrics, "_count", namespace, serviceName, cluster, `,http_response_status_code=~"4..|5.."`)
 	}
 
 	switch metric {

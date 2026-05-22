@@ -18,45 +18,49 @@ func init() {
 
 func TestNameSelector(t *testing.T) {
 	cases := []struct {
-		name     string
-		metrics  []string
-		suffix   string
-		agent    string
-		cluster  string
-		extra    string
-		expected string
+		name        string
+		metrics     []string
+		suffix      string
+		namespace   string
+		serviceName string
+		cluster     string
+		extra       string
+		expected    string
 	}{
 		{
-			name:     "single metric, no cluster",
-			metrics:  []string{"http_server_request_duration_seconds"},
-			suffix:   "_count",
-			agent:    "acct.bot",
-			cluster:  "",
-			extra:    "",
-			expected: `{__name__=~"http_server_request_duration_seconds_count",agent="acct.bot"}`,
+			name:        "single metric, no cluster",
+			metrics:     []string{"http_server_request_duration_seconds"},
+			suffix:      "_count",
+			namespace:   "astro-acct",
+			serviceName: "bot",
+			cluster:     "",
+			extra:       "",
+			expected:    `{__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot"}`,
 		},
 		{
-			name:     "union metrics with cluster",
-			metrics:  []string{"http_server_request_duration_seconds", "rpc_server_duration_seconds"},
-			suffix:   "_bucket",
-			agent:    "acct.bot",
-			cluster:  `,cluster="prod"`,
-			extra:    "",
-			expected: `{__name__=~"http_server_request_duration_seconds_bucket|rpc_server_duration_seconds_bucket",agent="acct.bot",cluster="prod"}`,
+			name:        "union metrics with cluster",
+			metrics:     []string{"http_server_request_duration_seconds", "rpc_server_duration_seconds"},
+			suffix:      "_bucket",
+			namespace:   "astro-acct",
+			serviceName: "bot",
+			cluster:     `,cluster="prod"`,
+			extra:       "",
+			expected:    `{__name__=~"http_server_request_duration_seconds_bucket|rpc_server_duration_seconds_bucket",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod"}`,
 		},
 		{
-			name:     "extra label appended",
-			metrics:  []string{"http_server_request_duration_seconds"},
-			suffix:   "_count",
-			agent:    "acct.bot",
-			cluster:  `,cluster="prod"`,
-			extra:    `,http_response_status_code=~"4..|5.."`,
-			expected: `{__name__=~"http_server_request_duration_seconds_count",agent="acct.bot",cluster="prod",http_response_status_code=~"4..|5.."}`,
+			name:        "extra label appended",
+			metrics:     []string{"http_server_request_duration_seconds"},
+			suffix:      "_count",
+			namespace:   "astro-acct",
+			serviceName: "bot",
+			cluster:     `,cluster="prod"`,
+			extra:       `,http_response_status_code=~"4..|5.."`,
+			expected:    `{__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod",http_response_status_code=~"4..|5.."}`,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := nameSelector(tc.metrics, tc.suffix, tc.agent, tc.cluster, tc.extra)
+			got := nameSelector(tc.metrics, tc.suffix, tc.namespace, tc.serviceName, tc.cluster, tc.extra)
 			if got != tc.expected {
 				t.Errorf("got %q\nwant %q", got, tc.expected)
 			}
@@ -179,15 +183,16 @@ func emptyVector() string {
 }
 
 func TestFillDirectionSummary_Inbound(t *testing.T) {
-	agent := "acct.bot"
+	ns := "astro-acct"
+	svc := "bot"
 	clusterFilter := `,cluster="prod"`
 	window := networkWindow{Range: "3600s"}
 
 	// Pre-compute the exact PromQL strings the handler will send.
-	bucketSel := `{__name__=~"http_server_request_duration_seconds_bucket",agent="acct.bot",cluster="prod"}`
-	countSel := `{__name__=~"http_server_request_duration_seconds_count",agent="acct.bot",cluster="prod"}`
-	errSel := `{__name__=~"http_server_request_duration_seconds_count",agent="acct.bot",cluster="prod",http_response_status_code=~"4..|5.."}`
-	bytesSel := `{__name__=~"http_server_request_size_bytes",agent="acct.bot",cluster="prod"}`
+	bucketSel := `{__name__=~"http_server_request_duration_seconds_bucket",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod"}`
+	countSel := `{__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod"}`
+	errSel := `{__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod",http_response_status_code=~"4..|5.."}`
+	bytesSel := `{__name__=~"http_server_request_size_bytes",k8s_namespace_name="astro-acct",service_name="bot",cluster="prod"}`
 
 	expected := map[string]string{
 		`sum(increase(` + countSel + `[3600s]))`:                                 vectorResp("1000"),
@@ -208,7 +213,8 @@ func TestFillDirectionSummary_Inbound(t *testing.T) {
 
 	client := promquery.NewClient(srv.URL, "prod")
 	dctx := &deploymentContext{
-		AgentLabel:    agent,
+		Namespace:     ns,
+		ServiceName:   svc,
 		ClusterFilter: clusterFilter,
 	}
 
@@ -305,9 +311,9 @@ func peers(flows []NetworkFlow) []string {
 
 func TestCollectFlows_InboundHTTP(t *testing.T) {
 	window := networkWindow{Range: "3600s"}
-	countSel := `{__name__=~"http_server_request_duration_seconds_count",agent="acct.bot"}`
-	bucketSel := `{__name__=~"http_server_request_duration_seconds_bucket",agent="acct.bot"}`
-	bytesSel := `{__name__=~"http_server_request_size_bytes",agent="acct.bot"}`
+	countSel := `{__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot"}`
+	bucketSel := `{__name__=~"http_server_request_duration_seconds_bucket",k8s_namespace_name="astro-acct",service_name="bot"}`
+	bytesSel := `{__name__=~"http_server_request_size_bytes",k8s_namespace_name="astro-acct",service_name="bot"}`
 
 	// Two routes: /users gets 200/500 traffic, /health is 200-only.
 	countResp := `{"status":"success","data":{"resultType":"vector","result":[
@@ -340,7 +346,7 @@ func TestCollectFlows_InboundHTTP(t *testing.T) {
 	defer srv.Close()
 
 	client := promquery.NewClient(srv.URL, "")
-	dctx := &deploymentContext{AgentLabel: "acct.bot"}
+	dctx := &deploymentContext{Namespace: "astro-acct", ServiceName: "bot"}
 
 	flows, err := collectFlows(context.Background(), client, directionSpecs["inbound"], dctx, window, "inbound")
 	if err != nil {
@@ -385,7 +391,8 @@ func TestBuildTimeseriesQL(t *testing.T) {
 	httpInbound := directionSpecs["inbound"]
 	httpOutbound := directionSpecs["outbound"]
 	db := directionSpecs["database"]
-	agent := "acct.bot"
+	ns := "astro-acct"
+	svc := "bot"
 	cluster := ""
 	rw := "120s"
 
@@ -402,14 +409,14 @@ func TestBuildTimeseriesQL(t *testing.T) {
 			spec:     httpInbound,
 			metric:   "rate",
 			groupBy:  "",
-			expectQL: `sum(rate({__name__=~"http_server_request_duration_seconds_count",agent="acct.bot"}[120s]))`,
+			expectQL: `sum(rate({__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot"}[120s]))`,
 		},
 		{
 			name:           "rate by peer (topk wrap)",
 			spec:           httpOutbound,
 			metric:         "rate",
 			groupBy:        "peer",
-			expectQL:       `topk(8, sum by (server_address) (rate({__name__=~"http_client_request_duration_seconds_count",agent="acct.bot"}[120s])))`,
+			expectQL:       `topk(8, sum by (server_address) (rate({__name__=~"http_client_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot"}[120s])))`,
 			expectLabelKey: "server_address",
 		},
 		{
@@ -417,7 +424,7 @@ func TestBuildTimeseriesQL(t *testing.T) {
 			spec:           httpInbound,
 			metric:         "rate",
 			groupBy:        "status_class",
-			expectQL:       `sum by (http_response_status_code) (rate({__name__=~"http_server_request_duration_seconds_count",agent="acct.bot"}[120s]))`,
+			expectQL:       `sum by (http_response_status_code) (rate({__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot"}[120s]))`,
 			expectLabelKey: "http_response_status_code",
 		},
 		{
@@ -425,21 +432,21 @@ func TestBuildTimeseriesQL(t *testing.T) {
 			spec:     httpInbound,
 			metric:   "errors",
 			groupBy:  "",
-			expectQL: `sum(rate({__name__=~"http_server_request_duration_seconds_count",agent="acct.bot",http_response_status_code=~"4..|5.."}[120s]))`,
+			expectQL: `sum(rate({__name__=~"http_server_request_duration_seconds_count",k8s_namespace_name="astro-acct",service_name="bot",http_response_status_code=~"4..|5.."}[120s]))`,
 		},
 		{
 			name:     "latency_p95 total",
 			spec:     httpInbound,
 			metric:   "latency_p95",
 			groupBy:  "",
-			expectQL: `histogram_quantile(0.95, sum by (le) (rate({__name__=~"http_server_request_duration_seconds_bucket",agent="acct.bot"}[120s])))`,
+			expectQL: `histogram_quantile(0.95, sum by (le) (rate({__name__=~"http_server_request_duration_seconds_bucket",k8s_namespace_name="astro-acct",service_name="bot"}[120s])))`,
 		},
 		{
 			name:           "latency_p95 by peer (topk wrap)",
 			spec:           db,
 			metric:         "latency_p95",
 			groupBy:        "peer",
-			expectQL:       `topk(8, histogram_quantile(0.95, sum by (db_system_name,le) (rate({__name__=~"db_client_operation_duration_seconds_bucket",agent="acct.bot"}[120s]))))`,
+			expectQL:       `topk(8, histogram_quantile(0.95, sum by (db_system_name,le) (rate({__name__=~"db_client_operation_duration_seconds_bucket",k8s_namespace_name="astro-acct",service_name="bot"}[120s]))))`,
 			expectLabelKey: "db_system_name",
 		},
 		{
@@ -447,13 +454,13 @@ func TestBuildTimeseriesQL(t *testing.T) {
 			spec:     httpOutbound,
 			metric:   "bytes",
 			groupBy:  "",
-			expectQL: `sum(rate({__name__=~"http_client_request_size_bytes",agent="acct.bot"}[120s]))`,
+			expectQL: `sum(rate({__name__=~"http_client_request_size_bytes",k8s_namespace_name="astro-acct",service_name="bot"}[120s]))`,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotQL, gotLabel := buildTimeseriesQL(tc.spec, tc.metric, tc.groupBy, agent, cluster, rw)
+			gotQL, gotLabel := buildTimeseriesQL(tc.spec, tc.metric, tc.groupBy, ns, svc, cluster, rw)
 			if gotQL != tc.expectQL {
 				t.Errorf("ql:\n got  %s\n want %s", gotQL, tc.expectQL)
 			}
@@ -520,7 +527,7 @@ func TestFillDirectionSummary_DatabaseSkipsErrorsAndBytes(t *testing.T) {
 	defer srv.Close()
 
 	client := promquery.NewClient(srv.URL, "")
-	dctx := &deploymentContext{AgentLabel: "acct.bot"}
+	dctx := &deploymentContext{Namespace: "astro-acct", ServiceName: "bot"}
 
 	var got DirectionSummary
 	if err := fillDirectionSummary(context.Background(), client, directionSpecs["database"], dctx, window, &got); err != nil {
