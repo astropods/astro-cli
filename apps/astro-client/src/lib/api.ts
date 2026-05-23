@@ -595,6 +595,16 @@ class ApiClient {
     );
   }
 
+  async getPodMetrics(
+    deploymentId: string,
+    pod: string,
+    range: PodMetricsRange,
+  ): Promise<PodMetricsResponse> {
+    return this.request<PodMetricsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/pods/${encodeURIComponent(pod)}/metrics?range=${range}`
+    );
+  }
+
   // Fetch ConfigMap data for a deployment
   async getConfigMapData(
     deploymentId: string,
@@ -1629,6 +1639,48 @@ export interface K8sEvent {
 
 export interface DeploymentEventsResponse {
   events: K8sEvent[];
+}
+
+// --- Pod metrics (CPU / memory time series) ---
+
+export type PodMetricsRange = "1h" | "6h" | "24h" | "7d";
+
+export interface PodMetricPoint {
+  /** ISO 8601 timestamp. */
+  timestamp: string;
+  /** CPU: vCPU cores. Memory: bytes (working set). */
+  value: number;
+}
+
+export interface PodMetricsResponse {
+  pod: string;
+  range: PodMetricsRange;
+  /** Bucket size as a Go duration string (e.g. "30s", "10m"). */
+  step: string;
+  /** Server always returns [] when there's no data, but defend against null
+   *  on the off chance the cached payload was produced before the server fix. */
+  cpu: PodMetricPoint[] | null;
+  memory: PodMetricPoint[] | null;
+  /** Sum of `kubelet_volume_stats_used_bytes` across this pod's PVCs.
+   *  Empty when the pod mounts no PVC. */
+  storage_used: PodMetricPoint[] | null;
+  /** Sum of `kubelet_volume_stats_capacity_bytes` across this pod's PVCs.
+   *  Empty when the pod mounts no PVC. */
+  storage_capacity: PodMetricPoint[] | null;
+  /** Pod-level network receive (ingress) throughput, bytes/sec. */
+  network_rx: PodMetricPoint[] | null;
+  /** Pod-level network transmit (egress) throughput, bytes/sec. */
+  network_tx: PodMetricPoint[] | null;
+  /** Filesystem read throughput across containers, bytes/sec. */
+  fs_read: PodMetricPoint[] | null;
+  /** Filesystem write throughput across containers, bytes/sec. */
+  fs_write: PodMetricPoint[] | null;
+  /** Timestamps (ISO 8601) of container restart events within the window.
+   *  Rendered as vertical markers across the CPU/Memory/Storage charts. */
+  restarts: string[] | null;
+  /** Timestamps (ISO 8601) of OOM-kill events within the window.
+   *  Rendered as vertical markers on the Memory chart only. */
+  ooms: string[] | null;
 }
 
 // Observability types

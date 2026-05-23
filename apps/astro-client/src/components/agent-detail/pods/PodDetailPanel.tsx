@@ -10,6 +10,7 @@ import { useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
 import { derivePodStatus } from "./PodTile";
 import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
+import { PodMetricsTab } from "./PodMetricsTab";
 
 const STATUS_CONFIG = {
   healthy: { dot: "bg-green-400", glow: "shadow-[0_0_6px_2px] shadow-green-400/50" },
@@ -18,7 +19,7 @@ const STATUS_CONFIG = {
   pending: { dot: "bg-blue-400", glow: "shadow-[0_0_6px_2px] shadow-blue-400/50" },
 } as const;
 
-const TABS = ["General", "Logs", "Events"] as const;
+const TABS = ["General", "Logs", "Metrics", "Events"] as const;
 type Tab = (typeof TABS)[number];
 
 interface PodDetailPanelProps {
@@ -117,6 +118,11 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, ex
       {logsVisited.current && (
         <div className={cn("min-h-0 flex-1 flex-col p-5", activeTab === "Logs" ? "flex" : "hidden")}>
           <PodLogsTab workload={workload} deploymentId={deploymentId} />
+        </div>
+      )}
+      {activeTab === "Metrics" && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+          <PodMetricsTab deploymentId={deploymentId} podName={workload.pod_name} />
         </div>
       )}
       {activeTab === "Events" && (

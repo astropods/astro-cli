@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
-import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
+import type { AgentDeployment, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
 import { hasContainerMismatch } from '@/lib/deployment-utils';
 import { deploymentKeys } from './keys';
 
@@ -145,6 +145,28 @@ export function useDeploymentEvents(deploymentId: string, enabled = true) {
     enabled: !!deploymentId && enabled,
     refetchInterval: 10_000,
     staleTime: 0,
+  });
+}
+
+/**
+ * CPU and memory time series for one pod. The server queries Prometheus, so
+ * results lag scrape interval (~30s). Refresh cadence scales with the window
+ * — short ranges get fresh data more often than week-long charts.
+ */
+export function usePodMetrics(
+  deploymentId: string,
+  pod: string,
+  range: PodMetricsRange,
+  enabled = true,
+) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.podMetrics(deploymentId, pod, range),
+    queryFn: () => api.getPodMetrics(deploymentId, pod, range),
+    enabled: !!deploymentId && !!pod && enabled,
+    refetchInterval: range === '1h' ? 30_000 : range === '6h' ? 60_000 : 5 * 60_000,
+    staleTime: 15_000,
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -106,6 +106,8 @@ export const deploymentKeys = {
     ['deployments', deploymentId, 'events'] as const,
   lastError: (deploymentId: string, workloadName: string, container: string) =>
     ['deployments', deploymentId, 'lastError', workloadName, container] as const,
+  podMetrics: (deploymentId: string, pod: string, range: string) =>
+    ['deployments', deploymentId, 'pods', pod, 'metrics', range] as const,
 };
 
 export const auditLogKeys = {

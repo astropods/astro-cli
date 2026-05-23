@@ -1549,6 +1549,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "peer | status_class — capped at 8 series for peer", false),
 				oapispec.Response(200, &handlers.NetworkTimeseriesResponse{}),
 			)
+			api.GET(protected, "/deployments/:id/pods/:pod/metrics", "Get CPU, memory and storage time series for a pod", handlers.GetWorkloadMetrics(log, accountStore, deploymentStore, promClient, k8sReg),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("pod", "Pod name (matches the cAdvisor `pod` label)"),
+				oapispec.QueryParam("range", "Window preset: 1h, 6h, 24h, or 7d (default 1h)", false),
+				oapispec.Response(200, &handlers.WorkloadMetricsResponse{}),
+			)
 		}
 
 		// GitHub connection routes
