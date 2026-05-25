@@ -468,13 +468,22 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	}
 
 	// Run via shell so the command string is interpreted correctly.
-	// Setpgid gives the process its own group so we can kill the entire tree.
+	// Setpgid gives the process its own group so we can kill the entire tree
+	// (bun --watch / python3 plus any agent-spawned children) via the group pid.
 	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand) //nolint:gosec
 	agentCmd.Dir = workingDir
 	agentCmd.Env = agentEnv
 	agentCmd.Stdout = os.Stdout
 	agentCmd.Stderr = os.Stderr
 	agentCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Override the default context-cancel kill (Process.Kill, which only targets sh)
+	// to signal the whole process group so watchers and grandchildren don't leak.
+	agentCmd.Cancel = func() error {
+		if agentCmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-agentCmd.Process.Pid, syscall.SIGTERM)
+	}
 	if err := agentCmd.Start(); err != nil {
 		agentCancel()
 		return fmt.Errorf("failed to start agent: %w", err)
@@ -518,11 +527,24 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	fmt.Printf("%s→%s Shutting down (Ctrl+C again to force)...\n", colorCyan, colorReset)
 
 	logsCancel()
-	agentCancel()
 	if agentCmd.Process != nil {
-		_ = agentCmd.Process.Kill()
-		_ = agentCmd.Wait() // reap the process to avoid leaving a zombie
+		// SIGTERM the entire process group (Setpgid above) so bun --watch
+		// workers and any children the agent spawned exit too — not just sh.
+		pgid := agentCmd.Process.Pid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		done := make(chan struct{})
+		go func() {
+			_ = agentCmd.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			<-done
+		}
 	}
+	agentCancel()
 
 	// Stop all services
 	localSvc, err := newComposeService(false)
