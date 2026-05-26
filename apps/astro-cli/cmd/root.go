@@ -153,7 +153,7 @@ func resolveSpecPath(specFile, workingDir string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", errNoSpecFile
+	return "", errNoSpecFile()
 }
 
 // resolveSpecPathAndCwd resolves the spec path and also returns the working directory.

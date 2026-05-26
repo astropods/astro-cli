@@ -9,13 +9,17 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
-var errNoSpecFile = errors.New("astropods.yml not found in current directory, run 'ast project create' to create a new agent harness or pass -f to specify a path to a valid spec")
+func errNoSpecFile() error {
+	return fmt.Errorf(
+		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
+		buildinfo.BinaryName,
+	)
+}
 
 func errDeployNameConflict(displayName string) error {
 	return fmt.Errorf(

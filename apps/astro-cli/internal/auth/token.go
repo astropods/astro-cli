@@ -55,7 +55,7 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 		newProfile, err := m.refreshToken(ctx, profile)
 		if err != nil {
 			// Return more specific error for refresh failures
-			return "", fmt.Errorf("token expired and refresh failed: %w. Run 'ast login' to re-authenticate", err)
+			return "", fmt.Errorf("token expired and refresh failed: %w. Run '%s login' to re-authenticate", err, m.storage.binaryName)
 		}
 		profile = newProfile
 	}
@@ -170,7 +170,7 @@ func (m *TokenManager) IsAuthenticated() bool {
 // RequireAuth returns an error if the user is not authenticated
 func (m *TokenManager) RequireAuth() error {
 	if !m.IsAuthenticated() {
-		return errors.New("not authenticated. Run 'ast login' to authenticate")
+		return fmt.Errorf("not authenticated. Run '%s login' to authenticate", m.storage.binaryName)
 	}
 	return nil
 }
@@ -187,7 +187,7 @@ func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organization
 	}
 
 	if profile.RefreshToken == "" {
-		return "", errors.New("no refresh token available. Run 'ast login' to re-authenticate")
+		return "", fmt.Errorf("no refresh token available. Run '%s login' to re-authenticate", m.storage.binaryName)
 	}
 
 	tokenResp, err := m.client.RefreshAccessTokenForOrg(ctx, profile.RefreshToken, organizationID)
@@ -240,7 +240,7 @@ func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
 	}
 
 	if profile.RefreshToken == "" {
-		return "", errors.New("no refresh token available. Run 'ast login' to re-authenticate")
+		return "", fmt.Errorf("no refresh token available. Run '%s login' to re-authenticate", m.storage.binaryName)
 	}
 
 	newProfile, err := m.refreshToken(ctx, profile)

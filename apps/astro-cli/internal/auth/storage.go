@@ -329,7 +329,7 @@ func (s *Storage) SetCurrentAccount(name string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("account %q not found; run 'ast account list' to see available accounts", name)
+		return fmt.Errorf("account %q not found; run '%s account list' to see available accounts", name, s.binaryName)
 	}
 
 	// Resolve the effective current account before overwriting it. If CurrentAccount
@@ -384,5 +384,5 @@ func (s *Storage) GetCurrentAccount() (string, error) {
 		return profile.User.AccountName, nil
 	}
 
-	return "", errors.New("no account set; run 'ast login' to authenticate")
+	return "", fmt.Errorf("no account set; run '%s login' to authenticate", s.binaryName)
 }

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,9 +275,9 @@ func printCodingPrompt(targetDir string, config scaffold.ScaffoldConfig, skipPro
 				Title("What should " + config.Name + " do?").
 				Description("Describe the agent logic and we'll build a prompt for your coding agent.").
 				Value(&goal),
-		)).WithTheme(cliHuhTheme())
-		if err := form.Run(); err != nil && !errors.Is(err, huh.ErrUserAborted) {
-			return
+		))
+		if err := runForm(form); err != nil {
+			return // includes tui.ErrCancelled — skip the prompt entirely on cancel
 		}
 		goal = strings.TrimSpace(goal)
 	}

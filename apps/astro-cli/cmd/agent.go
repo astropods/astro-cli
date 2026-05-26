@@ -411,10 +411,8 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 					Value(&confirmed),
 			),
 		)
-		form.WithTheme(cliHuhTheme())
-		if err := form.Run(); err != nil || !confirmed {
-			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "%sCancelled.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+		if err := runForm(form); err != nil || !confirmed {
+			printCancelled(cmd.OutOrStdout())
 			return nil
 		}
 	}

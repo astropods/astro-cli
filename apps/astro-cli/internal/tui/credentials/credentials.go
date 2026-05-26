@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -76,7 +78,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
+		case "ctrl+c", "esc":
 			m.quitting = true
 			return m, tea.Quit
 		case "enter":
@@ -135,8 +137,12 @@ func (m model) View() string {
 	}
 	b.WriteString("\n\n")
 	b.WriteString("  " + m.input.View())
+	b.WriteString(dimStyle.Render("   (leave blank to skip)"))
 	b.WriteString("\n\n")
-	b.WriteString(dimStyle.Render("  enter confirm · leave blank to skip"))
+	b.WriteString("  " + tui.Hint(nil,
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
+		tui.Cancel,
+	))
 	b.WriteString("\n")
 
 	return b.String()
@@ -158,7 +164,7 @@ func Run(provider string, creds []Credential) (Result, error) {
 
 	final := result.(model)
 	if final.quitting {
-		return Result{}, nil // cancelled — not an error, just skip
+		return nil, tui.ErrCancelled
 	}
 	return final.values, nil
 }

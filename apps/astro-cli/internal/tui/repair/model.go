@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -13,7 +15,6 @@ var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	selectedStyle = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 )
 
 // Item is a selectable file entry.
@@ -35,7 +36,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "esc":
 			m.quitting = true
 			return m, tea.Quit
 		case "up", "k":
@@ -78,13 +79,18 @@ func (m model) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+	b.WriteString("  " + tui.Hint(nil,
+		key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "navigate")),
+		key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
+		tui.Cancel,
+	))
 	b.WriteString("\n")
 	return b.String()
 }
 
-// Run shows the multi-select file picker and returns the items with updated selections.
-// Returns an error if the user cancels.
+// Run shows the multi-select file picker and returns the items with updated
+// selections. Returns tui.ErrCancelled if the user presses esc or ctrl+c.
 func Run(items []Item) ([]Item, error) {
 	m := model{items: items}
 	p := tea.NewProgram(m)
@@ -96,7 +102,7 @@ func Run(items []Item) ([]Item, error) {
 
 	final := result.(model)
 	if final.quitting {
-		return nil, fmt.Errorf("cancelled")
+		return nil, tui.ErrCancelled
 	}
 	return final.items, nil
 }

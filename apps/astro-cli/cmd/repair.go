@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	repairui "github.com/astropods/astro/apps/astro-cli/internal/tui/repair"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -32,7 +34,7 @@ func runRepair(specPath, workingDir string, yes bool) error {
 	if specPath != "" {
 		astroSpec, specErr = spec.ParseSpec(specPath)
 	} else {
-		specErr = errNoSpecFile
+		specErr = errNoSpecFile()
 	}
 
 	var config scaffold.ScaffoldConfig
@@ -138,7 +140,11 @@ func runRepair(specPath, workingDir string, yes bool) error {
 		}
 		selected, err := repairui.Run(items)
 		if err != nil {
-			return fmt.Errorf("repair cancelled")
+			if errors.Is(err, tui.ErrCancelled) {
+				printCancelled(os.Stdout)
+				return nil
+			}
+			return err
 		}
 		// Rebuild entries keeping only selected files
 		var filtered []fileEntry
