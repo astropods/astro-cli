@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -45,13 +47,16 @@ func pushRegistryURL() string {
 }
 
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
-func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error {
+// w is the destination for human-readable output (typically cmd.OutOrStdout()); tests can
+// redirect by passing a custom writer. Pipeline-internal prints still go to os.Stdout
+// because the pipeline doesn't take a writer yet — those are a follow-up.
+func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipelineConfig) error {
 	serverURL := pushBaseURL()
 	registryURL := pushRegistryURL()
 
 	if cfg.Verbose {
-		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, serverURL, colorReset)
-		fmt.Printf("%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, registryURL, colorReset)
+		fmt.Fprintf(w, "%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, serverURL, colorReset)   //nolint:errcheck,gosec
+		fmt.Fprintf(w, "%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, registryURL, colorReset) //nolint:errcheck,gosec
 	}
 
 	if registryURL == "" {
@@ -72,7 +77,7 @@ func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error
 
 	pipeline := NewPushPipeline(ctx, cfg)
 
-	fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n",
+	fmt.Fprintf(w, "%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", //nolint:errcheck,gosec
 		colorCyan, colorReset, colorBold, cfg.AgentName, colorReset,
 		colorCyan, at.Account, colorReset, pipeline.Tag())
 
@@ -87,6 +92,13 @@ func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error
 		LoadReadme().
 		Register().
 		Err(); err != nil {
+		// Surface the canonical dim "Cancelled." line for both esc/ctrl+c and
+		// explicit-"No" abort paths on the visibility prompt — exit 0 instead
+		// of bubbling the raw sentinel out to cobra as a failure.
+		if errors.Is(err, tui.ErrCancelled) {
+			printCancelled(w)
+			return nil
+		}
 		return err
 	}
 

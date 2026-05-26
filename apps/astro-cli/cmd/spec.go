@@ -44,7 +44,7 @@ var repairCmd = &cobra.Command{
 		if workingDir == "" {
 			return fmt.Errorf("failed to get working directory")
 		}
-		return runRepair(specPath, workingDir, flagBool(cmd, "yes"))
+		return runRepair(cmd.OutOrStdout(), specPath, workingDir, flagBool(cmd, "yes"))
 	},
 }
 

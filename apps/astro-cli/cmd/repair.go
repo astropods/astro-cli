@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,7 +29,10 @@ type repairFileCheck struct {
 }
 
 // runRepair expects an already-resolved spec path and working directory; the caller is responsible for resolution.
-func runRepair(specPath, workingDir string, yes bool) error {
+// w is the destination for the canonical "Cancelled." line when the user aborts the file-selection
+// TUI (typically cmd.OutOrStdout()). Other interactive prints in this function still go to
+// os.Stdout — they're part of a separate cleanup pass.
+func runRepair(w io.Writer, specPath, workingDir string, yes bool) error {
 	var astroSpec *spec.AstroSpec
 	var specErr error
 	if specPath != "" {
@@ -141,7 +145,7 @@ func runRepair(specPath, workingDir string, yes bool) error {
 		selected, err := repairui.Run(items)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
-				printCancelled(os.Stdout)
+				printCancelled(w)
 				return nil
 			}
 			return err
