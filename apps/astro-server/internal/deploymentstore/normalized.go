@@ -1090,6 +1090,65 @@ func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, e
 	return result, rows.Err()
 }
 
+// AgentProvisioning is the persisted resources and volume for an agent
+// workload, sourced from the normalized deployment_workloads /
+// deployment_volumes tables. nil when no agent row exists (legacy or
+// partially-rebuilt deployments) — callers should fall back to defaults.
+type AgentProvisioning struct {
+	Resources spec.DeploymentResources
+	Volume    string
+	Storage   *spec.StorageConfig
+}
+
+// GetAgentProvisioning loads the agent workload row for the deployment
+// and joins its optional persistent volume row, returning the values
+// the deployment-template prefill needs. Reading from normalized columns
+// here (rather than re-parsing deployment_spec_json) matches how
+// heartbeat, openmeter, and admin gRPC already read deployment state.
+func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, error) {
+	var (
+		cpuReq, memReq, cpuLim, memLim                sql.NullString
+		mountPath, size, accessMode                   sql.NullString
+		storageClass                                  sql.NullString
+	)
+	err := s.db.QueryRow(`
+		SELECT w.cpu_request, w.memory_request, w.cpu_limit, w.memory_limit,
+		       v.mount_path, v.size, v.storage_class, v.access_mode
+		FROM deployment_workloads w
+		LEFT JOIN deployment_volumes v ON v.workload_id = w.id
+		WHERE w.deployment_id = $1 AND w.component_kind = 'agent'
+		LIMIT 1
+	`, deploymentID).Scan(
+		&cpuReq, &memReq, &cpuLim, &memLim,
+		&mountPath, &size, &storageClass, &accessMode,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query agent provisioning: %w", err)
+	}
+	out := &AgentProvisioning{
+		Resources: spec.DeploymentResources{
+			CPU:         cpuReq.String,
+			Memory:      memReq.String,
+			CPULimit:    cpuLim.String,
+			MemoryLimit: memLim.String,
+		},
+	}
+	if mountPath.Valid && mountPath.String != "" {
+		out.Volume = mountPath.String
+		out.Storage = &spec.StorageConfig{
+			Size:       size.String,
+			AccessMode: accessMode.String,
+		}
+		if storageClass.Valid && storageClass.String != "" {
+			out.Storage.Class = storageClass.String
+		}
+	}
+	return out, nil
+}
+
 // ActiveDeploymentWorkload holds the fields the openmeter heartbeat needs per workload.
 type ActiveDeploymentWorkload struct {
 	AccountID     string

@@ -54,6 +54,12 @@ func apiPath(serverURL, account string, operation string, parts ...string) strin
 //   - Non-2xx response: (statusCode, err) — err contains the status code and response body
 //   - 2xx response: (statusCode, nil) — dest is populated if non-nil
 func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) (int, error) {
+	return apiCallWithHeaders(ctx, method, reqURL, body, token, nil, verbose, dest)
+}
+
+// apiCallWithHeaders is apiCall plus caller-supplied request headers (e.g.
+// X-Template-Signature for the deploy endpoint).
+func apiCallWithHeaders(ctx context.Context, method, reqURL string, body any, token string, headers http.Header, verbose bool, dest any) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -86,6 +92,11 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec

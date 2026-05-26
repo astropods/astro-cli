@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -65,6 +66,13 @@ type WorkloadMetricsResponse struct {
 	FsWrite         []MetricPoint `json:"fs_write"`         // disk write bytes/sec
 	Restarts        []time.Time   `json:"restarts"`         // container restart timestamps within window
 	OOMs            []time.Time   `json:"ooms"`             // OOM-kill timestamps within window
+	// CPULimit is the pod-level CPU limit (vCPU cores), summed across the
+	// pod's regular containers and any Always-restart init sidecars. 0 when
+	// the pod spec wasn't reachable or no limit was set.
+	CPULimit float64 `json:"cpu_limit"`
+	// MemoryLimit is the pod-level memory limit in bytes, summed the same way
+	// as CPULimit. 0 when unknown.
+	MemoryLimit int64 `json:"memory_limit"`
 }
 
 // GetWorkloadMetrics returns CPU, memory, and storage time series for a
@@ -120,10 +128,14 @@ func GetWorkloadMetrics(
 			return
 		}
 
-		// Resolve the pod's PVCs once up-front. Storage queries are skipped
-		// when the cluster client is unavailable or the pod mounts no PVC —
-		// the empty arrays still match the response contract.
-		pvcNames := podPVCNames(c.Request.Context(), k8sReg, dctx.Deployment, podName)
+		// Resolve the pod's PVCs and resource limits once up-front. Storage
+		// queries are skipped when the cluster client is unavailable or the
+		// pod mounts no PVC — the empty arrays still match the response
+		// contract. Limits fall back to 0 (i.e. "unknown") on the same path.
+		podInfo := podClusterInfo(c.Request.Context(), k8sReg, dctx.Deployment, podName)
+		pvcNames := podInfo.pvcs
+		resp.CPULimit = podInfo.cpuLimitCores
+		resp.MemoryLimit = podInfo.memLimitBytes
 
 		cpuQL, memQL := buildWorkloadMetricQueries(dctx.Namespace, podName, dctx.ClusterFilter, preset.step)
 		storageUsedQL, storageCapQL := buildStorageQueries(dctx.Namespace, pvcNames, dctx.ClusterFilter)
@@ -247,28 +259,56 @@ func GetWorkloadMetrics(
 	}
 }
 
-// podPVCNames returns the PVC names mounted by the pod, looked up via the
-// tenant cluster's K8s API. Returns nil on any failure — storage charts
-// degrade gracefully when the lookup can't run.
-func podPVCNames(ctx context.Context, k8sReg *k8s.Registry, dep *deploymentstore.Deployment, podName string) []string {
+// podMetricsInfo is the per-pod static context the metrics handler reads
+// straight from the K8s spec (rather than from Prometheus): which PVCs the
+// pod mounts plus the aggregated CPU/memory limits the scheduler enforces.
+type podMetricsInfo struct {
+	pvcs           []string
+	cpuLimitCores  float64
+	memLimitBytes  int64
+}
+
+// podClusterInfo fetches the pod from the tenant cluster and returns both
+// its mounted PVC names and its aggregated CPU/memory limits. Returns a
+// zero-valued struct on any failure — every chart degrades gracefully when
+// the lookup can't run.
+func podClusterInfo(ctx context.Context, k8sReg *k8s.Registry, dep *deploymentstore.Deployment, podName string) podMetricsInfo {
+	var info podMetricsInfo
 	if k8sReg == nil {
-		return nil
+		return info
 	}
 	k8sClient, err := deploymentClusterClient(ctx, k8sReg, dep)
 	if err != nil || k8sClient == nil {
-		return nil
+		return info
 	}
 	pod, err := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
-		return nil
+		return info
 	}
-	var names []string
 	for _, v := range pod.Spec.Volumes {
 		if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName != "" {
-			names = append(names, v.PersistentVolumeClaim.ClaimName)
+			info.pvcs = append(info.pvcs, v.PersistentVolumeClaim.ClaimName)
 		}
 	}
-	return names
+	addLimits := func(c corev1.Container) {
+		if q, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
+			info.cpuLimitCores += q.AsApproximateFloat64()
+		}
+		if q, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+			info.memLimitBytes += q.Value()
+		}
+	}
+	for _, ctr := range pod.Spec.Containers {
+		addLimits(ctr)
+	}
+	// Native sidecars (Always-restart init containers) run concurrently with
+	// regular containers, so their limits contribute to the pod-level limit.
+	for _, ctr := range pod.Spec.InitContainers {
+		if ctr.RestartPolicy != nil && *ctr.RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			addLimits(ctr)
+		}
+	}
+	return info
 }
 
 // buildIOQueries returns PromQL for the four pod-level IO throughput

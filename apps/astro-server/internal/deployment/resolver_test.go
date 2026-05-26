@@ -365,16 +365,11 @@ func TestValidateAndResolve_InlineKnowledgeMissingEndpoints(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolve_StripsEditable(t *testing.T) {
+func TestValidateAndResolve_SetsDeploymentSpecVersion(t *testing.T) {
 	ds := baseDeploymentSpec()
-	// Editable is a template-only field; resolver strips it and sets spec to deployment/v1
-	// We test that editable is nil after resolution
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Spec.Editable != nil {
-		t.Error("expected editable to be stripped after resolution")
 	}
 	if result.Spec.Spec != "deployment/v1" {
 		t.Errorf("expected spec version deployment/v1 after resolution, got %s", result.Spec.Spec)

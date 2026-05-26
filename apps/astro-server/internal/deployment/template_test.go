@@ -101,31 +101,6 @@ func TestTemplate_ObservabilityDefaults(t *testing.T) {
 	}
 }
 
-func TestTemplate_EditableFieldsPresent(t *testing.T) {
-	ds := mustGenerate(t, baseInput())
-
-	if len(ds.Editable) == 0 {
-		t.Fatal("editable: expected non-empty list")
-	}
-
-	// Spot-check critical editable paths
-	expected := []string{
-		"agent.replicas",
-		"agent.environment",
-		"variables.*.value",
-		"interfaces.adapters",
-	}
-	editSet := make(map[string]bool, len(ds.Editable))
-	for _, e := range ds.Editable {
-		editSet[e] = true
-	}
-	for _, e := range expected {
-		if !editSet[e] {
-			t.Errorf("editable: missing expected field path %q", e)
-		}
-	}
-}
-
 // ===== Phase 2: Agent Block =====
 
 func TestTemplate_AgentBlock(t *testing.T) {
@@ -2628,7 +2603,6 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 	// --- GET path: manual client-side fulfillment ---
 	getSpec := deepCopySpec(base)
 	getSpec.Spec = "deployment/v1"
-	getSpec.Editable = nil
 
 	// Apply adapter shaping on the GET copy — same operation ShapeTemplate performs.
 	// This injects slack vars, wires interfaces.environment, flips optionality, and
@@ -2682,9 +2656,6 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 	if postSpec.Spec != "deployment/v1" {
 		t.Errorf("POST spec version: expected deployment/v1, got %s", postSpec.Spec)
 	}
-	if postSpec.Editable != nil {
-		t.Errorf("POST spec should not have editable, got %v", postSpec.Editable)
-	}
 }
 
 // ===== ShapeTemplate =====
@@ -2718,16 +2689,6 @@ func TestShapeTemplate_EmptyRequest(t *testing.T) {
 	// Template spec is deployment/v1
 	if resp.Template.Spec != "deployment/v1" {
 		t.Errorf("template.Spec: expected deployment/v1, got %s", resp.Template.Spec)
-	}
-
-	// Template should not have editable
-	if resp.Template.Editable != nil {
-		t.Errorf("template.Editable should be nil, got %v", resp.Template.Editable)
-	}
-
-	// Root editable should be populated
-	if len(resp.Editable) == 0 {
-		t.Error("resp.Editable should be non-empty")
 	}
 
 	// Root interfaces: adapters should be empty, auth should reflect template
@@ -3142,24 +3103,7 @@ func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 		t.Fatal("precondition: shaped template should NOT include SLACK_BOT_TOKEN when slack is not selected")
 	}
 
-	// 3. Simulate the deploy handler: regenerate a fresh template.
-	freshTemplate := mustGenerate(t, input)
-
-	// Without the fix this would fail:
-	// "variables.SLACK_BOT_TOKEN: cannot remove variable from template"
-	ApplyAdapterShaping(freshTemplate, submittedSpec.Interfaces.Adapters)
-
-	// Sync target fields the same way the deploy handler does.
-	freshTemplate.Target.Account = submittedSpec.Target.Account
-	freshTemplate.Target.DisplayName = submittedSpec.Target.DisplayName
-	freshTemplate.Target.DeploymentID = submittedSpec.Target.DeploymentID
-
-	errs := spec.EnforceEditable(freshTemplate, submittedSpec)
-	if len(errs) > 0 {
-		t.Errorf("expected no errors after stripping non-selected adapter vars, got: %v", errs)
-	}
-
-	// Also verify that ValidateAndResolve passes — previously the stripping left
+	// Verify that ValidateAndResolve passes — previously the stripping left
 	// dangling ${variables.SLACK_CONFIG} references in interfaces.environment.
 	result, err := ValidateAndResolve(submittedSpec)
 	if err != nil {
@@ -3282,10 +3226,9 @@ func TestApplyAdapterShaping_SlackOptionalityFlipped(t *testing.T) {
 	}
 }
 
-// Regression: deploy with slack selected must pass EnforceEditable. The shaped
-// template flips SLACK_BOT_TOKEN.optional to false; the deploy handler must do
-// the same on the regenerated template or EnforceEditable rejects it.
-func TestApplyAdapterShaping_DeployRoundTripSlackSelected(t *testing.T) {
+// Selecting slack must flip SLACK_BOT_TOKEN.Optional to false so the shaped
+// template enforces the token as required at validation time.
+func TestApplyAdapterShaping_SlackSelectedFlipsOptionality(t *testing.T) {
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 
@@ -3298,18 +3241,12 @@ func TestApplyAdapterShaping_DeployRoundTripSlackSelected(t *testing.T) {
 			"SLACK_APP_TOKEN": {Value: "xapp-test"},
 		},
 	}, nil)
-	submittedSpec := &shaped.Template
 
-	freshTemplate := mustGenerate(t, input)
-	ApplyAdapterShaping(freshTemplate, submittedSpec.Interfaces.Adapters)
-
-	freshTemplate.Target.Account = submittedSpec.Target.Account
-	freshTemplate.Target.DisplayName = submittedSpec.Target.DisplayName
-	freshTemplate.Target.DeploymentID = submittedSpec.Target.DeploymentID
-
-	errs := spec.EnforceEditable(freshTemplate, submittedSpec)
-	if len(errs) > 0 {
-		t.Errorf("expected no errors deploying with slack selected, got: %v", errs)
+	if shaped.Variables["SLACK_BOT_TOKEN"].Optional {
+		t.Error("SLACK_BOT_TOKEN should be required when slack is selected")
+	}
+	if shaped.Variables["SLACK_APP_TOKEN"].Optional {
+		t.Error("SLACK_APP_TOKEN should be required when slack is selected")
 	}
 }
 
@@ -3397,11 +3334,6 @@ func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 			"POSTGRES_PASSWORD": {Targets: []string{"knowledge.postgres"}, Secret: true},
 			"AGENT_VAR":         {Targets: []string{"agent"}, Value: "v"},
 		},
-		Editable: []string{
-			"knowledge.postgres.replicas",
-			"knowledge.postgres.resources",
-			"agent.replicas",
-		},
 	}
 
 	// Submitted spec is what ShapeTemplate would have produced — bound entry zeroed.
@@ -3412,7 +3344,6 @@ func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 		Variables: map[string]spec.Variable{
 			"AGENT_VAR": {Targets: []string{"agent"}, Value: "v"},
 		},
-		Editable: []string{"agent.replicas"},
 	}
 
 	ApplyBindingShaping(template, submitted)
@@ -3440,29 +3371,6 @@ func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 	if _, ok := template.Variables["AGENT_VAR"]; !ok {
 		t.Error("expected AGENT_VAR to be kept")
 	}
-
-	// Editable fields for bound entry should be removed.
-	for _, f := range template.Editable {
-		if strings.HasPrefix(f, "knowledge.postgres.") {
-			t.Errorf("expected knowledge.postgres editable fields to be removed, found %q", f)
-		}
-	}
-	// Non-bound editable should be kept.
-	found := false
-	for _, f := range template.Editable {
-		if f == "agent.replicas" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected agent.replicas to remain in editable")
-	}
-
-	// EnforceEditable should now pass.
-	errs := spec.EnforceEditable(template, submitted)
-	if len(errs) > 0 {
-		t.Errorf("expected no errors after binding shaping, got: %v", errs)
-	}
 }
 
 // ApplyBindingShaping should be a no-op when no knowledge entries are bound.
@@ -3477,7 +3385,6 @@ func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
 		Variables: map[string]spec.Variable{
 			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
 		},
-		Editable: []string{"knowledge.postgres.replicas"},
 	}
 
 	submitted := &spec.AstroDeploymentSpec{
@@ -3490,7 +3397,6 @@ func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
 		Variables: map[string]spec.Variable{
 			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
 		},
-		Editable: []string{"knowledge.postgres.replicas"},
 	}
 
 	ApplyBindingShaping(template, submitted)
@@ -3501,9 +3407,6 @@ func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
 	}
 	if _, ok := template.Variables["POSTGRES_USER"]; !ok {
 		t.Error("POSTGRES_USER should still be present")
-	}
-	if len(template.Editable) != 1 {
-		t.Errorf("expected 1 editable field, got %d", len(template.Editable))
 	}
 }
 

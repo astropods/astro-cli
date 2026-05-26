@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"sort"
 	"strings"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/robfig/cron/v3"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -405,10 +407,58 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		wireInterfaceEnvironment(ds)
 	}
 
-	// Editable fields
-	ds.Editable = defaultEditableFields()
-
 	return ds, nil
+}
+
+// applyCompute overlays a user-facing ComponentCompute on top of base
+// DeploymentResources. Any non-empty field on c becomes both request and
+// limit on the result (Guaranteed QoS); empty fields keep the base values.
+func applyCompute(base spec.DeploymentResources, c *spec.ComponentCompute) spec.DeploymentResources {
+	out := base
+	if c == nil {
+		return out
+	}
+	if c.CPU != "" {
+		out.CPU = c.CPU
+		out.CPULimit = c.CPU
+	}
+	if c.Memory != "" {
+		out.Memory = c.Memory
+		out.MemoryLimit = c.Memory
+	}
+	return out
+}
+
+// applyVolume overlays a ComponentVolume override onto the agent's
+// existing volume + storage. A non-empty Mount switches the agent to
+// the StatefulSet path; supplying Storage when no mount exists is a
+// no-op (the user must set a mount first).
+func applyVolume(agent *spec.DeploymentAgent, v *spec.ComponentVolume) {
+	if v == nil {
+		return
+	}
+	if v.Mount != "" {
+		agent.Volume = v.Mount
+	}
+	if agent.Volume == "" {
+		return
+	}
+	if agent.Storage == nil {
+		def := spec.DefaultStorageConfig()
+		agent.Storage = &def
+	}
+	if v.Storage == nil {
+		return
+	}
+	if v.Storage.Size != "" {
+		agent.Storage.Size = v.Storage.Size
+	}
+	if v.Storage.Class != "" {
+		agent.Storage.Class = v.Storage.Class
+	}
+	if v.Storage.AccessMode != "" {
+		agent.Storage.AccessMode = v.Storage.AccessMode
+	}
 }
 
 // ShapeOptions carries optional dependencies for binding resolution in ShapeTemplate.
@@ -493,23 +543,14 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 					}
 				}
 			}
-
-			// Remove editable fields for bound entries.
-			filtered := shaped.Editable[:0]
-			for _, field := range shaped.Editable {
-				exclude := false
-				for name := range boundNames {
-					if strings.HasPrefix(field, "knowledge."+name+".") {
-						exclude = true
-						break
-					}
-				}
-				if !exclude {
-					filtered = append(filtered, field)
-				}
-			}
-			shaped.Editable = filtered
 		}
+	}
+
+	// --- Provisioning shaping ---
+	if req.Provisioning != nil && req.Provisioning.Agent != nil {
+		p := req.Provisioning.Agent
+		shaped.Agent.Resources = applyCompute(shaped.Agent.Resources, p.Compute)
+		applyVolume(&shaped.Agent, p.Volume)
 	}
 
 	// --- Variable filling ---
@@ -541,12 +582,8 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
 	maps.Copy(schemaVars, shaped.Variables)
 
-	// Root Editable = promoted from template
-	editable := shaped.Editable
-
 	// Template = deployment/v1 ready: strip template-only fields
 	shaped.Spec = "deployment/v1"
-	shaped.Editable = nil
 	for key, v := range shaped.Variables {
 		v.Description = ""
 		v.Label = ""
@@ -589,6 +626,9 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		}
 	}
 
+	// Agent provisioning validation
+	errs = append(errs, validateAgentProvisioning(&shaped.Agent)...)
+
 	// Sort errors for deterministic output
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Field < errs[j].Field })
 
@@ -609,14 +649,31 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		}
 	}
 
+	// Promote resolved agent provisioning to the response root so clients
+	// can render sizing controls without diffing nested template fields.
+	respProvisioning := spec.TemplateProvisioning{
+		Agent: &spec.ComponentProvisioning{
+			Compute: &spec.ComponentCompute{
+				CPU:    shaped.Agent.Resources.CPU,
+				Memory: shaped.Agent.Resources.Memory,
+			},
+		},
+	}
+	if shaped.Agent.Volume != "" {
+		respProvisioning.Agent.Volume = &spec.ComponentVolume{
+			Mount:   shaped.Agent.Volume,
+			Storage: shaped.Agent.Storage,
+		}
+	}
+
 	return &spec.TemplateResponse{
-		Spec:       "deployment-template/v1",
-		Template:   *shaped,
-		Variables:  schemaVars,
-		Editable:   editable,
-		Interfaces: respInterfaces,
-		Schedules:  respSchedules,
-		Bindings:   resolvedBindings,
+		Spec:         "deployment-template/v1",
+		Template:     *shaped,
+		Variables:    schemaVars,
+		Interfaces:   respInterfaces,
+		Schedules:    respSchedules,
+		Bindings:     resolvedBindings,
+		Provisioning: respProvisioning,
 		Validation: spec.TemplateValidation{
 			Valid:  len(errs) == 0,
 			Errors: errs,
@@ -643,6 +700,33 @@ func isValidCron(expr string) bool {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	_, err := parser.Parse(expr)
 	return err == nil
+}
+
+// validateAgentProvisioning checks that the agent's resolved compute and
+// volume settings are well-formed. Field paths match the wire shape so
+// clients can map errors back to the controls the user touched.
+func validateAgentProvisioning(a *spec.DeploymentAgent) []spec.ValidationError {
+	var errs []spec.ValidationError
+	checkQuantity := func(field, value string) {
+		if value == "" {
+			return
+		}
+		if _, err := k8sresource.ParseQuantity(value); err != nil {
+			errs = append(errs, spec.ValidationError{Field: field, Message: "invalid quantity: " + err.Error()})
+		}
+	}
+	checkQuantity("agent.compute.cpu", a.Resources.CPU)
+	checkQuantity("agent.compute.memory", a.Resources.Memory)
+	if a.Volume != "" && !path.IsAbs(a.Volume) {
+		errs = append(errs, spec.ValidationError{
+			Field:   "agent.volume.mount",
+			Message: "mount path must be absolute",
+		})
+	}
+	if a.Storage != nil {
+		checkQuantity("agent.volume.storage.size", a.Storage.Size)
+	}
+	return errs
 }
 
 // portNameToProtocol maps a provider-defined port name to one of the valid spec protocols
@@ -863,9 +947,7 @@ func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *spec.Template
 
 // ApplyBindingShaping adjusts a template so that knowledge entries whose
 // submitted counterparts carry a binding ARN are zeroed to match the shape
-// the client originally received from ShapeTemplate. Without this the
-// EnforceEditable check would compare a full (unshaped) template against the
-// shaped submitted spec and reject the server-owned fields.
+// the client originally received from ShapeTemplate.
 func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.AstroDeploymentSpec) {
 	boundNames := make(map[string]bool)
 	for name, k := range submitted.Knowledge {
@@ -893,22 +975,6 @@ func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.Ast
 			}
 		}
 	}
-
-	// Remove editable fields for bound entries.
-	filtered := template.Editable[:0]
-	for _, field := range template.Editable {
-		exclude := false
-		for name := range boundNames {
-			if strings.HasPrefix(field, "knowledge."+name+".") {
-				exclude = true
-				break
-			}
-		}
-		if !exclude {
-			filtered = append(filtered, field)
-		}
-	}
-	template.Editable = filtered
 }
 
 func buildDeploymentModel(model spec.Model, name string, input TemplateInput) spec.DeploymentModel {
@@ -1225,46 +1291,6 @@ func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
 				break
 			}
 		}
-	}
-}
-
-func defaultEditableFields() []string {
-	return []string{
-		"agent.replicas",
-		"agent.resources",
-		"agent.environment",
-		"agent.healthcheck",
-		"agent.update",
-		"agent.endpoints.*.expose",
-		"models.*.replicas",
-		"models.*.resources",
-		"models.*.gpu",
-		"models.*.environment",
-		"models.*.healthcheck",
-		"models.*.update",
-		"knowledge.*.replicas",
-		"knowledge.*.resources",
-		"knowledge.*.storage",
-		"knowledge.*.environment",
-		"knowledge.*.healthcheck",
-		"knowledge.*.update",
-		"integrations.*.replicas",
-		"integrations.*.resources",
-		"integrations.*.environment",
-		"integrations.*.healthcheck",
-		"integrations.*.update",
-		"ingestion.*.resources",
-		"ingestion.*.trigger.schedule",
-		"ingestion.*.environment",
-		"interfaces.adapters",
-		"interfaces.resources",
-		"interfaces.endpoints.*.expose",
-		"variables.*.value",
-		"variables.*.targets",
-		"observability.enabled",
-		"observability.resources",
-		"observability.environment",
-		"interfaces.auth",
 	}
 }
 

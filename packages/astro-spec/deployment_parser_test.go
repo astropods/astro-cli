@@ -455,8 +455,6 @@ variables:
 observability:
   enabled: true
   provider: langfuse
-editable:
-  - variables.*.value
 `
 	ds, err := ParseDeploymentSpec([]byte(yaml))
 	if err != nil {
@@ -485,9 +483,6 @@ editable:
 	}
 	if ds.Ingestion["sync"].Trigger.Schedule != "0 */6 * * *" {
 		t.Errorf("ingestion trigger.schedule: got %s", ds.Ingestion["sync"].Trigger.Schedule)
-	}
-	if len(ds.Editable) != 1 {
-		t.Errorf("editable: expected 1, got %d", len(ds.Editable))
 	}
 }
 
@@ -728,27 +723,6 @@ ingestion:
 	}
 	if PrimaryPort(ds.Ingestion["data"].Endpoints) != 3001 {
 		t.Errorf("expected port 3001, got %d", PrimaryPort(ds.Ingestion["data"].Endpoints))
-	}
-}
-
-func TestParseDeploymentSpec_DeploymentV1RejectsEditable(t *testing.T) {
-	yaml := `
-spec: deployment/v1
-source:
-  name: x
-  build: b1
-  registry: r
-agent:
-  image: x
-  endpoints:
-    http:
-      port: 8080
-editable:
-  - variables.*.value
-`
-	_, err := ParseDeploymentSpec([]byte(yaml))
-	if err == nil {
-		t.Fatal("expected error: deployment/v1 must not contain editable")
 	}
 }
 

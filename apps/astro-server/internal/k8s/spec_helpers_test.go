@@ -23,11 +23,11 @@ func TestBuildResourceRequirements_Standard(t *testing.T) {
 	if res.Requests.Cpu().String() != "100m" {
 		t.Errorf("cpu request: expected 100m, got %s", res.Requests.Cpu().String())
 	}
-	if res.Requests.Memory().String() != "256Mi" {
-		t.Errorf("memory request: expected 256Mi, got %s", res.Requests.Memory().String())
+	if res.Requests.Memory().String() != "1Gi" {
+		t.Errorf("memory request: expected 1Gi, got %s", res.Requests.Memory().String())
 	}
-	if res.Limits.Cpu().String() != "1" {
-		t.Errorf("cpu limit: expected 1, got %s", res.Limits.Cpu().String())
+	if res.Limits.Cpu().String() != "100m" {
+		t.Errorf("cpu limit: expected 100m, got %s", res.Limits.Cpu().String())
 	}
 	if res.Limits.Memory().String() != "1Gi" {
 		t.Errorf("memory limit: expected 1Gi, got %s", res.Limits.Memory().String())

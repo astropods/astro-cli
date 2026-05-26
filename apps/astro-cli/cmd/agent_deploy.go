@@ -18,6 +18,7 @@ type deployTemplateRequest struct {
 	DeploymentID string                    `json:"deployment_id,omitempty"`
 	Interfaces   *deployTemplateInterfaces `json:"interfaces,omitempty"`
 	Variables    map[string]deployVarInput `json:"variables,omitempty"`
+	Finalize     bool                      `json:"finalize,omitempty"`
 }
 
 type deployTemplateInterfaces struct {
@@ -51,6 +52,7 @@ type deployTemplateValidation struct {
 type deployTemplateResponse struct {
 	Template   json.RawMessage          `json:"template"`
 	Validation deployTemplateValidation `json:"validation"`
+	Signature  string                   `json:"signature,omitempty"`
 }
 
 type agentDeployResult struct {
@@ -239,6 +241,10 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	}
 	fmt.Fprintf(w, "%s→%s %s blueprint %s%s%s as agent %s%s%s\n", colorCyan, colorReset, verb, colorBold, name, colorReset, colorBold, displayName, colorReset) //nolint:errcheck,gosec
 
+	// finalize=true asks the server to sign the template; the signature is
+	// the only deploy-time integrity check, so we always request it here.
+	req.Finalize = true
+
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "deployment-template")
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
@@ -273,8 +279,9 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	}
 
 	deployURL := blueprintBaseURL() + "/api/v1/deploy"
+	deployHeaders := http.Header{"X-Template-Signature": []string{tmplResp.Signature}}
 	var result agentDeployResult
-	if status, err := apiCall(cmd.Context(), http.MethodPost, deployURL, template, at.Token, verbose, &result); err != nil {
+	if status, err := apiCallWithHeaders(cmd.Context(), http.MethodPost, deployURL, template, at.Token, deployHeaders, verbose, &result); err != nil {
 		if status == http.StatusNotFound {
 			return fmt.Errorf("agent deployment %q no longer exists", displayName)
 		}

@@ -17,7 +17,6 @@ type AstroDeploymentSpec struct {
 	Interfaces    *DeploymentInterfaces            `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
 	Variables     map[string]Variable              `json:"variables,omitempty" yaml:"variables,omitempty"`
 	Observability DeploymentObservability          `json:"observability" yaml:"observability"`
-	Editable      []string                         `json:"editable,omitempty" yaml:"editable,omitempty"`
 }
 
 // DeploymentAuthorizationGrant is a single subject access grant. The adapter
@@ -109,12 +108,18 @@ type DeploymentTarget struct {
 }
 
 // DeploymentAgent describes the main agent container.
+//
+// When Volume is set the agent runs as a StatefulSet with a PVC sized by
+// Storage (defaults applied if Storage is nil). An empty Volume means an
+// ephemeral Deployment.
 type DeploymentAgent struct {
 	Image       string              `json:"image" yaml:"image"`
 	Endpoints   map[string]Endpoint `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
 	Distributed bool                `json:"distributed,omitempty" yaml:"distributed,omitempty"`
 	Replicas    int                 `json:"replicas" yaml:"replicas"`
 	Resources   DeploymentResources `json:"resources" yaml:"resources"`
+	Volume      string              `json:"volume,omitempty" yaml:"volume,omitempty"` // mount path; non-empty switches to StatefulSet + PVC
+	Storage     *StorageConfig      `json:"storage,omitempty" yaml:"storage,omitempty"`
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Update      UpdateStrategy      `json:"update" yaml:"update"`
@@ -267,20 +272,20 @@ type UpdateStrategy struct {
 // Resource defaults by component tier.
 var (
 	StandardResources = DeploymentResources{
-		CPU: "100m", Memory: "256Mi",
-		CPULimit: "1", MemoryLimit: "1Gi",
+		CPU: "100m", Memory: "1Gi",
+		CPULimit: "100m", MemoryLimit: "1Gi",
 	}
 	GPUResources = DeploymentResources{
 		CPU: "2", Memory: "8Gi",
 		CPULimit: "4", MemoryLimit: "16Gi",
 	}
 	MessagingResources = DeploymentResources{
-		CPU: "100m", Memory: "128Mi",
-		CPULimit: "500m", MemoryLimit: "512Mi",
+		CPU: "100m", Memory: "256Mi",
+		CPULimit: "100m", MemoryLimit: "256Mi",
 	}
 	CollectorResources = DeploymentResources{
 		CPU: "50m", Memory: "128Mi",
-		CPULimit: "250m", MemoryLimit: "256Mi",
+		CPULimit: "50m", MemoryLimit: "128Mi",
 	}
 )
 
@@ -360,7 +365,38 @@ type TemplateRequest struct {
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
 	Schedules    map[string]string        `json:"schedules,omitempty"` // ingestion name → cron expression
 	Bindings     *TemplateBindings        `json:"bindings,omitempty"`
-	Finalize     bool                     `json:"finalize,omitempty"` // when true, response includes an HMAC signature for deploy
+	Provisioning *TemplateProvisioning    `json:"provisioning,omitempty"` // per-component compute/volume overrides
+	Finalize     bool                     `json:"finalize,omitempty"`     // when true, response includes an HMAC signature for deploy
+}
+
+// TemplateProvisioning carries per-component compute and storage overrides.
+// In v1 only the agent container is tunable; models and knowledge stores
+// follow tier defaults and may be opened up later if there is demand.
+// Nil/zero fields cause the server to fall back to the agent's
+// astropods.yml declaration, then tier defaults.
+type TemplateProvisioning struct {
+	Agent *ComponentProvisioning `json:"agent,omitempty"`
+}
+
+// ComponentProvisioning groups the user-tunable infra knobs for one component.
+type ComponentProvisioning struct {
+	Compute *ComponentCompute `json:"compute,omitempty"`
+	Volume  *ComponentVolume  `json:"volume,omitempty"`
+}
+
+// ComponentCompute is the user-facing compute shape: one CPU value and one
+// memory value, no separate request/limit. The server expands this into
+// K8s requests + limits with request == limit, putting the pod in the
+// Guaranteed QoS class.
+type ComponentCompute struct {
+	CPU    string `json:"cpu,omitempty"`    // e.g. "500m", "1", "2"
+	Memory string `json:"memory,omitempty"` // e.g. "512Mi", "1Gi", "4Gi"
+}
+
+// ComponentVolume describes a mount path and the PVC backing it.
+type ComponentVolume struct {
+	Mount   string         `json:"mount,omitempty"`
+	Storage *StorageConfig `json:"storage,omitempty"`
 }
 
 // VariableInput carries a user-supplied value or account-variable ref for a single variable.
@@ -371,15 +407,15 @@ type VariableInput struct {
 
 // TemplateResponse is the response from the interactive POST deployment-template endpoint.
 type TemplateResponse struct {
-	Spec       string              `json:"spec"`                // "deployment-template/v1"
-	Template   AstroDeploymentSpec `json:"template"`            // deployment/v1 — directly postable to /deploy
-	Variables  map[string]Variable `json:"variables,omitempty"` // promoted variable schema for the UI
-	Editable   []string            `json:"editable,omitempty"`  // promoted editable fields for the UI
-	Interfaces TemplateInterfaces  `json:"interfaces"`          // user-editable interface config (adapters + auth + grants)
-	Schedules  map[string]string   `json:"schedules"`           // ingestion name → cron expression
-	Bindings   *ResolvedBindings   `json:"bindings,omitempty"`  // resolved binding metadata for the UI
-	Validation TemplateValidation  `json:"validation"`          // validity + field-level errors
-	Signature  string              `json:"signature,omitempty"` // HMAC-SHA256 of the template spec; deploy endpoint verifies this
+	Spec         string               `json:"spec"`                   // "deployment-template/v1"
+	Template     AstroDeploymentSpec  `json:"template"`               // deployment/v1 — directly postable to /deploy
+	Variables    map[string]Variable  `json:"variables,omitempty"`    // promoted variable schema for the UI
+	Interfaces   TemplateInterfaces   `json:"interfaces"`             // user-editable interface config (adapters + auth + grants)
+	Schedules    map[string]string    `json:"schedules"`              // ingestion name → cron expression
+	Bindings     *ResolvedBindings    `json:"bindings,omitempty"`     // resolved binding metadata for the UI
+	Provisioning TemplateProvisioning `json:"provisioning,omitzero"`  // resolved compute/volume values (echo of input + defaults)
+	Validation   TemplateValidation   `json:"validation"`             // validity + field-level errors
+	Signature    string               `json:"signature,omitempty"`    // HMAC-SHA256 of the template spec; deploy endpoint verifies this
 }
 
 // TemplateInterfaces carries the user-editable subset of DeploymentInterfaces

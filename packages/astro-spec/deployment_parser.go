@@ -224,13 +224,6 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 		}
 	}
 
-	// deployment/v1-specific (Rules 20, 21)
-	if isFulfilled {
-		if len(ds.Editable) > 0 {
-			return fmt.Errorf("deployment/v1 must not contain the editable field")
-		}
-	}
-
 	return nil
 }
 

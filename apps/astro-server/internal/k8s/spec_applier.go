@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -244,18 +245,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 
-		storageSize := "10Gi"
-		storageClass := ""
-		accessMode := corev1.ReadWriteOnce
-		if knowledge.Storage != nil {
-			if knowledge.Storage.Size != "" {
-				storageSize = knowledge.Storage.Size
-			}
-			storageClass = knowledge.Storage.Class
-			if knowledge.Storage.AccessMode == "ReadWriteMany" {
-				accessMode = corev1.ReadWriteMany
-			}
-		}
+		storageSize, storageClass, accessMode := pvcConfigFromSpec(knowledge.Storage)
 
 		// Use knowledge-specific credential secret if available.
 		knowledgeSecretName := knowledgeCredSecretName(agentName, name)
@@ -815,54 +805,16 @@ func (a *Applier) ApplyDeploymentSpec(
 		a.applyServiceAndRecord(ctx, collectorSvc, result)
 	}
 
-	// Main agent deployment — messaging is colocated as a sidecar container
-	agentContainer := spec.ContainerConfig{Image: ds.Agent.Image}
-	resolvedAgentContainer, err := a.resolveContainerImage(ctx, agentContainer)
-	if err != nil {
-		result.Errors = append(result.Errors, deployment.DeploymentError{
-			Resource: agentResourceName, Kind: "Deployment",
-			Error: fmt.Sprintf("failed to resolve image: %v", err),
-		})
-	} else {
-		var agentExtraEnv []corev1.EnvVar
-		if deployToken != "" {
-			agentExtraEnv = append(agentExtraEnv, corev1.EnvVar{
-				Name:  "ASTRO_AUTHZ_TOKEN",
-				Value: deployToken,
-			})
-		}
-
-		// Wire knowledge-store credentials (USER/PASSWORD) onto the agent
-		// using per-key secretKeyRef instead of envFrom. envFrom mounts every
-		// key in a Secret as an env var — when two same-provider stores share
-		// literal keys (POSTGRES_USER in both postgres-creds and users-creds)
-		// the agent's environment collides silently. With explicit per-key
-		// refs we can name them per store (POSTGRES_USER + POSTGRES_USERS_USER)
-		// per RFC §8.2 and avoid the collision entirely.
-		agentExtraEnv = append(agentExtraEnv, knowledgeCredEnvVars(ds, agentName, knowledgeCredSecrets)...)
-
-		cfg := DeploymentConfig{
-			Name: agentResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
-			BuildID: buildID, Component: "agent",
-			Container: resolvedAgentContainer, Port: agentPort,
-			SecretName: secretName, ConfigMapName: configMapName,
-			EnvHash:     envHash,
-			ExtraEnv:    agentExtraEnv,
-			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
-			Resources: BuildResourceRequirements(ds.Agent.Resources),
-			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
-			Messaging: msgSidecar,
-		}
-		agentDepl := BuildDeployment(cfg)
-		status, err := a.applyDeployment(ctx, agentDepl)
-		result.Resources = append(result.Resources, status)
-		if err != nil {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: agentDepl.Name, Kind: "Deployment", Error: err.Error(),
-			})
-		}
-	}
+	// Main agent workload — messaging is colocated as a sidecar container.
+	// When the agent declares a persistent volume we run it as a StatefulSet
+	// with a PVC; otherwise a stateless Deployment.
+	a.applyAgentWorkload(ctx, agentWorkloadInput{
+		ds: ds, agentName: agentName, accountName: accountName, buildID: buildID,
+		resourceName: agentResourceName, port: agentPort, deployToken: deployToken,
+		secretName: secretName, configMapName: configMapName, envHash: envHash,
+		knowledgeCredSecrets: knowledgeCredSecrets,
+		msgSidecar:           msgSidecar,
+	}, result)
 
 	// Phase 7: CronJobs/Jobs for ingestion
 	//
@@ -1048,6 +1000,125 @@ func (a *Applier) ApplyDeploymentSpec(
 // Returns 0 if endpoints is nil or empty.
 func primaryPort(endpoints map[string]spec.Endpoint) int32 {
 	return int32(spec.PrimaryPort(endpoints)) // nolint:gosec
+}
+
+// pvcConfigFromSpec unpacks a spec.StorageConfig into the size/class/access-mode
+// triple BuildStatefulSet expects. Defaults match DefaultStorageConfig().
+func pvcConfigFromSpec(s *spec.StorageConfig) (size, class string, mode corev1.PersistentVolumeAccessMode) {
+	size, mode = "10Gi", corev1.ReadWriteOnce
+	if s == nil {
+		return
+	}
+	if s.Size != "" {
+		size = s.Size
+	}
+	class = s.Class
+	if s.AccessMode == "ReadWriteMany" {
+		mode = corev1.ReadWriteMany
+	}
+	return
+}
+
+// agentWorkloadInput collects the cluster-side inputs needed to apply the
+// agent's Deployment or StatefulSet. Pulled out so the branch in
+// ApplyDeploymentSpec stays readable.
+type agentWorkloadInput struct {
+	ds                                              *spec.AstroDeploymentSpec
+	agentName, accountName, buildID, resourceName   string
+	port                                            int32
+	deployToken, secretName, configMapName, envHash string
+	knowledgeCredSecrets                            []string
+	msgSidecar                                      *MessagingDeploymentConfig
+}
+
+// applyAgentWorkload resolves the agent image, builds its extra env, and
+// applies either a StatefulSet (when ds.Agent.Volume is set) or a Deployment.
+// Errors land on result.Errors so callers don't have to thread them back.
+func (a *Applier) applyAgentWorkload(ctx context.Context, in agentWorkloadInput, result *ApplyResult) {
+	agentContainer := spec.ContainerConfig{Image: in.ds.Agent.Image, Volume: in.ds.Agent.Volume}
+	resolvedContainer, err := a.resolveContainerImage(ctx, agentContainer)
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: in.resourceName, Kind: "Deployment",
+			Error: fmt.Sprintf("failed to resolve image: %v", err),
+		})
+		return
+	}
+
+	var extraEnv []corev1.EnvVar
+	if in.deployToken != "" {
+		extraEnv = append(extraEnv, corev1.EnvVar{Name: "ASTRO_AUTHZ_TOKEN", Value: in.deployToken})
+	}
+	// Wire knowledge-store credentials (USER/PASSWORD) onto the agent using
+	// per-key secretKeyRef rather than envFrom: envFrom mounts every key in a
+	// Secret, so two same-provider stores sharing literal keys (e.g.
+	// POSTGRES_USER in both postgres-creds and users-creds) collide silently.
+	// Per-key refs let us rename per store (POSTGRES_USER + POSTGRES_USERS_USER)
+	// per RFC §8.2 and avoid the collision entirely.
+	extraEnv = append(extraEnv, knowledgeCredEnvVars(in.ds, in.agentName, in.knowledgeCredSecrets)...)
+
+	if in.ds.Agent.Volume != "" {
+		size, class, mode := pvcConfigFromSpec(in.ds.Agent.Storage)
+		ss, ssErr := BuildStatefulSet(StatefulSetConfig{
+			Name: in.resourceName, Namespace: a.namespace, AccountID: in.accountName, AgentName: in.agentName,
+			BuildID: in.buildID, Component: "agent",
+			Container: resolvedContainer, Port: in.port,
+			SecretName: in.secretName, ConfigMapName: in.configMapName,
+			StorageSize: size, StorageClass: class, AccessMode: mode,
+			Healthcheck:     in.ds.Agent.Healthcheck,
+			ImagePullPolicy: a.imagePullPolicy,
+			Replicas:        int32(in.ds.Agent.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirements(in.ds.Agent.Resources),
+			Strategy:        BuildStatefulSetUpdateStrategy(in.ds.Agent.Update),
+			LocalMode:       a.localMode,
+			EnvHash:         in.envHash,
+			ExtraEnv:        extraEnv,
+			Messaging:       in.msgSidecar,
+		})
+		if ssErr != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: in.resourceName, Kind: "StatefulSet", Error: ssErr.Error(),
+			})
+			return
+		}
+		// Delete the PVC when the agent StatefulSet is removed (e.g. the user
+		// toggles the persistent volume off on redeploy) so we don't leave
+		// orphan disks billing in the namespace. Knowledge stores opt out of
+		// this and retain on delete; see knowledge_provisioner.go.
+		ss.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+		}
+		status, applyErr := a.applyStatefulSet(ctx, ss)
+		result.Resources = append(result.Resources, status)
+		if applyErr != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: ss.Name, Kind: "StatefulSet", Error: applyErr.Error(),
+			})
+		}
+		return
+	}
+
+	depl := BuildDeployment(DeploymentConfig{
+		Name: in.resourceName, Namespace: a.namespace, AccountID: in.accountName, AgentName: in.agentName,
+		BuildID: in.buildID, Component: "agent",
+		Container: resolvedContainer, Port: in.port,
+		SecretName: in.secretName, ConfigMapName: in.configMapName,
+		EnvHash:     in.envHash,
+		ExtraEnv:    extraEnv,
+		Healthcheck: in.ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+		Replicas:  int32(in.ds.Agent.Replicas), //nolint:gosec
+		Resources: BuildResourceRequirements(in.ds.Agent.Resources),
+		Strategy:  BuildDeploymentStrategy(in.ds.Agent.Update),
+		Messaging: in.msgSidecar,
+	})
+	status, applyErr := a.applyDeployment(ctx, depl)
+	result.Resources = append(result.Resources, status)
+	if applyErr != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: depl.Name, Kind: "Deployment", Error: applyErr.Error(),
+		})
+	}
 }
 
 // ensureNamespace creates the namespace if it doesn't exist, or patches labels if it does.

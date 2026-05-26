@@ -40,6 +40,9 @@ type StatefulSetConfig struct {
 	LocalMode        bool                              // Skip security hardening (local K8s only)
 	FsGroup          int64                             // non-zero → pod/container run as this uid/gid (overrides hardened default of 1000)
 	EnvHash          string                            // Content hash of ConfigMap+Secret data; triggers rolling restart on env-only changes
+	ExtraEnv         []corev1.EnvVar                   // Additional env vars (e.g. ASTRO_AUTHZ_TOKEN, knowledge secretKeyRefs)
+	ExtraSecretNames []string                          // Additional Secrets to mount as envFrom (e.g. knowledge credentials)
+	Messaging        *MessagingDeploymentConfig        // nil means no messaging sidecar (used by the agent StatefulSet path)
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage.
@@ -140,6 +143,18 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 			},
 		})
 	}
+
+	// Mount additional secrets (e.g. knowledge store credentials for the agent).
+	for _, extraSecret := range cfg.ExtraSecretNames {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: extraSecret},
+			},
+		})
+	}
+
+	// Append explicit env vars (e.g. ASTRO_AUTHZ_TOKEN, knowledge secretKeyRefs).
+	container.Env = append(container.Env, cfg.ExtraEnv...)
 
 	// Set resources: explicit config takes precedence
 	if cfg.Resources != nil {
@@ -258,6 +273,12 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 						NodeSelector: cfg.NodeSelector,
 						Tolerations:  tolerations,
 						Volumes:      extraVolumes,
+					}
+					if cfg.Messaging != nil {
+						msgContainer := buildMessagingContainer(*cfg.Messaging)
+						restartAlways := corev1.ContainerRestartPolicyAlways
+						msgContainer.RestartPolicy = &restartAlways
+						ps.InitContainers = append(ps.InitContainers, msgContainer)
 					}
 					if !cfg.LocalMode {
 						hardenPodSpec(&ps)

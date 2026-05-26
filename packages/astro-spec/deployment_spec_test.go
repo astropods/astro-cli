@@ -35,11 +35,11 @@ func TestStandardResources(t *testing.T) {
 	if r.CPU != "100m" {
 		t.Errorf("expected 100m, got %s", r.CPU)
 	}
-	if r.Memory != "256Mi" {
-		t.Errorf("expected 256Mi, got %s", r.Memory)
+	if r.Memory != "1Gi" {
+		t.Errorf("expected 1Gi, got %s", r.Memory)
 	}
-	if r.CPULimit != "1" {
-		t.Errorf("expected 1, got %s", r.CPULimit)
+	if r.CPULimit != "100m" {
+		t.Errorf("expected 100m, got %s", r.CPULimit)
 	}
 	if r.MemoryLimit != "1Gi" {
 		t.Errorf("expected 1Gi, got %s", r.MemoryLimit)
@@ -58,21 +58,21 @@ func TestGPUResources(t *testing.T) {
 
 func TestMessagingResources(t *testing.T) {
 	r := MessagingResources
-	if r.CPU != "100m" {
-		t.Errorf("expected 100m, got %s", r.CPU)
+	if r.CPU != "100m" || r.CPULimit != "100m" {
+		t.Errorf("expected request==limit at 100m, got %s/%s", r.CPU, r.CPULimit)
 	}
-	if r.MemoryLimit != "512Mi" {
-		t.Errorf("expected 512Mi, got %s", r.MemoryLimit)
+	if r.Memory != "256Mi" || r.MemoryLimit != "256Mi" {
+		t.Errorf("expected request==limit at 256Mi, got %s/%s", r.Memory, r.MemoryLimit)
 	}
 }
 
 func TestCollectorResources(t *testing.T) {
 	r := CollectorResources
-	if r.CPU != "50m" {
-		t.Errorf("expected 50m, got %s", r.CPU)
+	if r.CPU != "50m" || r.CPULimit != "50m" {
+		t.Errorf("expected request==limit at 50m, got %s/%s", r.CPU, r.CPULimit)
 	}
-	if r.MemoryLimit != "256Mi" {
-		t.Errorf("expected 256Mi, got %s", r.MemoryLimit)
+	if r.Memory != "128Mi" || r.MemoryLimit != "128Mi" {
+		t.Errorf("expected request==limit at 128Mi, got %s/%s", r.Memory, r.MemoryLimit)
 	}
 }
 

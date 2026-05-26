@@ -1338,10 +1338,9 @@ export interface DeploymentTemplate {
   interfaces?: Record<string, unknown>;
   variables?: Record<string, DeploymentVariable>;
   observability?: Record<string, unknown>;
-  editable?: string[];
 }
 
-export type DeploymentSpec = Omit<DeploymentTemplate, 'spec' | 'editable'> & {
+export type DeploymentSpec = Omit<DeploymentTemplate, 'spec'> & {
   spec: 'deployment/v1';
 };
 
@@ -1357,6 +1356,7 @@ export interface TemplateRequest {
   bindings?: {
     knowledge?: Record<string, string>; // entry name → store ARN
   };
+  provisioning?: TemplateProvisioning;
   finalize?: boolean;
 }
 
@@ -1371,14 +1371,37 @@ export interface TemplateResponse {
   spec: 'deployment-template/v1';
   template: DeploymentSpec;
   variables: Record<string, DeploymentVariable>;
-  editable: string[];
   interfaces: TemplateInterfaces;
   schedules: Record<string, string>;
   bindings?: {
     knowledge?: Record<string, KnowledgeBindingInfo>;
   };
+  provisioning?: TemplateProvisioning;
   validation: TemplateValidation;
   signature?: string;
+}
+
+/** Top-level provisioning block — per-component compute/volume overrides.
+ *  v1 scopes this to the agent container only. */
+export interface TemplateProvisioning {
+  agent?: ComponentProvisioning;
+}
+
+export interface ComponentProvisioning {
+  compute?: ComponentCompute;
+  volume?: ComponentVolume;
+}
+
+/** Simple compute knobs; the server expands these into K8s requests==limits
+ *  (Guaranteed QoS). */
+export interface ComponentCompute {
+  cpu?: string;
+  memory?: string;
+}
+
+export interface ComponentVolume {
+  mount?: string;
+  storage?: { size?: string; class?: string; access_mode?: string };
 }
 
 /** Authorization grant — exactly one of org, user_id, or anyone must be set.
@@ -1681,6 +1704,12 @@ export interface PodMetricsResponse {
   /** Timestamps (ISO 8601) of OOM-kill events within the window.
    *  Rendered as vertical markers on the Memory chart only. */
   ooms: string[] | null;
+  /** Pod-level CPU limit in vCPU cores, summed across regular containers and
+   *  Always-restart init sidecars. 0 when unknown or no limit is set. */
+  cpu_limit: number;
+  /** Pod-level memory limit in bytes, summed the same way as cpu_limit.
+   *  0 when unknown or no limit is set. */
+  memory_limit: number;
 }
 
 // Observability types

@@ -34,6 +34,24 @@ func TestComputeExpectedResourceNames_MinimalAgent(t *testing.T) {
 	}
 }
 
+func TestComputeExpectedResourceNames_AgentWithVolume_IsStatefulSet(t *testing.T) {
+	// When ds.Agent.Volume is set the applier creates a StatefulSet (+PVC).
+	// computeExpectedResourceNames must mirror that, otherwise orphan
+	// cleanup deletes the agent on every reconcile.
+	ds := minimalDeploymentSpec()
+	ds.Agent.Volume = "/data"
+
+	expected := computeExpectedResourceNames(ds, "", "")
+
+	agentName := deployment.GenerateAgentResourceName("my-agent", "agent")
+	if !expected["StatefulSet"][agentName] {
+		t.Errorf("expected agent StatefulSet %s", agentName)
+	}
+	if expected["Deployment"][agentName] {
+		t.Errorf("agent must not be in Deployment set when Volume is set")
+	}
+}
+
 func TestComputeExpectedResourceNames_WithIntegrationsAndKnowledge(t *testing.T) {
 	ds := minimalDeploymentSpec()
 	ds.Integrations = map[string]spec.DeploymentIntegration{

@@ -12,6 +12,8 @@ import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
 import { KnowledgeBindingPicker } from "./KnowledgeBindingPicker";
+import { VolumePicker } from "./VolumePicker";
+import { AdvancedProvisioningFields } from "./AdvancedProvisioningFields";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
@@ -227,6 +229,28 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           />
         </FormSection>
       )}
+
+      {/* Volume */}
+      <FormSection title="Volume" description="Attach a persistent volume to your agent.">
+        <VolumePicker
+          volumeMount={form.agentVolumeMount}
+          onVolumeMountChange={form.setAgentVolumeMount}
+        />
+      </FormSection>
+
+      {/* Advanced provisioning (collapsed by default) */}
+      <FormSection title="Resources" description="Override the default compute and storage allocations.">
+        <AdvancedProvisioningFields
+          cpu={form.agentCpu}
+          memory={form.agentMemory}
+          volumeEnabled={!!form.agentVolumeMount.trim()}
+          storageSize={form.agentStorageSize}
+          storageLocked={form.volumeAlreadyProvisioned}
+          onCpuChange={form.setAgentCpu}
+          onMemoryChange={form.setAgentMemory}
+          onStorageSizeChange={form.setAgentStorageSize}
+        />
+      </FormSection>
 
       {/* Ingestion schedules + manual triggers */}
       {(form.scheduleIngestions.length > 0 || ingestionExtra) && (

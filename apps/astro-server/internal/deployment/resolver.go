@@ -142,9 +142,6 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 
 	// 9. Apply defaults for any omitted optional fields
 	resolved := applyDefaults(submitted)
-
-	// 10. Strip editable field (template-only) and set spec version
-	resolved.Editable = nil
 	resolved.Spec = "deployment/v1"
 
 	result.Spec = resolved

@@ -180,14 +180,13 @@ export const mockTemplate: DeploymentTemplate = {
       },
     },
   },
-  editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
 export function wrapTemplateResponse(
   tmpl: DeploymentTemplate,
   reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> },
 ): TemplateResponse {
-  const { editable, variables, spec: _spec, ...rest } = tmpl;
+  const { variables, spec: _spec, ...rest } = tmpl;
   const reqAdapters = reqBody?.interfaces?.adapters;
   const slackSelected = reqAdapters?.includes('slack') ?? false;
   const templateVars: Record<string, { value?: string; ref?: string; targets: string[]; secret?: boolean; optional?: boolean }> = {};
@@ -236,7 +235,6 @@ export function wrapTemplateResponse(
     spec: 'deployment-template/v1',
     template: { ...shapedRest, spec: 'deployment/v1', variables: templateVars } as DeploymentSpec,
     variables: schemaVars,
-    editable: editable ?? [],
     interfaces: { adapters: shapedAdapters, auth: shapedAuth },
     schedules,
     validation: { valid: errors.length === 0, errors },

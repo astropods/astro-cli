@@ -672,11 +672,6 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 		t.Errorf("observability.provider: expected langfuse, got %s", ds.Observability.Provider)
 	}
 
-	// === Editable fields ===
-	if len(ds.Editable) == 0 {
-		t.Error("editable: expected non-empty")
-	}
-
 	// === YAML round-trip ===
 	yamlBytes, err := spec.SerializeDeploymentSpec(ds)
 	if err != nil {

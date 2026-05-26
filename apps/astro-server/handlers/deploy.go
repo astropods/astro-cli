@@ -440,73 +440,15 @@ func prepareDeployment(
 		"user_id", user.ID,
 	)
 
-	// Look up the exact build referenced in the spec (from source account)
-	agentVersion, err := agentIndex.GetVersion(sourceAcct.ID, agentName, buildID)
-	if err != nil {
+	// Look up the exact build referenced in the spec (from source account).
+	// Signature verification covers tamper detection but the build can still
+	// be gone if it was deleted between template generation and deploy.
+	if _, err := agentIndex.GetVersion(sourceAcct.ID, agentName, buildID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "agent build not found",
 			"details": fmt.Sprintf("no build %q found for agent %q", buildID, agentName),
 		})
 		return nil, false
-	}
-
-	// Verify template signature — if valid the spec is exactly what the template
-	// endpoint produced and we can skip re-generation + field enforcement.
-	signatureVerified := specsign.Verify(cfg.Deployment.TemplateSigningKey, submittedSpec, c.GetHeader("X-Template-Signature"))
-
-	if !signatureVerified {
-		// No valid signature — fall back to re-generation + EnforceEditable.
-		var astroSpec spec.AstroSpec
-		specBytes, specErr := json.Marshal(agentVersion.Spec)
-		if specErr != nil {
-			log.Error("Failed to marshal stored spec", "error", specErr, "agent", agentName, "build", buildID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process registered spec", "details": specErr.Error()})
-			return nil, false
-		}
-		if specErr = json.Unmarshal(specBytes, &astroSpec); specErr != nil {
-			log.Error("Failed to unmarshal spec into AstroSpec", "error", specErr, "agent", agentName, "build", buildID, "raw", string(specBytes))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse registered spec", "details": specErr.Error()})
-			return nil, false
-		}
-
-		template, tmplErr := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
-			Spec:              &astroSpec,
-			AgentName:         sourceAgent.Name,
-			Account:           sourceAcct.Name,
-			ECRNamespace:      agentVersion.ECRNamespace,
-			BuildID:           agentVersion.BuildID,
-			RegistryURL:       cfg.Deployment.RegistryURL,
-			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
-			Environment:       cfg.Deployment.Environment,
-		})
-		if tmplErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to generate deployment template",
-				"details": tmplErr.Error(),
-			})
-			return nil, false
-		}
-
-		// Rule 19: reject any change to server-owned fields. Client-set
-		// target fields (account, display_name, deployment_id, cluster_id)
-		// are copied onto the regenerated template so EnforceEditable does
-		// not treat them as drift.
-		template.Target.Account = submittedSpec.Target.Account
-		template.Target.DisplayName = submittedSpec.Target.DisplayName
-		template.Target.DeploymentID = submittedSpec.Target.DeploymentID
-		template.Target.ClusterID = submittedSpec.Target.ClusterID
-		if submittedSpec.Interfaces != nil {
-			deployment.ApplyAdapterShaping(template, submittedSpec.Interfaces.Adapters)
-			deployment.ApplyAdapterShaping(submittedSpec, submittedSpec.Interfaces.Adapters)
-		}
-		deployment.ApplyBindingShaping(template, submittedSpec)
-		if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":             "server-owned fields were modified",
-				"validation_errors": toValidationErrors(editErrs),
-			})
-			return nil, false
-		}
 	}
 
 	displayName := submittedSpec.Target.DisplayName
@@ -657,6 +599,19 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid deployment spec",
 				"details": err.Error(),
+			})
+			return
+		}
+
+		// The signed-template flow is the only deploy-time integrity check.
+		// Clients must obtain a finalized template from /deployment-template
+		// and resubmit it verbatim with the signature header — any tampering
+		// breaks the signature, and the server refuses to deploy unsigned
+		// specs. /deploy/validate skips this check (no actual deploy occurs).
+		if !specsign.Verify(cfg.Deployment.TemplateSigningKey, submittedSpec, c.GetHeader("X-Template-Signature")) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid or missing template signature",
+				"details": "deploy requests must carry a signed deployment template; obtain one via POST /agents/:account/:name/deployment-template with finalize=true and resubmit unchanged with the X-Template-Signature header",
 			})
 			return
 		}
@@ -3541,7 +3496,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				return
 			}
 
-			mergeDeploymentPrefill(log, template, prefillExisting, accountStore, authzStore)
+			mergeDeploymentPrefill(log, template, prefillExisting, accountStore, deployStore, authzStore)
 
 			// For historical revisions, also override display name from the stored spec.
 			if req.Revision > 0 {
@@ -3666,7 +3621,7 @@ func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
 // applyStoredVarsToRequest instead, because adapter-injected variables
 // (e.g. SLACK_BOT_TOKEN) only exist on the template after ShapeTemplate's
 // ApplyAdapterShaping pass.
-func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, accountStore *account.AccountStore, authzStore *authorizationstore.Store) {
+func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, accountStore *account.AccountStore, deployStore *deploymentstore.Store, authzStore *authorizationstore.Store) {
 	template.Target.DeploymentID = existing.ID
 	template.Target.DisplayName = existing.DisplayName
 
@@ -3676,7 +3631,9 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 		template.Target.Account = acct.Name
 	}
 
-	// Merge adapters and ingestion schedules from stored spec
+	// Merge adapters and ingestion schedules from stored spec. These are
+	// nested / optional and don't have flat columns, so the JSON path is
+	// still the simplest source.
 	if existing.DeploymentSpecJSON != "" {
 		var storedSpec spec.AstroDeploymentSpec
 		if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
@@ -3691,6 +3648,21 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 				}
 			}
 		}
+	}
+
+	// Agent resources + volume come from the normalized columns. Without
+	// this, the template generator's StandardResources seed wins and
+	// Configure resets every existing deployment back to defaults.
+	if prov, err := deployStore.GetAgentProvisioning(existing.ID); err != nil {
+		log.Error("Failed to load agent provisioning", "error", err, "deployment_id", existing.ID)
+	} else if prov != nil {
+		// Empty CPU/Memory means the row predates the resources columns;
+		// keep the generated StandardResources rather than zeroing them.
+		if prov.Resources.CPU != "" || prov.Resources.Memory != "" {
+			template.Agent.Resources = prov.Resources
+		}
+		template.Agent.Volume = prov.Volume
+		template.Agent.Storage = prov.Storage
 	}
 
 	// Pull live authorization (default_role + grants) from the DB, not the stored spec.

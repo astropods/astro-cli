@@ -6,13 +6,15 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-// fillAndDeploy simulates the full deploy flow:
+// fillAndDeploy simulates the deploy flow now that EnforceEditable is gone:
 //  1. Generate the deployment template
-//  2. Apply user edits via the fill function
-//  3. Enforce editable constraints (no server-owned fields changed)
+//  2. Apply user edits via the fill function (variables, adapters, …)
+//  3. ApplyAdapterShaping so variable optionality matches the adapter set
 //  4. Validate and resolve the spec
 //
-// Returns the ResolveResult and any EnforceEditable errors (mutually exclusive).
+// The second return slot is retained as []string for ergonomic test diffs but
+// is always nil — tamper detection lives in the deploy handler via signature
+// verification, not at the spec layer.
 func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*spec.AstroDeploymentSpec)) (*ResolveResult, []string) {
 	t.Helper()
 	tmpl := mustGenerate(t, input)
@@ -29,19 +31,8 @@ func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*spec.AstroDeplo
 
 	fill(submitted)
 
-	// Mirror the deploy handler: shape both the template reference and the
-	// submitted spec to match the submitted adapter selection before enforcing
-	// editable constraints. Without this, ApplyAdapterShaping-injected vars
-	// (e.g. SLACK_BOT_TOKEN) are absent from the template and EnforceEditable
-	// strips them from submitted.
 	if submitted.Interfaces != nil {
-		ApplyAdapterShaping(tmpl, submitted.Interfaces.Adapters)
 		ApplyAdapterShaping(submitted, submitted.Interfaces.Adapters)
-	}
-
-	editErrs := spec.EnforceEditable(tmpl, submitted)
-	if len(editErrs) > 0 {
-		return nil, editErrs
 	}
 
 	result, err := ValidateAndResolve(submitted)
@@ -204,15 +195,3 @@ func TestTemplateDeploy_AnthropicModel_MissingCredential(t *testing.T) {
 	}
 }
 
-// ===== Slack + cloud provider together =====
-
-// ===== EnforceEditable rejects server-owned changes =====
-
-func TestTemplateDeploy_EnforceEditable_RejectsImageChange(t *testing.T) {
-	_, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Agent.Image = "attacker/evil:latest" // not user-editable
-	})
-	if len(editErrs) == 0 {
-		t.Fatal("expected EnforceEditable to reject agent image change")
-	}
-}

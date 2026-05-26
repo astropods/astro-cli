@@ -111,6 +111,8 @@ export function PodMetricsTab({ deploymentId, podName }: PodMetricsTabProps) {
         loading={isLoading}
         color={colors.inputFill}
         formatValue={formatCores}
+        limit={data?.cpu_limit ?? 0}
+        limitLabel="limit"
         markers={buildMarkers({ restarts: data?.restarts })}
         hint={
           <span>
@@ -132,6 +134,8 @@ export function PodMetricsTab({ deploymentId, podName }: PodMetricsTabProps) {
         loading={isLoading}
         color={colors.inputFill}
         formatValue={formatBytes}
+        limit={data?.memory_limit ?? 0}
+        limitLabel="limit"
         markers={buildMarkers({ restarts: data?.restarts, ooms: data?.ooms })}
         hint={
           <span>
@@ -287,11 +291,18 @@ interface MetricChartProps {
   loading?: boolean;
   color: string;
   formatValue: (value: number) => string;
+  /** Optional pod-level resource limit drawn as a dashed reference line and
+   *  used as the Y-axis ceiling so headroom is visible at a glance. 0 or
+   *  undefined means "no limit known" — the chart auto-scales as before. */
+  limit?: number;
+  /** Short tag rendered next to the limit in the unit subline (e.g. "limit"
+   *  or "capacity"). */
+  limitLabel?: string;
   markers?: ChartMarker[];
   hint?: React.ReactNode;
 }
 
-function MetricChart({ title, unit, points, loading, color, formatValue, markers = [], hint }: MetricChartProps) {
+function MetricChart({ title, unit, points, loading, color, formatValue, limit, limitLabel, markers = [], hint }: MetricChartProps) {
   const ticks = useMemo(() => buildTimeTicks(points), [points]);
   const rows = useMemo(
     () => points.map((p) => ({ t: new Date(p.timestamp).getTime(), value: p.value })),
@@ -300,11 +311,15 @@ function MetricChart({ title, unit, points, loading, color, formatValue, markers
   const latest = rows.length > 0 ? rows[rows.length - 1].value : 0;
   const empty = rows.length === 0;
   const gradId = `metric-grad-${title.toLowerCase()}`;
+  const hasLimit = !!limit && limit > 0;
+  const unitLine = hasLimit && limitLabel
+    ? `${unit} · ${formatValue(limit!)} ${limitLabel}`
+    : unit;
 
   return (
     <ChartCard
       title={title}
-      unit={unit}
+      unit={unitLine}
       headline={formatValue(latest)}
       hint={hint}
       loading={loading}
@@ -352,7 +367,7 @@ function MetricChart({ title, unit, points, loading, color, formatValue, markers
             tickLine={false}
             tickMargin={4}
             width={60}
-            domain={[0, "auto"]}
+            domain={[0, hasLimit ? limit! : "auto"]}
           />
           <Tooltip
             content={({ active, payload }) => {
@@ -375,6 +390,15 @@ function MetricChart({ title, unit, points, loading, color, formatValue, markers
               strokeDasharray: "4 4",
             }}
           />
+          {hasLimit && (
+            <ReferenceLine
+              y={limit}
+              stroke="var(--color-muted-foreground)"
+              strokeDasharray="4 4"
+              strokeOpacity={0.6}
+              ifOverflow="extendDomain"
+            />
+          )}
           {markers.map((m, i) => (
             <ReferenceLine
               key={`${m.kind}-${m.t}-${i}`}

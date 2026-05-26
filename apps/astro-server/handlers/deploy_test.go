@@ -29,6 +29,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -2447,6 +2448,97 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 	return router, im, am, dm
 }
 
+// testSigningKey is a deterministic key wired into the test deploy router so
+// helper requests can sign specs that pass the deploy handler's verification.
+var testSigningKey = []byte("test-signing-key-32-bytes-padding!")
+
+// signedDeployRequest builds a POST /deploy request whose body is signed with
+// testSigningKey. Tests use this in place of httptest.NewRequest so the deploy
+// handler's mandatory signature check passes.
+func signedDeployRequest(t *testing.T, body string) *http.Request {
+	t.Helper()
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(body), &ds); err != nil {
+		t.Fatalf("signedDeployRequest: invalid body JSON: %v", err)
+	}
+	sig := specsign.Sign(testSigningKey, &ds)
+	r := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Template-Signature", sig)
+	return r
+}
+
+// TestDeploy_MissingSignatureHeader: requests without X-Template-Signature
+// must be rejected by the deploy handler before any DB or k8s work.
+func TestDeploy_MissingSignatureHeader(t *testing.T) {
+	router, _, _, _ := setupDeployRouter("user-1")
+
+	body := deployableSpec("")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// intentionally no X-Template-Signature
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid or missing template signature") {
+		t.Errorf("expected signature error in body, got: %s", rec.Body.String())
+	}
+}
+
+// TestDeploy_BadSignature: requests with a non-empty but invalid
+// X-Template-Signature must be rejected with the same 400.
+func TestDeploy_BadSignature(t *testing.T) {
+	router, _, _, _ := setupDeployRouter("user-1")
+
+	body := deployableSpec("")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Template-Signature", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid or missing template signature") {
+		t.Errorf("expected signature error in body, got: %s", rec.Body.String())
+	}
+}
+
+// TestDeploy_TamperedBody: a request signed correctly against one body but
+// submitted with a different body must be rejected.
+func TestDeploy_TamperedBody(t *testing.T) {
+	router, _, _, _ := setupDeployRouter("user-1")
+
+	// Sign one body, submit a different one — signature won't match.
+	original := deployableSpec("")
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(original), &ds); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sig := specsign.Sign(testSigningKey, &ds)
+
+	tampered := strings.Replace(original, `"image":`, `"image":"evil-image","_oldimage":`, 1)
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(tampered))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Template-Signature", sig)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid or missing template signature") {
+		t.Errorf("expected signature error in body, got: %s", rec.Body.String())
+	}
+}
+
 // setupDeployRouterWithPreflighter is the variant used by image-preflight tests.
 // Returns the cfg too so callers can inspect it if needed.
 func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePreflighter) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, *config.Config) {
@@ -2462,8 +2554,9 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
-			Environment: "test",
+			RegistryURL:        "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment:        "test",
+			TemplateSigningKey: testSigningKey,
 		},
 	}
 
@@ -2689,8 +2782,7 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	deployMock.ExpectCommit()
 
 	body := deployableSpec("")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2761,8 +2853,7 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	deployMock.ExpectCommit()
 
 	body := deployableSpec(depID)
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2787,8 +2878,7 @@ func TestDeploy_WithDeploymentID_NotFound(t *testing.T) {
 		WillReturnRows(emptyDeploymentByIDRows())
 
 	body := deployableSpec("nonexistent")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2824,8 +2914,7 @@ func TestDeploy_ImageNotFound_Returns422(t *testing.T) {
 	expectDeployPrep(accountMock, indexMock)
 
 	body := deployableSpec("")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2862,8 +2951,7 @@ func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
 			"Old", `{}`, "undeployed", now, &later))
 
 	body := deployableSpec("dep-inactive")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2903,8 +2991,7 @@ func TestDeploy_DisplayNameCollision_RenameRejected(t *testing.T) {
 	deployMock.ExpectRollback()
 
 	body := deployableSpecWithDeploymentIDAndDisplayName(depID, "Owned Name")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -2928,8 +3015,7 @@ func TestDeploy_DisplayNameCollision_NewDeployRejected(t *testing.T) {
 	deployMock.ExpectRollback()
 
 	body := deployableSpecWithDisplayName("My Agent")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -3251,226 +3337,13 @@ func TestRollbackDeployment_WrongStatus(t *testing.T) {
 	}
 }
 
-// Handler-level integration test for the variable consolidation migration. Submits
-// a deploy spec containing both SLACK_CONFIG and the three legacy individual Slack
-// variables. The mock DB only expects INSERTs for SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
-// and SLACK_CONFIG — any unexpected INSERT (from a leaked legacy var) would cause
-// sqlmock to error and the handler to return non-202. ExpectationsWereMet confirms
-// no stale variables slipped through to persistence.
-func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
-
-	expectDeployPrep(accountMock, indexMock)
-
-	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`INSERT INTO deployments`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
-	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_events`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
-	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
-	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	// No adapter selected in the submitted spec → EnforceEditable strips all
-	// interface-targeted variables (including the three slack vars). Only the
-	// DELETE fires; no user-var INSERTs follow.
-	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	deployMock.ExpectCommit()
-
-	body := deployableSpecWithLegacySlackVars()
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	if err := deployMock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled deploy expectations (legacy vars may have leaked): %v", err)
-	}
-
-	var resp map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["status"] != "pending" {
-		t.Errorf("expected status 'pending', got %v", resp["status"])
-	}
-}
-
-// Regression: a client submitting a web-only deploy with stale slack-targeted
-// variables/env refs should have them stripped before persistence. Mirrors the
-// real-world scenario where a redeploy of a previously slack-enabled agent
-// drops slack from the adapter list but a stale UI/CLI cache forwards the old
-// SLACK_CONFIG ref. The deploy handler must run ApplyAdapterShaping on the
-// submitted spec; if it doesn't, the variable INSERT for SLACK_CONFIG below
-// will fire and break the strict mock expectations.
-func TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
-
-	// Use a custom prep that advertises a messaging-capable agent so the
-	// regenerated template has matching interfaces.image for EnforceEditable.
-	expectDeployPrepMessaging(accountMock, indexMock)
-
-	deployMock.ExpectBegin()
-	deployMock.ExpectQuery(`INSERT INTO deployments`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-id", "acct-1", nil, "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
-	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_events`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Agent workload + service. Messaging sidecar (colocated) with two
-	// services (grpc + http). Collector workload + service. The exact INSERT
-	// shape is incidental to this test — what matters is the variable
-	// inserts list, which must be empty.
-	deployMock.MatchExpectationsInOrder(false)
-	for i := 0; i < 2; i++ {
-		deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
-			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
-	}
-	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	for i := 0; i < 5; i++ {
-		deployMock.ExpectQuery(`INSERT INTO deployment_services`).
-			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
-	}
-	// SaveNormalizedSpec clears any existing deployment_build_env rows
-	// before re-inserting per-(role, env_name) user_var rows. With slack
-	// stripped from the spec, no user_var rows should be inserted —
-	// only the DELETE happens. An extra INSERT here would mean stale
-	// SLACK_* refs leaked through shaping.
-	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	deployMock.ExpectCommit()
-
-	body := deployableSpecWithStaleSlackRefs()
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := deployMock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled deploy expectations (stale slack vars likely leaked): %v", err)
-	}
-}
-
-// expectDeployPrepMessaging is like expectDeployPrep but advertises the source
-// agent as messaging-capable so the server-regenerated template has an
-// `interfaces` block matching the submitted spec.
-func expectDeployPrepMessaging(accountMock, indexMock sqlmock.Sqlmock) {
-	now := time.Now()
-	specJSON := `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1","interfaces":{"messaging":true}}}`
-
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("myorg").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent", "build-1").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
-}
-
-// deployableSpecWithStaleSlackRefs simulates the bug scenario:
-//   - adapters: ["web"]
-//   - interfaces.environment.SLACK_CONFIG present (stale ref)
-//   - SLACK_CONFIG variable still in spec
-//
-// Without ApplyAdapterShaping running on the submitted spec, the stale
-// variable + env ref ride through to persistence and end up as env vars
-// in the messaging container.
-func deployableSpecWithStaleSlackRefs() string {
-	return `{
-		"spec": "deployment/v1",
-		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
-		"target": {"runtime": "kubernetes"},
-		"agent": {
-			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
-			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
-			"replicas": 1,
-			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
-			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
-			"update": {"strategy": "rolling", "max_unavailable": "25%", "max_surge": "25%"}
-		},
-		"interfaces": {
-			"adapters": ["web"],
-			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest",
-			"resources": {"cpu": "100m", "memory": "128Mi", "cpu_limit": "500m", "memory_limit": "512Mi"},
-			"endpoints": {
-				"grpc": {"port": 9090, "protocol": "grpc"},
-				"http": {"port": 8080, "protocol": "http", "expose": {"enabled": true}}
-			},
-			"environment": {"SLACK_CONFIG": "${variables.SLACK_CONFIG}"}
-		},
-		"variables": {
-			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
-		},
-		"observability": {"enabled": true, "provider": "langfuse"}
-	}`
-}
-
-// deployableSpecWithLegacySlackVars returns a deploy payload that includes the
-// three legacy individual Slack variables alongside SLACK_CONFIG, mimicking what
-// an older client or cached form would submit after a spec upgrade.
-func deployableSpecWithLegacySlackVars() string {
-	return `{
-		"spec": "deployment/v1",
-		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "https://123456789.dkr.ecr.us-east-1.amazonaws.com"},
-		"target": {"runtime": "kubernetes"},
-		"agent": {
-			"image": "123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1",
-			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
-			"replicas": 1,
-			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
-			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
-			"update": {"strategy": "rolling", "max_unavailable": "25%", "max_surge": "25%"}
-		},
-		"variables": {
-			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": "ticket"},
-			"SLACK_ALLOWED_CHANNEL_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": "C123"},
-			"SLACK_ALLOWED_USER_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": ""}
-		},
-		"observability": {"enabled": true, "provider": "langfuse"}
-	}`
-}
+// TestDeploy_LegacyVariablesStripped_DeploySucceeds and
+// TestDeploy_WebOnlyAdapter_StripsStaleSlackRefs used to verify variable
+// stripping at the deploy handler — behaviour that previously rode on the
+// EnforceEditable fallback path. With editable retired the deploy handler
+// trusts the signed template, so stripping now happens at template generation
+// (covered by tests in internal/deployment). The deploy-side regressions are
+// no longer reachable via the real flow and have been removed.
 
 // TestImagePullPolicyForMode verifies that local mode returns IfNotPresent
 // (allowing locally-built images to be used as-is while still pulling third-
@@ -3695,17 +3568,19 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	// No adapter selected → EnforceEditable strips the SLACK_* vars from the
-	// submitted spec. DELETE fires; no variable INSERTs follow.
-	deployMock.ExpectExec(`DELETE FROM deployment_build_env`).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	// SLACK_* variables in the signed spec persist as-is since the deploy
+	// handler no longer rewrites adapter-scoped vars.
+	expectVariableInsertsByName(
+		deployMock,
+		"SLACK_BOT_TOKEN",
+		"SLACK_APP_TOKEN",
+		"SLACK_CONFIG",
+	)
 	deployMock.ExpectCommit()
 
 	body := deployableSpecWithScheduleIngestion("0 0 * * *")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusAccepted {
@@ -3725,8 +3600,7 @@ func TestDeploy_WithEmptySchedule_Rejected(t *testing.T) {
 
 	body := deployableSpecWithScheduleIngestion("")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
@@ -4783,70 +4657,12 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 	}
 }
 
-// TestDeploy_SourcePropertiesFromDB verifies that source.account and source.build in the
-// deployment template are taken from the database, not the client-submitted spec.
-//
-// Setup: the DB's agentVersion.BuildID is "canonical-build", but the client submits a spec
-// with source.build = "build-1" (the ID used to look up the version). After the fix,
-// the template is stamped with "canonical-build" from the DB, so EnforceEditable rejects
-// the submitted spec (which still says "build-1") with a 400.
-func TestDeploy_SourcePropertiesFromDB(t *testing.T) {
-	router, indexMock, accountMock, _ := setupDeployRouter("user-1")
-
-	now := time.Now()
-
-	// accountStore.GetByName("myorg") → DB returns name="myorg"
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("myorg").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-
-	// IsMember → yes
-	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	// agentIndex.Get (visibility check)
-	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
-
-	// agentIndex.GetVersion — queried with "build-1" but DB returns canonical "canonical-build"
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent", "build-1").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("canonical-build", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
-
-	// Submit a spec with source.build = "build-1" (does not match the DB's "canonical-build")
-	body := deployableSpec("")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	// Template has source.build="canonical-build" from DB; submitted spec has "build-1".
-	// EnforceEditable must reject the mismatch.
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 when source.build differs from DB value, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["error"] != "server-owned fields were modified" {
-		t.Errorf("expected 'server-owned fields were modified' error, got: %v", resp["error"])
-	}
-}
+// TestDeploy_SourcePropertiesFromDB used to verify that EnforceEditable
+// rejected a deploy whose source.build disagreed with the canonical build
+// recorded against the agent version. With editable retired the same
+// protection comes from template signature verification: the server-produced
+// template is signed and the deploy handler refuses any spec whose contents
+// don't match the signature, source.build included.
 
 func TestGetDeployment_NotMember(t *testing.T) {
 	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
@@ -6177,8 +5993,9 @@ func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[s
 	log := logger.New("error", "json")
 	cfg := &config.Config{
 		Deployment: config.DeploymentConfig{
-			RegistryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
-			Environment: "test",
+			RegistryURL:        "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+			Environment:        "test",
+			TemplateSigningKey: testSigningKey,
 		},
 	}
 
@@ -6234,8 +6051,7 @@ func TestDeploy_WithUnknownClusterID_Returns400(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 
 	body := deployableSpecWithClusterID("unknown-cluster")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -6268,8 +6084,7 @@ func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
 		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", false, now, now))
 
 	body := deployableSpecWithClusterID("staging")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -6305,8 +6120,7 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", true, now, now))
 
 	body := deployableSpecWithClusterID(clusterID)
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -6384,8 +6198,7 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 	deployMock.ExpectCommit()
 
 	body := deployableSpecWithClusterID("eu-west-1-managed")
-	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := signedDeployRequest(t, body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

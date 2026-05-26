@@ -3,7 +3,7 @@ import { sentenceCase } from "change-case";
 import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateInterfaces, AuthGrant } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateProvisioning, TemplateInterfaces, AuthGrant } from "@/lib/api";
 import { ApiRequestError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
@@ -151,11 +151,32 @@ function toDeploymentTemplate(resp: TemplateResponse): DeploymentTemplate {
     ...resp.template,
     spec: 'deployment-template/v1',
     variables: resp.variables,
-    editable: resp.editable,
   } as DeploymentTemplate;
 }
 
 const hasTextValue = (value: string | undefined): boolean => !!value?.trim();
+
+/**
+ * Builds the provisioning block from the form's advanced inputs. Returns
+ * undefined when every field is empty so the server falls back to defaults.
+ * Mount + size are only sent together — size alone is meaningless without
+ * a mount path.
+ */
+function buildAgentProvisioning(input: {
+  cpu: string;
+  memory: string;
+  mount: string;
+  size: string;
+}): TemplateProvisioning | undefined {
+  const cpu = input.cpu.trim();
+  const memory = input.memory.trim();
+  const mount = input.mount.trim();
+  const size = input.size.trim();
+  const compute = (cpu || memory) ? { ...(cpu && { cpu }), ...(memory && { memory }) } : undefined;
+  const volume = mount ? { mount, ...(size && { storage: { size } }) } : undefined;
+  if (!compute && !volume) return undefined;
+  return { agent: { ...(compute && { compute }), ...(volume && { volume }) } };
+}
 
 const mergeFormValues = (
   variableValues: Record<string, string>,
@@ -354,6 +375,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [slackGrants, setSlackGrants] = useState<AuthGrant[]>(computedDefaults.slackGrants ?? []);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
   const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>({});
+  // Advanced provisioning overrides — all optional; empty strings let the
+  // server fall back to astropods.yml declarations and tier defaults.
+  const [agentCpu, setAgentCpu] = useState<string>("");
+  const [agentMemory, setAgentMemory] = useState<string>("");
+  const [agentVolumeMount, setAgentVolumeMount] = useState<string>("");
+  const [agentStorageSize, setAgentStorageSize] = useState<string>("");
+  // True once we observe that the deployment loaded from the server already
+  // has a persistent volume attached. K8s won't resize a live PVC in place
+  // (the StatefulSet's volumeClaimTemplates is immutable on update), so once
+  // this flips true we lock the storage slider in the UI.
+  const [volumeAlreadyProvisioned, setVolumeAlreadyProvisioned] = useState(false);
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
@@ -398,6 +430,19 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       if (Object.keys(prefilled).length > 0) {
         setKnowledgeBindingsRaw(prefilled);
       }
+    }
+    // Seed advanced provisioning from the resolved response so the user sees
+    // the effective values (whether they came from the request, the astropods
+    // declaration, or tier defaults).
+    const respAgent = templateResponse?.provisioning?.agent;
+    if (respAgent?.compute?.cpu) setAgentCpu(respAgent.compute.cpu);
+    if (respAgent?.compute?.memory) setAgentMemory(respAgent.compute.memory);
+    if (respAgent?.volume?.mount) setAgentVolumeMount(respAgent.volume.mount);
+    if (respAgent?.volume?.storage?.size) setAgentStorageSize(respAgent.volume.storage.size);
+    // For an existing deployment, treat a volume returned by the template as
+    // already provisioned in the cluster — its size is locked from here on.
+    if (opts?.deploymentId && respAgent?.volume?.mount) {
+      setVolumeAlreadyProvisioned(true);
     }
     // Fresh-deploy defaults: when there's no existing deployment to configure
     // and the template returned no grants, seed an adapter-appropriate default
@@ -506,7 +551,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   };
 
   // Exposed binding setter: updates state and re-POSTs to reshape the template.
-  // Binding selection is a structural change (removes/adds knowledge entries, variables, editable fields).
+  // Binding selection is a structural change (removes/adds knowledge entries and variables).
   // Always send a (possibly empty) knowledge map so the server preserves
   // explicit clears — sending `bindings: undefined` would let the server
   // restore stored bindings on top of a user who cleared all of them.
@@ -736,6 +781,13 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
     if (opts?.revision !== undefined) req.revision = opts.revision;
+    const provisioning = buildAgentProvisioning({
+      cpu: agentCpu,
+      memory: agentMemory,
+      mount: agentVolumeMount,
+      size: agentStorageSize,
+    });
+    if (provisioning) req.provisioning = provisioning;
     req.finalize = true;
 
     let resp: TemplateResponse;
@@ -849,6 +901,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     templateErrorMessage,
     serverValidation: templateResponse?.validation ?? null,
     initialValues,
+    isExistingDeployment: !!opts?.deploymentId,
+    /**
+     * True when the deployment loaded from the server already has a
+     * persistent volume — storage size cannot be resized in place, so the
+     * UI must lock the slider. False on a fresh deploy *and* on an existing
+     * deployment that doesn't have a volume yet (first-time enable is allowed).
+     */
+    volumeAlreadyProvisioned,
 
     nameChanged: deferredDirty.nameChanged,
     deployChanged: deferredDirty.deployChanged,
@@ -885,6 +945,16 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setKnowledgeBindings,
     resolvedBindings: templateResponse?.bindings?.knowledge ?? {},
     knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
+
+    // Advanced provisioning overrides
+    agentCpu,
+    setAgentCpu,
+    agentMemory,
+    setAgentMemory,
+    agentVolumeMount,
+    setAgentVolumeMount,
+    agentStorageSize,
+    setAgentStorageSize,
 
     vaultEntries: accountVarsData?.variables ?? [],
     vaultEntriesLoaded: accountVarsLoaded,
