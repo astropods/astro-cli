@@ -55,8 +55,9 @@ trap cleanup EXIT INT TERM
 
 # Apply schema via Atlas (idempotent — safe to re-run)
 echo "==> Applying schema..."
+case "$DATABASE_URL" in *\?*) sep="&" ;; *) sep="?" ;; esac
 atlas schema apply \
-  --url "$DATABASE_URL&search_path=public" \
+  --url "${DATABASE_URL}${sep}search_path=public" \
   --to "file://../../sql/astro-server/schema.sql" \
   --dev-url "docker://postgres/16/dev?search_path=public" \
   --exclude atlas_schema_revisions \

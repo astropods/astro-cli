@@ -143,7 +143,12 @@ om_post "knowledge_endpoints" /api/v1/features '{"key":"knowledge_endpoints","na
 
 echo "==> Creating private_beta plan..."
 
-om_post "private_beta" /api/v1/plans '{
+# GET /api/v1/plans/{key} returns 404 for draft-only plans, so check the list endpoint instead.
+plan_count=$(curl -s "$OPENMETER_URL/api/v1/plans?key=private_beta" | grep -o '"totalCount":[0-9]*' | cut -d: -f2 || true)
+if [ "${plan_count:-0}" -gt 0 ]; then
+  echo "  private_beta: ok (already exists)"
+else
+  om_post "private_beta" /api/v1/plans '{
   "key": "private_beta",
   "name": "Private Beta",
   "description": "Free tier for private beta users with hard limits on all resources.",
@@ -214,5 +219,6 @@ om_post "private_beta" /api/v1/plans '{
     }
   ]
 }'
+fi
 
 echo "==> OpenMeter bootstrap complete."

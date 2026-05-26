@@ -10,6 +10,11 @@ err()  { echo -e "${RED}[local-dev]${NC} $*" >&2; }
 
 # ── preflight ────────────────────────────────────────────────────────────────
 
+if [ ! -f apps/astro-server/.env ]; then
+  log "apps/astro-server/.env not found. Create it (see apps/astro-server/.env.example) before running local-dev."
+  exit 0
+fi
+
 if ! docker info &>/dev/null; then
   err "Docker is not running. Start Docker and try again."
   exit 1
@@ -36,7 +41,7 @@ cleanup() {
   _cleaned_up=true
   echo ""
   log "Shutting down..."
-  for pid in "${PIDS[@]}"; do
+  for pid in ${PIDS[@]+"${PIDS[@]}"}; do
     kill "$pid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
@@ -47,12 +52,15 @@ trap cleanup EXIT INT TERM
 
 # ── dev servers ──────────────────────────────────────────────────────────────
 
+log "Installing dependencies..."
+bun install
+
 log "Building ast-dev CLI..."
 ASTRO_SERVER_URL=http://localhost moon run astro-cli:build
 log "Built ast-dev → apps/astro-cli/bin/ast-dev"
 
-log "Installing dependencies..."
-(cd apps/astro-client && bun install)
+log "Building workspace packages (astro-theme, astro-trading-card)..."
+moon run astro-theme:build astro-trading-card:build
 
 log "Starting astro-server (:8080)..."
 (cd apps/astro-server && bash scripts/dev.sh 2>&1 | sed 's/^/[server] /') &
