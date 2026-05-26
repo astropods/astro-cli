@@ -13,6 +13,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -281,7 +282,10 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 				return err
 			}
 			if !confirmed {
-				return fmt.Errorf("push cancelled")
+				// Explicit "No" — collapse onto the same sentinel as esc/ctrl+c
+				// so runPush surfaces a single dim "Cancelled." line with exit 0
+				// for both abort paths instead of a raw "push cancelled" error.
+				return tui.ErrCancelled
 			}
 		}
 

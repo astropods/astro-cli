@@ -382,7 +382,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	}
 	app = result.(*configureApp)
 	if app.aborted || app.form.State == huh.StateAborted {
-		fmt.Println("Cancelled.")
+		printCancelled(cmd.OutOrStdout())
 		return nil
 	}
 
