@@ -23,6 +23,11 @@ export function parseVaultToken(token: string): { type: 'secret' | 'variable'; n
   return { type: match[1] === 'secrets' ? 'secret' : 'variable', name: match[2] }
 }
 
+// Build the {{secrets.NAME}} / {{vars.NAME}} token form for a variable.
+export function buildVaultToken(name: string, secret: boolean): string {
+  return secret ? `{{secrets.${name}}}` : `{{vars.${name}}}`
+}
+
 interface VaultPickerProps {
   onSelect: (token: string) => void
   entries?: AccountVariable[]
@@ -35,9 +40,13 @@ interface VaultPickerProps {
   selectedName?: string
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /** Form-level handler that maps a name→value record onto matching fields.
+   *  When provided and multiple variables are created in one shot, it's used
+   *  to fan the new tokens out to all matching fields. */
+  bulkSetVariables?: (imported: Record<string, string>) => void
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange, bulkSetVariables }: VaultPickerProps) {
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = (o: boolean) => { setLocalOpen(o); controlledOnOpenChange?.(o) }
@@ -83,10 +92,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
   const hasResults = filtered.length > 0
 
   const handleSelect = (entry: AccountVariable) => {
-    const token = entry.secret
-      ? `{{secrets.${entry.name}}}`
-      : `{{vars.${entry.name}}}`
-    onSelect(token)
+    onSelect(buildVaultToken(entry.name, entry.secret))
     setOpen(false)
     setSearch('')
   }
@@ -243,7 +249,31 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
       accountName={accountName}
       onClose={() => setNewVarOpen(false)}
       onCreate={(inputs) => {
-        createMutation.mutate(inputs, { onSuccess: () => setNewVarOpen(false) })
+        createMutation.mutate(inputs, {
+          onSuccess: (response) => {
+            setNewVarOpen(false)
+            // Restrict to inputs the server actually created. If the response
+            // omits per-name results, treat all inputs as successful.
+            const created = response?.results
+              ? inputs.filter((i) => response.results.some((r) => r.name === i.name && r.status === 'created'))
+              : inputs
+            if (created.length === 0) return
+            if (created.length === 1) {
+              // Single variable — fill the field that opened the picker.
+              onSelect(buildVaultToken(created[0].name, created[0].secret))
+            } else if (bulkSetVariables) {
+              // Multiple variables — defer to the form's existing name-based
+              // mapping logic (same path used by .env import).
+              const tokenMap: Record<string, string> = {}
+              for (const v of created) tokenMap[v.name] = buildVaultToken(v.name, v.secret)
+              bulkSetVariables(tokenMap)
+            } else {
+              // No form handler available — fall back to filling the current field
+              // with the first created variable so creation isn't silently lost.
+              onSelect(buildVaultToken(created[0].name, created[0].secret))
+            }
+          },
+        })
       }}
     />
     </>

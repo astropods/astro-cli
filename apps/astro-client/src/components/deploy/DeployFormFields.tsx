@@ -166,6 +166,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           vaultEntriesLoaded={form.vaultEntriesLoaded}
           vaultSettingsUrl={form.vaultSettingsUrl}
           vaultLoadError={form.vaultEntriesLoadError}
+          bulkSetVariables={form.bulkSetVariables}
         />
       </FormSection>
 
@@ -204,6 +205,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
+            bulkSetVariables={form.bulkSetVariables}
           />
         </FormSection>
       )}
@@ -221,6 +223,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
+            bulkSetVariables={form.bulkSetVariables}
           />
         </FormSection>
       )}

@@ -143,9 +143,11 @@ export interface VariableFieldProps {
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
+  bulkSetVariables?: (imported: Record<string, string>) => void;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -245,14 +247,14 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} bulkSetVariables={bulkSetVariables} />;
   }
 
   // 7. Default — text input
-  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} />;
+  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} bulkSetVariables={bulkSetVariables} />;
 }
 
-function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
+function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
   const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], vaultEntriesLoaded ?? false, onChange);
   const [pickerOpen, setPickerOpen] = useState(false);
   const isVaultRef = parseVaultToken(value) !== null;
@@ -284,13 +286,13 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} />
       </div>
     </div>
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], vaultEntriesLoaded ?? false, onChange);
@@ -333,7 +335,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} />
       </div>
     </div>
   );

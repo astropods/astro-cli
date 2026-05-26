@@ -36,6 +36,8 @@ export interface InterfacesPickerProps {
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
+  bulkSetVariables?: (imported: Record<string, string>) => void;
 }
 
 export function InterfacesPicker({
@@ -56,6 +58,7 @@ export function InterfacesPicker({
   vaultEntriesLoaded,
   vaultSettingsUrl,
   vaultLoadError,
+  bulkSetVariables,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
     onChange(selected.includes(id) ? selected.filter((a) => a !== id) : [...selected, id]);
@@ -151,6 +154,7 @@ export function InterfacesPicker({
                       vaultEntriesLoaded={vaultEntriesLoaded}
                       vaultSettingsUrl={vaultSettingsUrl}
                       vaultLoadError={vaultLoadError}
+                      bulkSetVariables={bulkSetVariables}
                     />
                   </div>
                 ) : null;
@@ -187,6 +191,7 @@ export function InterfacesPicker({
                   vaultEntriesLoaded={vaultEntriesLoaded}
                   vaultSettingsUrl={vaultSettingsUrl}
                   vaultLoadError={vaultLoadError}
+                  bulkSetVariables={bulkSetVariables}
                 />
               </div>
             )}

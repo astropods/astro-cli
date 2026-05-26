@@ -43,9 +43,11 @@ export interface VariableFieldsProps {
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
+  bulkSetVariables?: (imported: Record<string, string>) => void;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError }: VariableFieldsProps) {
+export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldsProps) {
   if (variables.length === 0) return null;
 
   // Keep a ref so per-field onChange callbacks always see the latest values,
@@ -129,6 +131,7 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
                 vaultEntriesLoaded={vaultEntriesLoaded}
                 vaultSettingsUrl={vaultSettingsUrl}
                 vaultLoadError={vaultLoadError}
+                bulkSetVariables={bulkSetVariables}
               />
             </div>
             {errorKeys?.includes(key) && (

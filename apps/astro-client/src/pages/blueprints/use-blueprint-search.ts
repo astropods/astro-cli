@@ -14,7 +14,12 @@ export function useBlueprintSearch(debounceMs = DEFAULT_DEBOUNCE_MS) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const q = search.trim();
-      setParams(q ? { q } : {});
+      const next: BlueprintListParams = q ? { q } : {};
+      // Preserve the previous reference when the structural value is unchanged.
+      // Otherwise the initial debounce settles into a fresh `{}` on mount, which
+      // ripples out to consumers (e.g. the page-reset effect on /blueprints) and
+      // can race with concurrent user interactions like clicking "Page 2".
+      setParams((prev) => (prev.q === next.q ? prev : next));
     }, debounceMs);
     return () => window.clearTimeout(timer);
   }, [search, debounceMs]);
