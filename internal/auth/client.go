@@ -62,11 +62,23 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// workOSBaseURLOverride is set in tests to redirect auth API calls to a test server.
+var workOSBaseURLOverride string
+
+// SetWorkOSBaseURLOverride redirects WorkOS auth API calls in tests.
+func SetWorkOSBaseURLOverride(url string) {
+	workOSBaseURLOverride = url
+}
+
 // NewClient creates a new WorkOS auth client
 func NewClient() *Client {
+	baseURL := WorkOSBaseURL
+	if workOSBaseURLOverride != "" {
+		baseURL = workOSBaseURLOverride
+	}
 	return &Client{
 		clientID: buildinfo.WorkOSClientID,
-		baseURL:  WorkOSBaseURL,
+		baseURL:  baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},

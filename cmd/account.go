@@ -186,6 +186,15 @@ func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
 // accounts it returns the personal access token. Other commands use this to
 // obtain credentials without duplicating account and token resolution logic.
 func getAccountToken(ctx context.Context, account string) (string, error) {
+	return accountToken(ctx, account, false)
+}
+
+// forceAccountToken unconditionally refreshes credentials for account.
+func forceAccountToken(ctx context.Context, account string) (string, error) {
+	return accountToken(ctx, account, true)
+}
+
+func accountToken(ctx context.Context, account string, force bool) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -204,7 +213,10 @@ func getAccountToken(ctx context.Context, account string) (string, error) {
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	var token string
 	if orgID != "" {
+		// Org-scoped tokens are minted via the refresh endpoint on every call.
 		token, err = tokenManager.GetOrgScopedAccessToken(ctx, orgID)
+	} else if force {
+		token, err = tokenManager.ForceRefreshAccessToken(ctx)
 	} else {
 		token, err = tokenManager.GetValidAccessToken(ctx)
 	}

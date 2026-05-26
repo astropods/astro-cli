@@ -485,7 +485,7 @@ func TestParseAgentName(t *testing.T) {
 	}
 }
 
-func TestRegisterAgent_UsesTokenOverride(t *testing.T) {
+func TestRegisterAgent_UsesFreshAccountToken(t *testing.T) {
 	var receivedAuthHeader string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuthHeader = r.Header.Get("Authorization")
@@ -502,13 +502,49 @@ func TestRegisterAgent_UsesTokenOverride(t *testing.T) {
 	defer srv.Close()
 
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	writeAccountTestCredentials(t, &auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  authTestJWT(time.Now().Add(-10 * time.Minute)),
+				RefreshToken: "valid_refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				CurrentAccount: "my-org",
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "my-org",
+					AccountID:   "acct-org",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-org", Name: "my-org", Type: "organization", WorkOSOrganizationID: "org_workos_123"},
+				},
+			},
+		},
+	})
+
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+			AccessToken:  "org-scoped-jwt-token",
+			RefreshToken: "new_refresh_token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+		})
+	}))
+	defer workos.Close()
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
 	specPath := filepath.Join(tmpDir, "astropods.yml")
 	if err := os.WriteFile(specPath, []byte("name: test-agent\nversion: 1.0.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	orgToken := "org-scoped-jwt-token"
-	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com/my-org", specPath, "", "", "", false, false, orgToken)
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com/my-org", specPath, "", "", "", false, false, "my-org")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -633,7 +669,7 @@ func TestGetAgentFromServer_ReturnsVisibility(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			info := getAgentFromServer(srv.URL, "testaccount", "test-agent", true, "")
+			info := getAgentFromServer(context.Background(), srv.URL, "testaccount", "test-agent", true)
 
 			if info.Exists != tt.expectedExists {
 				t.Errorf("Exists = %v, want %v", info.Exists, tt.expectedExists)

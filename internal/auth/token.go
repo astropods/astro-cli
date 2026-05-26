@@ -69,7 +69,23 @@ func (m *TokenManager) shouldRefresh(profile *Profile) bool {
 	if profile.ExpiresAt.IsZero() {
 		return true
 	}
-	return time.Now().Add(RefreshThreshold).After(profile.ExpiresAt)
+	threshold := time.Now().Add(RefreshThreshold)
+	if threshold.After(profile.ExpiresAt) {
+		return true
+	}
+	// Also honor JWT exp — stored ExpiresAt can drift from the bearer after upgrades
+	// or when org-scoped refreshes rotate the refresh token without updating profile metadata.
+	if profile.AccessToken != "" {
+		if jwtExp, err := ParseJWTExpiry(profile.AccessToken); err == nil && threshold.After(jwtExp) {
+			return true
+		}
+	}
+	return false
+}
+
+// ForceRefreshAccessToken unconditionally exchanges the refresh token for a new access token.
+func (m *TokenManager) ForceRefreshAccessToken(ctx context.Context) (string, error) {
+	return m.forceRefresh(ctx)
 }
 
 // refreshToken refreshes the access token using the refresh token
@@ -179,8 +195,8 @@ func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organization
 		return "", fmt.Errorf("failed to get org-scoped token: %w", err)
 	}
 
-	// Persist rotated refresh token (if changed) so future refreshes don't use a stale token
-	if tokenResp.RefreshToken != "" && tokenResp.RefreshToken != profile.RefreshToken {
+	// Persist rotated refresh token so future refreshes don't use a stale token.
+	if tokenResp.RefreshToken != "" {
 		profile.RefreshToken = tokenResp.RefreshToken
 		creds, err := m.storage.LoadCredentials()
 		if err == nil {

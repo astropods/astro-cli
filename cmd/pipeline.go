@@ -25,7 +25,6 @@ type PushPipelineConfig struct {
 	SkipPush     bool
 	RegistryHost string
 	Account      string
-	Token        string
 	Verbose      bool
 	Yes          bool
 	Visibility   Visibility
@@ -190,7 +189,7 @@ func (p *PushPipeline) pushToRegistry() error {
 		}
 		printPushStart(string(comp.Kind), displayName)
 
-		size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, false, p.cfg.Token)
+		size, err := pushImageToRegistryStreaming(p.ctx, localImageName, remoteImageName, p.cfg.Account, false)
 		if err != nil {
 			printPushComplete(false, 0)
 			return fmt.Errorf("failed to push %s: %w", comp.Suffix(), err)
@@ -265,7 +264,7 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 			p.visibility = p.cfg.Visibility
 		}
 
-		serverAgent := getAgentFromServer(pushBaseURL(), p.cfg.Account, p.cfg.AgentName, false, p.cfg.Token)
+		serverAgent := getAgentFromServer(p.ctx, pushBaseURL(), p.cfg.Account, p.cfg.AgentName, false)
 
 		if serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic) && p.cfg.Visibility != VisibilityPrivate {
 			p.visibility = VisibilityPublic
@@ -294,8 +293,8 @@ func (p *PushPipeline) Register() *PushPipeline {
 		}
 
 		printStep("Registering agent with server...")
-		if err := registerAgentWithServer(pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
-			string(transformedSpecData), p.readme, string(p.visibility), p.cfg.Verbose, false, p.cfg.Token); err != nil {
+		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
+			string(transformedSpecData), p.readme, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
 			printStepFail()
 			return fmt.Errorf("registration failed: %w", err)
 		}
