@@ -38,6 +38,7 @@ type PushPipelineConfig struct {
 //	err := NewPushPipeline(ctx, cfg).
 //		ParseSpec().
 //		CollectComponents().
+//		ResolveVisibility().
 //		Build().
 //		Push().
 //		TransformSpec().
@@ -273,7 +274,13 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 		needsConfirm := (p.visibility == VisibilityPublic && (!serverAgent.Exists || serverAgent.Visibility != string(VisibilityPublic))) ||
 			(p.cfg.Visibility == VisibilityPrivate && serverAgent.Exists && serverAgent.Visibility == string(VisibilityPublic))
 		if needsConfirm && !p.cfg.Yes {
-			if !confirmVisibilityChange(serverAgent.Visibility, string(p.visibility)) {
+			confirmed, err := confirmVisibilityChange(serverAgent.Visibility, string(p.visibility))
+			if err != nil {
+				// Propagate tui.ErrCancelled (and any other prompt error) so
+				// callers can branch on errors.Is(err, tui.ErrCancelled) for a clean exit.
+				return err
+			}
+			if !confirmed {
 				return fmt.Errorf("push cancelled")
 			}
 		}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -238,7 +240,11 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 				Value(&description),
 		),
 	)
-	if err := form.Run(); err != nil {
+	if err := runForm(form); err != nil {
+		if errors.Is(err, tui.ErrCancelled) {
+			printCancelled(cmd.OutOrStdout())
+			return nil
+		}
 		return err
 	}
 	_ = cmd.Flags().Set("description", strings.TrimSpace(description))
@@ -255,7 +261,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 
 	if !overwrite {
 		if status, _, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose); err == nil {
-			return fmt.Errorf("%q already exists; use 'ast secrets update' to change its value", name)
+			return fmt.Errorf("%q already exists; use '%s secrets update' to change its value", name, buildinfo.BinaryName)
 		} else if status != http.StatusNotFound {
 			return err
 		}
@@ -282,7 +288,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 		verbose,
 		&result)
 	if status == http.StatusConflict {
-		return fmt.Errorf("%q already exists; use 'ast secrets update' to change its value", name)
+		return fmt.Errorf("%q already exists; use '%s secrets update' to change its value", name, buildinfo.BinaryName)
 	}
 	if err != nil {
 		return err
@@ -355,7 +361,11 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 					Value(&description),
 			),
 		)
-		if err := form.Run(); err != nil {
+		if err := runForm(form); err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				printCancelled(cmd.OutOrStdout())
+				return nil
+			}
 			return err
 		}
 		_ = cmd.Flags().Set("description", strings.TrimSpace(description))

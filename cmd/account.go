@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -16,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 )
 
 // accountNewStorage is the storage constructor used by account commands. Overridable in tests.
@@ -116,7 +116,8 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		var err error
 		name, err = selectAccountInteractive(storage)
 		if err != nil {
-			if errors.Is(err, huh.ErrUserAborted) {
+			if errors.Is(err, tui.ErrCancelled) {
+				printCancelled(w)
 				return nil
 			}
 			return err
@@ -229,7 +230,7 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 func selectAccountInteractive(storage *auth.Storage) (string, error) {
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run 'ast login' to authenticate")
+		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
 	currentAccount, _ := storage.GetCurrentAccount()
@@ -251,25 +252,12 @@ func selectAccountInteractive(storage *auth.Storage) (string, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select account").
-				Description("esc to quit without changing account").
 				Options(options...).
 				Value(&selected),
 		),
-	).WithKeyMap(accountSwitchKeyMap())
-	if err := form.Run(); err != nil {
+	)
+	if err := runForm(form); err != nil {
 		return "", err
 	}
 	return selected, nil
-}
-
-// accountSwitchKeyMap extends the default huh keymap so that pressing esc
-// aborts the interactive selector (returning huh.ErrUserAborted) in addition
-// to the default ctrl+c.
-func accountSwitchKeyMap() *huh.KeyMap {
-	km := huh.NewDefaultKeyMap()
-	km.Quit = key.NewBinding(
-		key.WithKeys("esc", "ctrl+c"),
-		key.WithHelp("esc", "quit"),
-	)
-	return km
 }

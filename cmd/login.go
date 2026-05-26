@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 )
 
 var loginCmd = &cobra.Command{
@@ -191,10 +193,14 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		yellow.Println("  No account found. Choose a username to get started.") //nolint:errcheck,gosec
 		account, claimErr := claimUsernameInteractive(serverURL, profile.AccessToken, verbose)
-		if claimErr != nil {
+		switch {
+		case errors.Is(claimErr, tui.ErrCancelled):
+			fmt.Println()
+			yellow.Println("  Username selection skipped. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
+		case claimErr != nil:
 			fmt.Println()
 			yellow.Println("  Note: Username not set. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
-		} else {
+		default:
 			profile.Accounts = []auth.StoredAccount{account}
 			profile.User.AccountName = account.Name
 			profile.User.AccountID = account.ID
@@ -299,7 +305,7 @@ func claimUsernameInteractive(serverURL, accessToken string, verbose bool) (auth
 			),
 		)
 
-		if err := form.Run(); err != nil {
+		if err := runForm(form); err != nil {
 			return auth.StoredAccount{}, err
 		}
 

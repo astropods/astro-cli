@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
@@ -915,7 +916,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
 			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
 			if !hasBotToken {
-				fmt.Println("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run 'ast configure' to add it)")
+				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s configure' to add it)\n", buildinfo.BinaryName)
 				continue
 			}
 			enabled := "true"

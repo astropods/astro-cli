@@ -9,15 +9,16 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -104,9 +105,13 @@ func (m *configureApp) buildForm() {
 		}
 		fields = append(fields, inp)
 	}
-	f := huh.NewForm(huh.NewGroup(fields...)).WithTheme(cliHuhTheme())
+	f := huh.NewForm(huh.NewGroup(fields...)).
+		WithTheme(cliHuhTheme()).
+		WithKeyMap(promptKeyMap()).
+		WithShowHelp(false) // configureApp.View renders the full hint itself
 	if m.formHeight > 0 {
-		f = f.WithHeight(m.formHeight - 1) // reserve 1 line for the hint
+		// Reserve 1 line below the form for the hint rendered by View.
+		f = f.WithHeight(m.formHeight - 1)
 	}
 	m.form = f
 }
@@ -163,23 +168,20 @@ func (m *configureApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-var (
-	hintKeyStyle  = lipgloss.NewStyle()
-	hintDescStyle = lipgloss.NewStyle().Faint(true)
-)
-
 func (m *configureApp) View() string {
-	k := hintKeyStyle.Render
-	d := hintDescStyle.Render
-	hint := k("  tab") + d(" / ") + k("shift+tab") + d("  navigate")
-	if m.focusedIdx < len(m.allVars) && m.allVars[m.focusedIdx].secret {
-		if m.revealed[m.allVars[m.focusedIdx].key] {
-			hint += d("  ·  ") + k("ctrl+r") + d("  hide")
-		} else {
-			hint += d("  ·  ") + k("ctrl+r") + d("  reveal")
-		}
+	bindings := []key.Binding{
+		key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/shift+tab", "navigate")),
 	}
-	return m.form.View() + hint
+	if m.focusedIdx < len(m.allVars) && m.allVars[m.focusedIdx].secret {
+		verb := "reveal"
+		if m.revealed[m.allVars[m.focusedIdx].key] {
+			verb = "hide"
+		}
+		bindings = append(bindings, key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", verb)))
+	}
+	bindings = append(bindings, tui.Cancel)
+	v := strings.TrimRight(m.form.View(), "\n")
+	return v + "\n" + tui.Hint(cliHuhTheme(), bindings...) + "\n"
 }
 
 func formatVars(format string, vars map[string]string) (string, error) {
@@ -444,8 +446,8 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 					Negative("Keep it").
 					Value(&deleteDotenv),
 			),
-		).WithTheme(cliHuhTheme())
-		if err := prompt.Run(); err == nil && deleteDotenv {
+		)
+		if err := runForm(prompt); err == nil && deleteDotenv {
 			if err := os.Remove(envFilePath); err != nil {
 				fmt.Printf("%s✗%s Could not delete %s: %v\n", colorRed, colorReset, utils.DefaultEnvFile, err)
 			} else {

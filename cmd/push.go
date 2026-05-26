@@ -79,12 +79,12 @@ func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error
 	if err := pipeline.
 		ParseSpec().
 		CollectComponents().
+		ResolveVisibility(). // prompt before any expensive work
 		Build().
 		Push().
 		TransformSpec().
 		StripSecrets().
 		LoadReadme().
-		ResolveVisibility().
 		Register().
 		Err(); err != nil {
 		return err
@@ -410,7 +410,9 @@ func getAgentFromServer(ctx context.Context, serverURL, accountName, agentName s
 
 // confirmVisibilityChange asks the user to confirm the target visibility.
 // current may be empty when the agent does not yet exist on the server.
-func confirmVisibilityChange(current, desired string) bool {
+// Returns (false, tui.ErrCancelled) when the user presses esc / ctrl+c, so
+// callers can distinguish cancellation from an explicit "No".
+func confirmVisibilityChange(current, desired string) (bool, error) {
 	var title, description string
 	if desired == string(VisibilityPublic) {
 		title = "Make blueprint public?"
@@ -433,11 +435,9 @@ func confirmVisibilityChange(current, desired string) bool {
 		),
 	)
 
-	form.WithTheme(cliHuhTheme())
-
-	if err := form.Run(); err != nil {
-		return false
+	if err := runForm(form); err != nil {
+		return false, err
 	}
 
-	return confirmed
+	return confirmed, nil
 }
