@@ -1202,8 +1202,9 @@ func TestNetworkPolicies_NoPortlessEgressRule(t *testing.T) {
 }
 
 // TestNetworkPolicies_MonitoringIngressRule verifies that the allow-namespace-traffic
-// policy includes an ingress rule allowing the monitoring namespace to reach
-// port 9091 (Alloy scraping messaging sidecar metrics).
+// policy includes an ingress rule allowing the monitoring namespace to reach:
+//   - 9091: Alloy scrapes messaging sidecar metrics
+//   - 4317/4318: trace-router fans LLM-proxy spans out via OTLP
 func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
 	fakeClient := fake.NewClientset()
 	a := &Applier{
@@ -1223,7 +1224,8 @@ func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
 		t.Fatalf("get allow-namespace-traffic: %v", err)
 	}
 
-	// Find an ingress rule that selects the monitoring namespace on port 9091.
+	wantPorts := map[int]bool{9091: false, 4317: false, 4318: false}
+
 	found := false
 	for _, rule := range np.Spec.Ingress {
 		for _, from := range rule.From {
@@ -1233,22 +1235,33 @@ func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
 			if from.NamespaceSelector.MatchLabels["name"] != "monitoring" {
 				continue
 			}
-			// Verify the rule is scoped to TCP 9091.
-			if len(rule.Ports) != 1 {
-				t.Fatalf("monitoring ingress rule has %d ports, want 1", len(rule.Ports))
+			if len(rule.Ports) != len(wantPorts) {
+				t.Fatalf("monitoring ingress rule has %d ports, want %d", len(rule.Ports), len(wantPorts))
 			}
-			p := rule.Ports[0]
-			if p.Protocol == nil || *p.Protocol != corev1.ProtocolTCP {
-				t.Error("monitoring ingress rule protocol is not TCP")
-			}
-			if p.Port == nil || p.Port.IntValue() != 9091 {
-				t.Errorf("monitoring ingress rule port = %v, want 9091", p.Port)
+			for _, p := range rule.Ports {
+				if p.Protocol == nil || *p.Protocol != corev1.ProtocolTCP {
+					t.Error("monitoring ingress rule protocol is not TCP")
+				}
+				if p.Port == nil {
+					t.Error("monitoring ingress rule port is nil")
+					continue
+				}
+				if _, ok := wantPorts[p.Port.IntValue()]; !ok {
+					t.Errorf("monitoring ingress rule has unexpected port %v", p.Port)
+					continue
+				}
+				wantPorts[p.Port.IntValue()] = true
 			}
 			found = true
 		}
 	}
 	if !found {
 		t.Error("allow-namespace-traffic is missing an ingress rule for the monitoring namespace")
+	}
+	for port, seen := range wantPorts {
+		if !seen {
+			t.Errorf("monitoring ingress rule is missing port %d", port)
+		}
 	}
 }
 

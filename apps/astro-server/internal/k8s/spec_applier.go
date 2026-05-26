@@ -1162,7 +1162,10 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 						{IPBlock: &externalIPBlock},
 					},
 				},
-				// Allow from monitoring namespace (Alloy) to scrape messaging sidecar metrics
+				// Allow from monitoring namespace:
+				//   - 9091: Alloy scrapes messaging sidecar metrics
+				//   - 4317/4318: trace-router fans LLM-proxy spans out to
+				//     the per-agent collector (OTLP gRPC/HTTP)
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{
@@ -1177,6 +1180,14 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 						{
 							Protocol: protocolPtr(corev1.ProtocolTCP),
 							Port:     portPtr(intstr.FromInt32(9091)),
+						},
+						{
+							Protocol: protocolPtr(corev1.ProtocolTCP),
+							Port:     portPtr(intstr.FromInt32(4317)),
+						},
+						{
+							Protocol: protocolPtr(corev1.ProtocolTCP),
+							Port:     portPtr(intstr.FromInt32(4318)),
 						},
 					},
 				},
