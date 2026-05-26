@@ -139,12 +139,12 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	var result struct {
 		Variables []secretVariableMetadata `json:"variables"`
 	}
-	if _, err := apiCall(
+	if _, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodGet,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		nil,
-		at.Token,
+		at.Account,
 		verbose,
 		&result); err != nil {
 		return err
@@ -254,7 +254,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 	}
 
 	if !overwrite {
-		if status, _, err := fetchVariableMeta(cmd.Context(), at, name, verbose); err == nil {
+		if status, _, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose); err == nil {
 			return fmt.Errorf("%q already exists; use 'ast secrets update' to change its value", name)
 		} else if status != http.StatusNotFound {
 			return err
@@ -273,12 +273,12 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 			Error  string `json:"error,omitempty"`
 		} `json:"results"`
 	}
-	status, err := apiCall(
+	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPost,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		map[string]any{"variables": []map[string]any{variable}},
-		at.Token,
+		at.Account,
 		verbose,
 		&result)
 	if status == http.StatusConflict {
@@ -317,7 +317,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	// Fetch the variable's type to pick the right echo mode and success message.
 	// Fall back to treating it as a secret if the fetch fails (safe default).
 	isSecret := true
-	if _, meta, err := fetchVariableMeta(cmd.Context(), at, name, verbose); err == nil {
+	if _, meta, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose); err == nil {
 		isSecret = meta.Secret
 	}
 	if plain {
@@ -365,14 +365,14 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 }
 
 // fetchVariableMeta returns the status code and metadata for a single variable via GET /:varName.
-func fetchVariableMeta(ctx context.Context, at AccountToken, name string, verbose bool) (int, *secretVariableMetadata, error) {
+func fetchVariableMeta(ctx context.Context, account string, name string, verbose bool) (int, *secretVariableMetadata, error) {
 	var meta secretVariableMetadata
-	status, err := apiCall(
+	status, err := apiCallForAccount(
 		ctx,
 		http.MethodGet,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
+		apiPath(secretsBaseURL(), account, "accounts", "variables", name),
 		nil,
-		at.Token,
+		account,
 		verbose,
 		&meta)
 	if err != nil {
@@ -397,12 +397,12 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 		payload["description"] = desc
 	}
 
-	status, err := apiCall(
+	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPut,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
 		payload,
-		at.Token,
+		at.Account,
 		verbose,
 		nil)
 	if status == http.StatusNotFound {
@@ -431,7 +431,7 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, meta, err := fetchVariableMeta(cmd.Context(), at, name, verbose)
+	_, meta, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose)
 	if err != nil {
 		return err
 	}
@@ -475,12 +475,12 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	status, err := apiCall(
+	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodDelete,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
 		nil,
-		at.Token,
+		at.Account,
 		verbose,
 		nil)
 	if status == http.StatusNotFound {
@@ -546,7 +546,7 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 
 	// Unless --overwrite, fetch existing names and skip them.
 	if !overwrite {
-		existing, err := fetchExistingVarNames(cmd.Context(), at, verbose)
+		existing, err := fetchExistingVarNames(cmd.Context(), at.Account, verbose)
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing variables: %w", err)
 		}
@@ -580,12 +580,12 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 			Error  string `json:"error,omitempty"`
 		} `json:"results"`
 	}
-	if _, err := apiCall(
+	if _, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPost,
 		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
 		map[string]any{"variables": vars},
-		at.Token,
+		at.Account,
 		verbose,
 		&result); err != nil {
 		return err
@@ -605,18 +605,18 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 }
 
 // fetchExistingVarNames returns a set of variable names already in the account.
-func fetchExistingVarNames(ctx context.Context, at AccountToken, verbose bool) (map[string]bool, error) {
+func fetchExistingVarNames(ctx context.Context, account string, verbose bool) (map[string]bool, error) {
 	var result struct {
 		Variables []struct {
 			Name string `json:"name"`
 		} `json:"variables"`
 	}
-	if _, err := apiCall(
+	if _, err := apiCallForAccount(
 		ctx,
 		http.MethodGet,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
+		apiPath(secretsBaseURL(), account, "accounts", "variables"),
 		nil,
-		at.Token,
+		account,
 		verbose,
 		&result); err != nil {
 		return nil, err

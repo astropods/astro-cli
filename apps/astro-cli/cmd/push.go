@@ -69,7 +69,6 @@ func runPush(ctx context.Context, at AccountToken, cfg PushPipelineConfig) error
 	// Fill in fields resolved at push time
 	cfg.RegistryHost = registryHost
 	cfg.Account = at.Account
-	cfg.Token = at.Token
 
 	pipeline := NewPushPipeline(ctx, cfg)
 
@@ -145,7 +144,7 @@ func getRegistryHost(registryURL string) (string, error) {
 // registerAgent registers the agent spec with the astro-server.
 // It reads the spec from disk, transforms build→image, strips secrets, and POSTs.
 // Kept for backward compatibility with existing tests; new code should use the PushPipeline.
-func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool, tokenOverride string) error {
+func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool, account string) error {
 	specData, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to read spec file: %w", err)
@@ -162,11 +161,14 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	if err != nil {
 		return fmt.Errorf("failed to marshal transformed spec: %w", err)
 	}
-	return registerAgentWithServer(serverURL, agentName, buildID, registry, string(transformedSpecData), readme, visibility, verbose, skipAuth, tokenOverride)
+	return registerAgentWithServer(context.Background(), serverURL, agentName, buildID, registry, string(transformedSpecData), readme, visibility, verbose, skipAuth, account)
 }
 
 // registerAgentWithServer sends the already-transformed spec content to the server.
-func registerAgentWithServer(serverURL, agentName, buildID, registry, specContent, readme, visibility string, verbose bool, skipAuth bool, tokenOverride string) error {
+func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme, visibility string, verbose bool, skipAuth bool, account string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// Extract account name from registry path (registryHost/accountName)
 	accountName := ""
 	registryParts := strings.Split(registry, "/")
@@ -200,7 +202,7 @@ func registerAgentWithServer(serverURL, agentName, buildID, registry, specConten
 		log.Printf("   Register URL: %s", reqURL)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -210,11 +212,11 @@ func registerAgentWithServer(serverURL, agentName, buildID, registry, specConten
 
 	// Add authentication header if not skipped
 	if !skipAuth {
-		if tokenOverride != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
-		} else if err := auth.AddAuthHeader(context.Background(), req, buildinfo.BinaryName); err != nil {
+		token, err := getAccountToken(ctx, account)
+		if err != nil {
 			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
 		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 	if verbose {
 		authHeader := req.Header.Get("Authorization")
@@ -264,14 +266,14 @@ func registerAgentWithServer(serverURL, agentName, buildID, registry, specConten
 		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", buildinfo.Version, buildinfo.BinaryName)
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized && !skipAuth && tokenOverride == "" {
-		// Token may have expired mid-push — force refresh and retry once
+	if resp.StatusCode == http.StatusUnauthorized && !skipAuth {
 		resp.Body.Close() //nolint:errcheck,gosec
-		retryReq, retryErr := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
+		retryReq, retryErr := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 		if retryErr == nil {
 			retryReq.Header.Set("Content-Type", "application/json")
 			retryReq.Header.Set("X-Cli-Version", buildinfo.Version)
-			if refreshErr := auth.RefreshAndUpdateHeader(context.Background(), retryReq, buildinfo.BinaryName); refreshErr == nil {
+			if token, refreshErr := forceAccountToken(ctx, account); refreshErr == nil {
+				retryReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 				if retryResp, doErr := client.Do(retryReq); doErr == nil { //nolint:gosec
 					resp = retryResp
 					defer resp.Body.Close() //nolint:errcheck,gosec
@@ -361,26 +363,29 @@ type agentServerInfo struct {
 }
 
 // getAgentFromServer checks if an agent exists on the server and returns its metadata.
-func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool, tokenOverride string) agentServerInfo {
+func getAgentFromServer(ctx context.Context, serverURL, accountName, agentName string, skipAuth bool) agentServerInfo {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s",
 		strings.TrimSuffix(serverURL, "/"),
 		url.PathEscape(accountName),
 		url.PathEscape(agentName),
 	)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: %v\n", colorYellow, colorReset, err)
 		return agentServerInfo{}
 	}
 
 	if !skipAuth {
-		if tokenOverride != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
-		} else if err := auth.AddAuthHeader(context.Background(), req, buildinfo.BinaryName); err != nil {
+		token, err := getAccountToken(ctx, accountName)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: auth error\n", colorYellow, colorReset)
 			return agentServerInfo{}
 		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec

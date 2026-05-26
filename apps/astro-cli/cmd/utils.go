@@ -115,6 +115,24 @@ func apiCall(ctx context.Context, method, reqURL string, body any, token string,
 	return resp.StatusCode, nil
 }
 
+// apiCallForAccount fetches a fresh account-scoped token, performs the request, and on 401
+// forces a token refresh and retries once.
+func apiCallForAccount(ctx context.Context, method, reqURL string, body any, account string, verbose bool, dest any) (int, error) {
+	token, err := getAccountToken(ctx, account)
+	if err != nil {
+		return -1, err
+	}
+	status, err := apiCall(ctx, method, reqURL, body, token, verbose, dest)
+	if status != http.StatusUnauthorized {
+		return status, err
+	}
+	token, refreshErr := forceAccountToken(ctx, account)
+	if refreshErr != nil {
+		return status, err
+	}
+	return apiCall(ctx, method, reqURL, body, token, verbose, dest)
+}
+
 // apiStream makes an authenticated GET request and returns the response body for streaming.
 // The caller must close the returned ReadCloser. Returns (statusCode, body, error).
 func apiStream(ctx context.Context, reqURL string, token string, verbose bool) (int, io.ReadCloser, error) {

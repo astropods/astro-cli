@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -78,6 +79,22 @@ func TestShouldRefresh_NearExpiry(t *testing.T) {
 	}
 }
 
+func TestShouldRefresh_JWTExpiredButStoredExpiryValid(t *testing.T) {
+	manager := &TokenManager{
+		storage: createTestStorage(),
+		client:  NewClient(),
+	}
+
+	profile := &Profile{
+		AccessToken: makeTestJWT(time.Now().Add(-10 * time.Minute)),
+		ExpiresAt:   time.Now().Add(1 * time.Hour),
+	}
+
+	if !manager.shouldRefresh(profile) {
+		t.Error("expected shouldRefresh to return true when JWT exp is past but stored ExpiresAt is future")
+	}
+}
+
 func TestShouldRefresh_ZeroExpiry(t *testing.T) {
 	manager := &TokenManager{
 		storage: createTestStorage(),
@@ -91,6 +108,65 @@ func TestShouldRefresh_ZeroExpiry(t *testing.T) {
 
 	if !manager.shouldRefresh(profile) {
 		t.Error("expected shouldRefresh to return true when ExpiresAt is zero (unknown expiry should trigger refresh)")
+	}
+}
+
+func makeTestJWT(exp time.Time) string {
+	payload, err := json.Marshal(map[string]any{"exp": exp.Unix()})
+	if err != nil {
+		panic(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString(payload)
+	return "header." + enc + ".sig"
+}
+
+func TestGetValidAccessToken_RefreshesWhenJWTExpiredButStoredExpiryValid(t *testing.T) {
+	resetEnvToken()
+	defer resetEnvToken()
+
+	_ = os.Unsetenv(EnvAccessToken)
+
+	_, cleanup := setupTokenTestDir(t)
+	defer cleanup()
+
+	testCreds := &Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				AccessToken:  makeTestJWT(time.Now().Add(-10 * time.Minute)),
+				RefreshToken: "valid_refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+			},
+		},
+	}
+	writeTokenTestCredentials(t, testCreds)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(TokenResponse{
+			AccessToken:  "refreshed_access_token",
+			RefreshToken: "new_refresh_token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+		})
+	}))
+	defer server.Close()
+
+	manager := &TokenManager{
+		storage: createTestStorage(),
+		client: &Client{
+			clientID:   "test_client",
+			baseURL:    server.URL,
+			httpClient: &http.Client{Timeout: 5 * time.Second},
+		},
+	}
+
+	token, err := manager.GetValidAccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "refreshed_access_token" {
+		t.Errorf("expected token 'refreshed_access_token', got %q", token)
 	}
 }
 

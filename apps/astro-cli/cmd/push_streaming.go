@@ -12,16 +12,12 @@ import (
 
 	"github.com/docker/docker/api/types/registry"
 	"github.com/moby/moby/client"
-
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
 
 const maxPushRetries = 3
 
 // getDockerRegistryAuth returns a base64-encoded registry auth string
 // for use with the Docker Engine API.
-// If tokenOverride is non-empty, it is used directly instead of fetching from the profile.
 //
 // Sends Username/Password (not RegistryToken) so the Docker daemon honors the
 // astro-registry WWW-Authenticate Bearer challenge and exchanges the WorkOS
@@ -29,17 +25,10 @@ const maxPushRetries = 3
 // short-circuit that flow and reuse the WorkOS bearer for every request,
 // causing the manifest PUT to fail once the WorkOS TTL elapses mid-push.
 // See docs/03-architecture/registry-token-auth.md.
-func getDockerRegistryAuth(tokenOverride string) (string, error) {
-	var token string
-	if tokenOverride != "" {
-		token = tokenOverride
-	} else {
-		tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
-		var err error
-		token, err = tokenManager.GetValidAccessToken(context.Background())
-		if err != nil {
-			return "", fmt.Errorf("failed to get access token: %w", err)
-		}
+func getDockerRegistryAuth(ctx context.Context, account string) (string, error) {
+	token, err := getAccountToken(ctx, account)
+	if err != nil {
+		return "", fmt.Errorf("failed to get access token: %w", err)
 	}
 
 	authConfig := registry.AuthConfig{
@@ -95,11 +84,12 @@ func dockerPushWithRetry(ctx context.Context, dockerCli *client.Client, imageRef
 
 // pushImageToRegistryStreaming pushes an image using Docker Engine API streaming.
 // Image data flows directly from Docker daemon to registry without loading into Go memory.
-// If tokenOverride is non-empty, it is used for auth instead of the stored profile token.
-func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAuth bool, tokenOverride string) (int64, error) {
+func pushImageToRegistryStreaming(ctx context.Context, localImageName, remoteImageName, account string, skipAuth bool) (int64, error) {
 	fmt.Printf("  %sstreaming...%s", colorDim, colorReset)
 
-	ctx := context.Background()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	dockerCli, err := newDockerClient()
 	if err != nil {
@@ -113,10 +103,11 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 		return 0, fmt.Errorf("failed to tag image %s -> %s: %w", localImageName, remoteImageName, err)
 	}
 
-	// Get auth
+	// Get auth — fetch a fresh account-scoped token immediately before push so a long
+	// build phase cannot leave us with an expired WorkOS bearer at registry /token exchange.
 	var authStr string
 	if !skipAuth {
-		authStr, err = getDockerRegistryAuth(tokenOverride)
+		authStr, err = getDockerRegistryAuth(ctx, account)
 		if err != nil {
 			fmt.Println()
 			return 0, fmt.Errorf("failed to get registry auth: %w", err)
