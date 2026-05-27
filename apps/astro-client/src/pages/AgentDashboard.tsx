@@ -2,12 +2,11 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
 import { getActiveAccount } from "@/lib/api.server";
-import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useDeployments } from "@/api/queries/deployments";
-import { deploymentKeys, observabilityKeys, usageKeys, OBSERVABILITY_WINDOW_ALL_TIME } from "@/api/queries/keys";
+import { deploymentKeys } from "@/api/queries/keys";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
@@ -17,18 +16,14 @@ import type { AgentDeployment, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
-// Inline (not loadAccountScoped) because the page primes three caches.
+// Inline (not loadAccountScoped) to prime the deployments cache before render.
 export async function loader({ request }: Route.LoaderArgs) {
   const ctx = await getActiveAccount(request);
   if (!ctx) {
-    return { account: null, deployments: null, summary: null, usage: null };
+    return { account: null, deployments: null };
   }
-  const [deployments, summary, usage] = await Promise.all([
-    ctx.api.listDeployments(ctx.accountName).catch(() => null),
-    ctx.api.getAccountObservabilitySummary(ctx.accountName, {}).catch(() => null),
-    ctx.api.getAccountUsage(ctx.accountName).catch(() => null),
-  ]);
-  return { account: ctx.accountName, deployments, summary, usage };
+  const deployments = await ctx.api.listDeployments(ctx.accountName).catch(() => null);
+  return { account: ctx.accountName, deployments };
 }
 
 
@@ -68,8 +63,6 @@ function AgentDashboardInner() {
     navigate(location.pathname + location.search, { replace: true, state: {} });
   };
 
-  const isAgentsEmpty = !isLoading && deployments.length === 0;
-
   return (
     <>
       <PageContainer
@@ -80,8 +73,6 @@ function AgentDashboardInner() {
           description="Deployed agents running in your account."
           action={<PageScopeSwitcher />}
         />
-
-        {!isAgentsEmpty && <DashboardStats account={userAccount} />}
 
         <DeployedAgentsSection
           deployments={deployments}
@@ -115,8 +106,6 @@ export default function AgentDashboard({ loaderData }: Route.ComponentProps) {
   usePrimeQueryCache(loaderData, (qc, ld) => {
     if (!ld?.account) return;
     if (ld.deployments) qc.setQueryData(deploymentKeys.all(ld.account), ld.deployments);
-    if (ld.summary) qc.setQueryData(observabilityKeys.accountSummary(ld.account, OBSERVABILITY_WINDOW_ALL_TIME), ld.summary);
-    if (ld.usage) qc.setQueryData(usageKeys.byAccount(ld.account), ld.usage);
   });
 
   return <AgentDashboardInner />;

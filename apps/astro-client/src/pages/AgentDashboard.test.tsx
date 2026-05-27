@@ -2,11 +2,6 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-function statCard(label: string): HTMLElement {
-  const card = screen.getByText(label).parentElement;
-  if (!card) throw new Error(`Stat card for ${label} not found`);
-  return card;
-}
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
@@ -162,47 +157,6 @@ describe('AgentDashboard page', () => {
   });
 });
 
-describe('stats', () => {
-  it('shows total tokens as the sum of input and output tokens under TOTAL TOKENS', async () => {
-    server.use(
-      http.get('/api/v1/accounts/:account/observability/summary', () =>
-        HttpResponse.json({
-          period: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z', days: 1 },
-          totals: { cost_usd: 0, requests: 0, input_tokens: 800, output_tokens: 200, active_agents: 0 },
-          daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
-          cost_over_time: [],
-          cost_by_model: [],
-        }),
-      ),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(within(statCard('TOTAL TOKENS')).getByText('1,000')).toBeInTheDocument();
-    });
-  });
-
-  it('shows request count under TOTAL REQUESTS', async () => {
-    server.use(
-      http.get('/api/v1/accounts/:account/observability/summary', () =>
-        HttpResponse.json({
-          period: { start: '2025-01-01T00:00:00Z', end: '2025-01-02T00:00:00Z', days: 1 },
-          totals: { cost_usd: 0, requests: 42, input_tokens: 0, output_tokens: 0, active_agents: 0 },
-          daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
-          cost_over_time: [],
-          cost_by_model: [],
-        }),
-      ),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(within(statCard('TOTAL REQUESTS')).getByText('42')).toBeInTheDocument();
-    });
-  });
-});
 
 describe('reveal overlay after deploy', () => {
    

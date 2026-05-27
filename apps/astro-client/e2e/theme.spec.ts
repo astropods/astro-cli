@@ -56,7 +56,7 @@ test("dark mode card token renders a valid non-transparent color", async ({ page
     localStorage.setItem("astro:theme", "dark");
   });
 
-  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+  await page.goto("/insights", { waitUntil: "domcontentloaded" });
 
   await expect(page.locator("html.dark")).toHaveCount(1);
 

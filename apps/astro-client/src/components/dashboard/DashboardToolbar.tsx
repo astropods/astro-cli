@@ -56,7 +56,7 @@ export function DashboardToolbar({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-2",
+        "flex flex-wrap items-center justify-between gap-2",
         disabled && "pointer-events-none opacity-40",
       )}
     >
@@ -64,41 +64,43 @@ export function DashboardToolbar({
         placeholder="Search agents..."
         value={filter}
         onChange={(e) => onFilterChange(e.target.value)}
-        containerClassName="w-full @[480px]:flex-1 @[480px]:max-w-lg h-8 bg-card dark:bg-background"
+        containerClassName="w-full @[480px]:w-auto @[480px]:flex-1 @[480px]:max-w-lg h-8 bg-card dark:bg-background"
       />
 
-      <MultiSelect value={statusFilter} onValueChange={onStatusFilterChange}>
-        <MultiSelectTrigger className="h-8 w-full @[480px]:w-36 text-sm bg-card dark:bg-background">
-          <MultiSelectValue
-            options={STATUS_OPTIONS}
-            placeholder="All statuses"
-          />
-        </MultiSelectTrigger>
-        <MultiSelectContent>
-          <MultiSelectAllItem>All statuses</MultiSelectAllItem>
-          {STATUS_OPTIONS.map((opt) => (
-            <MultiSelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </MultiSelectItem>
-          ))}
-        </MultiSelectContent>
-      </MultiSelect>
+      <div className="flex items-center gap-2">
+        <MultiSelect value={statusFilter} onValueChange={onStatusFilterChange}>
+          <MultiSelectTrigger className="h-8 w-full @[480px]:w-36 text-sm bg-card dark:bg-background">
+            <MultiSelectValue
+              options={STATUS_OPTIONS}
+              placeholder="All statuses"
+            />
+          </MultiSelectTrigger>
+          <MultiSelectContent>
+            <MultiSelectAllItem>All statuses</MultiSelectAllItem>
+            {STATUS_OPTIONS.map((opt) => (
+              <MultiSelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </MultiSelectItem>
+            ))}
+          </MultiSelectContent>
+        </MultiSelect>
 
-      <Select
-        value={sortBy}
-        onValueChange={(v) => onSortChange(v as SortOption)}
-      >
-        <SelectTrigger className="h-8 w-full @[480px]:w-36 px-3 text-sm bg-card dark:bg-background">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {SORT_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <Select
+          value={sortBy}
+          onValueChange={(v) => onSortChange(v as SortOption)}
+        >
+          <SelectTrigger className="h-8 w-full @[480px]:w-36 px-3 text-sm bg-card dark:bg-background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
