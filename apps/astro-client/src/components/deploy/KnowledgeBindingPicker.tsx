@@ -86,7 +86,7 @@ function KnowledgeBindingEntry({
   return (
     <div className="px-5 py-4">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-md bg-slate-200 shrink-0">
+        <div className="flex size-10 items-center justify-center rounded-md bg-muted shrink-0">
           {provider ? (
             <ProviderIcon provider={provider} className="size-5" />
           ) : (

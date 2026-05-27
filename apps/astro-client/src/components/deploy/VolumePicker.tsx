@@ -45,13 +45,13 @@ export function VolumePicker({ volumeMount, onVolumeMountChange }: VolumePickerP
         onClick={toggle}
         className={cn(
           "w-full flex items-center gap-4 py-3 px-3 rounded-[6px] border-none bg-transparent text-left cursor-pointer transition-colors",
-          !isSelected && "hover:bg-slate-200/50",
+          !isSelected && "hover:bg-muted/50",
         )}
       >
         <div
           className={cn(
             "flex h-9 w-9 items-center justify-center rounded-sm shrink-0 transition-colors",
-            isSelected ? "bg-primary/10 text-primary" : "bg-slate-200 text-muted-foreground",
+            isSelected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
           )}
         >
           <HardDrive className="h-5 w-5" strokeWidth={1.5} />
