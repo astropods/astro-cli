@@ -11,7 +11,7 @@ import { StatCards } from "@/components/activity/StatCards";
 import { CostOverTimeChart } from "@/components/activity/CostOverTimeChart";
 import { TopSpendersTable } from "@/components/activity/TopSpendersTable";
 import { useInsightsData, useUsersInsightsData } from "@/components/activity/use-insights-data";
-import { buildPeriodParams, type ActivityRange } from "@/components/activity/ranges";
+import { type ActivityRange } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { dashboardPath } from "@/lib/routes";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
@@ -37,29 +37,23 @@ function parseRange(raw: string | null): ActivityRange {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const ctx = await getActiveAccount(request);
-  if (!ctx) return { account: null, summary: null, blueprintsData: null, usersData: null, members: null, view: "agents" as ActivityView, from: null, to: null };
+  if (!ctx) return { account: null, summary: null, blueprintsData: null, usersData: null, members: null, view: "agents" as ActivityView };
 
   const url = new URL(request.url);
-  const range = parseRange(url.searchParams.get("range"));
   const view = parseActivityView(url.searchParams.get("view"));
-  const { from, to } = buildPeriodParams(range);
-  const params: Record<string, string> = {};
-  if (from) params.from = from;
-  if (to) params.to = to;
 
-  // Users view additionally requests group_by=user on the summary and fetches
-  // the per-user breakdown. Agents view fetches the blueprints breakdown.
-  // Members is fetched for the users view so the table's row classification
-  // (member vs unauthorized) can render on first paint without a skeleton flash.
-  const summaryParams = view === "users" ? { ...params, group_by: "user" } : params;
+  // Always fetch all-time data. The URL range slices client-side, so range
+  // toggles are pure JS computations against in-memory data — no loader
+  // re-runs, no network round-trips.
+  const summaryParams: Record<string, string> = view === "users" ? { group_by: "user" } : {};
 
   const [summary, blueprintsData, usersData, members] = await Promise.all([
     ctx.api.getAccountObservabilitySummary(ctx.accountName, summaryParams).catch(() => null),
     view === "agents"
-      ? ctx.api.getAccountBlueprintsSummary(ctx.accountName, params).catch(() => null)
+      ? ctx.api.getAccountBlueprintsSummary(ctx.accountName, {}).catch(() => null)
       : Promise.resolve(null),
     view === "users"
-      ? ctx.api.getAccountUsersSummary(ctx.accountName, params).catch(() => null)
+      ? ctx.api.getAccountUsersSummary(ctx.accountName, {}).catch(() => null)
       : Promise.resolve(null),
     view === "users"
       ? ctx.api.getAccountMembers(ctx.accountName, {}).catch(() => null)
@@ -73,19 +67,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     usersData,
     members,
     view,
-    from: from ?? null,
-    to: to ?? null,
   };
 }
 
-// Range / agent / user filter toggles change search params client-side, so
-// they skip the loader (TanStack picks up the new key). Two cases DO re-run
-// the loader:
-//   1. Programmatic revalidation (currentUrl === nextUrl) — the org-switch
-//      signal.
-//   2. A view-param change — the loader fetches different data (blueprints
-//      vs users summary), so cache priming for the new view needs fresh
-//      server data instead of stale priming from the previous view.
+// Loader runs only on:
+//   1. Programmatic revalidation (currentUrl === nextUrl) — the org-switch signal.
+//   2. View toggle (agents ↔ users) — different data shape.
+// Range toggles + agent/user filter chips are pure client-side: they only
+// reshape data already in TanStack cache.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -105,19 +94,17 @@ export function shouldRevalidate({
 export default function Insights({ loaderData }: Route.ComponentProps) {
   usePrimeQueryCache(loaderData, (qc, ld) => {
     if (!ld?.account) return;
-    // from/to are null for the "all time" range; the key factory accepts
-    // undefined and the hook calls into the same key, so prime under both.
-    const from = ld.from ?? undefined;
-    const to = ld.to ?? undefined;
+    // Loader always fetches all-time data; prime the (undefined, undefined)
+    // cache entries. The hooks read the same keys.
     const groupBy = ld.view === "users" ? "user" : undefined;
     if (ld.summary) {
-      qc.setQueryData(observabilityKeys.activitySummary(ld.account, from, to, groupBy), ld.summary);
+      qc.setQueryData(observabilityKeys.activitySummary(ld.account, undefined, undefined, groupBy), ld.summary);
     }
     if (ld.blueprintsData) {
-      qc.setQueryData(observabilityKeys.blueprintsSummary(ld.account, from, to), ld.blueprintsData);
+      qc.setQueryData(observabilityKeys.blueprintsSummary(ld.account, undefined, undefined), ld.blueprintsData);
     }
     if (ld.usersData) {
-      qc.setQueryData(observabilityKeys.usersSummary(ld.account, from, to), ld.usersData);
+      qc.setQueryData(observabilityKeys.usersSummary(ld.account, undefined, undefined), ld.usersData);
     }
     if (ld.members) {
       // Without this, the users tab flashes a skeleton on hard refresh because
@@ -190,8 +177,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
               range={range}
               selectedAgents={selectedAgents}
               onChangeAgents={setSelectedAgents}
-              ssrFrom={loaderData?.from}
-              ssrTo={loaderData?.to}
               viewToggle={viewToggle}
               timeRangeSelector={timeRangeSelector}
             />
@@ -201,8 +186,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
               range={range}
               selectedUsers={selectedUsers}
               onChangeUsers={setSelectedUsers}
-              ssrFrom={loaderData?.from}
-              ssrTo={loaderData?.to}
               viewToggle={viewToggle}
               timeRangeSelector={timeRangeSelector}
             />
@@ -276,14 +259,12 @@ interface AgentsTabProps {
   range: ActivityRange;
   selectedAgents: string[];
   onChangeAgents: (a: string[]) => void;
-  ssrFrom: string | null | undefined;
-  ssrTo: string | null | undefined;
   viewToggle: ReactNode;
   timeRangeSelector: ReactNode;
 }
 
-function AgentsTab({ account, range, selectedAgents, onChangeAgents, ssrFrom, ssrTo, viewToggle, timeRangeSelector }: AgentsTabProps) {
-  const data = useInsightsData({ account, range, selectedAgents, ssrFrom, ssrTo });
+function AgentsTab({ account, range, selectedAgents, onChangeAgents, viewToggle, timeRangeSelector }: AgentsTabProps) {
+  const data = useInsightsData({ account, range, selectedAgents });
   const days = RANGE_DAYS[range];
   return (
     <>
@@ -334,14 +315,12 @@ interface UsersTabProps {
   range: ActivityRange;
   selectedUsers: string[];
   onChangeUsers: (u: string[]) => void;
-  ssrFrom: string | null | undefined;
-  ssrTo: string | null | undefined;
   viewToggle: ReactNode;
   timeRangeSelector: ReactNode;
 }
 
-function UsersTab({ account, range, selectedUsers, onChangeUsers, ssrFrom, ssrTo, viewToggle, timeRangeSelector }: UsersTabProps) {
-  const data = useUsersInsightsData({ account, range, selectedUsers, ssrFrom, ssrTo });
+function UsersTab({ account, range, selectedUsers, onChangeUsers, viewToggle, timeRangeSelector }: UsersTabProps) {
+  const data = useUsersInsightsData({ account, range, selectedUsers });
   const days = RANGE_DAYS[range];
   return (
     <>
@@ -361,8 +340,8 @@ function UsersTab({ account, range, selectedUsers, onChangeUsers, ssrFrom, ssrTo
         isLoading={data.isLoading}
         hasData={data.hasData}
         empty={{
-          title: "No user activity for this period",
-          description: "Once agents start receiving traced requests with a user_id, this view will populate.",
+          title: "No insights for this period",
+          description: "Deploy agents and start sending requests to see usage data here.",
         }}
         chart={
           <CostOverTimeChart

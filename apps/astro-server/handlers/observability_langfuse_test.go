@@ -266,7 +266,7 @@ func TestBuildAccountSummary_Totals(t *testing.T) {
 		},
 	}
 
-	resp := buildAccountSummary(current, nil, false, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", 3)
+	resp := buildAccountSummary(current, nil, true, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", 3)
 
 	if resp.Totals.Requests != 150 {
 		t.Errorf("requests = %d, want 150", resp.Totals.Requests)
@@ -389,8 +389,6 @@ func TestBuildAccountSummary_ChangeNullWhenPriorZero(t *testing.T) {
 		t.Errorf("cost_pct should be nil when prior=0, got %v", *resp.Change.CostPct)
 	}
 }
-
-// ── pctChange ─────────────────────────────────────────────────────────────────
 
 func TestPctChange(t *testing.T) {
 	tests := []struct {

@@ -323,11 +323,15 @@ type AccountSparklines struct {
 	Tokens   []int     `json:"tokens"`
 }
 
-// AccountUserCost is a per-user cost contribution within a single day,
-// used in the user-grouped cost-over-time view.
+// AccountUserCost is a per-user activity contribution within a single day,
+// used in the user-grouped cost-over-time view. Carries cost + requests +
+// tokens so the client can slice the per-(day, user) data into any range
+// window and recompute per-user totals without an extra round-trip.
 type AccountUserCost struct {
-	UserID  string  `json:"user_id"`
-	CostUSD float64 `json:"cost_usd"`
+	UserID   string  `json:"user_id"`
+	CostUSD  float64 `json:"cost_usd"`
+	Requests int     `json:"requests"`
+	Tokens   int     `json:"tokens"`
 }
 
 // AccountCostOverTimeByUserEntry is one day's user-level cost breakdown for the chart.

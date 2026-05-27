@@ -79,6 +79,10 @@ func resolveLangfuseContext(
 // in an account. Accepts optional `from`/`to` ISO-8601 query params; when absent the
 // full history is queried. Two parallel Langfuse calls (current + prior period) drive
 // % change stats. Active-agent count comes from the deployments table.
+//
+// The Insights client now omits from/to (slices client-side for instant toggles),
+// so the prior-period branch never fires for that caller — it remains for any
+// future / external consumer that wants change% server-side.
 // GET /api/v1/accounts/:account/observability/summary
 func GetAccountLangfuseSummary(
 	log *logger.Logger,
@@ -205,11 +209,17 @@ func GetAccountLangfuseSummary(
 				// chart's per-user cost matches the table's per-user cost. The
 				// observations view double-counts spans within a trace and
 				// produced a chart that didn't reconcile with the row totals.
+				//
+				// We pull cost + count + totalTokens so the client can slice
+				// the per-(day, user) data into a range and recompute per-user
+				// totals without an extra round-trip on every range toggle.
 				qFrom, qTo := metricsTimeRange(from, to)
 				q := langfuse.MetricsQuery{
 					View: "traces",
 					Metrics: []langfuse.MetricsQueryField{
 						{Measure: "totalCost", Aggregation: "sum"},
+						{Measure: "count", Aggregation: "count"},
+						{Measure: "totalTokens", Aggregation: "sum"},
 					},
 					Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
 					TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
@@ -267,8 +277,15 @@ func GetAccountLangfuseSummary(
 
 // buildCostOverTimeByUser groups the per-(user, day) Langfuse rows into per-day
 // entries with the user breakdown nested inside. Sorted by date ascending.
+// Each entry carries cost + requests + tokens so the client can slice the
+// per-(day, user) data into any range window without an extra round-trip.
 func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserEntry {
-	costByDateUser := make(map[string]map[string]float64)
+	type userBucket struct {
+		cost     float64
+		requests int
+		tokens   int
+	}
+	byDateUser := make(map[string]map[string]*userBucket)
 	for _, row := range rows {
 		ts, _ := row[langfuseTimeDimensionKey].(string)
 		if ts == "" {
@@ -283,29 +300,43 @@ func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserE
 		userID, _ := row["userId"].(string)
 		userID = normalizeUserID(userID)
 		cost := toFloat(row["sum_totalCost"])
-		if cost <= 0 {
+		requests := toInt(row["count_count"])
+		tokens := toInt(row["sum_totalTokens"])
+		if cost <= 0 && requests == 0 && tokens == 0 {
 			continue
 		}
-		byUser, ok := costByDateUser[date]
+		byUser, ok := byDateUser[date]
 		if !ok {
-			byUser = make(map[string]float64)
-			costByDateUser[date] = byUser
+			byUser = make(map[string]*userBucket)
+			byDateUser[date] = byUser
 		}
-		byUser[userID] += cost
+		bucket, ok := byUser[userID]
+		if !ok {
+			bucket = &userBucket{}
+			byUser[userID] = bucket
+		}
+		bucket.cost += cost
+		bucket.requests += requests
+		bucket.tokens += tokens
 	}
 
-	dates := make([]string, 0, len(costByDateUser))
-	for d := range costByDateUser {
+	dates := make([]string, 0, len(byDateUser))
+	for d := range byDateUser {
 		dates = append(dates, d)
 	}
 	sort.Strings(dates)
 
 	out := make([]AccountCostOverTimeByUserEntry, 0, len(dates))
 	for _, d := range dates {
-		byUser := costByDateUser[d]
+		byUser := byDateUser[d]
 		users := make([]AccountUserCost, 0, len(byUser))
-		for uid, c := range byUser {
-			users = append(users, AccountUserCost{UserID: uid, CostUSD: math.Round(c*10000) / 10000})
+		for uid, b := range byUser {
+			users = append(users, AccountUserCost{
+				UserID:   uid,
+				CostUSD:  math.Round(b.cost*10000) / 10000,
+				Requests: b.requests,
+				Tokens:   b.tokens,
+			})
 		}
 		out = append(out, AccountCostOverTimeByUserEntry{Date: d, Users: users})
 	}
@@ -484,6 +515,16 @@ func shiftPrior(from, to string) (string, string) {
 	return f.Add(-d).UTC().Format(time.RFC3339), f.UTC().Format(time.RFC3339)
 }
 
+// pctChange returns the % change from prior to current rounded to one decimal place,
+// or nil when prior is 0 (undefined).
+func pctChange(current, prior float64) *float64 {
+	if prior == 0 {
+		return nil
+	}
+	v := math.Round((current-prior)/prior*1000) / 10
+	return &v
+}
+
 // metricsTimeRange returns a (from, to) pair safe to pass to /api/public/metrics,
 // which 400s on empty timestamps. When the caller asked for all-time (both
 // inputs empty), backfill a 5-year lookback ending now — long enough to be
@@ -523,16 +564,6 @@ func tagStrings(v any) []string {
 		return out
 	}
 	return nil
-}
-
-// pctChange returns the % change from prior to current rounded to one decimal place,
-// or nil when prior is 0 (undefined).
-func pctChange(current, prior float64) *float64 {
-	if prior == 0 {
-		return nil
-	}
-	v := math.Round((current-prior)/prior*1000) / 10
-	return &v
 }
 
 // accountDailyMetrics builds the per-day account timeline from two batched

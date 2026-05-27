@@ -1805,7 +1805,7 @@ export interface AccountObservabilitySummaryResponse {
   /** Present only when the endpoint was called with ?group_by=user. */
   cost_over_time_by_user?: Array<{
     date: string;
-    users: Array<{ user_id: string; cost_usd: number }>;
+    users: Array<{ user_id: string; cost_usd: number; requests: number; tokens: number }>;
   }>;
 }
 
