@@ -22,6 +22,12 @@ export function computeFormDefaults(
     return { deployName, selectedAdapters: ["web"] };
   }
 
+  // An agent that declares only a custom frontend (no messaging interface)
+  // omits the deployment-level `interfaces` block. In that case there are no
+  // adapters to pick from, so the form should start with an empty selection
+  // rather than seeding "web".
+  const hasMessaging = template.interfaces != null;
+
   // Variable defaults (agent/ingestion-targeted variables)
   const variableValues: Record<string, string> = {};
   // Adapter credential defaults (interface-targeted variables)
@@ -73,7 +79,7 @@ export function computeFormDefaults(
   return {
     deployName,
     variableValues,
-    selectedAdapters: ["web"],
+    selectedAdapters: hasMessaging ? ["web"] : [],
     adapterCredentials,
     ingestionSchedules,
     webGrants,

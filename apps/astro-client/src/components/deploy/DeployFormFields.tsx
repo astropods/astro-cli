@@ -148,29 +148,32 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
         </div>
       </FormSection>
 
-      {/* Interfaces */}
-      <FormSection title="Chat interface" description="Choose how you want to interact with the agent.">
-        <InterfacesPicker
-          selected={form.selectedAdapters}
-          onChange={form.setSelectedAdapters}
-          adapterCredDefs={form.adapterDisplayFields}
-          adapterCredentials={form.adapterCredentials}
-          onAdapterCredentialsChange={form.setAdapterCredentials}
-          showError={!!form.errors.adapters}
-          adapterErrorKeys={form.errors.adapterCredentials}
-          credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
-          webGrants={form.webGrants}
-          onWebGrantsChange={form.setWebGrants}
-          slackGrants={form.slackGrants}
-          onSlackGrantsChange={form.setSlackGrants}
-          targetAccount={form.targetAccount}
-          vaultEntries={form.vaultEntries}
-          vaultEntriesLoaded={form.vaultEntriesLoaded}
-          vaultSettingsUrl={form.vaultSettingsUrl}
-          vaultLoadError={form.vaultEntriesLoadError}
-          bulkSetVariables={form.bulkSetVariables}
-        />
-      </FormSection>
+      {/* Interfaces — hidden when the agent declares only a custom frontend
+          (no messaging adapters to pick from). */}
+      {form.messagingSupported && (
+        <FormSection title="Chat interface" description="Choose how you want to interact with the agent.">
+          <InterfacesPicker
+            selected={form.selectedAdapters}
+            onChange={form.setSelectedAdapters}
+            adapterCredDefs={form.adapterDisplayFields}
+            adapterCredentials={form.adapterCredentials}
+            onAdapterCredentialsChange={form.setAdapterCredentials}
+            showError={!!form.errors.adapters}
+            adapterErrorKeys={form.errors.adapterCredentials}
+            credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
+            webGrants={form.webGrants}
+            onWebGrantsChange={form.setWebGrants}
+            slackGrants={form.slackGrants}
+            onSlackGrantsChange={form.setSlackGrants}
+            targetAccount={form.targetAccount}
+            vaultEntries={form.vaultEntries}
+            vaultEntriesLoaded={form.vaultEntriesLoaded}
+            vaultSettingsUrl={form.vaultSettingsUrl}
+            vaultLoadError={form.vaultEntriesLoadError}
+            bulkSetVariables={form.bulkSetVariables}
+          />
+        </FormSection>
+      )}
 
       {/* Knowledge bindings */}
       {hasKnowledgeEntries && (

@@ -99,8 +99,14 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     }
   }
 
+  // When the agent declares no messaging interface (custom frontend only), the
+  // server omits the deployment-level `interfaces` block. Default to an empty
+  // adapter selection so the form doesn't pretend "web" is available.
+  const hasMessaging = template.interfaces != null;
   const adapters = respInterfaces?.adapters;
-  const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0 ? adapters : ["web"];
+  const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0
+    ? adapters
+    : hasMessaging ? ["web"] : [];
   const webGrants = respInterfaces?.auth?.web?.grants ?? [];
   const slackGrants = respInterfaces?.auth?.slack?.grants ?? [];
 
@@ -357,6 +363,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (templateResponse) return toDeploymentTemplate(templateResponse);
     return null;
   }, [templateResponse]);
+
+  // Agents that declare only a custom frontend (no messaging) omit the
+  // deployment-level `interfaces` block. The chat-interface picker and its
+  // "at least one adapter" validation are gated on this flag.
+  const messagingSupported = template?.interfaces != null;
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
@@ -690,7 +701,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.deployName = "Name must be 64 characters or fewer";
     }
 
-    if (selectedAdapters.length === 0) {
+    if (messagingSupported && selectedAdapters.length === 0) {
       result.adapters = "Select at least one messaging type";
     }
 
@@ -721,7 +732,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, messagingSupported, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules
@@ -734,7 +745,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAccount = !!targetAccount;
     const hasName = !!deployName.trim();
-    const hasAdapter = selectedAdapters.length > 0;
+    const hasAdapter = !messagingSupported || selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, allFormValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = adapterDisplayFields[adapterId] ?? [];
@@ -922,6 +933,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     deployName,
     setDeployName,
 
+    messagingSupported,
     selectedAdapters,
     setSelectedAdapters,
     adapterDisplayFields,
