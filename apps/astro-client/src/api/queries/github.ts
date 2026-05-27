@@ -100,7 +100,8 @@ export function useGitHubAccountDisconnect(account: string) {
 export function useGitHubAccountConnect(account: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (redirectTo: string) => api.gitHubConnectAccount(account, redirectTo),
+    mutationFn: ({ redirectTo, force }: { redirectTo: string; force?: boolean }) =>
+      api.gitHubConnectAccount(account, redirectTo, force),
     onSuccess: (data) => {
       if (data.connected) {
         queryClient.setQueryData(githubKeys.accountStatus(account), {

@@ -1070,10 +1070,10 @@ class ApiClient {
     );
   }
 
-  async gitHubConnectAccount(account: string, redirectTo: string): Promise<GitHubConnectResponse> {
+  async gitHubConnectAccount(account: string, redirectTo: string, force?: boolean): Promise<GitHubConnectResponse> {
     return this.request<GitHubConnectResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/github/connect`,
-      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo, force: force ?? false }) }
     );
   }
 

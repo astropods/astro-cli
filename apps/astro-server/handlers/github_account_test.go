@@ -1104,12 +1104,28 @@ func (m mapCache) Invalidate(_ context.Context, key string) error {
 	return nil
 }
 
+// setupAccountConnectRouter wires a GitHubAccountConnect router backed by the given mux.
+func setupAccountConnectRouter(t *testing.T, mux *http.ServeMux) (*gin.Engine, func()) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	srv := httptest.NewServer(mux)
+	old := http.DefaultTransport
+	http.DefaultTransport = &rewriteTransport{server: srv}
+	router := gin.New()
+	router.Use(injectTestSession(), injectTestAccount())
+	router.POST("/api/v1/accounts/:account/github/connect",
+		GitHubAccountConnect(logger.New("error", "json"), pipes.New("fake-workos-key"),
+			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai", FrontendURL: "https://app.astropods.ai"}))
+	return router, func() {
+		http.DefaultTransport = old
+		srv.Close()
+	}
+}
+
 // TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL verifies that when WorkOS
 // returns a token but GitHub rejects it with 401, the connect endpoint clears the
 // stale WorkOS connection and returns a fresh OAuth URL instead of connected: true.
 func TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	var deleteHits atomic.Int32
 
 	mux := http.NewServeMux()
@@ -1138,21 +1154,8 @@ func TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"url": "https://github.com/login/oauth/authorize?fake=1"})
 	})
 
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	old := http.DefaultTransport
-	http.DefaultTransport = &rewriteTransport{server: srv}
-	defer func() { http.DefaultTransport = old }()
-
-	router := gin.New()
-	router.Use(injectTestSession())
-	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testaccount"})
-		c.Next()
-	})
-	router.POST("/api/v1/accounts/:account/github/connect",
-		GitHubAccountConnect(logger.New("error", "json"), pipes.New("fake-workos-key"),
-			GitHubHandlerConfig{WebhookBaseURL: "https://api.astropods.ai", FrontendURL: "https://app.astropods.ai"}))
+	router, cleanup := setupAccountConnectRouter(t, mux)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/testaccount/github/connect",
 		strings.NewReader(`{"redirect_to":"/new/custom"}`))
@@ -1175,6 +1178,87 @@ func TestGitHubAccountConnect_StaleToken_ReturnsOAuthURL(t *testing.T) {
 	}
 	if deleteHits.Load() != 1 {
 		t.Errorf("expected 1 WorkOS DELETE to clear stale connection, got %d", deleteHits.Load())
+	}
+}
+
+// TestGitHubAccountConnect_ValidToken_NoForce_ReturnsConnected verifies that when WorkOS
+// returns a valid token and GitHub accepts it, and force is not set, the endpoint returns
+// connected:true without redirecting to OAuth.
+func TestGitHubAccountConnect_ValidToken_NoForce_ReturnsConnected(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"active": true,
+			"access_token": map[string]any{
+				"access_token": "valid-token",
+				"scopes":       []string{"repo"},
+			},
+		})
+	})
+	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"login": "testuser"})
+	})
+
+	router, cleanup := setupAccountConnectRouter(t, mux)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/testaccount/github/connect",
+		strings.NewReader(`{"redirect_to":"/settings/connectors"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["connected"] != true {
+		t.Errorf("expected connected: true, got: %v", resp)
+	}
+	if resp["github_login"] != "testuser" {
+		t.Errorf("expected github_login: testuser, got: %v", resp["github_login"])
+	}
+	if resp["redirect_url"] != nil {
+		t.Errorf("expected no redirect_url, got: %v", resp["redirect_url"])
+	}
+}
+
+// TestGitHubAccountConnect_Force_ReturnsOAuthURL verifies that when force=true, a valid
+// existing token is bypassed and the endpoint returns a fresh OAuth redirect URL instead
+// of connected:true. This is the Reauthorize button path.
+func TestGitHubAccountConnect_Force_ReturnsOAuthURL(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data-integrations/github/authorize", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": "https://github.com/login/oauth/authorize?reauth=1"})
+	})
+
+	router, cleanup := setupAccountConnectRouter(t, mux)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/testaccount/github/connect",
+		strings.NewReader(`{"redirect_to":"/settings/connectors","force":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["connected"] == true {
+		t.Errorf("expected redirect_url, got connected: true — force was ignored")
+	}
+	if resp["redirect_url"] == "" || resp["redirect_url"] == nil {
+		t.Errorf("expected a redirect_url for re-auth, got none: %v", resp)
 	}
 }
 

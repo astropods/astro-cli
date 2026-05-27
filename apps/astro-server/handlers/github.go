@@ -66,6 +66,7 @@ type GitHubLinkRequest struct {
 // GitHubAccountConnectRequest is the body for the account-level connect endpoint.
 type GitHubAccountConnectRequest struct {
 	RedirectTo string `json:"redirect_to"`
+	Force      bool   `json:"force"`
 }
 
 // GitHubAccountConnect handles POST /api/v1/accounts/:account/github/connect.
@@ -91,42 +92,42 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 			return
 		}
 
-		// Check if the user already has a GitHub token via Pipes.
-		existingToken, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-			Provider:       "github",
-			UserID:         session.UserID,
-			OrganizationID: session.OrganizationID,
-		})
-		if err == nil {
-			// Fetch the GitHub login to include in the response so the frontend
-			// can display "{login} connected" without a separate API call.
-			// If GitHub rejects the token with 401, treat it as needing re-auth.
-			gh := githubclient.New(existingToken.AccessToken)
-			login, loginErr := gh.GetLogin(c.Request.Context())
-			if loginErr == nil {
-				c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
-				return
-			}
-			if !errors.Is(loginErr, githubclient.ErrUnauthorized) {
-				c.JSON(http.StatusOK, gin.H{"connected": true})
-				return
-			}
-			// Stale token — delete the dead connection so WorkOS will accept
-			// a new authorization request, then fall through to get the OAuth URL.
-			if delErr := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
+		if !req.Force {
+			existingToken, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
 				Provider:       "github",
 				UserID:         session.UserID,
 				OrganizationID: session.OrganizationID,
-			}); delErr != nil {
-				log.Warn("github: failed to clear stale connection before re-auth", "error", delErr)
+			})
+			if err == nil {
+				// Fetch the GitHub login to include in the response so the frontend
+				// can display "{login} connected" without a separate API call.
+				// If GitHub rejects the token with 401, treat it as needing re-auth.
+				gh := githubclient.New(existingToken.AccessToken)
+				login, loginErr := gh.GetLogin(c.Request.Context())
+				if loginErr == nil {
+					c.JSON(http.StatusOK, gin.H{"connected": true, "github_login": login})
+					return
+				}
+				if !errors.Is(loginErr, githubclient.ErrUnauthorized) {
+					c.JSON(http.StatusOK, gin.H{"connected": true})
+					return
+				}
+				// Stale token — delete the dead connection so WorkOS will accept
+				// a new authorization request, then fall through to get the OAuth URL.
+				if delErr := pipesClient.DeleteConnection(c.Request.Context(), pipes.DeleteConnectionInput{
+					Provider:       "github",
+					UserID:         session.UserID,
+					OrganizationID: session.OrganizationID,
+				}); delErr != nil {
+					log.Warn("github: failed to clear stale connection before re-auth", "error", delErr)
+				}
+				err = pipes.ErrNeedsReauthorization
 			}
-			err = pipes.ErrNeedsReauthorization
-		}
-
-		if !errors.Is(err, pipes.ErrNeedsReauthorization) && !errors.Is(err, pipes.ErrNotInstalled) {
-			log.Error("pipes: get access token", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check GitHub connection"})
-			return
+			if err != nil && !errors.Is(err, pipes.ErrNeedsReauthorization) && !errors.Is(err, pipes.ErrNotInstalled) {
+				log.Error("pipes: get access token", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check GitHub connection"})
+				return
+			}
 		}
 
 		// Encode redirect_to into the callback URL so the callback knows where to send the browser.

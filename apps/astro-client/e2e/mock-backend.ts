@@ -1426,6 +1426,10 @@ Bun.serve({
 
     const githubConnectMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/github\/connect$/);
     if (githubConnectMatch && request.method === "POST") {
+      const body = (await request.json().catch(() => ({}))) as { redirect_to?: string; force?: boolean };
+      if (body.force) {
+        return json({ redirect_url: "https://github.com/login/oauth/authorize?mock=1" });
+      }
       githubAccountConnected = true;
       return json({ connected: true, github_login: "testgh" });
     }

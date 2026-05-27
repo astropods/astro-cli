@@ -54,7 +54,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   const [repoDialogOpen, setRepoDialogOpen] = useState(githubConnected);
 
   function handleConnect() {
-    connect.mutate(`/${account}/${name}?github_connected=true`, {
+    connect.mutate({ redirectTo: `/${account}/${name}?github_connected=true` }, {
       onSuccess: (data) => {
         if (data.connected) {
           setRepoDialogOpen(true);

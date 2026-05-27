@@ -354,7 +354,7 @@ describe('useGitHubAccountConnect', () => {
     const { wrapper, queryClient } = createHookWrapper();
     const { result } = renderHook(() => useGitHubAccountConnect('testuser'), { wrapper });
 
-    result.current.mutate('/testuser/my-agent?github_connected=true');
+    result.current.mutate({ redirectTo: '/testuser/my-agent?github_connected=true' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -377,10 +377,48 @@ describe('useGitHubAccountConnect', () => {
     const { wrapper, queryClient } = createHookWrapper();
     const { result } = renderHook(() => useGitHubAccountConnect('testuser'), { wrapper });
 
-    result.current.mutate('/testuser/my-agent?github_connected=true');
+    result.current.mutate({ redirectTo: '/testuser/my-agent?github_connected=true' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(queryClient.getQueryData(githubKeys.accountStatus('testuser'))).toBeUndefined();
+  });
+
+  it('sends force=true in request body when force is set', async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post('/api/v1/accounts/:account/github/connect', async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ redirect_url: 'https://github.com/login/oauth/authorize?reauth=1' });
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useGitHubAccountConnect('testuser'), { wrapper });
+
+    result.current.mutate({ redirectTo: '/settings/connectors', force: true });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedBody).toMatchObject({ redirect_to: '/settings/connectors', force: true });
+  });
+
+  it('sends force=false in request body when force is not set', async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post('/api/v1/accounts/:account/github/connect', async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ connected: true, github_login: 'gh-user' });
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useGitHubAccountConnect('testuser'), { wrapper });
+
+    result.current.mutate({ redirectTo: '/settings/connectors' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedBody).toMatchObject({ redirect_to: '/settings/connectors', force: false });
   });
 });

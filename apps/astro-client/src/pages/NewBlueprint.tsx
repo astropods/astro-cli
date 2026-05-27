@@ -227,7 +227,7 @@ function NewBlueprintContent() {
   const handleGitHubConnect = useCallback(async () => {
     try {
       sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ name, selectedOrg, visibility }));
-      const res = await accountConnect.mutateAsync("/new/custom");
+      const res = await accountConnect.mutateAsync({ redirectTo: "/new/custom" });
       if (res.connected) {
         // Token already exists via Pipes — skip OAuth, go straight to repo selection
         sessionStorage.removeItem(WIZARD_STATE_KEY);

@@ -9,6 +9,7 @@ import { SectionHeader } from "@/components/settings/SettingsShared";
 import { ConnectorCard, ConnectorCardRow } from "@/components/settings/ConnectorCard";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountOrgs } from "@/api/queries/github";
 import { useSlackAccountStatus, useSlackAccountDisconnect, useSlackAccountConnect } from "@/api/queries/slack";
+import type { GitHubConnectResponse } from "@/lib/api";
 import { githubKeys, slackKeys } from "@/api/queries/keys";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
@@ -24,6 +25,17 @@ export const meta: MetaFunction = () => [{ title: "Connectors - Settings | Astro
 const RETURN_PATH = "/settings/connectors";
 const GITHUB_OAUTH_PARAMS = ["github_connected", "github_login"] as const;
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
+const GITHUB_APP_SETTINGS_URL = "https://github.com/settings/connections/applications";
+
+function RequestAccessLink() {
+  return (
+    <Button variant="link" size="sm" asChild className="h-auto p-0 font-normal">
+      <a href={GITHUB_APP_SETTINGS_URL} target="_blank" rel="noreferrer">
+        Request access on GitHub
+      </a>
+    </Button>
+  );
+}
 
 function CopyInline({ value, label }: { value: string; label: string }) {
   const { copy, copied } = useCopyToClipboard(1600);
@@ -69,14 +81,16 @@ function GitHubSection() {
   });
   const orgs = orgsData?.orgs ?? [];
 
+  const onConnectSuccess = (data: GitHubConnectResponse) => {
+    if (data.redirect_url) window.location.href = data.redirect_url;
+  };
+
   const handleConnect = () => {
-    connect.mutate(RETURN_PATH, {
-      onSuccess: (data) => {
-        if (data.redirect_url) {
-          window.location.href = data.redirect_url;
-        }
-      },
-    });
+    connect.mutate({ redirectTo: RETURN_PATH }, { onSuccess: onConnectSuccess });
+  };
+
+  const handleReauthorize = () => {
+    connect.mutate({ redirectTo: RETURN_PATH, force: true }, { onSuccess: onConnectSuccess });
   };
 
   const handleDisconnect = () => {
@@ -100,7 +114,7 @@ function GitHubSection() {
 
   const action = connected ? (
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+      <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleReauthorize}>
         {connect.isPending ? "Opening GitHub…" : "Reauthorize"}
       </Button>
       <Button
@@ -127,32 +141,43 @@ function GitHubSection() {
         meta={metaLine}
         action={action}
       >
-        {connected && orgsLoading && (
-          <ConnectorCardRow>
-            <div className="h-3.5 w-32 rounded animate-pulse bg-muted" />
-          </ConnectorCardRow>
-        )}
-        {connected && !orgsLoading && orgs.length === 0 && (
-          <ConnectorCardRow>
-            <span className="text-muted-foreground italic">
-              No organizations granted. Use Reauthorize to add access.
-            </span>
-          </ConnectorCardRow>
-        )}
-        {connected && !orgsLoading && orgs.map((o) => (
-          <ConnectorCardRow key={o.login}>
-            {o.avatar_url ? (
-              <img
-                src={o.avatar_url}
-                alt=""
-                className="size-3.5 shrink-0 rounded-sm object-cover"
-              />
-            ) : (
-              <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
+        {connected && (
+          <>
+            {orgsLoading && (
+              <ConnectorCardRow>
+                <div className="h-3.5 w-32 rounded animate-pulse bg-muted" />
+              </ConnectorCardRow>
             )}
-            <span className="font-medium text-foreground truncate">{o.login}</span>
-          </ConnectorCardRow>
-        ))}
+            {!orgsLoading && orgs.length === 0 && (
+              <ConnectorCardRow>
+                <span className="text-muted-foreground italic">
+                  No organizations granted. <RequestAccessLink />.
+                </span>
+              </ConnectorCardRow>
+            )}
+            {!orgsLoading && orgs.map((o) => (
+              <ConnectorCardRow key={o.login}>
+                {o.avatar_url ? (
+                  <img
+                    src={o.avatar_url}
+                    alt=""
+                    className="size-3.5 shrink-0 rounded-sm object-cover"
+                  />
+                ) : (
+                  <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
+                )}
+                <span className="font-medium text-foreground truncate">{o.login}</span>
+              </ConnectorCardRow>
+            ))}
+            {!orgsLoading && orgs.length > 0 && (
+              <ConnectorCardRow>
+                <span className="text-muted-foreground text-xs">
+                  Missing an org? <RequestAccessLink />.
+                </span>
+              </ConnectorCardRow>
+            )}
+          </>
+        )}
       </ConnectorCard>
 
       <ConfirmationDialog
@@ -299,7 +324,7 @@ export default function ConnectorsSettings() {
     <>
       <SectionHeader
         title="GitHub"
-        subtitle="Link a GitHub account so Astro can clone, build, and watch repositories on your behalf. Reauthorize to grant access to additional organizations."
+        subtitle="Link a GitHub account so Astro can clone, build, and watch repositories on your behalf."
       />
       <GitHubSection />
       <hr className="my-2 border-border" />
