@@ -280,6 +280,73 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
   )
 }
 
+/** Inline badge matching vault auto-fill affordance (WandSparkles + label). */
+export function AutoFilledBadge({
+  label = 'Auto-filled',
+  onClick,
+}: {
+  label?: string
+  onClick?: () => void
+}) {
+  const className =
+    'ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 select-none transition-colors'
+  const content = (
+    <>
+      <WandSparkles className="size-3 shrink-0" />
+      {label}
+    </>
+  )
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(className, 'hover:text-muted-foreground')}
+      >
+        {content}
+      </button>
+    )
+  }
+  return <span className={cn(className, 'pointer-events-none')}>{content}</span>
+}
+
+export const CONFIGURED_INLINE_SECRET_MASK = '•••••••'
+
+/** Masked inline secret saved on a prior deploy (configure/redeploy prefill). */
+export function ConfiguredInlineSecretChip({
+  label,
+  onReplace,
+  invalid,
+}: {
+  label: string
+  onReplace: () => void
+  invalid?: boolean
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onReplace}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onReplace()
+        }
+      }}
+      className={cn(
+        'flex h-11 w-full min-w-0 cursor-pointer items-center rounded-sm border border-input bg-[var(--input-background)] px-3.5 pr-24 text-body shadow-none transition-[color,box-shadow,border-color] outline-none',
+        invalid && 'border-destructive',
+      )}
+      aria-label={`${label}: ${CONFIGURED_INLINE_SECRET_MASK} Auto-filled, click to edit`}
+    >
+      <span className="font-mono text-sm tracking-wider text-muted-foreground">
+        {CONFIGURED_INLINE_SECRET_MASK}
+      </span>
+      <AutoFilledBadge />
+    </div>
+  )
+}
+
 // Chip shown in the input field when a vault ref is active.
 // invalid=true means the referenced variable doesn't exist in the target account.
 export function VaultRefChip({ token, onClear, invalid, autoFillLabel, onAutoFillClick }: { token: string; onClear: () => void; invalid?: boolean; autoFillLabel?: string; onAutoFillClick?: () => void }) {
@@ -315,21 +382,7 @@ export function VaultRefChip({ token, onClear, invalid, autoFillLabel, onAutoFil
         </span>
       </button>
       {autoFillLabel && (
-        onAutoFillClick ? (
-          <button
-            type="button"
-            onClick={onAutoFillClick}
-            className="ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors select-none"
-          >
-            <WandSparkles className="size-3 shrink-0" />
-            {autoFillLabel}
-          </button>
-        ) : (
-          <span className="ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 select-none pointer-events-none">
-            <WandSparkles className="size-3 shrink-0" />
-            {autoFillLabel}
-          </span>
-        )
+        <AutoFilledBadge label={autoFillLabel} onClick={onAutoFillClick} />
       )}
     </div>
   )

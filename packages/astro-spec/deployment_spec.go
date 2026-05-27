@@ -69,6 +69,10 @@ type Variable struct {
 	// (strike-through label, "Deprecated" badge, tooltip carrying this
 	// message) but keeps them editable so existing values can be cleared.
 	Deprecated string `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	// Configured signals an inline secret is stored for this deployment but
+	// its value is intentionally omitted from template API responses.
+	// Template-only: stripped before deployment/v1 persistence.
+	Configured bool `json:"configured,omitempty" yaml:"configured,omitempty"`
 }
 
 // VariableField describes a single sub-field within an object-typed variable.

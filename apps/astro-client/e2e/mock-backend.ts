@@ -436,7 +436,7 @@ const prefilledTemplatesByDeployment = {
     variables: {
       OPENAI_API_KEY: {
         ...baseVariables.OPENAI_API_KEY,
-        value: "sk-ingest-key",
+        configured: true,
       },
     },
     editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
@@ -788,8 +788,13 @@ Bun.serve({
             if (storedVars && flat.variables) {
               const tmplVars = flat.variables as Record<string, Record<string, unknown>>;
               for (const [key, sv] of Object.entries(storedVars)) {
-                if (tmplVars[key] && sv.value !== undefined) {
+                if (!tmplVars[key]) continue;
+                if (sv.secret && sv.value !== undefined && !sv.ref) {
+                  tmplVars[key] = { ...tmplVars[key], configured: true, value: undefined, ref: undefined };
+                } else if (sv.value !== undefined) {
                   tmplVars[key] = { ...tmplVars[key], value: sv.value };
+                } else if (sv.ref) {
+                  tmplVars[key] = { ...tmplVars[key], ref: sv.ref, value: undefined };
                 }
               }
             }
@@ -850,13 +855,31 @@ Bun.serve({
           }
         }
 
+        // Scrub stored inline secrets from the response (matches server overlay).
+        if (flat.variables) {
+          const tmplVars = flat.variables as Record<string, Record<string, unknown>>;
+          for (const [key, v] of Object.entries(tmplVars)) {
+            if (v.secret && v.configured) {
+              tmplVars[key] = { ...v, value: undefined, ref: undefined };
+            }
+          }
+        }
+
         // Build TemplateResponse envelope
         const { editable, variables, ...templateRest } = flat;
         delete templateRest.spec;
         const templateVars: Record<string, unknown> = {};
         if (variables) {
           for (const [k, v] of Object.entries(variables as Record<string, Record<string, unknown>>)) {
-            templateVars[k] = { value: v.value, ref: v.ref, targets: v.targets, secret: v.secret, optional: v.optional };
+            const configuredSecret = !!(v.secret && v.configured);
+            templateVars[k] = {
+              value: configuredSecret ? undefined : v.value,
+              ref: configuredSecret ? undefined : v.ref,
+              targets: v.targets,
+              secret: v.secret,
+              optional: v.optional,
+              configured: v.configured,
+            };
           }
         }
 
@@ -881,7 +904,7 @@ Bun.serve({
 
         const errors = variables
           ? Object.entries(variables as Record<string, Record<string, unknown>>)
-              .filter(([, v]) => !v.optional && !v.value && !v.ref)
+              .filter(([, v]) => !v.optional && !v.value && !v.ref && !v.configured)
               .map(([key]) => ({ field: `variables.${key}`, message: "required variable is empty" }))
           : [];
         return json({
@@ -933,8 +956,13 @@ Bun.serve({
         if (storedVars && result.variables) {
           const tmplVars = result.variables as Record<string, Record<string, unknown>>;
           for (const [key, sv] of Object.entries(storedVars)) {
-            if (tmplVars[key] && sv.value !== undefined) {
+            if (!tmplVars[key]) continue;
+            if (sv.secret && sv.value !== undefined && !sv.ref) {
+              tmplVars[key] = { ...tmplVars[key], configured: true, value: undefined, ref: undefined };
+            } else if (sv.value !== undefined) {
               tmplVars[key] = { ...tmplVars[key], value: sv.value };
+            } else if (sv.ref) {
+              tmplVars[key] = { ...tmplVars[key], ref: sv.ref, value: undefined };
             }
           }
         }

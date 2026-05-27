@@ -5493,6 +5493,120 @@ func TestPostTemplate_WithDeploymentID_PreservesSlackConfigValue(t *testing.T) {
 	}
 }
 
+const inlineSecretPlaintext = "sk-inline-never-leak-99"
+
+func expectPostTemplateInlineSecretPrefill(deployMock, indexMock, accountMock sqlmock.Sqlmock, depID, acctID string) {
+	now := time.Now()
+	storedSpec := `{}`
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-inline",
+			"My Bot", storedSpec, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	accountMock.ExpectQuery(`SELECT .+ FROM accounts a LEFT JOIN account_organizations ao`).
+		WithArgs(acctID).
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow(acctID, "myorg", "organization", nil, nil, now, now)...))
+	expectGenerateTemplatePinned(indexMock, accountMock, specWithVarInputs)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
+		}).
+			AddRow("agent", "API_KEY", []byte(inlineSecretPlaintext), nil, true, "API_KEY", "", false).
+			AddRow("agent", "LOG_LEVEL", []byte("info"), nil, false, "LOG_LEVEL", "", true))
+}
+
+func TestPostTemplate_InlineSecret_PrefillConfiguredNotExposed(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	depID := "dep-inline-1"
+	acctID := "acct-1"
+	expectPostTemplateInlineSecretPrefill(deployMock, indexMock, accountMock, depID, acctID)
+
+	rec := postTemplate(t, router, `{"deployment_id":"`+depID+`"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, inlineSecretPlaintext) {
+		t.Fatalf("response body must not contain inline secret plaintext")
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v, ok := resp.Variables["API_KEY"]
+	if !ok {
+		t.Fatalf("API_KEY missing from resp.Variables")
+	}
+	if !v.Configured {
+		t.Error("API_KEY.Configured: expected true")
+	}
+	if v.Value != "" {
+		t.Errorf("API_KEY.Value: expected empty, got %q", v.Value)
+	}
+	if v.Ref != "" {
+		t.Errorf("API_KEY.Ref: expected empty, got %q", v.Ref)
+	}
+	if tv, ok := resp.Template.Variables["API_KEY"]; ok && tv.Value != "" {
+		t.Errorf("template.variables.API_KEY.Value: expected empty on prefill, got %q", tv.Value)
+	}
+}
+
+func TestPostTemplate_InlineSecret_FinalizePreservesWhenOmitted(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	depID := "dep-inline-2"
+	acctID := "acct-1"
+	expectPostTemplateInlineSecretPrefill(deployMock, indexMock, accountMock, depID, acctID)
+
+	rec := postTemplate(t, router, `{"deployment_id":"`+depID+`","finalize":true}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Validation.Valid {
+		t.Fatalf("expected valid template, errors: %v", resp.Validation.Errors)
+	}
+	if got := resp.Template.Variables["API_KEY"].Value; got != inlineSecretPlaintext {
+		t.Errorf("template.variables.API_KEY.Value: expected preserved secret, got %q", got)
+	}
+}
+
+func TestPostTemplate_InlineSecret_FinalizeSchemaStillScrubbed(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
+
+	depID := "dep-inline-3"
+	acctID := "acct-1"
+	expectPostTemplateInlineSecretPrefill(deployMock, indexMock, accountMock, depID, acctID)
+
+	rec := postTemplate(t, router, `{"deployment_id":"`+depID+`","finalize":true}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp spec.TemplateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v := resp.Variables["API_KEY"]
+	if !v.Configured {
+		t.Error("API_KEY.Configured: expected true on schema map")
+	}
+	if v.Value != "" {
+		t.Errorf("API_KEY.Value on schema map: expected empty, got %q", v.Value)
+	}
+}
+
 func TestPostTemplate_DeploymentNotFound(t *testing.T) {
 	router, _, _, deployMock := setupPostTemplateRouter(t)
 

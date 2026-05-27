@@ -1265,6 +1265,8 @@ export interface DeploymentVariable {
   // Non-empty when the variable is deprecated; carries the migration message
   // the UI surfaces in a tooltip next to a "Deprecated" badge.
   deprecated?: string;
+  /** Inline secret stored on deployment; value intentionally omitted from API. */
+  configured?: boolean;
 }
 
 export interface VariableField {

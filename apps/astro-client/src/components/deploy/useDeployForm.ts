@@ -145,6 +145,7 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
     options: v.options,
     defaultValue: v.default,
     deprecated: v.deprecated,
+    configured: v.configured,
   };
 }
 

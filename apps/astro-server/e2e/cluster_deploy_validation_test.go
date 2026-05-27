@@ -47,6 +47,8 @@ func newNoopPrimaryClusterClient(t *testing.T) k8s.ClusterClient {
 func registerTestCluster(t *testing.T, db *sql.DB, store *clusterstore.Store, id string, enabled bool) {
 	t.Helper()
 	ctx := context.Background()
+	// Remove leftovers from interrupted prior runs so Register is idempotent.
+	_, _ = db.ExecContext(ctx, `DELETE FROM clusters WHERE id = $1`, id)
 	err := store.Register(ctx, &clusterstore.Cluster{
 		ID:                 id,
 		Region:             "us-east-1",

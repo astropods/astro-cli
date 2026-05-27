@@ -28,6 +28,8 @@ export interface VariableDisplay {
   // Non-empty when the variable/sub-field is deprecated; carries the
   // migration message shown in a tooltip next to the "Deprecated" badge.
   deprecated?: string;
+  /** Inline secret is stored; value is not returned by the API. */
+  configured?: boolean;
 }
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */

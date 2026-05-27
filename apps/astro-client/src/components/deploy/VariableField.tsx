@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { VaultPicker, VaultRefChip, parseVaultToken } from "./VaultPicker";
+import { ConfiguredInlineSecretChip, VaultPicker, VaultRefChip, parseVaultToken } from "./VaultPicker";
 import type { VariableDisplay } from "./VariableFields";
 
 /** Convert "SLACK_BOT_TOKEN" → "your-slack-bot-token" */
@@ -69,6 +69,9 @@ export function isVariableFilled(meta: VariableDisplay, value: string | undefine
     case "boolean":
       return true;
     default:
+      if (meta.secret && meta.configured && !value?.trim()) {
+        return true;
+      }
       return !!value?.trim();
   }
 }
@@ -295,11 +298,23 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
 function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], vaultEntriesLoaded ?? false, onChange);
   const isVaultRef = parseVaultToken(value) !== null;
+  const showConfiguredChip =
+    meta.configured && !isVaultRef && !value?.trim() && !editing;
+  const fieldLabel = meta.label || humanizeKey(fieldKey);
+
   const bestMatchNames = suggestions.best.map((s) => s.name);
   const possibleMatchNames = suggestions.possible.map((s) => s.name);
   const selectedName = parseVaultToken(value)?.name;
+
+  const exitEditIfStillEmpty = () => {
+    if (meta.configured && !value?.trim()) {
+      setEditing(false);
+      setRevealed(false);
+    }
+  };
 
   return (
     <div className="relative flex items-center">
@@ -311,21 +326,32 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
           autoFillLabel={isAutoFilled ? autoFillLabel(suggestions.all) : undefined}
           onAutoFillClick={isAutoFilled && suggestions.all.length > 1 ? () => setPickerOpen(true) : undefined}
         />
+      ) : showConfiguredChip ? (
+        <ConfiguredInlineSecretChip
+          label={fieldLabel}
+          onReplace={() => {
+            setEditing(true);
+            setRevealed(false);
+          }}
+          invalid={hasError || refInvalid}
+        />
       ) : (
         <Input
           id={fieldKey}
           type={revealed ? "text" : "password"}
           value={value}
+          onBlur={exitEditIfStillEmpty}
           onChange={(e) => onChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
           className="pr-16"
           autoComplete="off"
           spellCheck={false}
           aria-invalid={hasError || undefined}
+          autoFocus={editing && meta.configured}
         />
       )}
       <div className="absolute right-2 flex items-center gap-3">
-        {!isVaultRef && (
+        {!isVaultRef && !showConfiguredChip && value.length > 0 && (
           <button
             type="button"
             onClick={() => setRevealed((r) => !r)}

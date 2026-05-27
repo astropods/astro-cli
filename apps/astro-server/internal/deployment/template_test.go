@@ -2777,6 +2777,34 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	}
 }
 
+func TestShapeTemplate_ConfiguredInlineSecrets(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, &ShapeOptions{
+		ConfiguredInlineSecrets: []string{"MY_API_KEY"},
+	})
+
+	if !resp.Validation.Valid {
+		t.Fatalf("expected valid with configured inline secret, errors: %v", resp.Validation.Errors)
+	}
+	v := resp.Variables["MY_API_KEY"]
+	if !v.Configured {
+		t.Error("schema MY_API_KEY.Configured: expected true")
+	}
+	if v.Value != "" {
+		t.Errorf("schema MY_API_KEY.Value: expected empty, got %q", v.Value)
+	}
+	if v.Ref != "" {
+		t.Errorf("schema MY_API_KEY.Ref: expected empty, got %q", v.Ref)
+	}
+	tv := resp.Template.Variables["MY_API_KEY"]
+	if tv.Configured {
+		t.Error("template MY_API_KEY.Configured should be stripped")
+	}
+	if tv.Value != "" {
+		t.Errorf("template MY_API_KEY.Value: expected empty without client input, got %q", tv.Value)
+	}
+}
+
 func TestShapeTemplate_VariableFilling(t *testing.T) {
 	base := baseTemplateForShape(t)
 	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{

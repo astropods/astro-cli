@@ -3477,11 +3477,12 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
 				return
 			}
-			applyStoredVarsToRequest(&req, storedVars)
+			applyStoredVarsToRequest(c.Request.Context(), log, &req, storedVars, existing, cfg)
 
 			// Check cache — skips generateTemplate + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
 			if base, ok := cache.get(cacheKey); ok {
+				shapeOpts = shapeOptsWithConfiguredInlineSecrets(shapeOpts, storedVars)
 				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
 				// Display name is mutable outside the deploy flow — always
 				// apply the current value from the DB, not the cached one.
@@ -3517,6 +3518,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			}
 
 			cache.set(cacheKey, template)
+			shapeOpts = shapeOptsWithConfiguredInlineSecrets(shapeOpts, storedVars)
 			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
 			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 			return
@@ -3692,7 +3694,26 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 // they don't exist on the template until ShapeTemplate's ApplyAdapterShaping
 // runs, but ShapeTemplate's variable-filling pass runs after that, so by then
 // req.Variables can populate the freshly-injected entry.
-func applyStoredVarsToRequest(req *spec.TemplateRequest, storedVars []deploymentstore.Variable) {
+//
+// On finalize, inline secrets omitted from the client request are decrypted
+// from deployment_build_env and injected so redeploys preserve them.
+func applyStoredVarsToRequest(
+	ctx context.Context,
+	log *logger.Logger,
+	req *spec.TemplateRequest,
+	storedVars []deploymentstore.Variable,
+	dep *deploymentstore.Deployment,
+	cfg *config.Config,
+) {
+	var dec *envelope.Decryptor
+	if req.Finalize && dep != nil {
+		var decErr error
+		dec, decErr = deploymentstore.NewDeploymentDecryptor(ctx, dep.EncryptedDataKey, cfg.Deployment.KMSKeyARN)
+		if decErr != nil {
+			log.Warn("Failed to create deployment decryptor", "error", decErr, "deployment_id", dep.ID)
+		}
+	}
+
 	for _, sv := range storedVars {
 		if _, alreadySet := req.Variables[sv.Name]; alreadySet {
 			continue
@@ -3706,8 +3727,15 @@ func applyStoredVarsToRequest(req *spec.TemplateRequest, storedVars []deployment
 		case !sv.Secret:
 			// Plaintext value for a non-secret variable.
 			input.Value = sv.Value
+		case req.Finalize && deploymentstore.IsInlineSecret(sv):
+			plaintext, ok := deploymentstore.PlaintextValue(dec, sv)
+			if !ok {
+				log.Warn("Failed to decrypt stored inline secret for finalize", "variable", sv.Name, "deployment_id", dep.ID)
+				continue
+			}
+			input.Value = plaintext
 		default:
-			// Secret without a ref is an encrypted blob — useless to the UI.
+			// Prefill: inline secret value is never sent to the UI.
 			continue
 		}
 		if req.Variables == nil {
@@ -3715,6 +3743,18 @@ func applyStoredVarsToRequest(req *spec.TemplateRequest, storedVars []deployment
 		}
 		req.Variables[sv.Name] = input
 	}
+}
+
+func shapeOptsWithConfiguredInlineSecrets(opts *deployment.ShapeOptions, stored []deploymentstore.Variable) *deployment.ShapeOptions {
+	names := deploymentstore.InlineSecretNames(stored)
+	if len(names) == 0 {
+		return opts
+	}
+	if opts == nil {
+		opts = &deployment.ShapeOptions{}
+	}
+	opts.ConfiguredInlineSecrets = names
+	return opts
 }
 
 // buildAuthorizationGrants flattens the spec's web and slack grant blocks

@@ -466,6 +466,23 @@ func applyVolume(agent *spec.DeploymentAgent, v *spec.ComponentVolume) {
 type ShapeOptions struct {
 	KnowledgeStore *knowledgestore.Store
 	AccountID      string
+	// ConfiguredInlineSecrets lists user_var names with stored inline secrets
+	// (omitted from the client on configure prefill). Marked on the schema map
+	// before validation so required checks treat them as filled.
+	ConfiguredInlineSecrets []string
+}
+
+func markConfiguredInlineSecrets(vars map[string]spec.Variable, names []string) {
+	for _, name := range names {
+		v, ok := vars[name]
+		if !ok {
+			continue
+		}
+		v.Configured = true
+		v.Value = ""
+		v.Ref = ""
+		vars[name] = v
+	}
 }
 
 // ShapeTemplate applies deploy-time inputs (adapters, variables, bindings) to a base template
@@ -581,6 +598,9 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// Root Variables = full schema (from shaped copy, includes descriptions etc.)
 	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
 	maps.Copy(schemaVars, shaped.Variables)
+	if opts != nil && len(opts.ConfiguredInlineSecrets) > 0 {
+		markConfiguredInlineSecrets(schemaVars, opts.ConfiguredInlineSecrets)
+	}
 
 	// Template = deployment/v1 ready: strip template-only fields
 	shaped.Spec = "deployment/v1"
@@ -594,6 +614,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		v.Options = nil
 		v.Fields = nil
 		v.Default = ""
+		v.Configured = false
 		shaped.Variables[key] = v
 	}
 
@@ -601,7 +622,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// Required variables (adapter shaping already flipped optionality,
 	// so slack tokens are caught here when slack is selected).
 	for key, v := range schemaVars {
-		if !v.Optional && v.Value == "" && v.Ref == "" {
+		if !v.Optional && v.Value == "" && v.Ref == "" && !v.Configured {
 			errs = append(errs, spec.ValidationError{
 				Field:   "variables." + key,
 				Message: "required variable is empty",
