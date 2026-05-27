@@ -208,3 +208,43 @@ func TestObservabilityResponseContract_EmptyStates(t *testing.T) {
 		}
 	})
 }
+
+// TestObservabilityResponseContract_DeploymentSummaries verifies the bulk
+// deployment summaries response shape.
+func TestObservabilityResponseContract_DeploymentSummaries(t *testing.T) {
+	resp := gin.H{
+		"summaries": gin.H{
+			"dep-abc": gin.H{
+				"total_traces":  7,
+				"last_trace_at": "2026-05-01T10:00:00Z",
+			},
+			"dep-xyz": gin.H{
+				"total_traces":  0,
+				"last_trace_at": "",
+			},
+		},
+	}
+
+	b, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	var out DeploymentSummariesResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if len(out.Summaries) != 2 {
+		t.Fatalf("expected 2 summaries, got %d", len(out.Summaries))
+	}
+	if out.Summaries["dep-abc"].TotalTraces != 7 {
+		t.Errorf("dep-abc total_traces = %d, want 7", out.Summaries["dep-abc"].TotalTraces)
+	}
+	if out.Summaries["dep-abc"].LastTraceAt != "2026-05-01T10:00:00Z" {
+		t.Errorf("dep-abc last_trace_at = %q, want 2026-05-01T10:00:00Z", out.Summaries["dep-abc"].LastTraceAt)
+	}
+	if out.Summaries["dep-xyz"].TotalTraces != 0 {
+		t.Errorf("dep-xyz total_traces = %d, want 0", out.Summaries["dep-xyz"].TotalTraces)
+	}
+}

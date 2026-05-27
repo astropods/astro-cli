@@ -1517,6 +1517,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
 
+			api.GET(accountMember, "/observability/deployment-summaries", "Get bulk deployment observability summaries", handlers.GetLangfuseSummaries(log, cfg, deploymentStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.Response(200, &handlers.DeploymentSummariesResponse{}),
+			)
+
 			// Network endpoints (deployment-scoped, backed by Beyla eBPF metrics in Prometheus)
 			api.GET(protected, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, promClient),
 				oapispec.Tags("Network"),

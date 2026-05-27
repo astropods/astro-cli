@@ -3,9 +3,9 @@ import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
-import { useObservabilitySummaries, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
+import { useDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
 import { deploymentPath } from "@/lib/routes";
-import { mapDeploymentStatus, formatRelativeTime } from "@/lib/deployment-utils";
+import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
 // Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
@@ -39,21 +39,16 @@ function AgentCard({
   account,
   hasNewBuildAvailable,
   latestBuildId,
-  requests: requestsProp,
+  requests,
+  lastActive,
 }: {
   deployment: AgentDeployment;
   account: string;
   hasNewBuildAvailable: boolean;
   latestBuildId?: string;
   requests?: number;
+  lastActive?: string;
 }) {
-  const { data: summaryData } = useObservabilitySummary(deployment.id, undefined, {
-    enabled: requestsProp === undefined,
-  });
-  const { data: tracesData } = useObservabilityTraces(deployment.id, { limit: "1" });
-  const requests = requestsProp ?? summaryData?.total_traces ?? 0;
-  const latestTrace = tracesData?.traces[0];
-  const lastActive = latestTrace ? formatRelativeTime(latestTrace.timestamp) : "—";
   const status = mapDeploymentStatus(deployment);
   const detailHref = `${deploymentPath(account, deployment.id)}?tab=${status === "active" ? "monitor" : "deployments"}`;
 
@@ -65,8 +60,8 @@ function AgentCard({
       account={account}
       href={detailHref}
       status={status}
-      requests={requests}
-      lastActive={lastActive}
+      requests={requests ?? 0}
+      lastActive={lastActive ?? "—"}
       installedAt={deployment.created_at}
       updatedAt={deployment.updated_at || deployment.created_at}
       hasNewBuildAvailable={hasNewBuildAvailable}
@@ -91,15 +86,7 @@ export function DeployedAgentsSection({
   isLoading,
   skeletonDeploymentId,
 }: DeployedAgentsSectionProps) {
-  const summaryResults = useObservabilitySummaries(deployments.map((d) => d.id));
-
-  const requestCounts = useMemo(() =>
-    new Map(
-      deployments
-        .map((d, i) => [d.id, summaryResults[i]?.data?.total_traces] as const)
-        .filter((entry): entry is [string, number] => entry[1] !== undefined)
-    ),
-  [deployments, summaryResults]);
+  const { requestCounts, lastActiveTimes } = useDeploymentSummaryMaps(account, deployments);
 
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
@@ -147,7 +134,8 @@ export function DeployedAgentsSection({
                 account={account}
                 hasNewBuildAvailable={deploymentsWithNewBuild.has(deployment.id)}
                 latestBuildId={deployment.latest_build_id}
-                requests={requestCounts.get(deployment.id)}
+                requests={requestCounts.get(deployment.id) ?? 0}
+                lastActive={lastActiveTimes.get(deployment.id) ?? "—"}
               />
             );
           })}

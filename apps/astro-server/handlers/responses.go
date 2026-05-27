@@ -249,6 +249,17 @@ type ObservabilitySummaryResponse struct {
 	Metrics     ObservabilitySummaryMetrics `json:"metrics"`
 }
 
+// DeploymentSummaryEntry holds the per-deployment data returned by the bulk summaries endpoint.
+type DeploymentSummaryEntry struct {
+	TotalTraces int    `json:"total_traces"`
+	LastTraceAt string `json:"last_trace_at"`
+}
+
+// DeploymentSummariesResponse is returned by the bulk deployment summaries endpoint.
+type DeploymentSummariesResponse struct {
+	Summaries map[string]DeploymentSummaryEntry `json:"summaries"`
+}
+
 // AccountSummaryPeriod describes the queried time window.
 type AccountSummaryPeriod struct {
 	Start string `json:"start,omitempty"`

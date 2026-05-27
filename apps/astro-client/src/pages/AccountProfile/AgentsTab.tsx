@@ -2,6 +2,7 @@ import type { AgentDeployment } from "@/lib/api";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath } from "@/lib/routes";
+import { useDeploymentSummaryMaps } from "@/components/dashboard/useDeploymentSummaryMaps";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
 import { EyeOff } from "lucide-react";
 
@@ -23,6 +24,8 @@ interface AgentsTabProps {
 }
 
 export function AgentsTab({ deployments, accountName, search, onSearchChange, sort, onSortChange, isLoading }: AgentsTabProps) {
+  const { requestCounts, lastActiveTimes } = useDeploymentSummaryMaps(accountName, deployments);
+
   const hasFilters = search.trim() !== "" || sort !== "modified";
   const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Last modified";
 
@@ -59,8 +62,8 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
               account={accountName}
               href={deploymentPath(accountName, d.id)}
               status={mapDeploymentStatus(d)}
-              requests={0}
-              lastActive="—"
+              requests={requestCounts.get(d.id) ?? 0}
+              lastActive={lastActiveTimes.get(d.id) ?? "—"}
               installedAt={formatDate(d.created_at)}
               updatedAt={formatDate(d.updated_at || d.created_at)}
             />

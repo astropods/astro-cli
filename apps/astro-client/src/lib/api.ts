@@ -635,6 +635,14 @@ class ApiClient {
     );
   }
 
+  async getDeploymentObservabilitySummaries(
+    account: string,
+  ): Promise<DeploymentSummariesResponse> {
+    return this.request<DeploymentSummariesResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployment-summaries`
+    );
+  }
+
   async getObservabilitySummary(
     deploymentId: string,
     params?: Record<string, string>,
@@ -1729,6 +1737,15 @@ export interface ObservabilityMetricsResponse {
   buckets: MetricsBucket[];
   time_range: { start: string; end: string };
   interval_minutes: number;
+}
+
+export interface DeploymentSummaryEntry {
+  total_traces: number;
+  last_trace_at: string;
+}
+
+export interface DeploymentSummariesResponse {
+  summaries: Record<string, DeploymentSummaryEntry>;
 }
 
 export interface ObservabilitySummaryResponse {

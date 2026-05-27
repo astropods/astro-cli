@@ -1,4 +1,4 @@
-import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
@@ -81,7 +81,7 @@ export function useAccountObservabilitySummary(
     queryKey: observabilityKeys.accountSummary(account, opts?.window),
     queryFn: () => api.getAccountObservabilitySummary(account, params),
     enabled: (opts?.enabled ?? true) && !!account,
-    staleTime: 0,
+    staleTime: 1000 * 60 * 5,
     retry: false,
     // Without keepPreviousData, DashboardStats flashes 0s on org switch
     // because the loading prop on MetricCard was removed.
@@ -102,14 +102,12 @@ export function useObservabilityMetrics(
   });
 }
 
-export function useObservabilitySummaries(deploymentIds: string[]) {
-  return useQueries({
-    queries: deploymentIds.map((id) => ({
-      queryKey: observabilityKeys.summary(id),
-      queryFn: () => api.getObservabilitySummary(id),
-      enabled: !!id,
-      ...LIVE_QUERY_OPTS,
-    })),
+export function useObservabilitySummaries(account: string) {
+  return useQuery({
+    queryKey: observabilityKeys.deploymentSummaries(account),
+    queryFn: () => api.getDeploymentObservabilitySummaries(account),
+    enabled: !!account,
+    ...ACTIVITY_QUERY_OPTS,
   });
 }
 

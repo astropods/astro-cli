@@ -1559,6 +1559,88 @@ func GetLangfuseSummary(
 	}
 }
 
+// GetLangfuseSummaries returns summary statistics for all active deployments in an account.
+// GET /api/v1/accounts/:account/observability/deployment-summaries
+func GetLangfuseSummaries(
+	log *logger.Logger,
+	cfg *config.Config,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		creds, err := langfuseStore.Get(acct.ID)
+		if err != nil || creds == nil {
+			c.JSON(http.StatusOK, gin.H{"summaries": gin.H{}})
+			return
+		}
+
+		deployments, err := deploymentStore.GetActiveDeploymentsByAccount(acct.ID)
+		if err != nil {
+			log.Error("Failed to list deployments for bulk summary", "account_id", acct.ID, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+			return
+		}
+
+		if len(deployments) == 0 {
+			c.JSON(http.StatusOK, gin.H{"summaries": gin.H{}})
+			return
+		}
+
+		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		type entry struct {
+			id      string
+			summary gin.H
+		}
+		results := make([]entry, len(deployments))
+
+		var g errgroup.Group
+		g.SetLimit(10)
+		for i, dep := range deployments {
+			id := dep.ID
+			g.Go(func() error {
+				traces, err := client.GetTraces(ctx, id, "", "", 1, 0)
+				if err != nil {
+					log.Warn("Failed to get Langfuse traces for deployment summary", "deployment_id", id, "error", err)
+					return nil
+				}
+				var lastTraceAt string
+				if len(traces.Data) > 0 {
+					lastTraceAt = traces.Data[0].CreatedAt
+				}
+				results[i] = entry{id: id, summary: gin.H{
+					"total_traces":  traces.Meta.TotalItems,
+					"last_trace_at": lastTraceAt,
+				}}
+				return nil
+			})
+		}
+		_ = g.Wait()
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		summaries := make(gin.H, len(deployments))
+		for _, r := range results {
+			if r.id != "" {
+				summaries[r.id] = r.summary
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+	}
+}
+
 // GetLangfuseTraces returns a paginated list of traces from Langfuse.
 // GET /api/v1/deployments/:id/observability/traces
 func GetLangfuseTraces(
