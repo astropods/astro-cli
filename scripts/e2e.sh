@@ -15,6 +15,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KIND_CLUSTER="e2e-host"
 VCLUSTER_NAME="e2e-test"
+KIND_KUBECONFIG_PATH="/tmp/e2e-kind-kubeconfig.yaml"
 KUBECONFIG_PATH="/tmp/e2e-vcluster-kubeconfig.yaml"
 PG_CONTAINER="e2e-postgres"
 DATABASE_URL="postgres://postgres:postgres@localhost:5433/astro_e2e?sslmode=disable"
@@ -91,6 +92,13 @@ migrate_postgres() {
 
 # --- kind + vcluster ---
 
+# Point kubectl/vcluster at the local kind cluster only — never the user's
+# default context (e.g. prod EKS after queen).
+use_kind_kubeconfig() {
+  kind get kubeconfig --name "${KIND_CLUSTER}" >"${KIND_KUBECONFIG_PATH}"
+  export KUBECONFIG="${KIND_KUBECONFIG_PATH}"
+}
+
 setup_cluster() {
   ensure_tool kind 'brew install kind'
   ensure_tool vcluster 'brew install loft-sh/tap/vcluster'
@@ -103,18 +111,18 @@ setup_cluster() {
     kind create cluster --name "$KIND_CLUSTER" --wait 60s
   fi
 
-  # Switch kubectl to kind context
-  kubectl cluster-info --context "kind-${KIND_CLUSTER}" &>/dev/null || {
+  use_kind_kubeconfig
+  kubectl cluster-info &>/dev/null || {
     err "Cannot reach kind cluster"
     exit 1
   }
 
-  # vcluster
+  # vcluster (host cluster = kind only)
   if vcluster list 2>/dev/null | grep -q "$VCLUSTER_NAME"; then
     info "vcluster '$VCLUSTER_NAME' exists"
   else
     info "Creating vcluster '$VCLUSTER_NAME'..."
-    vcluster create "$VCLUSTER_NAME" --connect=false || true
+    vcluster create "$VCLUSTER_NAME" --connect=false
   fi
 
   info "Connecting to vcluster..."
@@ -137,12 +145,12 @@ setup_cluster() {
 teardown() {
   info "Tearing down e2e infrastructure..."
 
-  if command -v vcluster &>/dev/null && vcluster list 2>/dev/null | grep -q "$VCLUSTER_NAME"; then
-    info "Deleting vcluster..."
-    vcluster delete "$VCLUSTER_NAME" || true
-  fi
-
   if command -v kind &>/dev/null && kind get clusters 2>/dev/null | grep -q "^${KIND_CLUSTER}$"; then
+    use_kind_kubeconfig
+    if command -v vcluster &>/dev/null && vcluster list 2>/dev/null | grep -q "$VCLUSTER_NAME"; then
+      info "Deleting vcluster..."
+      vcluster delete "$VCLUSTER_NAME" || true
+    fi
     info "Deleting kind cluster..."
     kind delete cluster --name "$KIND_CLUSTER"
   fi
@@ -152,7 +160,7 @@ teardown() {
     docker rm -f "$PG_CONTAINER"
   fi
 
-  rm -f "$KUBECONFIG_PATH"
+  rm -f "$KIND_KUBECONFIG_PATH" "$KUBECONFIG_PATH"
   ok "Teardown complete"
 }
 
