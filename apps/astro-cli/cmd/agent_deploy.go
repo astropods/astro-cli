@@ -77,6 +77,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
 	cmd.Flags().Bool("json", false, "Print JSON output on success")
+	cmd.Flags().Bool("wait", false, "Wait until the public Launch URL is ready")
 }
 
 func registerDeployFlags(cmd *cobra.Command) {
@@ -302,6 +303,12 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 		dim.Fprintf(w, "  %s\n", result.DeploymentID) //nolint:errcheck,gosec
 	} else {
 		fmt.Fprintln(w) //nolint:errcheck,gosec
+	}
+
+	if wait, _ := cmd.Flags().GetBool("wait"); wait && result.DeploymentID != "" {
+		if err := pollDeploymentPublicURL(cmd.Context(), result.DeploymentID, at, verbose, w); err != nil {
+			return err
+		}
 	}
 	return nil
 }

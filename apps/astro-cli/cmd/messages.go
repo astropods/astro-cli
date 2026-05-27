@@ -28,6 +28,28 @@ func errDeployNameConflict(displayName string) error {
 	)
 }
 
+func msgDeployURLNotReady(url, reason string) string {
+	if reason != "" {
+		return fmt.Sprintf("deployed — Launch URL not ready yet (%s): %s", url, reason)
+	}
+	return fmt.Sprintf("deployed — Launch URL not ready yet: %s", url)
+}
+
+func msgLaunchURLLine(url string) string {
+	return fmt.Sprintf("Launch URL:  %s", url)
+}
+
+func msgLaunchURLPending(message string) string {
+	if message != "" {
+		return fmt.Sprintf("URL status:  not ready — %s", message)
+	}
+	return "URL status:  not ready"
+}
+
+func msgLaunchURLReady() string {
+	return "URL status:  ready"
+}
+
 func errAccountMismatch(specAccount, currentAccount string) error {
 	return fmt.Errorf(
 		"spec account %q does not match current account %q\n\n"+

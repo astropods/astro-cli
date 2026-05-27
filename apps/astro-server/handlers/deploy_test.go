@@ -596,6 +596,7 @@ func TestEnrichDeployment_CacheHitPreservesSourceAccount(t *testing.T) {
 		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
 		"list:",
 		time.Minute,
+		nil,
 	)
 
 	if len(deps) != 1 {
@@ -669,6 +670,7 @@ func TestEnrichDeployment_FailedDBOverridesK8sStatus(t *testing.T) {
 		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
 		"list:",
 		time.Minute,
+		nil,
 	)
 
 	if len(deps) != 1 {
@@ -718,7 +720,7 @@ func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil)
+	deps, err := listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -756,7 +758,7 @@ func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	_, _ = listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil)
+	_, _ = listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil, nil)
 
 	for _, p := range calledPaths {
 		if strings.Contains(p, "/pods") || strings.Contains(p, "/ingresses") || strings.Contains(p, "/jobs") {
@@ -848,7 +850,7 @@ func TestListAstroDeployments_StaleStatefulSetPodVersion(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -950,7 +952,7 @@ func TestListAstroDeployments_PrefersNewestRunningPod(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1061,7 +1063,7 @@ func TestListAstroDeployments_IngestionWorkloads(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1401,7 +1403,7 @@ func TestListAstroDeployments_IngestionWorkloadsHaveEnvVars(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil)
+	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4527,6 +4529,84 @@ func TestGetDeployment_Success(t *testing.T) {
 	if resp.Deployment.DisplayName != "My Agent" {
 		t.Errorf("expected display_name 'My Agent', got %q", resp.Deployment.DisplayName)
 	}
+}
+
+func TestGetDeployment_ExternalURLNotReady(t *testing.T) {
+	depID := deployid.New()
+	namespace := "astro-abc123def-0"
+	agentName := "my-agent"
+	buildID := "build-1"
+	host := "my-agent-chat.example.com"
+	acctID := uuid.New().String()
+	now := time.Now().Add(-10 * time.Minute)
+
+	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sListHandlerWithMessagingIngress(namespace, agentName, buildID, host))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, agentName, buildID, namespace, "My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Deployment AgentDeployment `json:"deployment"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	var messaging *ServiceEndpointInfo
+	for i := range resp.Deployment.ExternalURLs {
+		if resp.Deployment.ExternalURLs[i].Type == "messaging" {
+			messaging = &resp.Deployment.ExternalURLs[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatal("expected messaging external URL")
+	}
+	if messaging.Ready {
+		t.Fatal("expected messaging URL to be not ready")
+	}
+	if messaging.Message != "Launch is unavailable while we create your custom URL" {
+		t.Fatalf("expected launch URL pending message, got %q", messaging.Message)
+	}
+}
+
+func k8sListHandlerWithMessagingIngress(namespace, agentLabel, buildID, host string) http.Handler {
+	base := k8sListHandler(namespace, agentLabel, buildID)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/ingresses") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{
+				"kind":"IngressList",
+				"apiVersion":"networking.k8s.io/v1",
+				"items":[{
+					"metadata":{
+						"name":"messaging-ingress",
+						"namespace":%q,
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"messaging"
+						}
+					},
+					"spec":{"rules":[{"host":%q}]},
+					"status":{}
+				}]
+			}`, namespace, agentLabel, buildID, host)
+			return
+		}
+		base.ServeHTTP(w, r)
+	})
 }
 
 func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {

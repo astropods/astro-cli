@@ -1503,6 +1503,8 @@ export interface ServiceEndpointInfo {
   name: string;
   url: string;
   type?: string;
+  ready?: boolean;
+  message?: string;
 }
 
 export interface EnvVar {

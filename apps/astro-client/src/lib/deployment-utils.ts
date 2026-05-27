@@ -46,6 +46,22 @@ export function hasContainerMismatch(dep: AgentDeployment | null | undefined): b
   return workloads.some((wl) => (wl.containers ?? []).some((c) => !c.ready));
 }
 
+export const launchUnavailableMessage =
+  "Launch is unavailable while we create your custom URL";
+
+export function getMessagingEndpoint(deployment: AgentDeployment | null | undefined) {
+  return deployment?.external_urls?.find((u) => u.type === "messaging");
+}
+
+export function isLaunchReady(deployment: AgentDeployment | null | undefined): boolean {
+  const messaging = getMessagingEndpoint(deployment);
+  if (!messaging?.url) return false;
+  if (deployment?.messaging_available === false) return false;
+  // Require explicit ready: true — the API omits ready when false (Go json omitempty),
+  // so treating absent/undefined as ready would keep Launch clickable while provisioning.
+  return messaging.ready === true;
+}
+
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
   const s = deployment.status?.toLowerCase() ?? "";
   if (s === "undeploying") {

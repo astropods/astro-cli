@@ -969,9 +969,11 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 
 // ServiceEndpointInfo represents a service endpoint for a deployment
 type ServiceEndpointInfo struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
-	Type string `json:"type,omitempty"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Type    string `json:"type,omitempty"`
+	Ready   bool   `json:"ready"`
+	Message string `json:"message,omitempty"`
 }
 
 // annotateWorkloadsWithRows overlays Source and IsSecret on each
@@ -1367,7 +1369,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 					enriched[i] = []AgentDeployment{agentDeploymentFromDB(log, accountStore, agentIdx, dbDep)}
 					return nil
 				}
-				enriched[i] = enrichDeployment(gctx, log, accountStore, kc, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL)
+				enriched[i] = enrichDeployment(gctx, log, accountStore, kc, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL, nil)
 				return nil
 			})
 		}
@@ -1542,7 +1544,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0)
+		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0, &k8sListOpts{})
 		result := deps[0]
 		// During a rolling build update the namespace contains workloads for both the old and
 		// new build ID. Pick the entry matching the DB's current build so the client always
@@ -1597,7 +1599,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		if override := cfg.Deployment.MessagingURLOverride; override != "" {
 			result.MessagingAvailable = true
 			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
-				Name: "messaging", Type: "messaging", URL: override,
+				Name: "messaging", Type: "messaging", URL: override, Ready: true,
 			})
 		}
 
@@ -1654,10 +1656,12 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 // returns the resulting AgentDeployment entries (one per workload in the namespace).
 // Falls back to a DB-only entry if the namespace is missing or K8s calls fail.
 // When cache and keyPrefix are provided, a cache hit skips all K8s calls entirely.
-// k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
-type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
+type k8sListOpts struct{}
 
-func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, v deploymentstore.LineageValidator, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration) []AgentDeployment {
+// k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
+type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string, opts *k8sListOpts) ([]AgentDeployment, error)
+
+func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, v deploymentstore.LineageValidator, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration, listOpts *k8sListOpts) []AgentDeployment {
 	// Source account name resolved once per dbDep so the K8s and DB-only paths
 	// return identical SourceAccount values. Tuple validation (when wired)
 	// filters impossible lineage tuples before attribution.
@@ -1722,7 +1726,7 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *acc
 	}
 
 	manualIngestions := parseManualIngestions(ns.Annotations)
-	deps, k8sErr := listFn(ctx, k8sClient, dbDep.Namespace, manualIngestions)
+	deps, k8sErr := listFn(ctx, k8sClient, dbDep.Namespace, manualIngestions, listOpts)
 	if k8sErr != nil || len(deps) == 0 {
 		return dbOnly()
 	}
@@ -1756,7 +1760,7 @@ func deploymentReadinessStatus(replicas, readyReplicas int32) string {
 }
 
 // listAstroDeployments lists all deployments managed by astro in a namespace
-func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error) {
+func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string, listOpts *k8sListOpts) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
 
 	// List deployments with astro label selector
@@ -1797,7 +1801,8 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agent:version"
 	workloadURLs := make(map[string][]ServiceEndpointInfo)      // key: "agent:version:component"
 	if ingressList != nil {
-		for _, ing := range ingressList.Items {
+		for i := range ingressList.Items {
+			ing := &ingressList.Items[i]
 			agentKey := ing.Labels[deployment.LabelKeyAgent]
 			version := ing.Labels["app.kubernetes.io/version"]
 			component := ing.Labels["app.kubernetes.io/component"]
@@ -1813,6 +1818,9 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 					Name: component,
 					URL:  fmt.Sprintf("https://%s", rule.Host),
 					Type: component,
+				}
+				if listOpts != nil {
+					ep.Ready, ep.Message = k8s.EvaluateEndpointReadiness(ing, &k8s.EndpointReadinessOpts{})
 				}
 				agentKey := agentKey + ":" + version
 				agentExternalURLs[agentKey] = append(agentExternalURLs[agentKey], ep)
@@ -2115,7 +2123,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 // listAstroDeploymentsLight fetches only Deployments and StatefulSets for a namespace,
 // skipping ingresses, pods, and jobs. Returns status, replicas, ready, and components.
-func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, _ []string) ([]AgentDeployment, error) {
+func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, _ []string, _ *k8sListOpts) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
 	labelSelector := "app.kubernetes.io/managed-by=astro-server"
 

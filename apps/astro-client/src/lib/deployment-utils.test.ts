@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { hasContainerMismatch, mapDeploymentStatus } from "./deployment-utils";
+import {
+  hasContainerMismatch,
+  isLaunchReady,
+  launchUnavailableMessage,
+  mapDeploymentStatus,
+} from "./deployment-utils";
 import type { AgentDeployment, WorkloadDetail } from "./api";
 
 const baseDeployment: AgentDeployment = {
@@ -195,5 +200,60 @@ describe("hasContainerMismatch", () => {
       ],
     });
     expect(hasContainerMismatch(dep)).toBe(true);
+  });
+});
+
+describe("isLaunchReady", () => {
+  it("returns false when messaging endpoint is not ready", () => {
+    const dep = make({
+      messaging_available: true,
+      external_urls: [{
+        name: "messaging",
+        url: "https://agent.example.com",
+        type: "messaging",
+        ready: false,
+        message: launchUnavailableMessage,
+      }],
+    });
+    expect(isLaunchReady(dep)).toBe(false);
+  });
+
+  it("returns false when ready is omitted (matches API omitempty on false)", () => {
+    const dep = make({
+      messaging_available: true,
+      external_urls: [{
+        name: "messaging",
+        url: "https://agent.example.com",
+        type: "messaging",
+        message: launchUnavailableMessage,
+      }],
+    });
+    expect(isLaunchReady(dep)).toBe(false);
+  });
+
+  it("returns true when messaging endpoint is ready", () => {
+    const dep = make({
+      messaging_available: true,
+      external_urls: [{
+        name: "messaging",
+        url: "https://agent.example.com",
+        type: "messaging",
+        ready: true,
+      }],
+    });
+    expect(isLaunchReady(dep)).toBe(true);
+  });
+
+  it("returns false when messaging is unavailable", () => {
+    const dep = make({
+      messaging_available: false,
+      external_urls: [{
+        name: "messaging",
+        url: "https://agent.example.com",
+        type: "messaging",
+        ready: true,
+      }],
+    });
+    expect(isLaunchReady(dep)).toBe(false);
   });
 });

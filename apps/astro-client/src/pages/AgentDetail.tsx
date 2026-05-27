@@ -8,6 +8,7 @@ import { AgentIdentity } from "@/components/agent-detail/AgentIdentity";
 import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
 import { useDeployment } from "@/api/queries/deployments";
 import type { AgentDeployment } from "@/lib/api";
+import { getMessagingEndpoint, isLaunchReady, launchUnavailableMessage } from "@/lib/deployment-utils";
 import { ArrowUpRight } from "lucide-react";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -58,7 +59,9 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       : undefined,
   });
   const deployment = data?.deployment ?? loaderData.deployment;
-  const messagingUrl = deployment?.external_urls?.find(u => u.type === 'messaging')?.url;
+  const messagingEndpoint = getMessagingEndpoint(deployment);
+  const messagingUrl = messagingEndpoint?.url;
+  const launchReady = isLaunchReady(deployment);
 
   const context: AgentDetailContext | null = deployment
     ? { deployment, account: account ?? "", deploymentId: deploymentId ?? "" }
@@ -97,7 +100,10 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
             <AgentStatusToggle deployment={deployment} account={account ?? ""} />
             {messagingUrl && (
               <button
-                className="flex cursor-pointer items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity hover:opacity-85"
+                type="button"
+                className="flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity enabled:cursor-pointer enabled:hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!launchReady}
+                title={!launchReady ? launchUnavailableMessage : undefined}
                 onClick={() => window.open(messagingUrl, '_blank', 'noopener,noreferrer')}
               >
                 Launch <ArrowUpRight className="size-3.5" />
