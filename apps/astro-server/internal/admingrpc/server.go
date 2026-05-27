@@ -471,15 +471,15 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 
 // GetClusterStatus returns current cluster resource status.
 func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterStatusRequest) (*adminv1.GetClusterStatusResponse, error) {
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
-
 	namespace := req.Namespace
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	clientset := s.k8sClient.Clientset()
+	kc, err := s.clusterClientForNamespace(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	clientset := kc.Clientset()
 	resp := &adminv1.GetClusterStatusResponse{
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
 		Namespace:       namespace,
@@ -887,9 +887,6 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 
 // RestartDeployment deletes a pod so Kubernetes recreates it.
 func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDeploymentRequest) (*adminv1.RestartDeploymentResponse, error) {
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
 	if req.DeploymentId == "" || req.Pod == "" {
 		return nil, fmt.Errorf("deployment_id and pod are required")
 	}
@@ -902,7 +899,12 @@ func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDepl
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
 
-	err = s.k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Delete(ctx, req.Pod, metav1.DeleteOptions{})
+	kc, err := s.deploymentClusterClient(ctx, dep)
+	if err != nil {
+		return nil, err
+	}
+
+	err = kc.Clientset().CoreV1().Pods(dep.Namespace).Delete(ctx, req.Pod, metav1.DeleteOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("delete pod: %w", err)
 	}
@@ -970,18 +972,20 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 	}
 
 	// K8s fallback: direct pod log stream.
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("log backend not configured")
-	}
 	if req.Pod == "" {
 		return nil, fmt.Errorf("pod is required when Loki is not configured")
+	}
+
+	kc, err := s.deploymentClusterClient(ctx, dep)
+	if err != nil {
+		return nil, err
 	}
 
 	logOpts := &corev1.PodLogOptions{TailLines: &tailLines}
 	if req.Container != "" {
 		logOpts.Container = req.Container
 	}
-	stream, err := s.k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(req.Pod, logOpts).Stream(ctx)
+	stream, err := kc.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(req.Pod, logOpts).Stream(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get pod logs: %w", err)
 	}
@@ -997,9 +1001,6 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 
 // GetPodEnv returns environment variables for all containers in a pod.
 func (s *Server) GetPodEnv(ctx context.Context, req *adminv1.GetPodEnvRequest) (*adminv1.GetPodEnvResponse, error) {
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
 	if req.DeploymentId == "" || req.Pod == "" {
 		return nil, fmt.Errorf("deployment_id and pod are required")
 	}
@@ -1012,12 +1013,17 @@ func (s *Server) GetPodEnv(ctx context.Context, req *adminv1.GetPodEnvRequest) (
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
 
-	pod, err := s.k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Get(ctx, req.Pod, metav1.GetOptions{})
+	kc, err := s.deploymentClusterClient(ctx, dep)
+	if err != nil {
+		return nil, err
+	}
+
+	pod, err := kc.Clientset().CoreV1().Pods(dep.Namespace).Get(ctx, req.Pod, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("get pod: %w", err)
 	}
 
-	clientset := s.k8sClient.Clientset()
+	clientset := kc.Clientset()
 	var containers []*adminv1.ContainerEnv
 	for _, c := range pod.Spec.Containers {
 		ce := &adminv1.ContainerEnv{Container: c.Name}
@@ -1537,11 +1543,12 @@ func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeployment
 		return nil, fmt.Errorf("deployment is not active or scaled_down (current: %s)", dep.Status)
 	}
 
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
+	kc, err := s.deploymentClusterClient(ctx, dep)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := k8s.StopNamespaceWorkloads(ctx, s.k8sClient.Clientset(), dep.Namespace); err != nil {
+	if err := k8s.StopNamespaceWorkloads(ctx, kc.Clientset(), dep.Namespace); err != nil {
 		return nil, fmt.Errorf("stop workloads: %w", err)
 	}
 
@@ -1690,7 +1697,11 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 	// Read the live K8s Secret so repair can store correct value hashes.
 	var liveSecretData map[string][]byte
 	secretName := deployment.GenerateSecretName(dep.AgentName, dep.BuildID)
-	secret, err := s.k8sClient.Clientset().CoreV1().Secrets(dep.Namespace).Get(ctx, secretName, metav1.GetOptions{})
+	kc, kerr := s.deploymentClusterClient(ctx, dep)
+	if kerr != nil {
+		return nil, kerr
+	}
+	secret, err := kc.Clientset().CoreV1().Secrets(dep.Namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err == nil {
 		liveSecretData = secret.Data
 	}
@@ -1923,8 +1934,9 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
 	}
 
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
+	kc, err := s.deploymentClusterClient(ctx, dep)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build drift report using the same logic as the reconciler
@@ -1942,7 +1954,7 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
+	report := riverqueue.BuildDriftReport(ctx, kc.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 	if report == nil {
 		return nil, fmt.Errorf("failed to build drift report")
 	}
