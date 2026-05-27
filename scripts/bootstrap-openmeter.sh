@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Idempotent bootstrap for OpenMeter: creates meters, features, and the private_beta plan.
-# Only intended for local development — called by apps/astro-server/scripts/dev.sh when ENVIRONMENT=local.
+# Only intended for local development. Called by:
+#   - scripts/local-dev.sh (top-level orchestrator) before launching the
+#     server + client.
+#   - apps/astro-server/scripts/dev.sh when astro-server:dev runs
+#     standalone, so the moon task is self-sufficient.
 # Reads OPENMETER_URL from the environment. Skips with a notice if unset.
 set -euo pipefail
 
@@ -21,7 +25,10 @@ for i in $(seq 1 30); do
 done
 echo "==> OpenMeter ready."
 
-# POST to an OpenMeter endpoint. Treats 200/201 as created, 409 as already exists.
+# POST to an OpenMeter endpoint. Treats 200/201 as created, 409 as
+# already exists. Used for meters and features, which use 409 cleanly.
+# Plans get the richer om_ensure_plan helper below because OpenMeter's
+# plan lifecycle has draft / active states that need to be promoted.
 om_post() {
   local label="$1"
   local path="$2"
@@ -34,6 +41,66 @@ om_post() {
   case "$status" in
     200|201|409) echo "  $label: ok" ;;
     *) echo "  ERROR $label: HTTP $status — $(cat /tmp/om_out 2>/dev/null)"; exit 1 ;;
+  esac
+}
+
+# om_ensure_plan brings a plan to "active" idempotently:
+#   - GET plans/{key}?includeLatest=true to see the current state
+#   - 404 → POST to create (lands in draft)
+#   - status == draft → POST /publish (promote to active)
+#   - status == active → no-op
+# JSON parsing is grep/sed-based to avoid a jq dependency. The plan id
+# and status are extracted from the outermost JSON object; nested
+# rateCard/phase fields with the same names are filtered out by taking
+# only the first match (the plan-level fields come first in the body).
+om_ensure_plan() {
+  local label="$1"
+  local key="$2"
+  local payload="$3"
+  local http status plan_id
+
+  http=$(curl -s -o /tmp/om_plan -w "%{http_code}" \
+    "$OPENMETER_URL/api/v1/plans/$key?includeLatest=true" || echo "000")
+
+  case "$http" in
+    404)
+      # Plan doesn't exist — create. New plans land in draft state.
+      http=$(curl -s -o /tmp/om_plan -w "%{http_code}" \
+        -X POST "$OPENMETER_URL/api/v1/plans" \
+        -H "Content-Type: application/json" -d "$payload" || echo "000")
+      case "$http" in
+        200|201) ;;
+        *) echo "  ERROR $label: create returned HTTP $http — $(cat /tmp/om_plan 2>/dev/null)"; exit 1 ;;
+      esac
+      ;;
+    200) ;; # plan exists, fall through to status check
+    *) echo "  ERROR $label: lookup returned HTTP $http — $(cat /tmp/om_plan 2>/dev/null)"; exit 1 ;;
+  esac
+
+  status=$(grep -o '"status":"[^"]*"' /tmp/om_plan | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  plan_id=$(grep -o '"id":"[^"]*"' /tmp/om_plan | head -1 | sed 's/.*:"\(.*\)"/\1/')
+
+  case "$status" in
+    active)
+      echo "  $label: ok (active)"
+      ;;
+    draft)
+      if [ -z "$plan_id" ]; then
+        echo "  ERROR $label: could not extract plan id from draft response"; exit 1
+      fi
+      http=$(curl -s -o /tmp/om_out -w "%{http_code}" \
+        -X POST "$OPENMETER_URL/api/v1/plans/$plan_id/publish" || echo "000")
+      case "$http" in
+        200|201) echo "  $label: ok (draft → active)" ;;
+        *) echo "  ERROR $label: publish returned HTTP $http — $(cat /tmp/om_out 2>/dev/null)"; exit 1 ;;
+      esac
+      ;;
+    "")
+      echo "  WARN $label: could not parse status from plan response — proceeding"
+      ;;
+    *)
+      echo "  $label: ok (status=$status)"
+      ;;
   esac
 }
 
@@ -141,14 +208,9 @@ om_post "knowledge_endpoints" /api/v1/features '{"key":"knowledge_endpoints","na
 
 # ── Plan ─────────────────────────────────────────────────────────────────────
 
-echo "==> Creating private_beta plan..."
+echo "==> Ensuring private_beta plan is active..."
 
-# GET /api/v1/plans/{key} returns 404 for draft-only plans, so check the list endpoint instead.
-plan_count=$(curl -s "$OPENMETER_URL/api/v1/plans?key=private_beta" | grep -o '"totalCount":[0-9]*' | cut -d: -f2 || true)
-if [ "${plan_count:-0}" -gt 0 ]; then
-  echo "  private_beta: ok (already exists)"
-else
-  om_post "private_beta" /api/v1/plans '{
+om_ensure_plan "private_beta" "private_beta" '{
   "key": "private_beta",
   "name": "Private Beta",
   "description": "Free tier for private beta users with hard limits on all resources.",
@@ -219,6 +281,5 @@ else
     }
   ]
 }'
-fi
 
 echo "==> OpenMeter bootstrap complete."
