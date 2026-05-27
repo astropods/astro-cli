@@ -171,6 +171,18 @@ describe('AccountProfile view mode toggle', () => {
     });
     expect(screen.queryByRole('button', { name: /^agents/i })).not.toBeInTheDocument();
   });
+
+  it('renders a heading instead of tabs when only one tab is visible', async () => {
+    // Org profile: isOrg=true so Hearts tab is suppressed, and visitor has no Agents tab
+    // → tabCount === 1 → singleTab heading renders
+    renderOrgProfile();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Test Org' })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('heading', { name: /blueprints/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /blueprints/i })).not.toBeInTheDocument();
+  });
 });
 
 // ── Blueprint visibility gating ──────────────────────────────────────────────

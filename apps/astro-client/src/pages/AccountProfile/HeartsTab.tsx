@@ -2,25 +2,16 @@ import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { BlueprintCard } from "@/components/BlueprintCard";
 import { useHeartedBlueprints, useHeartToggleInList } from "@/api/queries/hearts";
-import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
-
-export type HeartSort = "popular" | "name";
-
-const SORT_OPTIONS: { value: HeartSort; label: string }[] = [
-  { value: "popular", label: "Most hearts" },
-  { value: "name", label: "Name A–Z" },
-];
+import { TabSearchInput } from "./TabToolbar";
 
 interface HeartsTabProps {
   accountName: string;
   isOwner: boolean;
   search: string;
   onSearchChange: (v: string) => void;
-  sort: HeartSort;
-  onSortChange: (v: HeartSort) => void;
 }
 
-export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, onSortChange }: HeartsTabProps) {
+export function HeartsTab({ accountName, isOwner, search, onSearchChange }: HeartsTabProps) {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [allCursors, setAllCursors] = useState<(string | undefined)[]>([undefined]);
   const [localHearts, setLocalHearts] = useState<Map<string, boolean>>(new Map());
@@ -28,11 +19,11 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
   const { data, isLoading } = useHeartedBlueprints(accountName, cursor);
   const heartToggle = useHeartToggleInList();
 
-  // Reset to first page whenever the user changes the filter or sort
+  // Reset to first page whenever the user changes the search
   useEffect(() => {
     setCursor(undefined);
     setAllCursors([undefined]);
-  }, [search, sort]);
+  }, [search]);
 
   const isHearted = useCallback(
     (account: string, name: string) => localHearts.get(`${account}/${name}`) ?? true,
@@ -55,19 +46,12 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
     });
   }, [heartToggle]);
 
-  const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Most hearts";
-  const hasFilters = search.trim() !== "" || sort !== "popular";
+  const hasFilters = search.trim() !== "";
 
   const items = data?.items ?? [];
   const q = search.trim().toLowerCase();
 
-  const filtered = items
-    .filter((item) => !q || item.name.toLowerCase().includes(q))
-    .sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "popular") return b.heart_count - a.heart_count;
-      return 0;
-    });
+  const filtered = items.filter((item) => !q || item.name.toLowerCase().includes(q));
 
   function goNext() {
     if (!data?.next_cursor) return;
@@ -88,22 +72,18 @@ export function HeartsTab({ accountName, isOwner, search, onSearchChange, sort, 
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <TabSearchInput value={search} onChange={onSearchChange} placeholder="Filter this page…" />
-        <TabFilterDropdown
-          value={sort}
-          onChange={onSortChange}
-          options={SORT_OPTIONS}
-          triggerLabel={sortLabel}
-        />
-      </div>
+      {(items.length > 0 || hasFilters) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search hearts" />
+        </div>
+      )}
 
       {isLoading && filtered.length === 0 ? null : filtered.length === 0 ? (
         <p className="text-body text-muted-foreground">
           {hasFilters ? "No hearts match your search." : "No hearted blueprints yet."}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3">
           {filtered.map((item) => (
             <div key={`${item.account}/${item.name}`} className="relative h-full">
               <BlueprintCard

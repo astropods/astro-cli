@@ -5,14 +5,14 @@ import { useUpdateAccountProfile } from "@/api/queries/accounts";
 import { PageContainer } from "@/components/PageLayout";
 import { GradientGridWash } from "@/components/GradientGridWash";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Lock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BlueprintsTab } from "./BlueprintsTab";
 import { AgentsTab } from "./AgentsTab";
 import { HeartsTab } from "./HeartsTab";
 import { TabButton } from "./TabToolbar";
 import type { VisibilityFilter, BlueprintSort, ReorderMode } from "./BlueprintsTab";
 import type { AgentSort } from "./AgentsTab";
-import type { HeartSort } from "./HeartsTab";
 
 function latestPublished(bp: Blueprint): string {
   return bp.versions.reduce((m, v) => (v.published_at > m ? v.published_at : m), "");
@@ -39,8 +39,6 @@ export interface HeartsConfig {
   isOwner: boolean;
   search: string;
   onSearchChange: (v: string) => void;
-  sort: HeartSort;
-  onSortChange: (v: HeartSort) => void;
   tabCount?: string | null;
 }
 
@@ -192,15 +190,20 @@ export function ProfileLayout({
 
   // Agents tab hidden for non-members and in visitor mode; fall back to blueprints
   const resolvedTab: Tab =
-    !canSeeAgentsTab && activeTab === "agents" ? "blueprints" : activeTab;
+    (!canSeeAgentsTab && activeTab === "agents") || (!hearts && activeTab === "hearts")
+      ? "blueprints"
+      : activeTab;
 
   const publicBlueprintCount = rawBlueprints.filter((bp) => bp.visibility === "public").length;
   const blueprintCount = isInternalView ? rawBlueprints.length : publicBlueprintCount;
 
+  const tabCount = 1 + (canSeeAgentsTab ? 1 : 0) + (hearts ? 1 : 0);
+  const singleTab = tabCount === 1;
+
   return (
     <PageContainer
-      className="flex flex-col px-0 pt-0 pb-0 md:flex-row md:min-h-0 md:px-8 md:pt-8 md:pb-8"
-      outerClassName="bg-background"
+      className="flex flex-1 flex-col px-0 pt-0 pb-0 md:flex-row md:px-8 md:pt-8 md:pb-8"
+      outerClassName="bg-background flex flex-col"
       outerChildren={
         <GradientGridWash
           colors={data.avatar_colors ?? undefined}
@@ -222,53 +225,74 @@ export function ProfileLayout({
             })}
       </aside>
 
-      <main className="relative flex flex-1 min-w-0 flex-col md:min-h-0">
-        {/* Tab bar */}
-        <div className="flex flex-wrap items-end gap-x-5 gap-y-2 px-4 pt-4 sm:px-6 md:px-8 md:pt-5 border-b border-border">
-          <TabButton
-            active={resolvedTab === "blueprints"}
-            onClick={() => setActiveTab("blueprints")}
-          >
+      <main className="@container relative flex flex-1 min-w-0 flex-col md:min-h-0">
+        {/* Tab bar / section header */}
+        {singleTab ? (
+          <h2 className="px-4 pb-3 sm:px-6 md:px-8 text-heading-2 text-foreground">
             Blueprints
             {rawBlueprints.length > 0 && (
               <span className="ml-1.5 text-faint-foreground font-normal">{blueprintCount}</span>
             )}
-          </TabButton>
+          </h2>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-start gap-x-5 gap-y-2 px-4 pt-4 sm:px-6 md:px-8 md:pt-0">
+              <TabButton
+                active={resolvedTab === "blueprints"}
+                onClick={() => setActiveTab("blueprints")}
+              >
+                Blueprints
+                {rawBlueprints.length > 0 && (
+                  <span className="ml-1.5 text-faint-foreground font-normal">{blueprintCount}</span>
+                )}
+              </TabButton>
 
-          {canSeeAgentsTab && (
-            <TabButton active={resolvedTab === "agents"} onClick={() => setActiveTab("agents")}>
-              Agents
-              {rawDeployments.length > 0 && (
-                <span className="ml-1.5 text-faint-foreground font-normal">
-                  {rawDeployments.length}
-                </span>
+              {canSeeAgentsTab && (
+                <TabButton active={resolvedTab === "agents"} onClick={() => setActiveTab("agents")}>
+                  Agents
+                  {rawDeployments.length > 0 && (
+                    <span className="ml-1.5 text-faint-foreground font-normal">
+                      {rawDeployments.length}
+                    </span>
+                  )}
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="ml-1.5 inline-flex items-center" aria-label="Only visible to you">
+                          <Lock className="size-3 text-faint-foreground" aria-hidden="true" />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>Only visible to you</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TabButton>
               )}
-            </TabButton>
-          )}
 
-          {hearts && (
-            <TabButton active={resolvedTab === "hearts"} onClick={() => setActiveTab("hearts")}>
-              Hearts
-              {hearts.tabCount && (
-                <span className="ml-1.5 text-faint-foreground font-normal">{hearts.tabCount}</span>
+              {hearts && (
+                <TabButton active={resolvedTab === "hearts"} onClick={() => setActiveTab("hearts")}>
+                  Hearts
+                  {hearts.tabCount && (
+                    <span className="ml-1.5 text-faint-foreground font-normal">{hearts.tabCount}</span>
+                  )}
+                </TabButton>
               )}
-            </TabButton>
-          )}
 
-          {isAdminView && (
-            <Button
-              variant="ghost"
-              size="sm"
-              asChild
-              className="gap-1.5 mb-2 ml-auto order-last shrink-0"
-            >
-              <Link to={`/${data.name}?visitor`} target="_blank" rel="noopener noreferrer">
-                View as visitor
-                <ArrowUpRight className="size-3" />
-              </Link>
-            </Button>
-          )}
-        </div>
+              {isAdminView && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                  className="gap-1.5 -ml-3 sm:ml-auto order-last shrink-0"
+                >
+                  <Link to={`/${data.name}?visitor`} target="_blank" rel="noopener noreferrer">
+                    View as visitor
+                    <ArrowUpRight className="size-3" />
+                  </Link>
+                </Button>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Tab content */}
         <div className="flex-1 md:overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-6">
@@ -276,7 +300,6 @@ export function ProfileLayout({
             <BlueprintsTab
               blueprints={visibleBlueprints}
               accountName={data.name}
-              displayName={data.display_name || data.name}
               canManage={isAdmin}
               isInternalView={isInternalView}
               search={bpSearch}
@@ -308,8 +331,6 @@ export function ProfileLayout({
               isOwner={hearts.isOwner}
               search={hearts.search}
               onSearchChange={hearts.onSearchChange}
-              sort={hearts.sort}
-              onSortChange={hearts.onSortChange}
             />
           )}
         </div>

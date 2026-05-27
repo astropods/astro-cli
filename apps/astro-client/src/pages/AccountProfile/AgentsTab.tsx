@@ -4,7 +4,6 @@ import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath } from "@/lib/routes";
 import { useDeploymentSummaryMaps } from "@/components/dashboard/useDeploymentSummaryMaps";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
-import { EyeOff } from "lucide-react";
 
 export type AgentSort = "modified" | "name";
 
@@ -31,28 +30,24 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search agents…" />
-
-        <TabFilterDropdown
-          value={sort}
-          onChange={onSortChange}
-          options={SORT_OPTIONS}
-          triggerLabel={sortLabel}
-        />
-
-        <span className="sm:ml-auto flex items-center gap-1.5 text-body-sm text-faint-foreground shrink-0">
-          <EyeOff className="size-3.5" />
-          Only visible to you
-        </span>
-      </div>
+      {(deployments.length > 0 || hasFilters) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search agents" />
+          <TabFilterDropdown
+            value={sort}
+            onChange={onSortChange}
+            options={SORT_OPTIONS}
+            triggerLabel={sortLabel}
+          />
+        </div>
+      )}
 
       {isLoading && deployments.length === 0 && !hasFilters ? null : deployments.length === 0 ? (
         <p className="text-body text-muted-foreground">
           {hasFilters ? "No agents match your search." : "No agents deployed yet."}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3">
           {deployments.map((d) => (
             <DeployedAgentCard
               key={d.id}

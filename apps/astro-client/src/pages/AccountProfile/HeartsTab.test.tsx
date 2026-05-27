@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/test-utils';
+
 import { HeartsTab } from './HeartsTab';
-import type { HeartSort } from './HeartsTab';
 import type { HeartedAgent } from '@/lib/api';
 import { useHeartedBlueprints, useHeartToggleInList } from '@/api/queries/hearts';
 
@@ -45,8 +45,6 @@ const defaultProps = {
   isOwner: true,
   search: '',
   onSearchChange: vi.fn(),
-  sort: 'popular' as HeartSort,
-  onSortChange: vi.fn(),
 };
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -64,12 +62,6 @@ describe('HeartsTab rendering', () => {
     expect(screen.getByText('No hearts match your search.')).toBeInTheDocument();
   });
 
-  it('shows filtered empty state when sort is non-default and list is empty', () => {
-    setupMocks([]);
-    renderWithProviders(<HeartsTab {...defaultProps} sort="name" />);
-    expect(screen.getByText('No hearts match your search.')).toBeInTheDocument();
-  });
-
   it('renders a card for each item', () => {
     setupMocks([makeItem('alpha'), makeItem('beta')]);
     renderWithProviders(<HeartsTab {...defaultProps} />);
@@ -82,16 +74,16 @@ describe('HeartsTab rendering', () => {
 
 describe('HeartsTab search', () => {
   it('renders the search input', () => {
-    setupMocks();
+    setupMocks([makeItem('alpha')]);
     renderWithProviders(<HeartsTab {...defaultProps} />);
-    expect(screen.getByPlaceholderText('Filter this page…')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search hearts')).toBeInTheDocument();
   });
 
   it('calls onSearchChange when typing in the search input', () => {
-    setupMocks();
+    setupMocks([makeItem('alpha')]);
     const onSearchChange = vi.fn();
     renderWithProviders(<HeartsTab {...defaultProps} onSearchChange={onSearchChange} />);
-    fireEvent.change(screen.getByPlaceholderText('Filter this page…'), { target: { value: 'foo' } });
+    fireEvent.change(screen.getByPlaceholderText('Search hearts'), { target: { value: 'foo' } });
     expect(onSearchChange).toHaveBeenCalledWith('foo');
   });
 
@@ -103,39 +95,6 @@ describe('HeartsTab search', () => {
   });
 });
 
-// ── Sort dropdown ─────────────────────────────────────────────────────────────
-
-describe('HeartsTab sort', () => {
-  it('shows the default sort label', () => {
-    setupMocks();
-    renderWithProviders(<HeartsTab {...defaultProps} />);
-    expect(screen.getByRole('button', { name: /most hearts/i })).toBeInTheDocument();
-  });
-
-  it('calls onSortChange when a sort option is selected', async () => {
-    setupMocks();
-    const user = userEvent.setup();
-    const onSortChange = vi.fn();
-    renderWithProviders(<HeartsTab {...defaultProps} onSortChange={onSortChange} />);
-    await user.click(screen.getByRole('button', { name: /most hearts/i }));
-    await user.click(screen.getByRole('menuitem', { name: /name a/i }));
-    expect(onSortChange).toHaveBeenCalledWith('name');
-  });
-
-  it('sorts cards alphabetically when sort is "name"', () => {
-    setupMocks([makeItem('zebra'), makeItem('apple')]);
-    renderWithProviders(<HeartsTab {...defaultProps} sort="name" />);
-    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
-    expect(headings.indexOf('apple')).toBeLessThan(headings.indexOf('zebra'));
-  });
-
-  it('sorts cards by heart count descending when sort is "popular"', () => {
-    setupMocks([makeItem('less-popular', 'org', 2), makeItem('more-popular', 'org', 10)]);
-    renderWithProviders(<HeartsTab {...defaultProps} sort="popular" />);
-    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
-    expect(headings.indexOf('more-popular')).toBeLessThan(headings.indexOf('less-popular'));
-  });
-});
 
 // ── Heart toggle ──────────────────────────────────────────────────────────────
 

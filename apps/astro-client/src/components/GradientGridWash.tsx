@@ -6,16 +6,13 @@ interface GradientGridWashProps {
   colors?: AvatarColors;
   /** 0–1 overall opacity multiplier. Defaults to 1. */
   opacity?: number;
+  /** 0–1 stroke opacity for the dark-mode grid. Defaults to 0.6. */
+  darkGridOpacity?: number;
   /** Override the container className (position, size, mask). */
   className?: string;
 }
 
-/**
- * Decorative gradient wash with grid lines, used as a page background.
- * Renders a radial color gradient masked with an SVG grid pattern.
- * Adapts to light/dark mode independently.
- */
-export function GradientGridWash({ colors, opacity = 1, className }: GradientGridWashProps) {
+export function GradientGridWash({ colors, opacity = 1, darkGridOpacity = 0.6, className }: GradientGridWashProps) {
   const id = useId().replace(/:/g, "");
   const glowColor = colors?.glow ?? "var(--color-teal-500)";
   const baseColor = colors?.base ?? "var(--color-teal-500)";
@@ -58,7 +55,7 @@ export function GradientGridWash({ colors, opacity = 1, className }: GradientGri
       <svg className="absolute inset-0 hidden h-full w-full dark:block" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <pattern id={darkId} width="8" height="8" patternUnits="userSpaceOnUse">
-            <path d="M 8 0 L 0 0 0 8" fill="none" stroke={gridColor} strokeWidth="0.5" strokeOpacity="0.2" />
+            <path d="M 8 0 L 0 0 0 8" fill="none" stroke={gridColor} strokeWidth="0.5" strokeOpacity={darkGridOpacity} />
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill={`url(#${darkId})`} />

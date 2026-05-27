@@ -75,16 +75,16 @@ describe('AgentsTab rendering', () => {
 
 describe('AgentsTab search', () => {
   it('renders the search input', () => {
-    renderWithProviders(<AgentsTab {...defaultProps} deployments={[]} />);
-    expect(screen.getByPlaceholderText('Search agents…')).toBeInTheDocument();
+    renderWithProviders(<AgentsTab {...defaultProps} deployments={[makeDeployment('d1', 'agent')]} />);
+    expect(screen.getByPlaceholderText('Search agents')).toBeInTheDocument();
   });
 
   it('calls onSearchChange when typing in the search input', () => {
     const onSearchChange = vi.fn();
     renderWithProviders(
-      <AgentsTab {...defaultProps} deployments={[]} onSearchChange={onSearchChange} />,
+      <AgentsTab {...defaultProps} deployments={[makeDeployment('d1', 'agent')]} onSearchChange={onSearchChange} />,
     );
-    const input = screen.getByPlaceholderText('Search agents…');
+    const input = screen.getByPlaceholderText('Search agents');
     fireEvent.change(input, { target: { value: 'my-bot' } });
     expect(onSearchChange).toHaveBeenCalledWith('my-bot');
   });
@@ -94,7 +94,7 @@ describe('AgentsTab search', () => {
 
 describe('AgentsTab sort', () => {
   it('shows the sort dropdown with the default label', () => {
-    renderWithProviders(<AgentsTab {...defaultProps} deployments={[]} />);
+    renderWithProviders(<AgentsTab {...defaultProps} deployments={[makeDeployment('d1', 'agent')]} />);
     expect(screen.getByRole('button', { name: /Last modified/i })).toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe('AgentsTab sort', () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
     renderWithProviders(
-      <AgentsTab {...defaultProps} deployments={[]} onSortChange={onSortChange} />,
+      <AgentsTab {...defaultProps} deployments={[makeDeployment('d1', 'agent')]} onSortChange={onSortChange} />,
     );
     await user.click(screen.getByRole('button', { name: /Last modified/i }));
     await user.click(screen.getByRole('menuitem', { name: /name a/i }));

@@ -281,7 +281,7 @@ body {
     @apply border-border outline-ring/50;
   }
   html {
-    @apply bg-surface;
+    @apply bg-background;
   }
   body {
     @apply bg-surface text-foreground font-sans antialiased;

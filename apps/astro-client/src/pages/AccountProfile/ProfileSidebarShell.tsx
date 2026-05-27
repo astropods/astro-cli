@@ -128,7 +128,7 @@ export function ProfileSidebarShell({
         </div>
 
         {isAdmin && onEditOpen && (
-          <Button variant="outline" size="sm" className="w-full" onClick={onEditOpen}>
+          <Button variant="outline" size="sm" className="w-full bg-background" onClick={onEditOpen}>
             Edit profile
           </Button>
         )}

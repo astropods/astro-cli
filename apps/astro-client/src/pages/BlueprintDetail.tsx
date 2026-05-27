@@ -303,7 +303,7 @@ function BlueprintDetailInner({
       <BlueprintDetailBreadcrumb account={blueprint.account} blueprintName={blueprint.name} hearted={blueprint.hearted} heartCount={blueprint.heart_count} shareUrl={loaderData?.canonicalUrl} />
 
       <div className="relative flex flex-1 overflow-y-auto">
-        <GradientGridWash colors={effectiveBlueprint.avatar_colors} />
+        <GradientGridWash colors={effectiveBlueprint.avatar_colors} darkGridOpacity={0.2} />
 
       <div className="relative flex min-w-0 flex-1 max-w-[1200px] mx-auto">
         <BlueprintDetailContent

@@ -25,7 +25,7 @@ export function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center pb-3 text-body border-b-2 -mb-px transition-colors cursor-pointer",
+        "inline-flex items-center pb-3 text-body border-b-2 transition-colors cursor-pointer",
         active
           ? "border-primary text-foreground font-semibold"
           : "border-transparent text-muted-foreground hover:text-foreground",

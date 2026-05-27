@@ -13,7 +13,6 @@ import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { ProfileEditSidebar } from "./ProfileEditSidebar";
 import { ProfileViewSidebar } from "./ProfileViewSidebar";
 import { ProfileLayout } from "./ProfileLayout";
-import type { HeartSort } from "./HeartsTab";
 
 export const meta: MetaFunction = ({ params }) => [
   { title: `${params.account} | Astro` },
@@ -69,7 +68,6 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
   const members = membersData?.members ?? [];
 
   const [heartSearch, setHeartSearch] = useState("");
-  const [heartSort, setHeartSort] = useState<HeartSort>("popular");
 
   const heartsTabCount =
     !isOrg && heartsData && heartsData.items.length > 0
@@ -115,8 +113,6 @@ export default function AccountProfile({ loaderData }: Route.ComponentProps) {
         isOwner: isSelf,
         search: heartSearch,
         onSearchChange: setHeartSearch,
-        sort: heartSort,
-        onSortChange: setHeartSort,
         tabCount: heartsTabCount,
       } : undefined}
     />

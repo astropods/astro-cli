@@ -100,7 +100,6 @@ function SortableBlueprintCard({
 interface BlueprintsTabProps {
   blueprints: Blueprint[];
   accountName: string;
-  displayName?: string;
   canManage: boolean;
   isInternalView: boolean;
   search: string;
@@ -115,12 +114,11 @@ interface BlueprintsTabProps {
   isLoading?: boolean;
 }
 
-const CARD_GRID = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3";
+const CARD_GRID = "grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3";
 
 export function BlueprintsTab({
   blueprints,
   accountName,
-  displayName,
   canManage,
   isInternalView,
   search,
@@ -167,7 +165,7 @@ export function BlueprintsTab({
       {/* Toolbar — hidden when there's nothing to filter/sort/reorder */}
       {(blueprints.length > 0 || hasFilters) && (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints…" disabled={isEditing} />
+        <TabSearchInput value={search} onChange={onSearchChange} placeholder="Search blueprints" disabled={isEditing} />
 
         {isInternalView && (
           <TabFilterDropdown
@@ -190,15 +188,15 @@ export function BlueprintsTab({
 
         {canManage && isInternalView && blueprints.length > 0 && (
           isEditing ? (
-            <Button size="sm" className="ml-auto" onClick={() => onSaveReorder(localOrder.map((b) => b.name))}>
+            <Button size="sm" className="sm:ml-auto" onClick={() => onSaveReorder(localOrder.map((b) => b.name))}>
               Save changes
             </Button>
           ) : isSaved ? (
-            <Button variant="ghost" size="sm" className="ml-auto gap-1.5 text-success pointer-events-none">
+            <Button variant="ghost" size="sm" className="sm:ml-auto gap-1.5 text-success pointer-events-none">
               <Check className="size-3.5" />Saved
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={onEnterReorder} className="ml-auto">
+            <Button variant="outline" size="sm" onClick={onEnterReorder} className="sm:ml-auto">
               Customize order
             </Button>
           )
@@ -207,27 +205,21 @@ export function BlueprintsTab({
       )}
 
       {isLoading && blueprints.length === 0 && !hasFilters ? null : blueprints.length === 0 ? (
-        <EmptyState
-          variant="card"
-          icon={<AgentMascots size={36} />}
-          title={
-            hasFilters
-              ? "No blueprints match your filters."
-              : isInternalView
-                ? "No blueprints published yet."
-                : `${displayName || accountName} has no public blueprints yet.`
-          }
-          {...(!hasFilters && {
-            actions: [
-              ...(canManage && isInternalView ? [
-                { label: "Create blueprint", to: "/new/custom", icon: <Plus className="size-4" /> },
-              ] : []),
-            ],
-            ...(canManage && isInternalView && {
+        isInternalView ? (
+          <EmptyState
+            variant="card"
+            icon={<AgentMascots size={36} />}
+            title={hasFilters ? "No blueprints match your filters." : "No blueprints published yet."}
+            {...(!hasFilters && canManage && {
               description: "Blueprints define what your agent does. Create one to get started.",
-            }),
-          })}
-        />
+              actions: [{ label: "Create blueprint", to: "/new/custom", icon: <Plus className="size-4" /> }],
+            })}
+          />
+        ) : (
+          <p className="text-body text-muted-foreground">
+            {hasFilters ? "No blueprints match your filters." : "No public blueprints yet."}
+          </p>
+        )
       ) : isEditing ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={localOrder.map((b) => b.name)} strategy={rectSortingStrategy}>

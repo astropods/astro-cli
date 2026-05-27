@@ -7,7 +7,7 @@ export default function Layout() {
   return (
     <ActiveAccountProvider>
       <NavigationProgressBar />
-      <div className="flex min-h-dvh flex-col bg-muted">
+      <div className="flex min-h-dvh flex-col bg-background">
         <AppHeader />
         <Outlet />
       </div>
