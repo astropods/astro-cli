@@ -205,9 +205,14 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	full, fullErr := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
+
 	w := cmd.OutOrStdout()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		if fullErr == nil {
+			return writeJSON(w, full)
+		}
 		return writeJSON(w, dep)
 	}
 
@@ -232,10 +237,26 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)                       //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  ID:         %s\n", dim.Render(dep.ID))                  //nolint:errcheck,gosec
 
-	detail, err := getDeploymentDetail(cmd, dep.ID, at, verbose)
-	if err == nil && len(detail.Workloads) > 0 {
+	if fullErr == nil {
+		if messaging := messagingEndpoint(full.ExternalURLs); messaging != nil && messaging.URL != "" {
+			fmt.Fprintf(w, "  %s\n", msgLaunchURLLine(messaging.URL)) //nolint:errcheck,gosec
+			if messaging.Ready {
+				fmt.Fprintf(w, "  %s\n", msgLaunchURLReady()) //nolint:errcheck,gosec
+			} else {
+				fmt.Fprintf(w, "  %s\n", msgLaunchURLPending(messaging.Message)) //nolint:errcheck,gosec
+			}
+		}
+	}
+
+	var workloads []workloadDetail
+	if fullErr == nil {
+		workloads = full.Workloads
+	} else if legacy, legacyErr := getDeploymentDetail(cmd, dep.ID, at, verbose); legacyErr == nil {
+		workloads = legacy.Workloads
+	}
+	if len(workloads) > 0 {
 		fmt.Fprintf(w, "  Components:\n") //nolint:errcheck,gosec
-		for _, wl := range detail.Workloads {
+		for _, wl := range workloads {
 			component := wl.Component
 			if component == "" {
 				component = wl.Name
