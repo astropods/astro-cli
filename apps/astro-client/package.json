@@ -101,6 +101,7 @@
     "globals": "^16.5.0",
     "jsdom": "^28.0.0",
     "msw": "^2.12.9",
+    "msw-storybook-addon": "^2.0.7",
     "playwright": "^1.58.1",
     "storybook": "^10.2.7",
     "three": "^0.184.0",
@@ -110,5 +111,10 @@
     "unified": "^11.0.5",
     "vite": "^7.2.4",
     "vitest": "^4.0.18"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

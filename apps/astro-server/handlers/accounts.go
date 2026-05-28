@@ -750,9 +750,10 @@ func CheckAccountName(log *logger.Logger, accountStore *account.AccountStore) gi
 
 // SearchAccountResult represents a single account in search results
 type SearchAccountResult struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Type        string `json:"type"`
 }
 
 // SearchAccounts handles GET /api/v1/accounts/search (protected)
@@ -788,9 +789,10 @@ func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.
 		results := make([]SearchAccountResult, 0, len(accounts))
 		for _, a := range accounts {
 			results = append(results, SearchAccountResult{
-				ID:   a.ID,
-				Name: a.Name,
-				Type: a.Type,
+				ID:          a.ID,
+				Name:        a.Name,
+				DisplayName: a.DisplayName,
+				Type:        a.Type,
 			})
 		}
 

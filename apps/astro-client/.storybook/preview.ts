@@ -2,9 +2,21 @@ import type { Preview } from '@storybook/react-vite'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import React from 'react'
+import { initialize, mswLoader } from 'msw-storybook-addon'
 import { AuthContext } from '../src/lib/auth-context'
 import { mockAuthContext } from '../src/test/test-utils'
+import { handlers } from '../src/test/msw/handlers'
 import '../src/index.css'
+
+initialize(
+  {
+    onUnhandledRequest: ({ method, url }) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[MSW] Unhandled ${method} ${url}`)
+    },
+  },
+  handlers,
+)
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +63,7 @@ const preview: Preview = {
   initialGlobals: {
     theme: 'light',
   },
+  loaders: [mswLoader],
   decorators: [
     (Story, context) => {
       const theme = context.globals.theme as 'light' | 'dark' | 'split';

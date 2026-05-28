@@ -1,0 +1,3 @@
+# InviteInput: richer pills, richer dropdown, themed palette
+
+The member-invite combobox now shows avatars and display names in both pills and dropdown rows (matching the `MemberPicker` pattern) instead of the bare handle, and swaps the legacy teal palette for semantic tokens (`bg-card`/`border-border`/`text-destructive`). To make this possible the account search payload gains a `display_name` field (Go + TS, falls back to handle when empty), and `InviteEntry` carries an optional `displayName`. Storybook is wired up with `msw-storybook-addon` so the dropdown is demonstrable without a backend — the new `/api/v1/accounts/search` handler is registered ahead of `/api/v1/accounts/:account` because MSW matches in declaration order. No consumer changes required.

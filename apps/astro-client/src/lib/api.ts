@@ -86,6 +86,7 @@ export interface AccountOrgsResponse {
 export interface AccountSearchResult {
   id: string;
   name: string;
+  display_name: string;
   type: string;
 }
 

@@ -17,6 +17,8 @@ import type {
   DeploymentEventsResponse,
   AccountPublic,
   AccountOrgsResponse,
+  AccountSearchResponse,
+  AccountSearchResult,
 } from '@/lib/api';
 
 function paginateBlueprintList(
@@ -276,6 +278,19 @@ export const mockDeploymentEvents: DeploymentEventsResponse = {
   ],
 };
 
+export const mockSearchAccounts: AccountSearchResult[] = [
+  { id: 'acct-alice', name: 'alice', display_name: 'Alice Chen', type: 'personal' },
+  { id: 'acct-alicia', name: 'alicia', display_name: 'Alicia Romero', type: 'personal' },
+  { id: 'acct-allen', name: 'allen', display_name: 'Allen Park', type: 'personal' },
+  { id: 'acct-ali-rahimi', name: 'ali-rahimi', display_name: 'Ali Rahimi', type: 'personal' },
+  { id: 'acct-alison', name: 'alison', display_name: 'Alison Wu', type: 'personal' },
+  { id: 'acct-bob', name: 'bob', display_name: 'Bob Martinez', type: 'personal' },
+  { id: 'acct-bobby', name: 'bobby', display_name: 'Bobby Singh', type: 'personal' },
+  { id: 'acct-carol', name: 'carol', display_name: 'Carol Davis', type: 'personal' },
+  { id: 'acct-carolina', name: 'carolina', display_name: 'Carolina Santos', type: 'personal' },
+  { id: 'acct-dave', name: 'dave', display_name: 'Dave Thompson', type: 'personal' },
+];
+
 export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', ({ request }) => {
@@ -292,6 +307,19 @@ export const handlers = [
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     return HttpResponse.json(wrapTemplateResponse(mockTemplate, body as { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> }));
+  }),
+
+  // GET /api/v1/accounts/search — must come BEFORE /:account so MSW doesn't
+  // route `search` as an account name.
+  http.get('/api/v1/accounts/search', ({ request }) => {
+    const url = new URL(request.url);
+    const q = url.searchParams.get('q')?.toLowerCase() ?? '';
+    const type = url.searchParams.get('type');
+    const results = mockSearchAccounts.filter((r) => {
+      if (type && r.type !== type) return false;
+      return r.name.toLowerCase().startsWith(q);
+    });
+    return HttpResponse.json<AccountSearchResponse>({ results });
   }),
 
   // GET /api/v1/accounts/:account (single account — tests override for 404/custom data)

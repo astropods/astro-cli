@@ -70,14 +70,13 @@ describe('InviteInput', () => {
       expect(getInput()).not.toHaveAttribute('placeholder');
     });
 
-    it('applies strikethrough and reduced opacity for invalid entries', () => {
+    it('applies strikethrough and destructive styling for invalid entries', () => {
       renderHarness({
         initial: [{ value: 'bad', kind: 'email', valid: false }],
       });
       const text = screen.getByText('bad');
       expect(text).toHaveClass('line-through');
-      // The chip (parent span with tabIndex) should have opacity-60
-      expect(text.closest('[tabindex="-1"]')).toHaveClass('opacity-60');
+      expect(text.closest('[tabindex="-1"]')).toHaveClass('text-destructive');
     });
   });
 
@@ -154,8 +153,7 @@ describe('InviteInput', () => {
       });
 
       // Click the X on alice's chip
-      const aliceChip = screen.getByText('alice').closest('[tabindex="-1"]')!;
-      const xButton = aliceChip.querySelector('span.cursor-pointer')!;
+      const xButton = screen.getByRole('button', { name: 'Remove alice' });
       await user.click(xButton);
 
       expect(screen.queryByText('alice')).not.toBeInTheDocument();
