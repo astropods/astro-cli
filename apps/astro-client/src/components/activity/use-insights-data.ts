@@ -2,12 +2,10 @@ import { useMemo } from "react";
 import {
   useAccountActivitySummary,
   useBlueprintsSummary,
-  useUsersSummary,
 } from "@/api/queries/observability";
-import { useAccountMembers } from "@/api/queries/accounts";
 import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
-import { ALL_USERS_KEY, UNATTRIBUTED_USER_KEY, UNAUTHORIZED_USER_KEY, classifyUserId } from "./user-classification";
+import { classifyUserId } from "./user-classification";
 import type {
   AccountBlueprintsSummaryResponse,
   AccountObservabilitySummaryResponse,
@@ -375,16 +373,9 @@ export function useInsightsData({
   };
 }
 
-// ── Users-view data hook ─────────────────────────────────────────────────────
+// ── Users-view helpers ───────────────────────────────────────────────────────
 
 type UserRow = AccountUsersSummaryResponse["users"][number];
-
-interface UseUsersInsightsDataOpts {
-  account: string;
-  range: ActivityRange;
-  selectedUsers: string[];
-  enabled?: boolean;
-}
 
 // rangeWindow computes the UTC day window the URL range maps to. Returns
 // empty strings for the all-time range (caller falls back to union of dates).
@@ -392,42 +383,6 @@ function rangeWindow(range: ActivityRange): { fromDate: string; toDate: string }
   if (range === "all") return { fromDate: "", toDate: "" };
   const { from, to } = buildPeriodParams(range);
   return { fromDate: (from ?? "").slice(0, 10), toDate: (to ?? "").slice(0, 10) };
-}
-
-function buildUserCostOverTime(
-  summary: AccountObservabilitySummaryResponse | undefined,
-  range: ActivityRange,
-  visibleUserIds: string[],
-  memberIds: Set<string>,
-): Array<{ date: string; models: Array<{ model: string; cost_usd: number }> }> {
-  const rows = summary?.cost_over_time_by_user ?? [];
-  if (visibleUserIds.length === 0) return [];
-  // An empty visibleUserIds set means "nothing to show yet" (usersData still
-  // loading, or empty period) — NOT "show every user." Treating it as "all"
-  // would flash every user before the top-5 filter resolves.
-  const visible = new Set(visibleUserIds);
-
-  // Index server rows by their UTC day. We always pull all-time from the
-  // server and slice client-side here, so range toggles are instant.
-  const rowsByDate = new Map(rows.map((r) => [r.date.slice(0, 10), r]));
-  const { fromDate, toDate } = rangeWindow(range);
-  const enumerated = fromDate && toDate ? enumerateDates(fromDate, toDate) : [];
-  const dates = enumerated.length > 0 ? enumerated : rows.map((r) => r.date);
-
-  return dates.map((date) => {
-    const row = rowsByDate.get(date);
-    const byKey = new Map<string, number>();
-    for (const u of row?.users ?? []) {
-      const key = classifyUserId(u.user_id, memberIds);
-      byKey.set(key, (byKey.get(key) ?? 0) + u.cost_usd);
-    }
-    return {
-      date,
-      models: [...byKey.entries()]
-        .filter(([key]) => visible.has(key))
-        .map(([model, cost_usd]) => ({ model, cost_usd })),
-    };
-  });
 }
 
 // sliceUsersByRange walks the per-(day, user) data from the all-time summary
@@ -517,224 +472,51 @@ export function sliceUsersByRange(
   return { users, sparklines };
 }
 
-export function recomputeTotalsFromUsers(
-  users: UserRow[],
-  period: { start: string; end: string; days: number },
-  sparklines: { cost: number[]; requests: number[]; tokens: number[] } = { cost: [], requests: [], tokens: [] },
-  prior: ChangeTotals | null = null,
-): AccountObservabilitySummaryResponse {
-  const totalCost   = users.reduce((s, u) => s + u.cost_usd, 0);
-  const totalReqs   = users.reduce((s, u) => s + u.requests, 0);
-  const totalTokens = users.reduce((s, u) => s + u.tokens, 0);
-  const n = Math.max(period.days, 1);
+// ── Headline chart: active users + total spend per day ────────────────────────
 
-  return {
-    period,
-    totals: {
-      cost_usd: parseFloat(totalCost.toFixed(2)),
-      requests: totalReqs,
-      // Users view derives tokens from the traces view, which only exposes
-      // the combined sum. total_tokens is the canonical field; input/output
-      // stay at 0 here and consumers should read total_tokens.
-      input_tokens: 0,
-      output_tokens: 0,
-      total_tokens: totalTokens,
-      active_agents: 0,
-    },
-    daily_avg: {
-      cost_usd: parseFloat((totalCost / n).toFixed(2)),
-      requests: Math.round(totalReqs / n),
-      tokens: Math.round(totalTokens / n),
-    },
-    change: computeChange(
-      { cost: totalCost, requests: totalReqs, tokens: totalTokens },
-      prior,
-    ),
-    cost_over_time: [],
-    cost_by_model: [],
-    sparklines,
-  };
+export interface ActiveSpendPoint {
+  date: string;
+  users: number;
+  cost: number;
 }
 
-// sumUsersWindow returns prior-period totals for the users view. Walks
-// the all-time per-(day, user) summary, scoped to the supplied window
-// and to the same user filter the current view applies.
-function sumUsersWindow(
-  summary: AccountObservabilitySummaryResponse | undefined,
-  fromDate: string,
-  toDate: string,
-  visibleUserIds: Set<string> | null,
-  memberIds: Set<string>,
-): ChangeTotals {
-  let cost = 0, requests = 0, tokens = 0;
-  for (const row of summary?.cost_over_time_by_user ?? []) {
-    const date = row.date.slice(0, 10);
-    if (date < fromDate || date > toDate) continue;
-    for (const u of row.users) {
-      if (visibleUserIds && !visibleUserIds.has(classifyUserId(u.user_id, memberIds))) continue;
-      cost += u.cost_usd;
-      requests += u.requests;
-      tokens += u.tokens;
-    }
-  }
-  return { cost, requests, tokens };
-}
+// useActiveSpendSeries derives per-day { active users, total spend } for the
+// dual-line headline chart. Fetches the groupBy=user summary ALL-TIME once
+// and slices client-side by the URL range — every range toggle is then a
+// 0-round-trip recomputation. Mirror of the slicing approach landed for the
+// blueprints view in PR #1149.
+export function useActiveSpendSeries(
+  account: string,
+  range: ActivityRange,
+  opts?: { enabled?: boolean },
+): { data: ActiveSpendPoint[]; isLoading: boolean } {
+  // All-time fetch — no from/to.
+  const summaryQ = useAccountActivitySummary(account, undefined, undefined, {
+    groupBy: "user",
+    enabled: opts?.enabled ?? true,
+  });
 
-export function useUsersInsightsData({
-  account,
-  range,
-  selectedUsers,
-  enabled = true,
-}: UseUsersInsightsDataOpts) {
-  // Always fetch all-time. The URL range slices everything client-side so
-  // toggles repaint instantly without a network round-trip.
-  const summaryQ = useAccountActivitySummary(account, undefined, undefined, { groupBy: "user", enabled });
-  const usersQ = useUsersSummary(account, undefined, undefined, { enabled });
-  // Members query is intentionally NOT gated by `enabled` — it's cached app-wide
-  // for avatar/badge resolution and worth keeping warm even when this view is idle.
-  const membersQ = useAccountMembers(account);
-
-  const summary = summaryQ.data;
-  const summaryLoading = summaryQ.isLoading;
-  const usersData = usersQ.data;
-  const usersLoading = usersQ.isLoading;
-  const membersData = membersQ.data;
-  const membersLoading = membersQ.isLoading;
-
-  const memberIds = useMemo(
-    () => new Set(membersData?.members.map((m) => m.user_id) ?? []),
-    [membersData],
-  );
-
-  const isAllSelected = selectedUsers.length > 0 && selectedUsers[0] === ALL_USERS_KEY;
-  const noSelection = selectedUsers.length === 0;
-
-  // Visible-user set for sparkline filtering. `null` means "no filter" (sum
-  // across all users), matching how the chart treats no-selection / All.
-  const sparklineFilter = useMemo<Set<string> | null>(() => {
-    if (noSelection || isAllSelected) return null;
-    return new Set(selectedUsers);
-  }, [selectedUsers, noSelection, isAllSelected]);
-
-  // Slice the all-time users data down to the URL window in a single pass —
-  // produces both the per-user totals (Top Spenders / filter chips) and the
-  // per-day sparkline arrays (StatCards) from one iteration over
-  // `cost_over_time_by_user`.
-  const { users: slicedUsers, sparklines: userSparklines } = useMemo(
-    () => sliceUsersByRange(summary, usersData, range, sparklineFilter, memberIds),
-    [summary, usersData, range, sparklineFilter, memberIds],
-  );
-
-  // Period the cards / chart should pretend the data covers. For all-time
-  // we fall back to the server's period (often empty); for bounded ranges
-  // we synthesize it from the URL window so daily_avg etc. compute correctly.
-  const slicedPeriod = useMemo(() => {
-    if (range === "all") return usersData?.period ?? { start: "", end: "", days: 0 };
-    const { fromDate, toDate } = rangeWindow(range);
-    const days = Math.max(1, Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000) + 1);
-    return { start: `${fromDate}T00:00:00Z`, end: `${toDate}T23:59:59Z`, days };
-  }, [range, usersData]);
-
-  const allUserIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const u of slicedUsers) ids.add(classifyUserId(u.user_id, memberIds));
-    // Filter the per-(day, user) rows to the current URL window — without
-    // this, users active only outside the window would still appear in the
-    // filter chips. All-time range yields empty bounds → the filter no-ops
-    // and every row contributes (current behavior).
-    const { fromDate, toDate } = rangeWindow(range);
+  const data = useMemo<ActiveSpendPoint[]>(() => {
+    const rows = summaryQ.data?.cost_over_time_by_user ?? [];
+    const { from, to } = buildPeriodParams(range);
+    const fromDate = (from ?? "").slice(0, 10);
+    const toDate = (to ?? "").slice(0, 10);
     const bounded = !!fromDate && !!toDate;
-    for (const row of summary?.cost_over_time_by_user ?? []) {
-      if (bounded) {
-        const d = row.date.slice(0, 10);
-        if (d < fromDate || d > toDate) continue;
+
+    const points: ActiveSpendPoint[] = [];
+    for (const row of rows) {
+      const date = row.date.slice(0, 10);
+      if (bounded && (date < fromDate || date > toDate)) continue;
+      let cost = 0;
+      const activeUsers = new Set<string>();
+      for (const u of row.users) {
+        cost += u.cost_usd;
+        if (u.cost_usd > 0) activeUsers.add(u.user_id);
       }
-      for (const u of row.users) ids.add(classifyUserId(u.user_id, memberIds));
+      points.push({ date, users: activeUsers.size, cost });
     }
-    return [...ids];
-  }, [slicedUsers, summary, memberIds, range]);
+    return points;
+  }, [summaryQ.data, range]);
 
-  const allUserColorMap = useMemo(() => buildModelColorMap(allUserIds), [allUserIds]);
-
-  const userLabelMap = useMemo(() => {
-    const map: Record<string, string> = {
-      [UNATTRIBUTED_USER_KEY]: "Unattributed",
-      [UNAUTHORIZED_USER_KEY]: "Unauthorized",
-      [ALL_USERS_KEY]: "All Users",
-    };
-    const memberById = new Map(membersData?.members.map((m) => [m.user_id, m]) ?? []);
-    for (const uid of allUserIds) {
-      if (uid === UNATTRIBUTED_USER_KEY || uid === UNAUTHORIZED_USER_KEY) continue;
-      const m = memberById.get(uid);
-      map[uid] = m ? (m.display_name || m.username) : uid;
-    }
-    return map;
-  }, [allUserIds, membersData]);
-
-  const filteredUsers = useMemo(() => {
-    if (noSelection || isAllSelected) return slicedUsers;
-    return slicedUsers.filter((u) => selectedUsers.includes(classifyUserId(u.user_id, memberIds)));
-  }, [slicedUsers, selectedUsers, noSelection, isAllSelected, memberIds]);
-
-  const chartVisibleUserIds = useMemo(() => {
-    if (noSelection || isAllSelected) {
-      const byKey = new Map<string, number>();
-      for (const u of slicedUsers) {
-        const key = classifyUserId(u.user_id, memberIds);
-        byKey.set(key, (byKey.get(key) ?? 0) + u.cost_usd);
-      }
-      return [...byKey.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([k]) => k);
-    }
-    return selectedUsers;
-  }, [slicedUsers, selectedUsers, noSelection, isAllSelected, memberIds]);
-
-  const userCostOverTime = useMemo(
-    () => buildUserCostOverTime(summary, range, chartVisibleUserIds, memberIds),
-    [summary, range, chartVisibleUserIds, memberIds],
-  );
-
-  // Prior-period totals for the users-view StatCards. Same semantic as the
-  // agents view: previous equal-length window, same user filter applied.
-  const priorTotals = useMemo<ChangeTotals | null>(() => {
-    if (range === "all") return null;
-    const { fromDate, toDate } = rangeWindow(range);
-    if (!fromDate || !toDate) return null;
-    const prior = shiftPriorWindow(fromDate, toDate);
-    if (!prior) return null;
-    return sumUsersWindow(summary, prior.priorFrom, prior.priorTo, sparklineFilter, memberIds);
-  }, [summary, range, sparklineFilter, memberIds]);
-
-  const displaySummary = useMemo(
-    () => recomputeTotalsFromUsers(filteredUsers, slicedPeriod, userSparklines, priorTotals),
-    [filteredUsers, slicedPeriod, userSparklines, priorTotals],
-  );
-
-  const activeColorMap = useMemo(
-    () => ({ ...allUserColorMap, [ALL_USERS_KEY]: "var(--color-indigo-500)" }),
-    [allUserColorMap],
-  );
-
-  return {
-    from: slicedPeriod.start,
-    to: slicedPeriod.end,
-    allUserIds,
-    filteredUsers,
-    userCostOverTime,
-    displaySummary,
-    allUserColorMap,
-    activeColorMap,
-    userLabelMap,
-    summaryLoading,
-    // usersLoading reports both the users-summary endpoint AND the members
-    // query — classification depends on both, so until members lands every
-    // named user would be misclassified as Unauthorized.
-    usersLoading: usersLoading || membersLoading,
-    isLoading: summaryLoading || usersLoading || membersLoading,
-    // Read off the SLICED users so a date range with no activity falls
-    // through to the page-level EmptyState, matching the agents view.
-    hasData: slicedUsers.some((u) => u.requests > 0),
-  };
+  return { data, isLoading: summaryQ.isLoading };
 }

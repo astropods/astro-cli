@@ -121,7 +121,11 @@ export function MultiSelectFilterBar({
         </div>
       </Popover.Anchor>
       <MultiSelectContent>
-        <MultiSelectItem value={allItem.key} color={allItem.color}>{allItem.label}</MultiSelectItem>
+        {/* "All …" shortcut only makes sense when the user hasn't started
+         *  typing — if they're searching, they're narrowing, not selecting all. */}
+        {filterSearch === "" && (
+          <MultiSelectItem value={allItem.key} color={allItem.color}>{allItem.label}</MultiSelectItem>
+        )}
         {entries
           .filter((e) => e.label.toLowerCase().includes(filterSearch.toLowerCase()))
           .map((e) => (

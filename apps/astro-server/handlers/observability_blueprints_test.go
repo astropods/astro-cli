@@ -21,7 +21,7 @@ import (
 // ── buildBlueprintsSummary ────────────────────────────────────────────────────
 
 func TestBuildBlueprintsSummary_Empty(t *testing.T) {
-	entries := buildBlueprintsSummary(nil)
+	entries := buildBlueprintsSummary(nil, nil, nil)
 	if len(entries) != 0 {
 		t.Errorf("expected empty slice, got %d entries", len(entries))
 	}
@@ -43,7 +43,7 @@ func TestBuildBlueprintsSummary_SingleDeployment(t *testing.T) {
 		},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -93,7 +93,7 @@ func TestBuildBlueprintsSummary_MultipleDeploymentsSameBlueprint(t *testing.T) {
 		},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 merged entry, got %d", len(entries))
 	}
@@ -122,7 +122,7 @@ func TestBuildBlueprintsSummary_SortByCostDesc(t *testing.T) {
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -145,7 +145,7 @@ func TestBuildBlueprintsSummary_ZeroRequestsGuard(t *testing.T) {
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -180,7 +180,7 @@ func TestBuildBlueprintsSummary_TopModel(t *testing.T) {
 		},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if entries[0].TopModel != "claude-sonnet" {
 		t.Errorf("top_model = %q, want claude-sonnet", entries[0].TopModel)
 	}
@@ -209,7 +209,7 @@ func TestBuildBlueprintsSummary_TopModelMergedAcrossDeployments(t *testing.T) {
 		},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	if entries[0].TopModel != "claude-sonnet" {
 		t.Errorf("top_model = %q, want claude-sonnet (highest cumulative cost)", entries[0].TopModel)
 	}
@@ -222,11 +222,88 @@ func TestBuildBlueprintsSummary_CostPerRequestRounding(t *testing.T) {
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics)
+	entries := buildBlueprintsSummary(metrics, nil, nil)
 	// 1.0 / 3 = 0.3333... → rounded to 4dp = 0.3333
 	if entries[0].CostPerRequest != 0.3333 {
 		t.Errorf("cost_per_request = %v, want 0.3333", entries[0].CostPerRequest)
 	}
+}
+
+func TestBuildBlueprintsSummary_UsersUsedInversion(t *testing.T) {
+	metrics := []deploymentMetrics{
+		{AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{AgentName: "summarizer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+	}
+	depToAgent := map[string]string{
+		"dep-1": "code-reviewer",
+		"dep-2": "summarizer",
+	}
+	// Two users on dep-1 (alice, bob); only alice on dep-2; one row carries the
+	// SDK "-" sentinel which normalizeUserID collapses to "" → dropped. A row
+	// against an unknown deployment is skipped (defensive — shouldn't happen
+	// since the Q_tags filter is bounded to visibleTagValues). The dave row
+	// arrives as a JSON-array tag value — tagStrings() handles both shapes,
+	// matching the users-summary inversion path.
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": "deployment:dep-1"},
+		{"userId": "u_bob", "tags": "deployment:dep-1"},
+		{"userId": "u_alice", "tags": "deployment:dep-2"},
+		{"userId": "-", "tags": "deployment:dep-1"},
+		{"userId": "u_carol", "tags": "deployment:dep-unknown"},
+		{"userId": "u_dave", "tags": []any{"deployment:dep-1"}},
+	}
+
+	entries := buildBlueprintsSummary(metrics, tagsRows, depToAgent)
+
+	byName := make(map[string][]string)
+	for _, e := range entries {
+		byName[e.AgentName] = e.UsersUsed
+	}
+	if got, want := byName["code-reviewer"], []string{"u_alice", "u_bob", "u_dave"}; !equalStrings(got, want) {
+		t.Errorf("code-reviewer users_used = %v, want %v", got, want)
+	}
+	if got, want := byName["summarizer"], []string{"u_alice"}; !equalStrings(got, want) {
+		t.Errorf("summarizer users_used = %v, want %v", got, want)
+	}
+}
+
+func TestBuildBlueprintsSummary_UsersUsedDedupesAcrossDeployments(t *testing.T) {
+	// Two deployments of the same agent_name (multi-region case) should fold
+	// into one users_used set with no duplicates.
+	metrics := []deploymentMetrics{
+		{AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+	}
+	depToAgent := map[string]string{
+		"dep-east": "shared-agent",
+		"dep-west": "shared-agent",
+	}
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": "deployment:dep-east"},
+		{"userId": "u_alice", "tags": []any{"deployment:dep-west"}}, // array shape — tagStrings() normalizes both
+		{"userId": "u_bob", "tags": "deployment:dep-west"},
+	}
+
+	entries := buildBlueprintsSummary(metrics, tagsRows, depToAgent)
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 merged entry, got %d", len(entries))
+	}
+	if got, want := entries[0].UsersUsed, []string{"u_alice", "u_bob"}; !equalStrings(got, want) {
+		t.Errorf("users_used = %v, want %v", got, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ── GetAccountBlueprintsSummary handler ───────────────────────────────────────

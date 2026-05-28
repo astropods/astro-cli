@@ -36,6 +36,7 @@ type Blueprint = {
   p95_latency_ms: number;
   top_model: string;
   cost_per_request: number;
+  users_used: string[];
   cost_over_time?: { date: string; cost_usd: number }[];
   requests_over_time?: { date: string; requests: number }[];
   tokens_over_time?: { date: string; input_tokens: number; output_tokens: number; total_tokens: number }[];
@@ -55,6 +56,7 @@ function makeBlueprint(overrides: Partial<Blueprint> = {}): Blueprint {
     p95_latency_ms: 300,
     top_model: "",
     cost_per_request: 2,
+    users_used: [],
     ...overrides,
   };
 }
@@ -258,6 +260,7 @@ describe("buildFilteredSummary", () => {
         { date: "2026-05-24", input_tokens: 1500, output_tokens: 300, total_tokens: 1800 },
         { date: "2026-05-26", input_tokens: 2000, output_tokens: 400, total_tokens: 2400 },
       ],
+      users_used: [],
     };
     // Slice to 5-24 .. 5-26.
     const sliced = sliceBlueprintByWindow(all, "2026-05-24", "2026-05-26");
@@ -301,6 +304,7 @@ describe("buildFilteredSummary", () => {
           { date: "2026-05-10", input_tokens: 0, output_tokens: 0, total_tokens: 1 },
           { date: "2026-05-21", input_tokens: 0, output_tokens: 0, total_tokens: 1 },
         ],
+        users_used: [],
       }],
       period: { start: "", end: "", days: 0 },
     };

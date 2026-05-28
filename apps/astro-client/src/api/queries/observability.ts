@@ -4,6 +4,12 @@ import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
   staleTime: 1000 * 60 * 5,
+  // Background poll every 5 min so a long-running Insights session sees fresh
+  // data without depending on user interaction or tab focus. Window focus is
+  // intentionally off (refresh-on-return is jarring); the timer is the safety
+  // net for the "user stares at the dashboard for 30 minutes" path.
+  refetchInterval: 1000 * 60 * 5,
+  refetchIntervalInBackground: false,
   gcTime: 1000 * 60 * 30,
   placeholderData: keepPreviousData,
   retry: false,

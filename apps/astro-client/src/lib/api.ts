@@ -1853,6 +1853,8 @@ export interface AccountBlueprintsSummaryResponse {
       /** Combined per-day token count. Prefer over input+output. */
       total_tokens: number;
     }>;
+    /** WorkOS user IDs that drove ≥1 trace against the agent in the period. */
+    users_used: string[];
   }>;
   period: { start: string; end: string; days: number };
 }

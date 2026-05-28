@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   sliceUsersByRange,
-  recomputeTotalsFromUsers,
   shiftPriorWindow,
 } from "./use-insights-data";
 
@@ -165,48 +164,10 @@ describe("sliceUsersByRange — sparklines output", () => {
   });
 });
 
-// ── recomputeTotalsFromUsers (change% via calendar midpoint) ────────────────
+// ── shiftPriorWindow ────────────────────────────────────────────────────────
 
-describe("recomputeTotalsFromUsers", () => {
-  const boundedPeriod = { start: "2026-01-04T00:00:00Z", end: "2026-01-10T23:59:59Z", days: 7 };
-
-  it("emits change against the supplied prior-period totals", () => {
-    // Current totals (from users array): cost 30, requests 15, tokens 300.
-    // Prior totals (passed as the new 4th arg): cost 10, requests 5, tokens 100.
-    // pct: cost (30-10)/10*100 = 200; requests (15-5)/5*100 = 200; tokens (300-100)/100*100 = 200.
-    const result = recomputeTotalsFromUsers(
-      [
-        { user_id: "u_alice", cost_usd: 10, requests: 5, tokens: 100, agents_used: [] },
-        { user_id: "u_bob",   cost_usd: 20, requests: 10, tokens: 200, agents_used: [] },
-      ],
-      boundedPeriod,
-      { cost: [], requests: [], tokens: [] },
-      { cost: 10, requests: 5, tokens: 100 },
-    );
-    expect(result.change).not.toBeNull();
-    expect(result.change?.cost_pct).toBeCloseTo(200, 1);
-    expect(result.change?.requests_pct).toBeCloseTo(200, 1);
-    expect(result.change?.tokens_pct).toBeCloseTo(200, 1);
-  });
-
-  it("change is null when prior totals are not supplied (all-time / unknown prior)", () => {
-    const result = recomputeTotalsFromUsers([], boundedPeriod, { cost: [1], requests: [1], tokens: [1] });
-    expect(result.change).toBeNull();
-  });
-
-  it("change.*_pct is null when prior is 0 (division by zero guard)", () => {
-    const result = recomputeTotalsFromUsers(
-      [{ user_id: "u_a", cost_usd: 5, requests: 5, tokens: 5, agents_used: [] }],
-      boundedPeriod,
-      { cost: [], requests: [], tokens: [] },
-      { cost: 0, requests: 0, tokens: 0 },
-    );
-    expect(result.change?.cost_pct).toBeNull();
-    expect(result.change?.requests_pct).toBeNull();
-    expect(result.change?.tokens_pct).toBeNull();
-  });
-
-  it("shiftPriorWindow returns same-length window immediately before the input", () => {
+describe("shiftPriorWindow", () => {
+  it("returns same-length window immediately before the input", () => {
     // 7d range [Jan 4..Jan 10] → prior [Dec 28..Jan 3]
     expect(shiftPriorWindow("2026-01-04", "2026-01-10")).toEqual({
       priorFrom: "2025-12-28",
@@ -226,21 +187,5 @@ describe("recomputeTotalsFromUsers", () => {
     expect(shiftPriorWindow("", "")).toBeNull();
     // from > to → null
     expect(shiftPriorWindow("2026-01-10", "2026-01-04")).toBeNull();
-  });
-
-  it("aggregates totals from the users array independently of sparklines", () => {
-    const result = recomputeTotalsFromUsers(
-      [
-        { user_id: "u_alice", cost_usd: 10, requests: 5, tokens: 100, agents_used: [] },
-        { user_id: "u_bob",   cost_usd: 20, requests: 10, tokens: 200, agents_used: [] },
-      ],
-      boundedPeriod,
-    );
-    expect(result.totals.cost_usd).toBe(30);
-    expect(result.totals.requests).toBe(15);
-    expect(result.totals.total_tokens).toBe(300);
-    // input/output stay at 0 — total_tokens is the canonical token field for the users view.
-    expect(result.totals.input_tokens).toBe(0);
-    expect(result.totals.output_tokens).toBe(0);
   });
 });

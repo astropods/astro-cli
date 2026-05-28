@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { formatTimeAgo } from "@/lib/time-format";
-import { Card } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -15,13 +15,13 @@ import type {
   AccountBlueprintsSummaryResponse,
   AccountUsersSummaryResponse,
 } from "@/lib/api";
-import { formatModelName } from "./model-colors";
 import { AgentsUsedChips } from "./AgentsUsedChips";
+import { UsersUsedAvatars } from "./UsersUsedAvatars";
 import { UserBadge } from "@/components/UserBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info } from "lucide-react";
+import { Info, CircleUserRound, Server } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
-import { classifyUserId, UNATTRIBUTED_USER_KEY, UNAUTHORIZED_USER_KEY } from "./user-classification";
+import { classifyUserId, UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY } from "./user-classification";
 
 type AgentRow = AccountBlueprintsSummaryResponse["blueprints"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
@@ -55,7 +55,6 @@ function SortableHead<K extends string>({
   return (
     <TableHead
       className={cn(
-        "font-mono text-label uppercase tracking-[0.07em] text-faint-foreground",
         align === "right" ? "text-right" : "text-left",
         sortKey && "cursor-pointer select-none hover:text-foreground transition-colors",
       )}
@@ -95,12 +94,19 @@ type TopSpendersTableProps =
       blueprints: AgentRow[];
       loading: boolean;
       groupLabel?: string;
+      /** Account name used to render the agent avatar + linkify the row. When
+       *  omitted (e.g. Models view), the cell renders text-only. */
+      account?: string;
+      /** Total count rendered next to the column header. */
+      totalCount?: number;
     }
   | {
       mode: "users";
       users: UserRow[];
       account: string;
       loading: boolean;
+      /** Total count rendered next to the column header. */
+      totalCount?: number;
     };
 
 export function TopSpendersTable(props: TopSpendersTableProps) {
@@ -116,6 +122,8 @@ function AgentsTopSpenders({
   blueprints,
   loading,
   groupLabel = "Agent",
+  account,
+  totalCount,
 }: Extract<TopSpendersTableProps, { mode: "agents" }>) {
   const { sortKey, asc, handleSort } = useSort<AgentSortKey>("cost_usd");
 
@@ -130,62 +138,69 @@ function AgentsTopSpenders({
   const sp = { currentSort: sortKey, asc, onSort: handleSort };
 
   return (
-    <Card className="overflow-hidden dark:bg-surface">
-      <div className="px-5 py-4">
-        <h3 className="text-heading-4 text-foreground">Top Spenders</h3>
-      </div>
-      <Table>
-        <TableHeader>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>
+            <span className="inline-flex items-baseline gap-2">
+              <span>{groupLabel}</span>
+              {totalCount !== undefined && (
+                <span className="text-faint-foreground">{totalCount}</span>
+              )}
+            </span>
+          </TableHead>
+          <TableHead>Users</TableHead>
+          <SortableHead label="Requests" sortKey="requests" {...sp} />
+          <SortableHead label="Total Spend" sortKey="cost_usd" {...sp} />
+          <SortableHead label="Spend/Req" sortKey="cost_per_request" {...sp} />
+          <SortableHead label="Tok/Req" sortKey="tok_per_request" {...sp} />
+          <SortableHead label="P95" sortKey="p95_latency_ms" {...sp} />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
+        ) : sorted.length === 0 ? (
           <TableRow>
-            <TableHead className="font-mono text-label uppercase tracking-[0.07em] text-left text-faint-foreground">
-              {groupLabel}
-            </TableHead>
-            <SortableHead label="Requests" sortKey="requests" {...sp} />
-            <SortableHead label="Spend" sortKey="cost_usd" {...sp} />
-            <SortableHead label="Spend/Req" sortKey="cost_per_request" {...sp} />
-            <SortableHead label="Tok/Req" sortKey="tok_per_request" {...sp} />
-            <SortableHead label="P95" sortKey="p95_latency_ms" {...sp} />
+            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
+              No agent activity in this period
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={6} />)
-          ) : sorted.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={6} className="py-10 text-center text-body-sm text-faint-foreground">
-                No agent activity in this period
+        ) : (
+          sorted.map((b) => (
+            <TableRow key={b.agent_name}>
+              <TableCell className="pr-4">
+                {account ? (
+                  <Link to={`/${account}/${b.agent_name}`} className="font-medium text-foreground hover:underline">
+                    {b.agent_name}
+                  </Link>
+                ) : (
+                  <span className="font-medium text-foreground">{b.agent_name}</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <UsersUsedAvatars userIds={b.users_used ?? []} account={account ?? ""} />
+              </TableCell>
+              <TableCell className="text-right font-mono text-muted-foreground">
+                {formatCompact(b.requests)}
+              </TableCell>
+              <TableCell className="text-right font-mono font-medium text-foreground">
+                {formatCost(b.cost_usd)}
+              </TableCell>
+              <TableCell className="text-right font-mono text-muted-foreground">
+                {formatCost(b.cost_per_request)}
+              </TableCell>
+              <TableCell className="text-right font-mono text-muted-foreground">
+                {formatCompact(b.tok_per_request)}
+              </TableCell>
+              <TableCell className="text-right font-mono text-muted-foreground">
+                {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
               </TableCell>
             </TableRow>
-          ) : (
-            sorted.map((b) => (
-              <TableRow key={b.agent_name}>
-                <TableCell className="pr-4">
-                  <span className="text-body font-medium text-foreground">{b.agent_name}</span>
-                  {b.top_model && (
-                    <span className="ml-2 text-mono-sm text-faint-foreground">{formatModelName(b.top_model)}</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right font-mono text-body-sm text-muted-foreground">
-                  {formatCompact(b.requests)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-body font-medium text-foreground">
-                  {formatCost(b.cost_usd)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-body-sm text-muted-foreground">
-                  {formatCost(b.cost_per_request)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-body-sm text-muted-foreground">
-                  {formatCompact(b.tok_per_request)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-body-sm text-muted-foreground">
-                  {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </Card>
+          ))
+        )}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -262,11 +277,12 @@ function UsersTopSpenders({
   users,
   account,
   loading,
+  totalCount,
 }: Extract<TopSpendersTableProps, { mode: "users" }>) {
   const { sortKey, asc, handleSort } = useSort<UserSortKey>("cost_usd");
 
   // Members feeds classification — without it every named user falls into
-  // Unauthorized. Treat its load as part of the table's loading state so the
+  // Unidentified. Treat its load as part of the table's loading state so the
   // skeleton stays up until classification can be trusted.
   const { data: membersData, isLoading: membersLoading } = useAccountMembers(account);
   const memberIds = useMemo(
@@ -275,14 +291,14 @@ function UsersTopSpenders({
   );
   const isLoading = loading || membersLoading;
 
-  const { named, unauthorized, unattributed } = useMemo(() => {
+  const { named, unidentified, unattributed } = useMemo(() => {
     const namedRows: UserRow[] = [];
-    const unauthorizedRows: UserRow[] = [];
+    const unidentifiedRows: UserRow[] = [];
     const unattributedRows: UserRow[] = [];
     for (const u of users) {
       const bucket = classifyUserId(u.user_id, memberIds);
       if (bucket === UNATTRIBUTED_USER_KEY) unattributedRows.push(u);
-      else if (bucket === UNAUTHORIZED_USER_KEY) unauthorizedRows.push(u);
+      else if (bucket === UNIDENTIFIED_USER_KEY) unidentifiedRows.push(u);
       else namedRows.push(u);
     }
     namedRows.sort((a, b) => {
@@ -291,80 +307,74 @@ function UsersTopSpenders({
     });
     return {
       named: namedRows,
-      unauthorized: aggregateUsers(unauthorizedRows),
+      unidentified: aggregateUsers(unidentifiedRows),
       unattributed: aggregateUsers(unattributedRows),
     };
   }, [users, memberIds, sortKey, asc]);
 
   const sp = { currentSort: sortKey, asc, onSort: handleSort };
-  const totalRows = named.length + (unauthorized ? 1 : 0) + (unattributed ? 1 : 0);
+  const totalRows = named.length + (unidentified ? 1 : 0) + (unattributed ? 1 : 0);
 
   return (
-    <Card className="overflow-hidden dark:bg-surface">
-      <div className="px-5 py-4">
-        <h3 className="text-heading-4 text-foreground">Top Spenders</h3>
-      </div>
-      <Table>
-        <TableHeader>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>
+            <span className="inline-flex items-baseline gap-2">
+              <span>User</span>
+              {totalCount !== undefined && (
+                <span className="text-faint-foreground">{totalCount}</span>
+              )}
+            </span>
+          </TableHead>
+          <TableHead>Agents Used</TableHead>
+          <SortableHead label="Total Spend" sortKey="cost_usd" {...sp} />
+          <SortableHead label="Requests" sortKey="requests" {...sp} />
+          <SortableHead label="Tokens" sortKey="tokens" {...sp} />
+          <SortableHead label="Last Used" sortKey="last_seen" {...sp} />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={6} />)
+        ) : totalRows === 0 ? (
           <TableRow>
-            <TableHead className="font-mono text-label uppercase tracking-[0.07em] text-left text-faint-foreground">
-              User
-            </TableHead>
-            <TableHead className="font-mono text-label uppercase tracking-[0.07em] text-left text-faint-foreground">
-              Agents Used
-            </TableHead>
-            <SortableHead label="Spend" sortKey="cost_usd" {...sp} />
-            <SortableHead label="Requests" sortKey="requests" {...sp} />
-            <SortableHead label="Tokens" sortKey="tokens" {...sp} />
-            <SortableHead label="Last Used" sortKey="last_seen" {...sp} />
+            <TableCell colSpan={6} className="py-10 text-center text-body-sm text-faint-foreground">
+              No user activity in this period
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={6} />)
-          ) : totalRows === 0 ? (
-            <TableRow>
-              <TableCell colSpan={6} className="py-10 text-center text-body-sm text-faint-foreground">
-                No user activity in this period
-              </TableCell>
-            </TableRow>
-          ) : (
-            <>
-              {named.map((u) => (
-                <TableRow key={u.user_id}>
-                  <TableCell className="pr-4">
-                    <UserBadge userId={u.user_id} account={account} />
-                  </TableCell>
-                  <MetricsCells row={u} />
-                </TableRow>
-              ))}
-              {unauthorized && <BucketRow variant="unauthorized" agg={unauthorized} />}
-              {unattributed && <BucketRow variant="unattributed" agg={unattributed} />}
-            </>
-          )}
-        </TableBody>
-      </Table>
-    </Card>
+        ) : (
+          <>
+            {named.map((u) => (
+              <TableRow key={u.user_id}>
+                <TableCell className="pr-4">
+                  <UserBadge userId={u.user_id} account={account} />
+                </TableCell>
+                <MetricsCells row={u} />
+              </TableRow>
+            ))}
+            {unidentified && <BucketRow variant="unidentified" agg={unidentified} />}
+            {unattributed && <BucketRow variant="unattributed" agg={unattributed} />}
+          </>
+        )}
+      </TableBody>
+    </Table>
   );
 }
 
 interface BucketRowProps {
-  variant: "unauthorized" | "unattributed";
+  variant: "unidentified" | "unattributed";
   agg: Aggregate;
 }
 
 function BucketRow({ variant, agg }: BucketRowProps) {
-  const isUnauthorized = variant === "unauthorized";
-  const label = isUnauthorized
-    ? `Unauthorized${agg.count > 1 ? ` · ${agg.count} users` : ""}`
-    : "Unattributed";
-  const tooltip = isUnauthorized
-    ? "Traces from users who reached an agent through an enabled adapter (Slack, Discord, etc.) but haven't authorized it."
+  const isUnidentified = variant === "unidentified";
+  const label = isUnidentified
+    ? `Unidentified · ${agg.count} ${agg.count === 1 ? "user" : "users"}`
+    : "Infrastructure";
+  const tooltip = isUnidentified
+    ? "Traces from people who reached an agent through an enabled adapter (Slack, Discord, etc.) but aren't linked to a member of this organization."
     : "Traces not associated with any user — typically background jobs, system tasks, or SDK calls that didn't forward a user identifier.";
-  const dotClass = isUnauthorized
-    ? "size-5 rounded-full border border-[var(--warning)] bg-[color-mix(in_srgb,var(--warning)_20%,transparent)]"
-    : "size-5 rounded-full border border-dashed border-border";
-
   return (
     <TableRow>
       <TableCell className="pr-4">
@@ -372,7 +382,13 @@ function BucketRow({ variant, agg }: BucketRowProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex items-center gap-2 font-mono text-mono-sm text-faint-foreground cursor-help">
-                <span className={dotClass} aria-hidden />
+                <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted" aria-hidden>
+                  {isUnidentified ? (
+                    <CircleUserRound className="size-3 text-muted-foreground" />
+                  ) : (
+                    <Server className="size-3 text-muted-foreground" />
+                  )}
+                </span>
                 {label}
                 <Info className="size-3 text-faint-foreground" aria-hidden />
               </span>

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import { formatCost, formatDateShort } from "@/lib/format-utils";
+import { dayKeysForRange } from "@/lib/date-utils";
 import { buildModelColorMap } from "./model-colors";
 
 interface CostOverTimeProps {
@@ -26,21 +27,6 @@ const AXIS_TICK = { fill: "var(--color-muted-foreground)", fontSize: 11, fontFam
 const X_AXIS_BASE = { dataKey: "date", tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 8, minTickGap: 40 } as const;
 const Y_AXIS_PROPS = { tickFormatter: formatCost, tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 4, width: 56 } as const;
 const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "var(--color-border)", strokeOpacity: 0.5 } as const;
-
-function dayKeysForRange(days: number): string[] {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const keys: string[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - i);
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    keys.push(`${y}-${m}-${day}`);
-  }
-  return keys;
-}
 
 function CustomTooltip({
   active,
@@ -103,7 +89,7 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
   return (
     <Card className="flex h-full flex-col dark:bg-surface p-5">
       <div className="mb-4 shrink-0">
-        <h3 className="text-heading-4 text-foreground">Spend over time</h3>
+        <h3 className="text-heading-4 text-foreground">Agent Spend</h3>
       </div>
       {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
@@ -114,17 +100,17 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
           <div className="min-h-0 flex-1">
             <ResponsiveContainer width="100%" height="100%">
               {variant === "line" ? (
-                <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 4, left: 0 }}>
+                <LineChart data={chartData} margin={{ top: 16, right: 52, bottom: 4, left: 0 }}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis {...X_AXIS_BASE} padding={{ right: 20 }} />
                   <YAxis {...Y_AXIS_PROPS} />
                   <Tooltip content={<CustomTooltip colorMap={colorMap} seriesLabels={seriesLabels} />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
                   {allModels.map((model) => (
-                    <Line key={model} type="monotone" dataKey={model} stroke={colorMap[model]} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                    <Line key={model} type="monotone" dataKey={model} stroke={colorMap[model]} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: colorMap[model] }} activeDot={{ r: 4, strokeWidth: 0, fill: colorMap[model] }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
                   ))}
                 </LineChart>
               ) : (
-                <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barCategoryGap="20%" maxBarSize={56}>
+                <BarChart data={chartData} margin={{ top: 16, right: 52, bottom: 4, left: 0 }} barCategoryGap="20%" maxBarSize={56}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis {...X_AXIS_BASE} />
                   <YAxis {...Y_AXIS_PROPS} />

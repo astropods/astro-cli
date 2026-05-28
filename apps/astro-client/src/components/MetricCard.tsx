@@ -32,16 +32,30 @@ function TrendIndicator({ value, higherIsBetter }: { value: number | null; highe
   );
 }
 
-function ChangeBadge({ value, label }: { value: number | null | undefined; label?: string }) {
-  if (value === null || value === undefined) return null;
-  const up = value > 0;
-  const zero = value === 0;
+// ChangeBadge renders inline next to the metric value, so toggling the date
+// range only fades the badge contents in/out — the card's row height is
+// pinned by the value's `text-heading-2`, never by the badge's presence.
+// Zero change (value === 0) is treated as no change: no badge shown.
+function ChangeBadge({ value, label, visible }: { value: number | null | undefined; label?: string; visible: boolean }) {
+  const hasChange = value !== null && value !== undefined && value !== 0;
+  const show = visible && hasChange;
+  const up = hasChange && value! > 0;
   return (
-    <span className="mt-1 block font-mono text-label uppercase tracking-[0.07em]">
-      <span className={cn(zero ? "text-faint-foreground" : up ? "text-success" : "text-destructive")}>
-        {up ? "↑" : zero ? "—" : "↓"} {Math.abs(Math.round(value))}%
-      </span>
-      {label && <span className="normal-case tracking-normal text-faint-foreground"> {label}</span>}
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1 font-mono text-label uppercase tracking-[0.07em] transition-opacity duration-200",
+        show ? "opacity-100" : "opacity-0",
+      )}
+      aria-hidden={!show}
+    >
+      {hasChange ? (
+        <>
+          <span className={up ? "text-success" : "text-destructive"}>
+            {up ? "↑" : "↓"} {Math.abs(Math.round(value!))}%
+          </span>
+          {label && <span className="normal-case tracking-normal text-faint-foreground">{label}</span>}
+        </>
+      ) : null}
     </span>
   );
 }
@@ -142,16 +156,20 @@ export function MetricCard({
       </span>
       {loading ? (
         <SkeletonBar className="h-6 w-1/2" />
-      ) : valueSuffix ? (
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-sans text-heading-2 font-bold text-foreground">{value}</span>
-          <span className="font-sans text-body-sm text-muted-foreground">{valueSuffix}</span>
-        </div>
       ) : (
-        <span className="block font-sans text-heading-2 font-bold text-foreground">{value}</span>
-      )}
-      {!loading && hasChangeApi && showChange !== false && (
-        <ChangeBadge value={changePct} label={changeLabel} />
+        // Value + (optional suffix) + (optional change badge) on a single
+        // baseline-aligned row. Putting the change badge inline pins the
+        // card row height to the heading-2 line so toggling between ranges
+        // never grows or shrinks the card.
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-sans text-heading-2 font-bold text-foreground">{value}</span>
+          {valueSuffix && (
+            <span className="font-sans text-body-sm text-muted-foreground">{valueSuffix}</span>
+          )}
+          {hasChangeApi && (
+            <ChangeBadge value={changePct} label={changeLabel} visible={showChange !== false} />
+          )}
+        </div>
       )}
       {!loading && hasSubValues && (
         <div className="mt-1 flex gap-3">

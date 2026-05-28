@@ -422,6 +422,10 @@ type BlueprintSummaryEntry struct {
 	CostOverTime     []BlueprintDailyCost     `json:"cost_over_time"`
 	RequestsOverTime []BlueprintDailyRequests `json:"requests_over_time"`
 	TokensOverTime   []BlueprintDailyTokens   `json:"tokens_over_time"`
+	// UsersUsed lists WorkOS user IDs that drove ≥1 trace against the agent in
+	// the period. Mirrors agents_used on the users-summary endpoint — the same
+	// (userId, tag) → agent_name mapping, just inverted.
+	UsersUsed []string `json:"users_used"`
 }
 
 // AccountBlueprintsSummaryResponse is returned by the blueprints-summary endpoint.

@@ -816,8 +816,9 @@ func batchedP95Latencies(
 }
 
 // buildBlueprintsSummary aggregates per-deployment metrics into per-agent-name
-// blueprint entries, sorted by cost descending.
-func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry {
+// blueprint entries, sorted by cost descending. tagsRows is the per-(userId,
+// tag) Langfuse response used to populate users_used; pass nil to skip.
+func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]any, depToAgent map[string]string) []BlueprintSummaryEntry {
 	type group struct {
 		requests     int
 		costUSD      float64
@@ -861,6 +862,37 @@ func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry
 		}
 		if m.P95LatencyMs > g.p95LatencyMs {
 			g.p95LatencyMs = m.P95LatencyMs
+		}
+	}
+
+	// Invert (userId, tag) rows into agent_name → set of userIDs. The same row
+	// can match multiple deployments under the same agent_name (e.g. duplicate
+	// deployments of the same blueprint); the set dedupes naturally.
+	usersByAgent := make(map[string]map[string]struct{})
+	for _, row := range tagsRows {
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		if userID == "" {
+			continue
+		}
+		// `tags` comes back from Langfuse as either a single string or a JSON
+		// array depending on the row — tagStrings() normalizes both shapes.
+		// Same handling as the users-summary inversion at the bottom of this file.
+		for _, tag := range tagStrings(row["tags"]) {
+			if !strings.HasPrefix(tag, "deployment:") {
+				continue
+			}
+			depID := strings.TrimPrefix(tag, "deployment:")
+			agentName, ok := depToAgent[depID]
+			if !ok {
+				continue
+			}
+			set, exists := usersByAgent[agentName]
+			if !exists {
+				set = make(map[string]struct{})
+				usersByAgent[agentName] = set
+			}
+			set[userID] = struct{}{}
 		}
 	}
 
@@ -910,6 +942,12 @@ func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry
 			})
 		}
 
+		usersUsed := make([]string, 0, len(usersByAgent[name]))
+		for uid := range usersByAgent[name] {
+			usersUsed = append(usersUsed, uid)
+		}
+		sort.Strings(usersUsed)
+
 		entries = append(entries, BlueprintSummaryEntry{
 			AgentName:        name,
 			Requests:         g.requests,
@@ -924,6 +962,7 @@ func buildBlueprintsSummary(metrics []deploymentMetrics) []BlueprintSummaryEntry
 			CostOverTime:     costOverTime,
 			RequestsOverTime: requestsOverTime,
 			TokensOverTime:   tokensOverTime,
+			UsersUsed:        usersUsed,
 		})
 	}
 
@@ -1019,19 +1058,25 @@ func GetAccountBlueprintsSummary(
 			deployments = deployments[:maxDeployments]
 		}
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
+		// Build depID → agent_name + visible tag list now so both batched
+		// queries (P95 + Q_tags inversion) and the depToAgent lookup are ready
+		// at the point the errgroup launches.
+		depToAgent := make(map[string]string, len(deployments))
 		tagValues := make([]string, len(deployments))
 		for i, d := range deployments {
+			depToAgent[d.ID] = d.AgentName
 			tagValues[i] = "deployment:" + d.ID
 		}
 
-		// Per-deployment daily metrics fan-out + ONE batched P95 query run in
-		// parallel. The daily fan-out is unavoidable today (per-deployment
-		// per-model breakdown isn't expressible in a batched /metrics query
-		// because Langfuse's observations view can't group by trace tags);
-		// the P95 batch saves N calls.
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		// Per-deployment daily metrics fan-out + TWO batched /metrics queries
+		// (P95 latency + users-per-agent inversion) run in parallel. The daily
+		// fan-out is unavoidable today (per-deployment per-model breakdown
+		// isn't expressible in a batched /metrics query because Langfuse's
+		// observations view can't group by trace tags); the P95 + users
+		// batches save 2N calls.
 		g, gCtx := errgroup.WithContext(ctx)
 		g.SetLimit(10)
 
@@ -1048,6 +1093,37 @@ func GetAccountBlueprintsSummary(
 				return nil
 			})
 		}
+
+		// Single account-level Q_tags query (per-(userId, tag) trace count) runs
+		// in parallel with the per-deployment fan-out so wall time is unchanged.
+		// Powers the users_used field on each blueprint — mirror of agents_used
+		// on users-summary.
+		var tagsRows []map[string]any
+		g.Go(func() error {
+			qFrom, qTo := metricsTimeRange(from, to)
+			q := langfuse.MetricsQuery{
+				View:    "traces",
+				Metrics: []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
+				Dimensions: []langfuse.MetricsDimension{
+					{Field: "userId"},
+					{Field: "tags"},
+				},
+				Filters: []langfuse.MetricsFilter{
+					{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+				},
+				FromTimestamp: qFrom,
+				ToTimestamp:   qTo,
+			}
+			resp, ferr := client.GetMetrics(gCtx, q)
+			if ferr != nil {
+				// Fail-open: a missing users_used surface is preferable to a
+				// 502 on the whole blueprints view, which is the headline page.
+				log.Warn("Failed to fetch users-per-agent for blueprints summary", "error", ferr)
+				return nil
+			}
+			tagsRows = resp.Data
+			return nil
+		})
 		_ = g.Wait()
 
 		// Stitch the batched P95 into per-deployment results.
@@ -1056,7 +1132,7 @@ func GetAccountBlueprintsSummary(
 		}
 
 		c.JSON(http.StatusOK, AccountBlueprintsSummaryResponse{
-			Blueprints: buildBlueprintsSummary(results),
+			Blueprints: buildBlueprintsSummary(results, tagsRows, depToAgent),
 			Period:     buildPeriod(from, to),
 		})
 	}

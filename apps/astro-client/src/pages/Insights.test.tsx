@@ -17,19 +17,16 @@ describe("Insights shouldRevalidate", () => {
     expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=7d"))).toBe(true);
   });
 
-  it("skips revalidation when only non-view search params change on the same pathname", () => {
+  it("skips revalidation on any search-param change within the page — view, range, agents, users", () => {
     expect(shouldRevalidate(args("http://x/insights", "http://x/insights?range=7d"))).toBe(false);
     expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=14d"))).toBe(false);
     expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=7d&agents=a,b"))).toBe(false);
-  });
-
-  it("revalidates when the view param changes — loader needs to fetch different data", () => {
-    // agents (implicit, no param) → users
-    expect(shouldRevalidate(args("http://x/insights", "http://x/insights?view=users"))).toBe(true);
-    // users → agents (param removed)
-    expect(shouldRevalidate(args("http://x/insights?view=users", "http://x/insights"))).toBe(true);
-    // view + range change together — still revalidates because view differs
-    expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=14d&view=users"))).toBe(true);
+    // View toggle is a pure client-side flip — both views share chart data
+    // and tables fetch separately, so the loader never needs to re-run on
+    // `?view=` changes.
+    expect(shouldRevalidate(args("http://x/insights", "http://x/insights?view=users"))).toBe(false);
+    expect(shouldRevalidate(args("http://x/insights?view=users", "http://x/insights"))).toBe(false);
+    expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=14d&view=users"))).toBe(false);
   });
 
   it("defers to defaultShouldRevalidate when the pathname actually changed", () => {

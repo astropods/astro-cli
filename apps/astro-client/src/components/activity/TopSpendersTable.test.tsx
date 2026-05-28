@@ -1,4 +1,4 @@
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TopSpendersTable } from "./TopSpendersTable";
 import { renderWithProviders } from "@/test/test-utils";
@@ -17,6 +17,7 @@ type Blueprint = {
   output_tokens: number;
   total_tokens: number;
   top_model: string;
+  users_used: string[];
 };
 
 function makeBlueprint(overrides: Partial<Blueprint> & { agent_name: string }): Blueprint {
@@ -30,6 +31,7 @@ function makeBlueprint(overrides: Partial<Blueprint> & { agent_name: string }): 
     output_tokens: 50,
     total_tokens: 100,
     top_model: "",
+    users_used: [],
     ...overrides,
   };
 }
@@ -42,28 +44,28 @@ const sampleBlueprints: Blueprint[] = [
 
 describe("TopSpendersTable", () => {
   it("shows ghost (skeleton) rows when loading=true", () => {
-    const { container } = render(
+    const { container } = renderWithProviders(
       <TopSpendersTable mode="agents" blueprints={[]} loading={true} />
     );
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 
   it("shows empty state message when blueprints is empty and not loading", () => {
-    render(<TopSpendersTable mode="agents" blueprints={[]} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={[]} loading={false} />);
     expect(screen.getByText("No agent activity in this period")).toBeInTheDocument();
   });
 
   it("renders each blueprint's agent_name", () => {
-    render(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.getByText("beta")).toBeInTheDocument();
     expect(screen.getByText("gamma")).toBeInTheDocument();
   });
 
-  it("clicking 'Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
-    render(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+  it("clicking 'Total Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
 
-    const spendHeader = screen.getByText("Spend");
+    const spendHeader = screen.getByText("Total Spend");
 
     // First click: sort by cost_usd descending (default when switching to a new key)
     // The table already defaults to cost_usd desc, so click once to go asc
@@ -83,14 +85,14 @@ describe("TopSpendersTable", () => {
   });
 
   it("initial sort is cost_usd descending — alpha(30) first, beta(10) last", () => {
-    render(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
     const rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
     expect(rows[0].textContent).toBe("alpha");
     expect(rows[rows.length - 1].textContent).toBe("beta");
   });
 
   it("groupLabel column header ('Agent') has no sort icon (no ↕, ↑, or ↓)", () => {
-    render(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
     const agentHeader = screen.getByRole("columnheader", { name: /^Agent$/ });
     expect(agentHeader.textContent).not.toContain("↕");
     expect(agentHeader.textContent).not.toContain("↑");
@@ -98,10 +100,23 @@ describe("TopSpendersTable", () => {
   });
 
   it("respects custom groupLabel prop", () => {
-    render(
+    renderWithProviders(
       <TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} groupLabel="Model" />
     );
     expect(screen.getByRole("columnheader", { name: /^Model$/ })).toBeInTheDocument();
+  });
+
+  it("renders a Users column; empty users_used renders the em-dash", () => {
+    const blueprints: Blueprint[] = [
+      makeBlueprint({ agent_name: "alpha", cost_usd: 30, users_used: ["u_alice", "u_bob", "u_carol"] }),
+      makeBlueprint({ agent_name: "beta",  cost_usd: 10, users_used: [] }),
+    ];
+    renderWithProviders(<TopSpendersTable mode="agents" blueprints={blueprints} loading={false} />);
+    expect(screen.getByRole("columnheader", { name: /^Users$/ })).toBeInTheDocument();
+    const rows = screen.getAllByRole("row").slice(1); // skip header
+    const betaRow = rows.find((r) => within(r).queryByText("beta"))!;
+    // Empty users_used renders as em-dash, not "0".
+    expect(within(betaRow).getByText("—")).toBeInTheDocument();
   });
 });
 
@@ -220,7 +235,7 @@ describe("TopSpendersTable users mode", () => {
     expect(midIdx).toBeLessThan(lowIdx);
   });
 
-  it("aggregates non-member rows into an Unauthorized bucket pinned to the bottom", async () => {
+  it("aggregates non-member rows into an Unidentified bucket pinned to the bottom", async () => {
     const { queryClient } = renderWithProviders(
       <TopSpendersTable
         mode="users"
@@ -237,13 +252,13 @@ describe("TopSpendersTable users mode", () => {
       { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
     ]);
 
-    const unauthorized = await screen.findByText(/Unauthorized · 2 users/);
-    expect(unauthorized).toBeInTheDocument();
+    const unidentified = await screen.findByText(/Unidentified · 2 users/);
+    expect(unidentified).toBeInTheDocument();
 
-    // The Unauthorized row should sit at the bottom (after Alice).
+    // The Unidentified row should sit at the bottom (after Alice).
     const allRows = screen.getAllByRole("row");
     const aliceRow = allRows.find((r) => within(r).queryByText("Alice Chen"))!;
-    const bucketRow = allRows.find((r) => within(r).queryByText(/Unauthorized/))!;
+    const bucketRow = allRows.find((r) => within(r).queryByText(/Unidentified/))!;
     expect(allRows.indexOf(aliceRow)).toBeLessThan(allRows.indexOf(bucketRow));
   });
 
@@ -259,6 +274,6 @@ describe("TopSpendersTable users mode", () => {
       />,
     );
     seedMembers(queryClient, []);
-    expect(await screen.findByText("Unattributed")).toBeInTheDocument();
+    expect(await screen.findByText("Infrastructure")).toBeInTheDocument();
   });
 });

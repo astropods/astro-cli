@@ -6,8 +6,8 @@ import {
   ALL_USERS_COLOR,
   UNATTRIBUTED_USER_KEY,
   UNATTRIBUTED_COLOR,
-  UNAUTHORIZED_USER_KEY,
-  UNAUTHORIZED_COLOR,
+  UNIDENTIFIED_USER_KEY,
+  UNIDENTIFIED_COLOR,
 } from "./user-classification";
 
 interface UserFilterBarProps {
@@ -34,11 +34,11 @@ export function UserFilterBar({
     const seen = new Set<string>();
     const list: FilterEntry[] = [];
     let hasUnattributed = false;
-    let hasUnauthorized = false;
+    let hasUnidentified = false;
 
     for (const uid of presentUserIds) {
       if (!uid || uid === UNATTRIBUTED_USER_KEY) { hasUnattributed = true; continue; }
-      if (uid === UNAUTHORIZED_USER_KEY) { hasUnauthorized = true; continue; }
+      if (uid === UNIDENTIFIED_USER_KEY) { hasUnidentified = true; continue; }
       if (seen.has(uid)) continue;
       seen.add(uid);
       const member = memberById.get(uid);
@@ -50,8 +50,8 @@ export function UserFilterBar({
     }
 
     list.sort((a, b) => a.label.localeCompare(b.label));
-    if (hasUnauthorized) list.push({ key: UNAUTHORIZED_USER_KEY, label: "Unauthorized", color: UNAUTHORIZED_COLOR });
-    if (hasUnattributed) list.push({ key: UNATTRIBUTED_USER_KEY, label: "Unattributed", color: UNATTRIBUTED_COLOR });
+    if (hasUnidentified) list.push({ key: UNIDENTIFIED_USER_KEY, label: "Unidentified", color: UNIDENTIFIED_COLOR });
+    if (hasUnattributed) list.push({ key: UNATTRIBUTED_USER_KEY, label: "Infrastructure", color: UNATTRIBUTED_COLOR });
     return list;
   }, [presentUserIds, membersData, colorMap]);
 
@@ -61,7 +61,7 @@ export function UserFilterBar({
       onValueChange={onValueChange}
       entries={entries}
       allItem={{ key: ALL_USERS_KEY, label: "All users", color: ALL_USERS_COLOR }}
-      placeholder={`${entries.length} users`}
+      placeholder="Search users..."
     />
   );
 }

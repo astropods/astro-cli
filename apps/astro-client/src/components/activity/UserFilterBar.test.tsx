@@ -6,7 +6,7 @@ import { UserFilterBar } from "./UserFilterBar";
 import {
   ALL_USERS_KEY,
   UNATTRIBUTED_USER_KEY,
-  UNAUTHORIZED_USER_KEY,
+  UNIDENTIFIED_USER_KEY,
   classifyUserId,
 } from "./user-classification";
 
@@ -61,12 +61,12 @@ describe("classifyUserId", () => {
     expect(classifyUserId("u_alice", members)).toBe("u_alice");
   });
 
-  it("returns UNAUTHORIZED_USER_KEY when the user is not a member", () => {
-    expect(classifyUserId("u_outside", members)).toBe(UNAUTHORIZED_USER_KEY);
+  it("returns UNIDENTIFIED_USER_KEY when the user is not a member", () => {
+    expect(classifyUserId("u_outside", members)).toBe(UNIDENTIFIED_USER_KEY);
   });
 
-  it("treats every id as unauthorized when there are no members", () => {
-    expect(classifyUserId("u_anyone", new Set())).toBe(UNAUTHORIZED_USER_KEY);
+  it("treats every id as unidentified when there are no members", () => {
+    expect(classifyUserId("u_anyone", new Set())).toBe(UNIDENTIFIED_USER_KEY);
   });
 });
 
@@ -77,7 +77,7 @@ describe("UserFilterBar entries", () => {
     const { queryClient } = renderWithProviders(
       <UserFilterBar
         account={ACCOUNT}
-        presentUserIds={["u_alice", "u_bob", UNAUTHORIZED_USER_KEY, UNATTRIBUTED_USER_KEY]}
+        presentUserIds={["u_alice", "u_bob", UNIDENTIFIED_USER_KEY, UNATTRIBUTED_USER_KEY]}
         value={[]}
         onValueChange={vi.fn()}
         colorMap={{}}
@@ -96,7 +96,7 @@ describe("UserFilterBar entries", () => {
     // The "All users" sentinel is always present at the top.
     const items = screen.getAllByRole("button").filter((b) => {
       const t = b.textContent ?? "";
-      return /All users|Alice Chen|Bob Martinez|Unauthorized|Unattributed/.test(t);
+      return /All users|Alice Chen|Bob Martinez|Unidentified|Infrastructure/.test(t);
     });
     const labels = items.map((i) => i.textContent ?? "");
 
@@ -104,12 +104,12 @@ describe("UserFilterBar entries", () => {
     // Members sorted alphabetically come next.
     expect(labels[1]).toMatch(/Alice Chen/);
     expect(labels[2]).toMatch(/Bob Martinez/);
-    // Sentinels pinned to the bottom — Unauthorized before Unattributed.
-    expect(labels[labels.length - 2]).toMatch(/Unauthorized/);
-    expect(labels[labels.length - 1]).toMatch(/Unattributed/);
+    // Sentinels pinned to the bottom — Unidentified before Infrastructure.
+    expect(labels[labels.length - 2]).toMatch(/Unidentified/);
+    expect(labels[labels.length - 1]).toMatch(/Infrastructure/);
   });
 
-  it("omits the unauthorized sentinel when no non-member ids are present", () => {
+  it("omits the unidentified sentinel when no non-member ids are present", () => {
     const { queryClient } = renderWithProviders(
       <UserFilterBar
         account={ACCOUNT}
@@ -125,8 +125,8 @@ describe("UserFilterBar entries", () => {
 
     openPopover();
 
-    expect(screen.queryByText(/^Unauthorized$/)).not.toBeInTheDocument();
-    expect(screen.getByText(/^Unattributed$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Unidentified$/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Infrastructure$/)).toBeInTheDocument();
   });
 
   it("falls back to the raw id when no member record matches", () => {

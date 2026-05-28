@@ -24,7 +24,7 @@ export function AgentFilterBar({ value, onValueChange, allAgentNames, colorMap }
       onValueChange={onValueChange}
       entries={entries}
       allItem={{ key: ALL_AGENTS_KEY, label: "All agents", color: ALL_AGENTS_COLOR }}
-      placeholder={`${allAgentNames.length} active agents`}
+      placeholder="Search agents..."
     />
   );
 }

@@ -95,15 +95,24 @@ describe("MetricCard", () => {
     expect(badge?.textContent).toContain("↓");
   });
 
-  it("renders nothing for changePct=null", () => {
+  it("renders no arrow for changePct=null", () => {
+    // Slot is intentionally still in the DOM (height-stable across toggles)
+    // but the arrow shouldn't appear when there's no change value.
     render(<MetricCard label="Cost" value="$10" showChange changePct={null} />);
     expect(screen.queryByText("↑")).not.toBeInTheDocument();
     expect(screen.queryByText("↓")).not.toBeInTheDocument();
   });
 
-  it("hides change badge when showChange=false even if changePct provided", () => {
-    render(<MetricCard label="Cost" value="$10" showChange={false} changePct={30} />);
-    expect(screen.queryByText("↑")).not.toBeInTheDocument();
+  it("fades change badge out when showChange=false (keeps slot in DOM for height stability)", () => {
+    const { container } = render(
+      <MetricCard label="Cost" value="$10" showChange={false} changePct={30} />,
+    );
+    // The badge wrapper is still rendered so the card height doesn't jump
+    // when toggling back and forth between range chips, but it's visually
+    // hidden via opacity-0 + aria-hidden.
+    const badge = container.querySelector('[aria-hidden="true"]');
+    expect(badge).toBeTruthy();
+    expect(badge?.className).toContain("opacity-0");
   });
 
   it("renders sparkline chart when sparkline has more than one point", () => {

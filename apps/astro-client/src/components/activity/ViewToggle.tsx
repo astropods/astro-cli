@@ -16,11 +16,12 @@ export function ViewToggle({ value, onChange, className }: ViewToggleProps) {
       variant="word"
       value={value}
       onValueChange={(v) => { if (v === "agents" || v === "users") onChange(v); }}
-      // Override the ToggleGroup root to mirror the filter-bar chrome:
-      // same input-background, same border-input colour, same rounded-sm radius.
-      // Height = h-8 (32px) — matches the filter-bar's natural pill-driven height.
+      // Override the ToggleGroup root chrome: same border + rounded-sm
+      // shape as the filter bar. Background is `bg-card` rather than the
+      // primitive's translucent default so the PageStarField behind the
+      // Insights page doesn't bleed through the inactive item.
       className={cn(
-        "h-7 rounded-sm border-input bg-[var(--input-background)]",
+        "h-7 rounded-sm border-input bg-card",
         className,
       )}
     >
