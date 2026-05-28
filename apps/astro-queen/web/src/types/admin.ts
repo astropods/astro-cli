@@ -438,6 +438,13 @@ export interface RegisteredCluster {
   updated_at: string;
   healthy: boolean;
   health_error: string;
+  agent_ingress_domain: string;
+  agent_acm_certificate_arn: string;
+  agent_alb_group_name: string;
+  ingestion_ingress_domain: string;
+  ingestion_acm_certificate_arn: string;
+  ingestion_alb_group_name: string;
+  knowledge_domain: string;
 }
 
 export interface ListClustersResponse {
@@ -450,6 +457,13 @@ export interface RegisterClusterRequest {
   eks_cluster_name: string;
   eks_cluster_endpoint: string;
   enabled?: boolean;
+  agent_ingress_domain: string;
+  agent_acm_certificate_arn: string;
+  agent_alb_group_name: string;
+  ingestion_ingress_domain: string;
+  ingestion_acm_certificate_arn: string;
+  ingestion_alb_group_name: string;
+  knowledge_domain: string;
 }
 
 export interface RegisterClusterResponse {
@@ -468,6 +482,13 @@ export interface UpdateClusterRequest {
   region: string;
   eks_cluster_name: string;
   eks_cluster_endpoint: string;
+  agent_ingress_domain: string;
+  agent_acm_certificate_arn: string;
+  agent_alb_group_name: string;
+  ingestion_ingress_domain: string;
+  ingestion_acm_certificate_arn: string;
+  ingestion_alb_group_name: string;
+  knowledge_domain: string;
 }
 
 export interface UpdateClusterResponse {

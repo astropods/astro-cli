@@ -50,11 +50,18 @@ func registerTestCluster(t *testing.T, db *sql.DB, store *clusterstore.Store, id
 	// Remove leftovers from interrupted prior runs so Register is idempotent.
 	_, _ = db.ExecContext(ctx, `DELETE FROM clusters WHERE id = $1`, id)
 	err := store.Register(ctx, &clusterstore.Cluster{
-		ID:                 id,
-		Region:             "us-east-1",
-		EKSClusterName:     "e2e-unreachable-eks",
-		EKSClusterEndpoint: "https://e2e-unreachable.example",
-		Enabled:            enabled,
+		ID:                     id,
+		Region:                 "us-east-1",
+		EKSClusterName:         "e2e-unreachable-eks",
+		EKSClusterEndpoint:     "https://e2e-unreachable.example",
+		Enabled:                enabled,
+		AgentIngressDomain:     "agents.e2e.example.com",
+		AgentACMCertARN:        "arn:aws:acm:us-east-1:000000000000:certificate/e2e-agent",
+		AgentALBGroupName:      "e2e-agents",
+		IngestionIngressDomain: "ingestion.e2e.example.com",
+		IngestionACMCertARN:    "arn:aws:acm:us-east-1:000000000000:certificate/e2e-ingestion",
+		IngestionALBGroupName:  "e2e-ingestion",
+		KnowledgeDomain:        "knowledge.e2e.example.com",
 	})
 	if err != nil {
 		t.Fatalf("Register(%q): %v", id, err)

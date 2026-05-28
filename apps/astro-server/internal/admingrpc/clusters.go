@@ -72,14 +72,21 @@ func (s *Server) clusterHealth(ctx context.Context, entry k8s.ClusterEntry) (hea
 func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *adminv1.RegisteredCluster {
 	healthy, healthErr := s.clusterHealth(ctx, entry)
 	out := &adminv1.RegisteredCluster{
-		ID:                 entry.ID,
-		Region:             entry.Region,
-		EKSClusterName:     entry.EKSClusterName,
-		EKSClusterEndpoint: entry.EKSClusterEndpoint,
-		Enabled:            entry.Enabled,
-		IsPrimary:          entry.IsPrimary,
-		Healthy:            healthy,
-		HealthError:        healthErr,
+		ID:                         entry.ID,
+		Region:                     entry.Region,
+		EKSClusterName:             entry.EKSClusterName,
+		EKSClusterEndpoint:         entry.EKSClusterEndpoint,
+		Enabled:                    entry.Enabled,
+		IsPrimary:                  entry.IsPrimary,
+		Healthy:                    healthy,
+		HealthError:                healthErr,
+		AgentIngressDomain:         entry.AgentIngressDomain,
+		AgentACMCertificateARN:     entry.AgentACMCertARN,
+		AgentALBGroupName:          entry.AgentALBGroupName,
+		IngestionIngressDomain:     entry.IngestionIngressDomain,
+		IngestionACMCertificateARN: entry.IngestionACMCertARN,
+		IngestionALBGroupName:      entry.IngestionALBGroupName,
+		KnowledgeDomain:            entry.KnowledgeDomain,
 	}
 	if !entry.IsPrimary {
 		out.CreatedAt = entry.CreatedAt.UTC().Format(time.RFC3339)
@@ -90,14 +97,21 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 
 func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
 	return k8s.ClusterEntry{
-		ID:                 row.ID,
-		IsPrimary:          false,
-		Region:             row.Region,
-		EKSClusterName:     row.EKSClusterName,
-		EKSClusterEndpoint: row.EKSClusterEndpoint,
-		Enabled:            row.Enabled,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
+		ID:                     row.ID,
+		IsPrimary:              false,
+		Region:                 row.Region,
+		EKSClusterName:         row.EKSClusterName,
+		EKSClusterEndpoint:     row.EKSClusterEndpoint,
+		Enabled:                row.Enabled,
+		AgentIngressDomain:     row.AgentIngressDomain,
+		AgentACMCertARN:        row.AgentACMCertARN,
+		AgentALBGroupName:      row.AgentALBGroupName,
+		IngestionIngressDomain: row.IngestionIngressDomain,
+		IngestionACMCertARN:    row.IngestionACMCertARN,
+		IngestionALBGroupName:  row.IngestionALBGroupName,
+		KnowledgeDomain:        row.KnowledgeDomain,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 }
 
@@ -127,11 +141,18 @@ func (s *Server) RegisterCluster(ctx context.Context, req *adminv1.RegisterClust
 	}
 
 	row := &clusterstore.Cluster{
-		ID:                 req.ID,
-		Region:             req.Region,
-		EKSClusterName:     req.EKSClusterName,
-		EKSClusterEndpoint: req.EKSClusterEndpoint,
-		Enabled:            enabled,
+		ID:                     req.ID,
+		Region:                 req.Region,
+		EKSClusterName:         req.EKSClusterName,
+		EKSClusterEndpoint:     req.EKSClusterEndpoint,
+		Enabled:                enabled,
+		AgentIngressDomain:     req.AgentIngressDomain,
+		AgentACMCertARN:        req.AgentACMCertificateARN,
+		AgentALBGroupName:      req.AgentALBGroupName,
+		IngestionIngressDomain: req.IngestionIngressDomain,
+		IngestionACMCertARN:    req.IngestionACMCertificateARN,
+		IngestionALBGroupName:  req.IngestionALBGroupName,
+		KnowledgeDomain:        req.KnowledgeDomain,
 	}
 	if err := s.clusterStore.Register(ctx, row); err != nil {
 		return nil, clusterStoreErr(err)
@@ -247,7 +268,19 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 		return nil, status.Error(codes.InvalidArgument, "region, eks_cluster_name, and eks_cluster_endpoint are required")
 	}
 
-	if err := s.clusterStore.Update(ctx, req.ID, req.Region, req.EKSClusterName, req.EKSClusterEndpoint); err != nil {
+	if err := s.clusterStore.Update(ctx, &clusterstore.Cluster{
+		ID:                     req.ID,
+		Region:                 req.Region,
+		EKSClusterName:         req.EKSClusterName,
+		EKSClusterEndpoint:     req.EKSClusterEndpoint,
+		AgentIngressDomain:     req.AgentIngressDomain,
+		AgentACMCertARN:        req.AgentACMCertificateARN,
+		AgentALBGroupName:      req.AgentALBGroupName,
+		IngestionIngressDomain: req.IngestionIngressDomain,
+		IngestionACMCertARN:    req.IngestionACMCertificateARN,
+		IngestionALBGroupName:  req.IngestionALBGroupName,
+		KnowledgeDomain:        req.KnowledgeDomain,
+	}); err != nil {
 		return nil, clusterStoreErr(err)
 	}
 	if err := s.k8sRegistry.Refresh(ctx, req.ID); err != nil {

@@ -41,20 +41,34 @@ type Registry struct {
 	regCfg       RegistryConfig
 	log          *logger.Logger
 
-	mu    sync.RWMutex
-	cache map[string]ClusterClient
+	mu         sync.RWMutex
+	cache      map[string]ClusterClient
+	entryCache map[string]ClusterEntry
 }
 
 // ClusterEntry is a registry-level view of one cluster (primary or additional).
+//
+// For additional clusters the ingress/cert/knowledge fields are the raw
+// per-cluster values stored in the clusters table — empty means "inherit the
+// astro-server-wide env default". For the primary cluster these fields are
+// left empty here; callers must read the env-derived values directly from
+// cfg.Deployment.* (see deployer.resolveClusterIngressConfig).
 type ClusterEntry struct {
-	ID                 string
-	IsPrimary          bool
-	Region             string
-	EKSClusterName     string
-	EKSClusterEndpoint string
-	Enabled            bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                     string
+	IsPrimary              bool
+	Region                 string
+	EKSClusterName         string
+	EKSClusterEndpoint     string
+	Enabled                bool
+	AgentIngressDomain     string
+	AgentACMCertARN        string
+	AgentALBGroupName      string
+	IngestionIngressDomain string
+	IngestionACMCertARN    string
+	IngestionALBGroupName  string
+	KnowledgeDomain        string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // RegistryConfig is the process-level Kubernetes configuration that the
@@ -94,6 +108,7 @@ func NewRegistry(ctx context.Context, clusterStore *clusterstore.Store, cfg Regi
 		regCfg:       cfg,
 		log:          log,
 		cache:        make(map[string]ClusterClient),
+		entryCache:   make(map[string]ClusterEntry),
 	}, nil
 }
 
@@ -197,6 +212,65 @@ func (r *Registry) Get(ctx context.Context, id string) (ClusterClient, error) {
 	return c, nil
 }
 
+// GetEntry returns the ClusterEntry for an id. An empty id resolves to the
+// primary entry; any other id reads from clusterstore. Returns ErrClusterNotFound
+// when the additional row is missing.
+//
+// Additional-cluster entries are cached so the deploy path (which both
+// validates the cluster and resolves its ingress config) doesn't re-query
+// for every step. Refresh evicts cached entries; the cluster admin RPCs
+// already call Refresh after every mutation.
+func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error) {
+	if r == nil {
+		return ClusterEntry{}, fmt.Errorf("registry: nil")
+	}
+	if id == "" || id == PrimaryClusterID {
+		return r.primaryEntry(), nil
+	}
+
+	r.mu.RLock()
+	if entry, ok := r.entryCache[id]; ok {
+		r.mu.RUnlock()
+		return entry, nil
+	}
+	r.mu.RUnlock()
+
+	if r.clusterStore == nil {
+		return ClusterEntry{}, ErrClusterNotFound
+	}
+	row, err := r.clusterStore.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, clusterstore.ErrNotFound) {
+			return ClusterEntry{}, ErrClusterNotFound
+		}
+		return ClusterEntry{}, fmt.Errorf("registry.GetEntry: %w", err)
+	}
+	entry := ClusterEntry{
+		ID:                     row.ID,
+		IsPrimary:              false,
+		Region:                 row.Region,
+		EKSClusterName:         row.EKSClusterName,
+		EKSClusterEndpoint:     row.EKSClusterEndpoint,
+		Enabled:                row.Enabled,
+		AgentIngressDomain:     row.AgentIngressDomain,
+		AgentACMCertARN:        row.AgentACMCertARN,
+		AgentALBGroupName:      row.AgentALBGroupName,
+		IngestionIngressDomain: row.IngestionIngressDomain,
+		IngestionACMCertARN:    row.IngestionACMCertARN,
+		IngestionALBGroupName:  row.IngestionALBGroupName,
+		KnowledgeDomain:        row.KnowledgeDomain,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
+	}
+	r.mu.Lock()
+	if r.entryCache == nil {
+		r.entryCache = make(map[string]ClusterEntry)
+	}
+	r.entryCache[id] = entry
+	r.mu.Unlock()
+	return entry, nil
+}
+
 func (r *Registry) primaryEntry() ClusterEntry {
 	return ClusterEntry{
 		ID:                 PrimaryClusterID,
@@ -228,17 +302,37 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 	}
 	for _, row := range rows {
 		out = append(out, ClusterEntry{
-			ID:                 row.ID,
-			IsPrimary:          false,
-			Region:             row.Region,
-			EKSClusterName:     row.EKSClusterName,
-			EKSClusterEndpoint: row.EKSClusterEndpoint,
-			Enabled:            row.Enabled,
-			CreatedAt:          row.CreatedAt,
-			UpdatedAt:          row.UpdatedAt,
+			ID:                     row.ID,
+			IsPrimary:              false,
+			Region:                 row.Region,
+			EKSClusterName:         row.EKSClusterName,
+			EKSClusterEndpoint:     row.EKSClusterEndpoint,
+			Enabled:                row.Enabled,
+			AgentIngressDomain:     row.AgentIngressDomain,
+			AgentACMCertARN:        row.AgentACMCertARN,
+			AgentALBGroupName:      row.AgentALBGroupName,
+			IngestionIngressDomain: row.IngestionIngressDomain,
+			IngestionACMCertARN:    row.IngestionACMCertARN,
+			IngestionALBGroupName:  row.IngestionALBGroupName,
+			KnowledgeDomain:        row.KnowledgeDomain,
+			CreatedAt:              row.CreatedAt,
+			UpdatedAt:              row.UpdatedAt,
 		})
 	}
 	return out, nil
+}
+
+// SetCachedEntryForTest pre-seeds GetEntry(id) so tests don't need a sqlmock.
+func (r *Registry) SetCachedEntryForTest(id string, entry ClusterEntry) {
+	if r == nil || id == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.entryCache == nil {
+		r.entryCache = make(map[string]ClusterEntry)
+	}
+	r.entryCache[id] = entry
 }
 
 // SetCachedClientForTest pre-seeds Get(id) for tests that must avoid dialing EKS.
@@ -267,5 +361,6 @@ func (r *Registry) Refresh(_ context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.cache, id)
+	delete(r.entryCache, id)
 	return nil
 }

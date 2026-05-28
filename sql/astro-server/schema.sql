@@ -13,6 +13,16 @@ CREATE TABLE public.clusters (
     eks_cluster_name   varchar(128) NOT NULL,
     eks_cluster_endpoint varchar    NOT NULL,
     enabled            boolean      NOT NULL DEFAULT true,
+    -- Per-cluster ingress / ALB / cert overrides. Empty/NULL inherits the
+    -- astro-server-wide env default (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...).
+    -- The primary cluster has no row here and always uses env values.
+    agent_ingress_domain      varchar(253) NOT NULL DEFAULT '',
+    agent_acm_certificate_arn varchar      NOT NULL DEFAULT '',
+    agent_alb_group_name      varchar(64)  NOT NULL DEFAULT '',
+    ingestion_ingress_domain  varchar(253) NOT NULL DEFAULT '',
+    ingestion_acm_certificate_arn varchar  NOT NULL DEFAULT '',
+    ingestion_alb_group_name      varchar(64) NOT NULL DEFAULT '',
+    knowledge_domain          varchar(253) NOT NULL DEFAULT '',
     created_at         timestamptz  NOT NULL DEFAULT now(),
     updated_at         timestamptz  NOT NULL DEFAULT now(),
     CONSTRAINT clusters_pkey PRIMARY KEY (id)

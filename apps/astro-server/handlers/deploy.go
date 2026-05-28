@@ -23,6 +23,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -256,9 +257,13 @@ func validateDeployTargetCluster(
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster store not configured"})
 		return false
 	}
-	cluster, lookupErr := clusterStore.Get(c.Request.Context(), clusterID)
+	// Route through k8sReg.GetEntry so subsequent calls in this request
+	// (clustercfg.Resolve at deploy submit time) reuse the cached entry
+	// instead of issuing a second SELECT.
+	_ = clusterStore // kept in the signature for tests that pass it in
+	cluster, lookupErr := k8sReg.GetEntry(c.Request.Context(), clusterID)
 	if lookupErr != nil {
-		if errors.Is(lookupErr, clusterstore.ErrNotFound) {
+		if errors.Is(lookupErr, k8s.ErrClusterNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":      "unknown cluster_id",
 				"cluster_id": clusterID,
@@ -755,11 +760,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		// entirely, we leave grants untouched. When present (even with
 		// grants:[]), we atomically replace.
 		applyAuth := authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil
+		ingressCfg, ingressErr := clustercfg.Resolve(c.Request.Context(), k8sReg, cfg.Deployment, submittedSpec.Target.ClusterID)
+		if ingressErr != nil {
+			log.Error("Failed to resolve cluster ingress config", "error", ingressErr, "cluster_id", submittedSpec.Target.ClusterID)
+			c.JSON(http.StatusBadRequest, gin.H{"error": ingressErr.Error()})
+			return
+		}
 		txFn := func(tx *sql.Tx, deploymentID string) error {
 			nsCfg := &deploymentstore.NormalizedSpecConfig{
 				Namespace:              dctx.k8sNS,
-				IngressDomain:          cfg.Deployment.IngressDomain,
-				IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
+				IngressDomain:          ingressCfg.AgentIngressDomain,
+				IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
 				VarRefs:                dctx.varRefs,
 			}
 			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg); err != nil {

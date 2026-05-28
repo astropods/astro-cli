@@ -134,8 +134,16 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("cl-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", false, now, now))
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
+			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+			"knowledge_domain",
+			"created_at", "updated_at",
+		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", false,
+			"agents.example.com", "arn:acm:x", "astro",
+			"ingestion.example.com", "arn:acm:y", "astro-ingest",
+			"knowledge.example.com",
+			now, now))
 
 	r := &Registry{
 		primary:      &fakeClient{id: "p"},
@@ -162,8 +170,16 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true, now, now))
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
+			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+			"knowledge_domain",
+			"created_at", "updated_at",
+		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true,
+			"agents.example.com", "arn:acm:x", "astro",
+			"ingestion.example.com", "arn:acm:y", "astro-ingest",
+			"knowledge.example.com",
+			now, now))
 
 	r := &Registry{
 		primary:      &fakeClient{id: "primary"},

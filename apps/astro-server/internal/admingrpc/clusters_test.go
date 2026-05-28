@@ -2,6 +2,7 @@ package admingrpc
 
 import (
 	"context"
+	"database/sql/driver"
 	"testing"
 	"time"
 
@@ -27,6 +28,62 @@ func (s *stubClusterClient) Config() *rest.Config                  { return nil 
 func (s *stubClusterClient) CheckHealth() error                    { return s.checkHealthErr }
 func (s *stubClusterClient) GetServerVersion() (string, error)     { return "v1.0", nil }
 func (s *stubClusterClient) DiagnoseConnection() map[string]string { return nil }
+
+// clusterColumns is the full clusters table projection used by clusterstore.baseSelect.
+var clusterColumns = []string{
+	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+	"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
+	"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+	"knowledge_domain",
+	"created_at", "updated_at",
+}
+
+// clusterRow fills clusterColumns for tests that don't care about the ingress
+// values — they get populated so the row is valid.
+func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.Time) []driver.Value {
+	return []driver.Value{
+		id, region, eksName, eksEndpoint, enabled,
+		"agents.example.com", "arn:acm:x", "astro",
+		"ingestion.example.com", "arn:acm:y", "astro-ingest",
+		"knowledge.example.com",
+		now, now,
+	}
+}
+
+// fullRegisterRequest is the minimum valid request for RegisterCluster — every
+// required field is populated. Tests override only the field under test.
+func fullRegisterRequest(id string) *adminv1.RegisterClusterRequest {
+	return &adminv1.RegisterClusterRequest{
+		ID:                         id,
+		Region:                     "eu-west-1",
+		EKSClusterName:             "eks-eu",
+		EKSClusterEndpoint:         "https://eu.example",
+		AgentIngressDomain:         "agents.example.com",
+		AgentACMCertificateARN:     "arn:acm:x",
+		AgentALBGroupName:          "astro",
+		IngestionIngressDomain:     "ingestion.example.com",
+		IngestionACMCertificateARN: "arn:acm:y",
+		IngestionALBGroupName:      "astro-ingest",
+		KnowledgeDomain:            "knowledge.example.com",
+	}
+}
+
+// fullUpdateRequest mirrors fullRegisterRequest for UpdateCluster.
+func fullUpdateRequest(id string) *adminv1.UpdateClusterRequest {
+	return &adminv1.UpdateClusterRequest{
+		ID:                         id,
+		Region:                     "eu-central-1",
+		EKSClusterName:             "eks-eu-new",
+		EKSClusterEndpoint:         "https://eu-new.example",
+		AgentIngressDomain:         "agents.example.com",
+		AgentACMCertificateARN:     "arn:acm:x",
+		AgentALBGroupName:          "astro",
+		IngestionIngressDomain:     "ingestion.example.com",
+		IngestionACMCertificateARN: "arn:acm:y",
+		IngestionALBGroupName:      "astro-ingest",
+		KnowledgeDomain:            "knowledge.example.com",
+	}
+}
 
 func newClusterTestServer(t *testing.T) (*Server, sqlmock.Sqlmock) {
 	t.Helper()
@@ -62,22 +119,15 @@ func TestRegisterCluster_Success(t *testing.T) {
 	srv, mock := newClusterTestServer(t)
 
 	mock.ExpectExec("INSERT INTO clusters").
-		WithArgs("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	now := time.Now()
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("eu-west-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true, now, now))
+		WillReturnRows(sqlmock.NewRows(clusterColumns).
+			AddRow(clusterRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", true, now)...))
 
-	resp, err := srv.RegisterCluster(context.Background(), &adminv1.RegisterClusterRequest{
-		ID:                 "eu-west-1",
-		Region:             "eu-west-1",
-		EKSClusterName:     "eks-eu",
-		EKSClusterEndpoint: "https://eu.example",
-	})
+	resp, err := srv.RegisterCluster(context.Background(), fullRegisterRequest("eu-west-1"))
 	if err != nil {
 		t.Fatalf("RegisterCluster: %v", err)
 	}
@@ -98,12 +148,7 @@ func TestRegisterCluster_Duplicate(t *testing.T) {
 	mock.ExpectExec("INSERT INTO clusters").
 		WillReturnError(&pq.Error{Code: "23505"})
 
-	resp, err := srv.RegisterCluster(context.Background(), &adminv1.RegisterClusterRequest{
-		ID:                 "eu-west-1",
-		Region:             "eu-west-1",
-		EKSClusterName:     "eks-eu",
-		EKSClusterEndpoint: "https://eu.example",
-	})
+	resp, err := srv.RegisterCluster(context.Background(), fullRegisterRequest("eu-west-1"))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -130,9 +175,7 @@ func TestListClusters_IncludesPrimary(t *testing.T) {
 	srv, mock := newClusterTestServer(t)
 
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}))
+		WillReturnRows(sqlmock.NewRows(clusterColumns))
 
 	resp, err := srv.ListClusters(context.Background(), &adminv1.ListClustersRequest{})
 	if err != nil {
@@ -158,9 +201,8 @@ func TestDisableCluster_RefreshEvictsCache(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("eu-west-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", false, now, now))
+		WillReturnRows(sqlmock.NewRows(clusterColumns).
+			AddRow(clusterRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", false, now)...))
 
 	resp, err := srv.DisableCluster(context.Background(), &adminv1.DisableClusterRequest{ID: "eu-west-1"})
 	if err != nil {
@@ -208,21 +250,14 @@ func TestUpdateCluster_Success(t *testing.T) {
 	srv, mock := newClusterTestServer(t)
 	now := time.Now()
 
-	mock.ExpectExec("UPDATE clusters SET region").
-		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "eu-west-1").
+	mock.ExpectExec("UPDATE clusters SET").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("eu-west-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-central-1", "eks-eu-new", "https://eu-new.example", true, now, now))
+		WillReturnRows(sqlmock.NewRows(clusterColumns).
+			AddRow(clusterRow("eu-west-1", "eu-central-1", "eks-eu-new", "https://eu-new.example", true, now)...))
 
-	resp, err := srv.UpdateCluster(context.Background(), &adminv1.UpdateClusterRequest{
-		ID:                 "eu-west-1",
-		Region:             "eu-central-1",
-		EKSClusterName:     "eks-eu-new",
-		EKSClusterEndpoint: "https://eu-new.example",
-	})
+	resp, err := srv.UpdateCluster(context.Background(), fullUpdateRequest("eu-west-1"))
 	if err != nil {
 		t.Fatalf("UpdateCluster: %v", err)
 	}
@@ -251,9 +286,7 @@ func TestCheckClusterHealth_Primary(t *testing.T) {
 	srv, mock := newClusterTestServer(t)
 
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}))
+		WillReturnRows(sqlmock.NewRows(clusterColumns))
 
 	resp, err := srv.CheckClusterHealth(context.Background(), &adminv1.CheckClusterHealthRequest{
 		ID: k8s.PrimaryClusterID,

@@ -41,6 +41,53 @@ function mutationErrorMessage(err: unknown): string {
   return "Request failed";
 }
 
+// IngressFields is the per-cluster ingress / cert / knowledge config that
+// astro-server now requires on every additional cluster. Both the register
+// form and the edit dialog collect the same set, so it lives here.
+type IngressFields = {
+  agent_ingress_domain: string;
+  agent_acm_certificate_arn: string;
+  agent_alb_group_name: string;
+  ingestion_ingress_domain: string;
+  ingestion_acm_certificate_arn: string;
+  ingestion_alb_group_name: string;
+  knowledge_domain: string;
+};
+
+const emptyIngress: IngressFields = {
+  agent_ingress_domain: "",
+  agent_acm_certificate_arn: "",
+  agent_alb_group_name: "",
+  ingestion_ingress_domain: "",
+  ingestion_acm_certificate_arn: "",
+  ingestion_alb_group_name: "",
+  knowledge_domain: "",
+};
+
+function trimIngress(f: IngressFields): IngressFields {
+  return {
+    agent_ingress_domain: f.agent_ingress_domain.trim(),
+    agent_acm_certificate_arn: f.agent_acm_certificate_arn.trim(),
+    agent_alb_group_name: f.agent_alb_group_name.trim(),
+    ingestion_ingress_domain: f.ingestion_ingress_domain.trim(),
+    ingestion_acm_certificate_arn: f.ingestion_acm_certificate_arn.trim(),
+    ingestion_alb_group_name: f.ingestion_alb_group_name.trim(),
+    knowledge_domain: f.knowledge_domain.trim(),
+  };
+}
+
+function ingressComplete(f: IngressFields): boolean {
+  return (
+    f.agent_ingress_domain.trim() !== "" &&
+    f.agent_acm_certificate_arn.trim() !== "" &&
+    f.agent_alb_group_name.trim() !== "" &&
+    f.ingestion_ingress_domain.trim() !== "" &&
+    f.ingestion_acm_certificate_arn.trim() !== "" &&
+    f.ingestion_alb_group_name.trim() !== "" &&
+    f.knowledge_domain.trim() !== ""
+  );
+}
+
 export function ClustersPage() {
   const [enabledOnly, setEnabledOnly] = useState(false);
   const { data, isLoading, error } = useClusters(enabledOnly);
@@ -51,6 +98,7 @@ export function ClustersPage() {
   const [region, setRegion] = useState("");
   const [eksName, setEksName] = useState("");
   const [eksEndpoint, setEksEndpoint] = useState("");
+  const [ingress, setIngress] = useState<IngressFields>(emptyIngress);
 
   const clusters = data?.clusters ?? [];
 
@@ -62,6 +110,7 @@ export function ClustersPage() {
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
         enabled: true,
+        ...trimIngress(ingress),
       },
       {
         onSuccess: () => {
@@ -69,6 +118,7 @@ export function ClustersPage() {
           setRegion("");
           setEksName("");
           setEksEndpoint("");
+          setIngress(emptyIngress);
           setRegisterOpen(false);
         },
       },
@@ -122,6 +172,7 @@ export function ClustersPage() {
               placeholder="https://..."
             />
           </div>
+          <IngressFieldset value={ingress} onChange={setIngress} />
           {registerMut.isError && (
             <p className="text-destructive text-xs">{mutationErrorMessage(registerMut.error)}</p>
           )}
@@ -133,7 +184,8 @@ export function ClustersPage() {
               !id.trim() ||
               !region.trim() ||
               !eksName.trim() ||
-              !eksEndpoint.trim()
+              !eksEndpoint.trim() ||
+              !ingressComplete(ingress)
             }
           >
             {registerMut.isPending ? "Registering…" : "Register"}
@@ -178,6 +230,71 @@ export function ClustersPage() {
   );
 }
 
+function IngressFieldset({
+  value,
+  onChange,
+}: {
+  value: IngressFields;
+  onChange: (v: IngressFields) => void;
+}) {
+  const set = (patch: Partial<IngressFields>) => onChange({ ...value, ...patch });
+  return (
+    <div className="space-y-2 rounded-md border border-glass-border-honey/60 p-2">
+      <div className="text-xs font-medium text-muted-foreground">
+        Ingress / ALB / cert / knowledge
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Per-cluster overrides. All fields are required — astro-server rejects empty values for
+        additional clusters; only the primary cluster reads env defaults.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field
+          label="Agent ingress domain"
+          value={value.agent_ingress_domain}
+          onChange={(v) => set({ agent_ingress_domain: v })}
+          placeholder="agents.example.com"
+        />
+        <Field
+          label="Agent ACM certificate ARN"
+          value={value.agent_acm_certificate_arn}
+          onChange={(v) => set({ agent_acm_certificate_arn: v })}
+          placeholder="arn:aws:acm:..."
+        />
+        <Field
+          label="Agent ALB group name"
+          value={value.agent_alb_group_name}
+          onChange={(v) => set({ agent_alb_group_name: v })}
+          placeholder="astro-agents"
+        />
+        <Field
+          label="Ingestion ingress domain"
+          value={value.ingestion_ingress_domain}
+          onChange={(v) => set({ ingestion_ingress_domain: v })}
+          placeholder="ingestion.example.com"
+        />
+        <Field
+          label="Ingestion ACM ARN"
+          value={value.ingestion_acm_certificate_arn}
+          onChange={(v) => set({ ingestion_acm_certificate_arn: v })}
+          placeholder="arn:aws:acm:..."
+        />
+        <Field
+          label="Ingestion ALB group name"
+          value={value.ingestion_alb_group_name}
+          onChange={(v) => set({ ingestion_alb_group_name: v })}
+          placeholder="astro-ingestion"
+        />
+        <Field
+          label="Knowledge domain"
+          value={value.knowledge_domain}
+          onChange={(v) => set({ knowledge_domain: v })}
+          placeholder="knowledge.example.com"
+        />
+      </div>
+    </div>
+  );
+}
+
 function Field({
   label,
   value,
@@ -213,6 +330,15 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
   const [region, setRegion] = useState(cluster.region);
   const [eksName, setEksName] = useState(cluster.eks_cluster_name);
   const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
+  const [ingress, setIngress] = useState<IngressFields>({
+    agent_ingress_domain: cluster.agent_ingress_domain,
+    agent_acm_certificate_arn: cluster.agent_acm_certificate_arn,
+    agent_alb_group_name: cluster.agent_alb_group_name,
+    ingestion_ingress_domain: cluster.ingestion_ingress_domain,
+    ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn,
+    ingestion_alb_group_name: cluster.ingestion_alb_group_name,
+    knowledge_domain: cluster.knowledge_domain,
+  });
 
   const busy =
     enableMut.isPending ||
@@ -236,6 +362,15 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
     setRegion(cluster.region);
     setEksName(cluster.eks_cluster_name);
     setEksEndpoint(cluster.eks_cluster_endpoint);
+    setIngress({
+      agent_ingress_domain: cluster.agent_ingress_domain,
+      agent_acm_certificate_arn: cluster.agent_acm_certificate_arn,
+      agent_alb_group_name: cluster.agent_alb_group_name,
+      ingestion_ingress_domain: cluster.ingestion_ingress_domain,
+      ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn,
+      ingestion_alb_group_name: cluster.ingestion_alb_group_name,
+      knowledge_domain: cluster.knowledge_domain,
+    });
   };
 
   const handleEditOpenChange = (open: boolean) => {
@@ -252,6 +387,7 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
+        ...trimIngress(ingress),
       },
       {
         onSuccess: () => setEditOpen(false),
@@ -260,7 +396,10 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
   };
 
   const canSaveEdit =
-    region.trim() !== "" && eksName.trim() !== "" && eksEndpoint.trim() !== "";
+    region.trim() !== "" &&
+    eksName.trim() !== "" &&
+    eksEndpoint.trim() !== "" &&
+    ingressComplete(ingress);
 
   return (
     <tr className="border-b border-glass-border-honey/50 hover:glass-subtle">
@@ -327,14 +466,15 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
                   Edit
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Edit cluster {cluster.id}</DialogTitle>
                   <DialogDescription>
-                    Update region, EKS name, or endpoint. The cluster id cannot be changed.
+                    Update EKS coordinates and the per-cluster ingress / cert / knowledge
+                    config. The cluster id cannot be changed.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <Field label="Region" value={region} onChange={setRegion} placeholder="us-west-2" />
                   <Field
                     label="EKS cluster name"
@@ -349,6 +489,7 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
                     placeholder="https://..."
                   />
                 </div>
+                <IngressFieldset value={ingress} onChange={setIngress} />
                 {updateMut.isError && (
                   <p className="text-destructive text-xs">{mutationErrorMessage(updateMut.error)}</p>
                 )}

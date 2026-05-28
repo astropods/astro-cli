@@ -21,7 +21,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -72,6 +74,17 @@ type Server struct {
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
 func (s *Server) SetHTTPHandler(h http.Handler) {
 	s.httpHandler = h
+}
+
+// resolveIngressForCluster merges the admin server's env-default ingress
+// domains with the per-cluster overrides stored in public.clusters. Used by
+// admin operations (RepairNormalizedSpec, BackfillResolvedKeys) that need
+// the same hostnames the deployer will write.
+func (s *Server) resolveIngressForCluster(ctx context.Context, clusterID string) (clustercfg.Resolved, error) {
+	return clustercfg.Resolve(ctx, s.k8sRegistry, config.DeploymentConfig{
+		IngressDomain:          s.ingressDomain,
+		IngestionIngressDomain: s.ingestionIngressDomain,
+	}, clusterID)
 }
 
 // SetWorkOSClientID sets the WorkOS client ID for GetAuthConfig.
@@ -1714,9 +1727,13 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 		liveSecretData = secret.Data
 	}
 
+	ingressCfg, ingressErr := s.resolveIngressForCluster(ctx, dep.EffectiveClusterID())
+	if ingressErr != nil {
+		return nil, fmt.Errorf("resolve cluster ingress config: %w", ingressErr)
+	}
 	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId, &deploymentstore.NormalizedSpecConfig{
-		IngressDomain:          s.ingressDomain,
-		IngestionIngressDomain: s.ingestionIngressDomain,
+		IngressDomain:          ingressCfg.AgentIngressDomain,
+		IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
 	}, liveSecretData)
 	if err != nil {
 		return nil, fmt.Errorf("repair normalized spec: %w", err)
@@ -2037,7 +2054,7 @@ func storeDriftReportToProto(report *deploymentstore.DriftReport) *adminv1.Drift
 // migration for deployments that pre-date the resolved keys table.
 func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillResolvedKeysRequest) (*adminv1.BackfillResolvedKeysResponse, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.agent_name, d.build_id, d.namespace, d.deployment_spec_json
+		SELECT d.id, d.agent_name, d.build_id, d.namespace, d.deployment_spec_json, d.cluster_id
 		FROM deployments d
 		WHERE d.status NOT IN ('undeployed', 'undeploying')
 	`)
@@ -2048,11 +2065,12 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 
 	type row struct {
 		id, agentName, buildID, namespace, specJSON string
+		clusterID                                   sql.NullString
 	}
 	var todo []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.agentName, &r.buildID, &r.namespace, &r.specJSON); err != nil {
+		if err := rows.Scan(&r.id, &r.agentName, &r.buildID, &r.namespace, &r.specJSON, &r.clusterID); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		todo = append(todo, r)
@@ -2073,8 +2091,15 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 		if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 			if ep.Expose != nil && ep.Expose.Domain != "" {
 				externalAgentHost = ep.Expose.Domain
-			} else if s.ingressDomain != "" {
-				externalAgentHost = k8s.GenerateIngressHost(r.agentName, r.namespace, s.ingressDomain)
+			} else {
+				ingressCfg, ingressErr := s.resolveIngressForCluster(ctx, r.clusterID.String)
+				if ingressErr != nil {
+					s.log.Warn("BackfillResolvedKeys: cluster resolve failed", "deployment_id", r.id, "error", ingressErr)
+					continue
+				}
+				if ingressCfg.AgentIngressDomain != "" {
+					externalAgentHost = k8s.GenerateIngressHost(r.agentName, r.namespace, ingressCfg.AgentIngressDomain)
+				}
 			}
 		}
 		rctx := deployment.ResolveContext{

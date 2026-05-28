@@ -1001,7 +1001,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, cfg, omClient, db), "knowledge_stores", "knowledge_storage"),
+				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, omClient, db), "knowledge_stores", "knowledge_storage"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

@@ -14,6 +14,7 @@ import (
 	"database/sql"
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
+	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
@@ -178,7 +179,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 	}
 }
 
-func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, cfg *config.Config, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, k8sReg *k8s.Registry, cfg *config.Config, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -226,10 +227,21 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 		storeID := deployid.New()
 		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
 
-		var publicHost string
-		if req.Public && cfg.Deployment.KnowledgeDomain != "" {
-			publicHost = fmt.Sprintf("%s.%s.%s", req.Name, acct.Name, cfg.Deployment.KnowledgeDomain)
+		clusterID := ""
+		if acct.ClusterID != nil {
+			clusterID = *acct.ClusterID
 		}
+		ingressCfg, ingressErr := clustercfg.Resolve(c.Request.Context(), k8sReg, cfg.Deployment, clusterID)
+		if ingressErr != nil {
+			log.Error("Failed to resolve cluster ingress config", "error", ingressErr, "cluster_id", clusterID)
+			c.JSON(http.StatusBadRequest, gin.H{"error": ingressErr.Error()})
+			return
+		}
+		var publicHost string
+		if req.Public && ingressCfg.KnowledgeDomain != "" {
+			publicHost = fmt.Sprintf("%s.%s.%s", req.Name, acct.Name, ingressCfg.KnowledgeDomain)
+		}
+
 
 		plainCreds, err := knowledgestore.GenerateCredentials(req.Provider)
 		if err != nil {

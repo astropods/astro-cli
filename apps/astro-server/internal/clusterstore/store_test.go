@@ -35,6 +35,25 @@ func TestValidateID(t *testing.T) {
 	}
 }
 
+// fullCluster returns a Cluster populated with every required field. Tests
+// override only the field under test so a single source of "valid" lives here.
+func fullCluster() *Cluster {
+	return &Cluster{
+		ID:                     "us-east-1-managed",
+		Region:                 "us-east-1",
+		EKSClusterName:         "prod-managed-eks",
+		EKSClusterEndpoint:     "https://eks.example",
+		Enabled:                true,
+		AgentIngressDomain:     "agents.example.com",
+		AgentACMCertARN:        "arn:acm:x",
+		AgentALBGroupName:      "astro",
+		IngestionIngressDomain: "ingestion.example.com",
+		IngestionACMCertARN:    "arn:acm:y",
+		IngestionALBGroupName:  "astro-ingest",
+		KnowledgeDomain:        "knowledge.example.com",
+	}
+}
+
 func TestRegister_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
@@ -44,17 +63,13 @@ func TestRegister_Success(t *testing.T) {
 			"us-east-1-managed", "us-east-1",
 			"prod-managed-eks", "https://eks.example",
 			true,
+			"agents.example.com", "arn:acm:x", "astro",
+			"ingestion.example.com", "arn:acm:y", "astro-ingest",
+			"knowledge.example.com",
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := store.Register(context.Background(), &Cluster{
-		ID:                 "us-east-1-managed",
-		Region:             "us-east-1",
-		EKSClusterName:     "prod-managed-eks",
-		EKSClusterEndpoint: "https://eks.example",
-		Enabled:            true,
-	})
-	if err != nil {
+	if err := store.Register(context.Background(), fullCluster()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -69,13 +84,7 @@ func TestRegister_DuplicateReturnsAlreadyExists(t *testing.T) {
 	mock.ExpectExec("INSERT INTO clusters").
 		WillReturnError(&pq.Error{Code: pgUniqueViolation, Constraint: "clusters_pkey"})
 
-	err := store.Register(context.Background(), &Cluster{
-		ID:                 "us-east-1-managed",
-		Region:             "us-east-1",
-		EKSClusterName:     "prod-managed-eks",
-		EKSClusterEndpoint: "https://eks.example",
-	})
-	if !errors.Is(err, ErrAlreadyExists) {
+	if err := store.Register(context.Background(), fullCluster()); !errors.Is(err, ErrAlreadyExists) {
 		t.Errorf("expected ErrAlreadyExists, got %v", err)
 	}
 }
@@ -84,8 +93,9 @@ func TestRegister_RejectsInvalidID(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := New(db)
 
-	err := store.Register(context.Background(), &Cluster{ID: "BAD"})
-	if err == nil {
+	c := fullCluster()
+	c.ID = "BAD"
+	if err := store.Register(context.Background(), c); err == nil {
 		t.Error("expected error for invalid id")
 	}
 }
@@ -94,17 +104,23 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := New(db)
 
-	cases := []struct {
-		name    string
-		cluster *Cluster
-	}{
-		{"missing region", &Cluster{ID: "us-east-1", EKSClusterName: "n", EKSClusterEndpoint: "https://e"}},
-		{"missing eks name", &Cluster{ID: "us-east-1", Region: "us-east-1", EKSClusterEndpoint: "https://e"}},
-		{"missing endpoint", &Cluster{ID: "us-east-1", Region: "us-east-1", EKSClusterName: "n"}},
+	mutate := map[string]func(*Cluster){
+		"missing region":                       func(c *Cluster) { c.Region = "" },
+		"missing eks name":                     func(c *Cluster) { c.EKSClusterName = "" },
+		"missing endpoint":                     func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing agent_ingress_domain":         func(c *Cluster) { c.AgentIngressDomain = "" },
+		"missing agent_acm_certificate_arn":    func(c *Cluster) { c.AgentACMCertARN = "" },
+		"missing agent_alb_group_name":         func(c *Cluster) { c.AgentALBGroupName = "" },
+		"missing ingestion_ingress_domain":     func(c *Cluster) { c.IngestionIngressDomain = "" },
+		"missing ingestion_acm_certificate":    func(c *Cluster) { c.IngestionACMCertARN = "" },
+		"missing ingestion_alb_group_name":     func(c *Cluster) { c.IngestionALBGroupName = "" },
+		"missing knowledge_domain":             func(c *Cluster) { c.KnowledgeDomain = "" },
 	}
-	for _, tc := range cases {
-		if err := store.Register(context.Background(), tc.cluster); err == nil {
-			t.Errorf("%s: expected error, got nil", tc.name)
+	for name, mut := range mutate {
+		c := fullCluster()
+		mut(c)
+		if err := store.Register(context.Background(), c); err == nil {
+			t.Errorf("%s: expected error, got nil", name)
 		}
 	}
 }
@@ -116,11 +132,7 @@ func TestGet_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM clusters WHERE id = \\$1").
 		WithArgs("us-east-1-managed").
-		WillReturnRows(clusterRows().AddRow(
-			"us-east-1-managed", "us-east-1",
-			"prod-managed-eks", "https://eks.example",
-			true, now, now,
-		))
+		WillReturnRows(fullClusterRow(clusterRows(), "us-east-1-managed", "us-east-1", "prod-managed-eks", "https://eks.example", true, now))
 
 	c, err := store.Get(context.Background(), "us-east-1-managed")
 	if err != nil {
@@ -150,10 +162,11 @@ func TestList_All(t *testing.T) {
 	store := New(db)
 
 	now := time.Now()
+	rows := clusterRows()
+	fullClusterRow(rows, "a", "ap-southeast-2", "eks-a", "https://a", false, now)
+	fullClusterRow(rows, "b", "us-east-1", "eks-b", "https://b", true, now)
 	mock.ExpectQuery("SELECT .+ FROM clusters ORDER BY region ASC, id ASC").
-		WillReturnRows(clusterRows().
-			AddRow("a", "ap-southeast-2", "eks-a", "https://a", false, now, now).
-			AddRow("b", "us-east-1", "eks-b", "https://b", true, now, now))
+		WillReturnRows(rows)
 
 	cs, err := store.List(context.Background(), false)
 	if err != nil {
@@ -169,9 +182,10 @@ func TestList_EnabledOnly(t *testing.T) {
 	store := New(db)
 
 	now := time.Now()
+	rows := clusterRows()
+	fullClusterRow(rows, "b", "us-east-1", "eks-b", "https://b", true, now)
 	mock.ExpectQuery("SELECT .+ FROM clusters WHERE enabled = true ORDER BY region ASC, id ASC").
-		WillReturnRows(clusterRows().
-			AddRow("b", "us-east-1", "eks-b", "https://b", true, now, now))
+		WillReturnRows(rows)
 
 	cs, err := store.List(context.Background(), true)
 	if err != nil {
@@ -212,11 +226,18 @@ func TestUpdate_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
 
-	mock.ExpectExec("UPDATE clusters SET region = \\$1").
-		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "eu-west-1").
+	c := fullCluster()
+	mock.ExpectExec("UPDATE clusters SET").
+		WithArgs(
+			c.Region, c.EKSClusterName, c.EKSClusterEndpoint,
+			c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
+			c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
+			c.KnowledgeDomain,
+			c.ID,
+		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.Update(context.Background(), "eu-west-1", "eu-central-1", "eks-eu-new", "https://eu-new.example"); err != nil {
+	if err := store.Update(context.Background(), c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -225,11 +246,12 @@ func TestUpdate_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
 
-	mock.ExpectExec("UPDATE clusters SET region = \\$1").
-		WithArgs("eu-central-1", "eks-eu-new", "https://eu-new.example", "missing").
+	mock.ExpectExec("UPDATE clusters SET").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	if err := store.Update(context.Background(), "missing", "eu-central-1", "eks-eu-new", "https://eu-new.example"); !errors.Is(err, ErrNotFound) {
+	c := fullCluster()
+	c.ID = "missing"
+	if err := store.Update(context.Background(), c); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -238,19 +260,23 @@ func TestUpdate_RejectsMissingRequiredFields(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := New(db)
 
-	cases := []struct {
-		name   string
-		region string
-		eks    string
-		ep     string
-	}{
-		{"missing region", "", "n", "https://e"},
-		{"missing eks name", "r", "", "https://e"},
-		{"missing endpoint", "r", "n", ""},
+	mutate := map[string]func(*Cluster){
+		"missing region":                    func(c *Cluster) { c.Region = "" },
+		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
+		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing agent_ingress_domain":      func(c *Cluster) { c.AgentIngressDomain = "" },
+		"missing agent_acm_certificate_arn": func(c *Cluster) { c.AgentACMCertARN = "" },
+		"missing agent_alb_group_name":      func(c *Cluster) { c.AgentALBGroupName = "" },
+		"missing ingestion_ingress_domain":  func(c *Cluster) { c.IngestionIngressDomain = "" },
+		"missing ingestion_acm_certificate": func(c *Cluster) { c.IngestionACMCertARN = "" },
+		"missing ingestion_alb_group_name":  func(c *Cluster) { c.IngestionALBGroupName = "" },
+		"missing knowledge_domain":          func(c *Cluster) { c.KnowledgeDomain = "" },
 	}
-	for _, tc := range cases {
-		if err := store.Update(context.Background(), "eu-west-1", tc.region, tc.eks, tc.ep); err == nil {
-			t.Errorf("%s: expected error, got nil", tc.name)
+	for name, mut := range mutate {
+		c := fullCluster()
+		mut(c)
+		if err := store.Update(context.Background(), c); err == nil {
+			t.Errorf("%s: expected error, got nil", name)
 		}
 	}
 }
@@ -298,7 +324,23 @@ func TestDeregister_InUse(t *testing.T) {
 // baseSelect. Test rows can be appended via .AddRow.
 func clusterRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "region", "eks_cluster_name", "eks_cluster_endpoint",
-		"enabled", "created_at", "updated_at",
+		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+		"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
+		"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+		"knowledge_domain",
+		"created_at", "updated_at",
 	})
+}
+
+// fullClusterRow appends a row populated with non-empty ingress fields. Use
+// it in tests that just need a well-formed cluster — ingress/cert values are
+// irrelevant to the assertion.
+func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string, enabled bool, now time.Time) *sqlmock.Rows {
+	return rows.AddRow(
+		id, region, eksName, eksEndpoint, enabled,
+		"agents.example.com", "arn:acm:x", "astro",
+		"ingestion.example.com", "arn:acm:y", "astro-ingest",
+		"knowledge.example.com",
+		now, now,
+	)
 }

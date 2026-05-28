@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -125,6 +126,11 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		return nil, fmt.Errorf("resolve k8s client: %w", err)
 	}
 
+	ingressCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
+	if err != nil {
+		return nil, fmt.Errorf("resolve cluster ingress config: %w", err)
+	}
+
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
 	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, dep, &ds, k8sForDep)
 	if boundErr != nil {
@@ -139,12 +145,12 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		ImagePullPolicy:        imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
 		ImagePreflighter:       d.ImagePreflighter,
 		TenantImageHosts:       tenantImageHostsFromConfig(d.Cfg),
-		IngressDomain:          d.Cfg.Deployment.IngressDomain,
-		ACMCertificateARN:      d.Cfg.Deployment.ACMCertificateARN,
-		ALBGroupName:           d.Cfg.Deployment.ALBGroupName,
-		IngestionIngressDomain: d.Cfg.Deployment.IngestionIngressDomain,
-		IngestionACMCertARN:    d.Cfg.Deployment.IngestionACMCertARN,
-		IngestionALBGroupName:  d.Cfg.Deployment.IngestionALBGroupName,
+		IngressDomain:          ingressCfg.AgentIngressDomain,
+		ACMCertificateARN:      ingressCfg.AgentACMCertARN,
+		ALBGroupName:           ingressCfg.AgentALBGroupName,
+		IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
+		IngestionACMCertARN:    ingressCfg.IngestionACMCertARN,
+		IngestionALBGroupName:  ingressCfg.IngestionALBGroupName,
 		LangfuseAuthToken:      langfuseAuthToken,
 		LangfuseBaseURL:        langfuseBaseURLForCollector(d.Cfg),
 		DeploymentID:           dep.ID,
@@ -228,8 +234,14 @@ func (d *Deployer) populateBuildEnv(
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		if ep.Expose != nil && ep.Expose.Domain != "" {
 			externalAgentHost = ep.Expose.Domain
-		} else if d.Cfg.Deployment.IngressDomain != "" {
-			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, d.Cfg.Deployment.IngressDomain)
+		} else {
+			ingressCfg, resolveErr := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
+			if resolveErr != nil {
+				return fmt.Errorf("resolve cluster ingress config: %w", resolveErr)
+			}
+			if ingressCfg.AgentIngressDomain != "" {
+				externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, ingressCfg.AgentIngressDomain)
+			}
 		}
 	}
 

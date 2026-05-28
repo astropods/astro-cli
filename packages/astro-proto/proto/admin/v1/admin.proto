@@ -389,6 +389,11 @@ message StopDeploymentResponse {
 
 // RegisteredCluster describes the primary cluster (synthesized, is_primary=true)
 // or an additional cluster row from public.clusters.
+//
+// The ingress/cert/knowledge fields are per-cluster overrides for additional
+// clusters. Empty means the deployer falls back to the astro-server-wide env
+// default (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...). The primary cluster
+// always reads those env values; its override fields stay empty here.
 message RegisteredCluster {
   string id = 1;
   string region = 2;
@@ -400,6 +405,13 @@ message RegisteredCluster {
   string updated_at = 8;  // RFC3339; empty for primary
   bool healthy = 9;
   string health_error = 10;
+  string agent_ingress_domain = 11;
+  string agent_acm_certificate_arn = 12;
+  string agent_alb_group_name = 13;
+  string ingestion_ingress_domain = 14;
+  string ingestion_acm_certificate_arn = 15;
+  string ingestion_alb_group_name = 16;
+  string knowledge_domain = 17;
 }
 
 message RegisterClusterRequest {
@@ -408,6 +420,13 @@ message RegisterClusterRequest {
   string eks_cluster_name = 3;
   string eks_cluster_endpoint = 4;
   bool enabled = 5;
+  string agent_ingress_domain = 6;
+  string agent_acm_certificate_arn = 7;
+  string agent_alb_group_name = 8;
+  string ingestion_ingress_domain = 9;
+  string ingestion_acm_certificate_arn = 10;
+  string ingestion_alb_group_name = 11;
+  string knowledge_domain = 12;
 }
 
 message RegisterClusterResponse {
@@ -489,6 +508,13 @@ message UpdateClusterRequest {
   string region = 2;
   string eks_cluster_name = 3;
   string eks_cluster_endpoint = 4;
+  string agent_ingress_domain = 5;
+  string agent_acm_certificate_arn = 6;
+  string agent_alb_group_name = 7;
+  string ingestion_ingress_domain = 8;
+  string ingestion_acm_certificate_arn = 9;
+  string ingestion_alb_group_name = 10;
+  string knowledge_domain = 11;
 }
 
 message UpdateClusterResponse {
