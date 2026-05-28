@@ -244,6 +244,7 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 				ad.DriftSummary = &report.Summary
 			}
 		}
+		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID)
 
 		results = append(results, ad)
 	}
@@ -285,14 +286,14 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
 
-	// Look up account name and owner
-	var accountName, ownerUserID string
+	// Look up account name, placement, and owner
+	var accountName, accountClusterID, ownerUserID string
 	_ = s.db.QueryRow(`
-		SELECT a.name,
+		SELECT a.name, COALESCE(a.cluster_id, ''),
 		       COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '')
 		FROM accounts a WHERE a.id = $1`,
 		dep.AccountID,
-	).Scan(&accountName, &ownerUserID)
+	).Scan(&accountName, &accountClusterID, &ownerUserID)
 
 	var ownerEmail string
 	if ownerUserID != "" && s.workosClient != nil {
@@ -322,6 +323,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if dep.CurrentRevision != nil {
 		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
 	}
+	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID)
 
 	// Fetch events
 	var protoEvents []*adminv1.AdminDeploymentEvent
@@ -429,6 +431,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		Workloads:         protoWorkloads,
 		ExpectedServices:  protoServices,
 		ExpectedIngresses: protoIngresses,
+		PlacementHint:     placementHintMessage(accountClusterID, dep.EffectiveClusterID()),
 	}
 
 	// Include adapters from the stored deployment spec (default to empty list)
@@ -491,6 +494,11 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 		NetworkPolicies: []*adminv1.K8sNetworkPolicyInfo{},
 		Events:          []*adminv1.K8sEventInfo{},
 		Summary:         &adminv1.ClusterSummary{},
+	}
+	if namespace != "" {
+		if dep, err := s.deployStore.GetDeploymentByNamespace(namespace); err == nil && dep != nil {
+			resp.ResolvedClusterID = dep.EffectiveClusterID()
+		}
 	}
 
 	// Deployments

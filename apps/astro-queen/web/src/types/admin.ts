@@ -19,6 +19,9 @@ export interface AdminDeployment {
   current_revision?: number;
   drift_summary?: DriftSummary;
   owner_email?: string;
+  cluster_id?: string;
+  account_cluster_id?: string;
+  placement_mismatch?: boolean;
 }
 
 export interface DeploymentEvent {
@@ -111,6 +114,7 @@ export interface GetDeploymentResponse {
   drift_checked_at?: string;
   variables?: AdminVariable[];
   adapters?: string[];
+  placement_hint?: string;
 }
 
 export interface RefreshDriftReportResponse {
@@ -149,6 +153,7 @@ export interface ClusterStatusResponse {
   network_policies: K8sNetworkPolicyInfo[];
   events: K8sEventInfo[];
   summary: ClusterSummary;
+  resolved_cluster_id?: string;
 }
 
 export interface ClusterSummary {

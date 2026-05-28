@@ -47,8 +47,11 @@ type AdminDeployment struct {
 	ErrorDetails    []map[string]string `json:"error_details,omitempty"`
 	StatusChangedAt string              `json:"status_changed_at,omitempty"`
 	CurrentRevision int32               `json:"current_revision,omitempty"`
-	DriftSummary    *DriftSummary       `json:"drift_summary,omitempty"`
-	OwnerEmail      string              `json:"owner_email,omitempty"`
+	DriftSummary       *DriftSummary `json:"drift_summary,omitempty"`
+	OwnerEmail         string        `json:"owner_email,omitempty"`
+	ClusterID          string        `json:"cluster_id,omitempty"`
+	AccountClusterID   string        `json:"account_cluster_id,omitempty"`
+	PlacementMismatch  bool          `json:"placement_mismatch,omitempty"`
 }
 
 type AdminDeploymentEvent struct {
@@ -240,8 +243,9 @@ type GetClusterStatusResponse struct {
 	Services        []*K8sServiceInfo       `json:"services,omitempty"`
 	Ingresses       []*K8sIngressInfo       `json:"ingresses,omitempty"`
 	NetworkPolicies []*K8sNetworkPolicyInfo `json:"network_policies,omitempty"`
-	Events          []*K8sEventInfo         `json:"events,omitempty"`
-	Summary         *ClusterSummary         `json:"summary,omitempty"`
+	Events             []*K8sEventInfo `json:"events,omitempty"`
+	Summary            *ClusterSummary `json:"summary,omitempty"`
+	ResolvedClusterID  string          `json:"resolved_cluster_id,omitempty"`
 }
 
 type DeleteDeploymentRequest struct {
@@ -368,6 +372,7 @@ type GetDeploymentResponse struct {
 	DriftCheckedAt    string                     `json:"drift_checked_at,omitempty"`
 	Variables         []*AdminVariable           `json:"variables,omitempty"`
 	Adapters          []string                   `json:"adapters,omitempty"`
+	PlacementHint     string                     `json:"placement_hint,omitempty"`
 }
 
 type GetPodLogsRequest struct {

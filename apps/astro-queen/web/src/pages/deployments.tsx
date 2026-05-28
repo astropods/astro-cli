@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { formatDateTime, truncateUUID } from "@/lib/utils";
+import { formatDateTime, truncateUUID, formatClusterId } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { AdminDeployment } from "@/types/admin";
 
 type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "scaled_down" | "stopped";
@@ -29,7 +30,9 @@ function filterDeployments(
         !d.namespace.toLowerCase().includes(q) &&
         !d.account_name.toLowerCase().includes(q) &&
         !d.deployment_id.toLowerCase().includes(q) &&
-        !(d.owner_email ?? "").toLowerCase().includes(q)
+        !(d.owner_email ?? "").toLowerCase().includes(q) &&
+        !formatClusterId(d.cluster_id).toLowerCase().includes(q) &&
+        !formatClusterId(d.account_cluster_id).toLowerCase().includes(q)
       ) return false;
     }
     if (status !== "all" && d.status !== status) return false;
@@ -98,7 +101,7 @@ export function DeploymentsPage() {
       {/* Filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Search name, namespace, account, owner..."
+          placeholder="Search name, namespace, account, cluster, owner..."
           value={search}
           onChange={(e) => updateFilter(setSearch)(e.target.value)}
           className="h-7 w-64 text-xs"
@@ -162,6 +165,7 @@ export function DeploymentsPage() {
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Rev</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Account</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Cluster</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Build</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Drift</th>
@@ -217,6 +221,10 @@ export function DeploymentsPage() {
                       {d.current_revision != null ? `rev ${d.current_revision}` : "-"}
                     </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{d.account_name}</td>
+                    <td className="px-2 py-0.5">
+                      <span className="font-mono text-muted-foreground">{formatClusterId(d.cluster_id)}</span>
+                      <PlacementMismatchBadge deployment={d} />
+                    </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{d.owner_email || "-"}</td>
                     <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{d.build_id ? truncateUUID(d.build_id) : "-"}</td>
                     <td className="px-2 py-0.5">
@@ -230,7 +238,7 @@ export function DeploymentsPage() {
                 ))}
                 {pageDeployments.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-2 py-4 text-center text-muted-foreground">
+                    <td colSpan={12} className="px-2 py-4 text-center text-muted-foreground">
                       No deployments match the current filters.
                     </td>
                   </tr>
@@ -344,6 +352,23 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
         </Button>
       )}
     </div>
+  );
+}
+
+function PlacementMismatchBadge({ deployment }: { deployment: AdminDeployment }) {
+  if (!deployment.placement_mismatch) return null;
+  const tooltip = `Account: ${formatClusterId(deployment.account_cluster_id)} · Deployment: ${formatClusterId(deployment.cluster_id)}. Redeploy does not change cluster.`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="ml-1 inline-block cursor-help rounded-full bg-amber-100/60 px-1.5 py-0.5 text-[10px] text-amber-800">
+          mismatch
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -8,7 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
-import { formatDateTime, truncateUUID } from "@/lib/utils";
+import { formatDateTime, truncateUUID, formatClusterId, ecrRegionFromImage } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
 
@@ -57,6 +57,12 @@ export function DeploymentDetailPage() {
         <div>
           <h2 className="text-xl font-semibold">{dep.name}</h2>
           <p className="text-sm text-muted-foreground">{dep.namespace}</p>
+          {cs && (
+            <p className="text-xs text-muted-foreground">
+              Live K8s data from{" "}
+              <span className="font-mono">{formatClusterId(cs.resolved_cluster_id)}</span>
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           {(dep.status === "scaled_down" || dep.status === "stopped") && (
@@ -188,15 +194,50 @@ export function DeploymentDetailPage() {
           <span className="capitalize">{dep.status}...</span>
         </div>
       )}
-
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-3 sm:gap-4">
         <InfoCard label="Status" value={dep.status} />
         <InfoCard label="Account" value={dep.account_name} />
+        <InfoCard
+          label="Deployment cluster"
+          value={formatClusterId(dep.cluster_id)}
+          mono
+          mismatch={dep.placement_mismatch}
+          mismatchHint={
+            dep.placement_mismatch
+              ? `Account pinned to ${formatClusterId(dep.account_cluster_id)}`
+              : undefined
+          }
+        />
+        <InfoCard
+          label="Account cluster"
+          value={formatClusterId(dep.account_cluster_id)}
+          mono
+          mismatch={dep.placement_mismatch}
+          mismatchHint={
+            dep.placement_mismatch
+              ? `Deployment routes to ${formatClusterId(dep.cluster_id)}`
+              : undefined
+          }
+        />
         <InfoCard label="Owner" value={dep.owner_email || "-"} />
         <InfoCard label="Build ID" value={dep.build_id} mono />
         <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
+      {(() => {
+        const image = data.workloads?.[0]?.image;
+        const ecrRegion = image ? ecrRegionFromImage(image) : null;
+        if (!ecrRegion) return null;
+        const depCluster = formatClusterId(dep.cluster_id);
+        return (
+          <p className="text-[11px] text-muted-foreground">
+            Agent image ECR region: <span className="font-mono">{ecrRegion}</span>
+            {depCluster !== "primary" && depCluster !== ecrRegion && (
+              <> · deployment routes to <span className="font-mono">{depCluster}</span></>
+            )}
+          </p>
+        );
+      })()}
 
       <Dialog open={adaptersOpen} onOpenChange={setAdaptersOpen}>
         <DialogContent className="sm:max-w-sm">
@@ -572,11 +613,41 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
   );
 }
 
-function InfoCard({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function InfoCard({
+  label,
+  value,
+  mono,
+  mismatch,
+  mismatchHint,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  mismatch?: boolean;
+  mismatchHint?: string;
+}) {
   return (
-    <div className="rounded-lg glass px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-0.5 truncate text-sm ${mono ? "font-mono text-xs" : ""}`}>{value || "-"}</p>
+    <div
+      className={`rounded-lg px-3 py-2 ${
+        mismatch ? "border border-amber-300/70 bg-amber-50/40 ring-1 ring-amber-200/50" : "glass"
+      }`}
+    >
+      <p className={`text-xs ${mismatch ? "font-medium text-amber-900" : "text-muted-foreground"}`}>
+        {label}
+        {mismatch && <span className="ml-1 text-[10px] font-normal text-amber-700">≠</span>}
+      </p>
+      <p
+        className={`mt-0.5 break-words text-sm leading-snug ${
+          mono ? "font-mono text-xs" : ""
+        } ${mismatch ? "font-semibold text-amber-950" : ""}`}
+      >
+        {value || "-"}
+      </p>
+      {mismatchHint && (
+        <p className="mt-1 text-[10px] leading-snug text-amber-800" title={mismatchHint}>
+          {mismatchHint}
+        </p>
+      )}
     </div>
   );
 }

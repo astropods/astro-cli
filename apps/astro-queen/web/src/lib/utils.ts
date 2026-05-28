@@ -32,3 +32,15 @@ export function truncateUUID(uuid: string): string {
   }
   return uuid;
 }
+
+/** Display label for cluster routing/placement ids (empty and "primary" → primary). */
+export function formatClusterId(id: string | undefined): string {
+  if (!id || id === "primary") return "primary";
+  return id;
+}
+
+/** AWS ECR region segment from a container image reference, if present. */
+export function ecrRegionFromImage(image: string): string | null {
+  const match = image.match(/\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com\//i);
+  return match ? match[1] : null;
+}

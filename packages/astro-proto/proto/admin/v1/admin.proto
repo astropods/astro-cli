@@ -58,6 +58,9 @@ message AdminDeployment {
   string status_changed_at = 10;
   int32 current_revision = 11;
   string owner_email = 12;
+  string cluster_id = 13;           // deployments.cluster_id; empty = primary
+  string account_cluster_id = 14;   // accounts.cluster_id; empty = primary
+  bool placement_mismatch = 15;     // account vs deployment routing differ
 }
 
 message AdminDeploymentEvent {
@@ -135,6 +138,7 @@ message GetClusterStatusResponse {
   repeated K8sPodInfo pods = 4;
   repeated K8sServiceInfo services = 5;
   ClusterSummary summary = 6;
+  string resolved_cluster_id = 7; // K8s API cluster used for this request; empty = primary
 }
 
 message ListImagesRequest {}
