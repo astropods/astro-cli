@@ -206,10 +206,10 @@ describe("user views requests and latency", () => {
   it("shows zeroed charts and latency when no requests exist", async () => {
     setupHandlers();
     renderMonitor();
-    // Request chart legend renders with zero values
-    expect(await screen.findByText("Requests")).toBeInTheDocument();
-    // Subtitle still shows with zeroed totals
-    expect(screen.getByText(/0 total requests/)).toBeInTheDocument();
+    // Subtitle renders with zeroed totals once the chart settles
+    await waitFor(() => {
+      expect(screen.getByText(/0 total requests/)).toBeInTheDocument();
+    });
     // Latency card shows the empty state when there are no requests
     expect(screen.getByText("Avg Latency")).toBeInTheDocument();
     expect(screen.getByText("No requests in this range")).toBeInTheDocument();

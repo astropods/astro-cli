@@ -3,6 +3,15 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NetworkDirection, NetworkFlow } from "@/lib/api";
 import { formatCompactNumber } from "../charts/chart-utils";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const DEFAULT_VISIBLE = 10;
@@ -24,74 +33,74 @@ export function NetworkFlowsTable({ flows, direction, loading }: NetworkFlowsTab
   const visible = expanded ? flows : flows.slice(0, DEFAULT_VISIBLE);
   const hiddenCount = flows.length - DEFAULT_VISIBLE;
   const showStatus = direction !== "database";
+  const columnCount = showStatus ? 3 : 2;
 
   return (
-    <div className="overflow-clip rounded-lg border border-border/60 bg-card dark:bg-surface">
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <p className="text-mono-sm text-muted-foreground">{PEER_HEADER[direction]}s</p>
-        <span className="text-mono-sm text-muted-foreground">
-          {flows.length} {flows.length === 1 ? "peer" : "peers"}
-        </span>
-      </div>
-
-      {loading ? (
-        <div className="flex h-[200px] items-center justify-center">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : flows.length === 0 ? (
-        <div className="flex h-[200px] items-center justify-center">
-          <p className="text-body-sm text-muted-foreground">No traffic recorded.</p>
-        </div>
-      ) : (
-        <TooltipProvider delayDuration={150}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] border-collapse">
-              <thead>
-                <tr className="border-b border-border/60">
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">
-                    {PEER_HEADER[direction]}
-                  </th>
-                  <th className="px-4 py-2 text-right text-mono-sm font-normal text-muted-foreground">Requests</th>
-                  {showStatus && (
-                    <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Responses</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((flow) => (
-                  <tr
-                    key={flow.peer}
-                    className="border-b border-border/30 transition-colors hover:bg-black/2 dark:hover:bg-white/3"
-                  >
-                    <td className="max-w-[280px] truncate px-4 py-2.5 font-mono text-body-sm text-foreground">
-                      {flow.peer}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-body-sm text-foreground">
-                      {formatCompactNumber(flow.request_count)}
-                    </td>
-                    {showStatus && (
-                      <td className="px-4 py-2.5">
-                        <ResponsesCell flow={flow} />
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {hiddenCount > 0 && (
-            <button
-              onClick={() => setExpanded((e) => !e)}
-              className="flex w-full items-center justify-center gap-1.5 py-3 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
-              {expanded ? "Show less" : `Show ${hiddenCount} more`}
-            </button>
+    <TooltipProvider delayDuration={150}>
+      <Table
+        className="min-w-[600px] bg-card dark:bg-surface"
+        containerClassName="rounded-lg"
+      >
+        <TableHeader className="bg-card dark:bg-surface">
+          <TableRow>
+            <TableHead>
+              <span className="inline-flex items-baseline gap-2">
+                <span>{PEER_HEADER[direction]}</span>
+                <span className="text-faint-foreground">{flows.length}</span>
+              </span>
+            </TableHead>
+            <TableHead className="text-right">Requests</TableHead>
+            {showStatus && <TableHead>Responses</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={columnCount} className="py-10 text-center">
+                <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+              </TableCell>
+            </TableRow>
+          ) : flows.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={columnCount} className="py-10 text-center text-body-sm text-muted-foreground">
+                No traffic recorded.
+              </TableCell>
+            </TableRow>
+          ) : (
+            visible.map((flow) => (
+              <TableRow key={flow.peer}>
+                <TableCell className="max-w-[280px] truncate font-mono text-body-sm text-foreground">
+                  {flow.peer}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right font-mono text-body-sm text-foreground">
+                  {formatCompactNumber(flow.request_count)}
+                </TableCell>
+                {showStatus && (
+                  <TableCell>
+                    <ResponsesCell flow={flow} />
+                  </TableCell>
+                )}
+              </TableRow>
+            ))
           )}
-        </TooltipProvider>
-      )}
-    </div>
+        </TableBody>
+        {hiddenCount > 0 && (
+          <TableFooter>
+            <TableRow>
+              <TableCell colSpan={columnCount} className="p-0">
+                <button
+                  onClick={() => setExpanded((e) => !e)}
+                  className="flex w-full items-center justify-center gap-1.5 py-3 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
+                  {expanded ? "Show less" : `Show ${hiddenCount} more`}
+                </button>
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        )}
+      </Table>
+    </TooltipProvider>
   );
 }
 
@@ -115,7 +124,7 @@ function ResponsesCell({ flow }: { flow: NetworkFlow }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="-mx-4 -my-2.5 flex cursor-default items-center gap-2 px-4 py-2.5">
+        <span className="-mx-4 -my-2 flex cursor-default items-center gap-2 px-4 py-2">
           <span className="flex h-1.5 w-24 overflow-hidden rounded-full bg-muted">
             {okCount > 0 && (
               <span style={{ flexGrow: okCount, background: "var(--success)" }} />
