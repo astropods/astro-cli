@@ -392,10 +392,11 @@ message StopDeploymentResponse {
 // RegisteredCluster describes the primary cluster (synthesized, is_primary=true)
 // or an additional cluster row from public.clusters.
 //
-// The ingress/cert/knowledge fields are per-cluster overrides for additional
-// clusters. Empty means the deployer falls back to the astro-server-wide env
-// default (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...). The primary cluster
-// always reads those env values; its override fields stay empty here.
+// The ingress/cert/knowledge fields are required for additional clusters —
+// RegisterCluster and UpdateCluster reject empty values, and deploys
+// targeting a row with any empty field fail at submit time. The primary
+// cluster reads env vars (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) instead;
+// these fields are returned empty for is_primary=true entries.
 message RegisteredCluster {
   string id = 1;
   string region = 2;

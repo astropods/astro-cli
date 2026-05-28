@@ -42,6 +42,10 @@ export default function ConfigureDeployment() {
     selectedAdapters: form.selectedAdapters,
     adapterCredentials: form.adapterCredentials,
     ingestionSchedules: form.ingestionSchedules,
+    agentCpu: form.agentCpu,
+    agentMemory: form.agentMemory,
+    agentVolumeMount: form.agentVolumeMount,
+    agentStorageSize: form.agentStorageSize,
   };
   const initialTrackedState: TrackedFormState = {
     deployName: initialValues?.deployName ?? "",
@@ -49,6 +53,10 @@ export default function ConfigureDeployment() {
     selectedAdapters: initialValues?.selectedAdapters ?? ["web"],
     adapterCredentials: initialValues?.adapterCredentials ?? {},
     ingestionSchedules: initialValues?.ingestionSchedules ?? {},
+    agentCpu: initialValues?.agentCpu ?? "",
+    agentMemory: initialValues?.agentMemory ?? "",
+    agentVolumeMount: initialValues?.agentVolumeMount ?? "",
+    agentStorageSize: initialValues?.agentStorageSize ?? "",
   };
   const changes = useChangeTracking(initialTrackedState, trackedState);
 

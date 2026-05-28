@@ -39,10 +39,12 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 
 // Cluster is a managed workload Kubernetes cluster known to astro-server.
 //
-// The ingress/ALB/cert/knowledge fields are per-cluster overrides. An empty
-// string means the deployer should fall back to the astro-server-wide env
-// default (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...). The primary cluster
-// has no row in this table and always uses the env defaults directly.
+// Every ingress/ALB/cert/knowledge field is required: Register and Update
+// reject empty values via validateRequiredFields, and clustercfg.Resolve
+// fails the deploy if a stored row carries an empty field. The primary
+// cluster has no row in this table — it reads env vars directly
+// (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) and is the only place those
+// env defaults apply.
 type Cluster struct {
 	ID                     string
 	Region                 string

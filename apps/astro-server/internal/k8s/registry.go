@@ -49,10 +49,12 @@ type Registry struct {
 // ClusterEntry is a registry-level view of one cluster (primary or additional).
 //
 // For additional clusters the ingress/cert/knowledge fields are the raw
-// per-cluster values stored in the clusters table — empty means "inherit the
-// astro-server-wide env default". For the primary cluster these fields are
-// left empty here; callers must read the env-derived values directly from
-// cfg.Deployment.* (see deployer.resolveClusterIngressConfig).
+// values stored in the clusters table — every field is required at write
+// time (see clusterstore.validateRequiredFields) and clustercfg.Resolve
+// rejects empties at deploy time. For the primary cluster these fields
+// are left empty here; callers must read the env-derived values directly
+// from cfg.Deployment.* (see clustercfg.Resolve, which handles the primary
+// vs. additional split).
 type ClusterEntry struct {
 	ID                     string
 	IsPrimary              bool

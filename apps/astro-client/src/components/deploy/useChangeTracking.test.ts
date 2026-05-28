@@ -8,6 +8,10 @@ const base: TrackedFormState = {
   selectedAdapters: ["web"],
   adapterCredentials: {},
   ingestionSchedules: {},
+  agentCpu: "",
+  agentMemory: "",
+  agentVolumeMount: "",
+  agentStorageSize: "",
 };
 
 function track(current: Partial<TrackedFormState>) {

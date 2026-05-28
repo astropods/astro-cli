@@ -13,9 +13,13 @@ CREATE TABLE public.clusters (
     eks_cluster_name   varchar(128) NOT NULL,
     eks_cluster_endpoint varchar    NOT NULL,
     enabled            boolean      NOT NULL DEFAULT true,
-    -- Per-cluster ingress / ALB / cert overrides. Empty/NULL inherits the
-    -- astro-server-wide env default (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...).
-    -- The primary cluster has no row here and always uses env values.
+    -- Per-cluster ingress / ALB / cert config. Required for every registered
+    -- cluster — clusterstore.Register / Update reject empty values, and the
+    -- deployer errors on empty fields at deploy time. The columns default to
+    -- '' so the schema diff applies cleanly to existing rows; operators must
+    -- backfill values via UpdateCluster before deploys targeting those rows
+    -- will succeed. The primary cluster has no row here; it reads env vars
+    -- (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) directly.
     agent_ingress_domain      varchar(253) NOT NULL DEFAULT '',
     agent_acm_certificate_arn varchar      NOT NULL DEFAULT '',
     agent_alb_group_name      varchar(64)  NOT NULL DEFAULT '',

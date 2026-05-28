@@ -49,6 +49,10 @@ export interface TrackedFormState {
   selectedAdapters: string[];
   adapterCredentials: Record<string, string>;
   ingestionSchedules: Record<string, string>;
+  agentCpu: string;
+  agentMemory: string;
+  agentVolumeMount: string;
+  agentStorageSize: string;
 }
 
 const FIELD_CONFIG: { [K in keyof TrackedFormState]: TrackedField<TrackedFormState[K]> } = {
@@ -57,6 +61,10 @@ const FIELD_CONFIG: { [K in keyof TrackedFormState]: TrackedField<TrackedFormSta
   selectedAdapters:    { category: "redeploy", isChanged: stringArrayChanged, countChanges: stringArrayChangeCount },
   adapterCredentials:  { category: "redeploy", isChanged: recordChanged, countChanges: recordChangeCount },
   ingestionSchedules:  { category: "redeploy", isChanged: recordChanged, countChanges: recordChangeCount },
+  agentCpu:            { category: "redeploy", isChanged: stringChanged, countChanges: stringChangeCount },
+  agentMemory:         { category: "redeploy", isChanged: stringChanged, countChanges: stringChangeCount },
+  agentVolumeMount:    { category: "redeploy", isChanged: stringChanged, countChanges: stringChangeCount },
+  agentStorageSize:    { category: "redeploy", isChanged: stringChanged, countChanges: stringChangeCount },
 };
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,10 @@ export interface DeployFormInitialValues {
   ingestionSchedules?: Record<string, string>;
   webGrants?: AuthGrant[];
   slackGrants?: AuthGrant[];
+  agentCpu?: string;
+  agentMemory?: string;
+  agentVolumeMount?: string;
+  agentStorageSize?: string;
 }
 
 export interface UseDeployFormOptions {
@@ -419,6 +423,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setIngestionSchedules(v.ingestionSchedules ?? {});
     setWebGrants(v.webGrants ?? []);
     setSlackGrants(v.slackGrants ?? []);
+    setAgentCpu(v.agentCpu ?? "");
+    setAgentMemory(v.agentMemory ?? "");
+    setAgentVolumeMount(v.agentVolumeMount ?? "");
+    setAgentStorageSize(v.agentStorageSize ?? "");
     if (v.targetAccount !== undefined) {
       setTargetAccount(v.targetAccount);
     }
@@ -447,10 +455,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     // the effective values (whether they came from the request, the astropods
     // declaration, or tier defaults).
     const respAgent = templateResponse?.provisioning?.agent;
-    if (respAgent?.compute?.cpu) setAgentCpu(respAgent.compute.cpu);
-    if (respAgent?.compute?.memory) setAgentMemory(respAgent.compute.memory);
-    if (respAgent?.volume?.mount) setAgentVolumeMount(respAgent.volume.mount);
-    if (respAgent?.volume?.storage?.size) setAgentStorageSize(respAgent.volume.storage.size);
+    const seededAgentCpu = respAgent?.compute?.cpu ?? "";
+    const seededAgentMemory = respAgent?.compute?.memory ?? "";
+    const seededAgentVolumeMount = respAgent?.volume?.mount ?? "";
+    const seededAgentStorageSize = respAgent?.volume?.storage?.size ?? "";
+    if (seededAgentCpu) setAgentCpu(seededAgentCpu);
+    if (seededAgentMemory) setAgentMemory(seededAgentMemory);
+    if (seededAgentVolumeMount) setAgentVolumeMount(seededAgentVolumeMount);
+    if (seededAgentStorageSize) setAgentStorageSize(seededAgentStorageSize);
     // For an existing deployment, treat a volume returned by the template as
     // already provisioned in the cluster — its size is locked from here on.
     if (opts?.deploymentId && respAgent?.volume?.mount) {
@@ -483,6 +495,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       ingestionSchedules: { ...extracted.ingestionSchedules, ...(iv?.ingestionSchedules ?? {}) },
       webGrants: iv?.webGrants ?? seededWebGrants,
       slackGrants: iv?.slackGrants ?? seededSlackGrants,
+      agentCpu: iv?.agentCpu ?? seededAgentCpu,
+      agentMemory: iv?.agentMemory ?? seededAgentMemory,
+      agentVolumeMount: iv?.agentVolumeMount ?? seededAgentVolumeMount,
+      agentStorageSize: iv?.agentStorageSize ?? seededAgentStorageSize,
     };
 
     setInitialValues(merged);
