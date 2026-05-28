@@ -13,6 +13,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      product-code: ${{ steps.filter.outputs.product-code }}
       bun: ${{ steps.filter.outputs.bun }}
       go: ${{ steps.filter.outputs.go }}
       go-cli: ${{ steps.filter.outputs.go-cli }}
@@ -24,6 +25,20 @@ jobs:
         id: filter
         with:
           filters: |
+            # Application/source changes only — excludes CLI VERSION bumps and
+            # .github workflow edits so release/CI-only PRs do not fan out.
+            product-code:
+              - 'apps/astro-client/**'
+              - 'apps/astro-server/**'
+              - 'apps/astro-registry/**'
+              - 'apps/astro-queen/**'
+              - 'apps/astro-cli/!(VERSION)/**'
+              - 'apps/astro-cli/!(VERSION)'
+              - 'packages/**'
+              - 'sql/**'
+              - 'bun.lock'
+              - 'package.json'
+              - 'deployment/**'
             bun:
               - 'apps/astro-client/**'
               - 'packages/astro-theme/**'
@@ -31,23 +46,21 @@ jobs:
               - 'packages/astro-proto/**'
               - 'bun.lock'
               - 'package.json'
-              - '.github/workflows/test.yml'
             go:
               - 'apps/astro-server/**'
               - 'apps/astro-registry/**'
-              - 'apps/astro-cli/**'
+              - 'apps/astro-cli/!(VERSION)/**'
+              - 'apps/astro-cli/!(VERSION)'
               - 'apps/astro-queen/**'
               - 'packages/astro-spec/**'
-              - '.github/workflows/test.yml'
             go-cli:
-              - 'apps/astro-cli/**'
+              - 'apps/astro-cli/!(VERSION)/**'
+              - 'apps/astro-cli/!(VERSION)'
               - 'packages/astro-spec/**'
-              - '.github/workflows/test.yml'
             go-server:
               - 'apps/astro-server/**'
               - 'packages/astro-spec/**'
               - 'sql/**'
-              - '.github/workflows/test.yml'
             docker-client:
               - 'deployment/Dockerfile.astro-client'
               - 'apps/astro-client/package.json'
@@ -55,11 +68,10 @@ jobs:
               - 'packages/astro-trading-card/package.json'
               - 'bun.lock'
               - 'package.json'
-              - '.github/workflows/test.yml'
 
   test-bun:
     needs: changes
-    if: needs.changes.outputs.bun == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.bun == 'true'
     runs-on: ubuntu-latest
     name: Test Bun packages
 
@@ -90,7 +102,7 @@ jobs:
 
   test-go:
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     name: Test Go applications
     strategy:
@@ -148,7 +160,7 @@ jobs:
 
   test-cli-integration:
     needs: changes
-    if: needs.changes.outputs.go-cli == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.go-cli == 'true'
     runs-on: ubuntu-latest
     name: CLI integration tests (ast create + docker build)
 
@@ -171,7 +183,7 @@ jobs:
 
   test-go-integration:
     needs: changes
-    if: needs.changes.outputs.go-server == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.go-server == 'true'
     runs-on: ubuntu-latest
     name: Integration tests (astro-server + Postgres)
 
@@ -232,7 +244,7 @@ jobs:
 
   test-go-k8s:
     needs: changes
-    if: needs.changes.outputs.go-server == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.go-server == 'true'
     runs-on: ubuntu-latest
     name: K8s integration tests (vcluster + Postgres)
 
@@ -325,7 +337,7 @@ jobs:
 
   test-client-e2e:
     needs: changes
-    if: needs.changes.outputs.bun == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.bun == 'true'
     runs-on: ubuntu-latest
     name: Client E2E tests (Playwright) [shard ${{ matrix.shard }}/4]
     strategy:
@@ -364,7 +376,7 @@ jobs:
 
   test-client-docker:
     needs: changes
-    if: needs.changes.outputs.docker-client == 'true'
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.docker-client == 'true'
     runs-on: ubuntu-latest
     name: Docker smoke test (astro-client)
 
