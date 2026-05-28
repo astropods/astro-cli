@@ -298,13 +298,15 @@ export function AutoFilledBadge({
   )
   if (onClick) {
     return (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="xs"
         onClick={onClick}
-        className={cn(className, 'hover:text-muted-foreground')}
+        className={cn(className, 'h-auto min-h-0 p-0 font-normal hover:bg-transparent hover:text-muted-foreground')}
       >
         {content}
-      </button>
+      </Button>
     )
   }
   return <span className={cn(className, 'pointer-events-none')}>{content}</span>

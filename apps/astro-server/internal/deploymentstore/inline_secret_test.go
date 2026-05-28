@@ -59,3 +59,21 @@ func TestPlaintextValue_Encrypted(t *testing.T) {
 		t.Fatalf("got %q, %v", val, ok)
 	}
 }
+
+func TestPlaintextValue_EncryptedNoDecryptor(t *testing.T) {
+	enc, err := envelope.NewTestEncryptor(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, nonce, err := enc.Encrypt([]byte("top-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	val, ok := PlaintextValue(nil, Variable{
+		Value: base64.StdEncoding.EncodeToString(ciphertext),
+		Nonce: nonce,
+	})
+	if ok || val != "" {
+		t.Fatalf("got %q, %v; want empty with ok=false", val, ok)
+	}
+}

@@ -33,7 +33,10 @@ func PlaintextValue(dec *envelope.Decryptor, v Variable) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	if dec != nil && len(v.Nonce) > 0 {
+	if len(v.Nonce) > 0 {
+		if dec == nil {
+			return "", false
+		}
 		plaintext, decErr := dec.Decrypt(raw, v.Nonce)
 		if decErr != nil {
 			return "", false
