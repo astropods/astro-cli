@@ -498,3 +498,8 @@ export interface UpdateClusterResponse {
 export interface CheckClusterHealthResponse {
   cluster: RegisteredCluster;
 }
+
+export interface InvalidateCachesResponse {
+  accounts_busted: number;
+  deployments_busted: number;
+}

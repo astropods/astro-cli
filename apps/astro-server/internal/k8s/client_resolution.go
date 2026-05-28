@@ -51,11 +51,11 @@ func IsPermanentClientResolutionError(err error) bool {
 }
 
 const (
-	publicHealthDetailConnect      = "unable to connect to cluster"
-	publicHealthDetailAuth         = "unable to authenticate to cluster"
+	publicHealthDetailConnect       = "unable to connect to cluster"
+	publicHealthDetailAuth          = "unable to authenticate to cluster"
 	publicHealthDetailNotRegistered = "cluster is not registered"
-	publicHealthDetailDisabled     = "cluster is disabled"
-	publicHealthDetailFailed       = "cluster health check failed"
+	publicHealthDetailDisabled      = "cluster is disabled"
+	publicHealthDetailFailed        = "cluster health check failed"
 )
 
 // PublicClusterHealthDetail returns a safe, generic message for API consumers.

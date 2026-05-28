@@ -24,13 +24,13 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID    string           `json:"account_id"`
-	Name         string           `json:"name"`
-	Registry     string           `json:"registry"`
-	Visibility   string           `json:"visibility"`
-	Versions     []*AgentVersion  `json:"versions"`
+	AccountID  string          `json:"account_id"`
+	Name       string          `json:"name"`
+	Registry   string          `json:"registry"`
+	Visibility string          `json:"visibility"`
+	Versions   []*AgentVersion `json:"versions"`
 	// VersionCount is set by list queries (total builds); use instead of len(Versions) when only the latest version is loaded.
-	VersionCount int `json:"-"`
+	VersionCount int              `json:"-"`
 	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
 	NameReserved bool             `json:"name_reserved"`
 	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
@@ -324,7 +324,6 @@ func (idx *Index) List() ([]*Agent, error) {
 	return agents, nil
 }
 
-
 // AgentNames returns the names of all non-archived agents for an account.
 func (idx *Index) AgentNames(accountID string) ([]string, error) {
 	rows, err := idx.db.Query(`
@@ -461,7 +460,6 @@ func (idx *Index) SetAvatarColors(accountID, name string, colorsJSON []byte) err
 	`, colorsJSON, accountID, name)
 	return err
 }
-
 
 // GetLatestVersion returns the most recently registered build for an agent
 func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error) {

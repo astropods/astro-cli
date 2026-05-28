@@ -7,6 +7,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -21,7 +24,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -91,6 +94,25 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Transfer mutates `source_account_id` on every cross-account
+		// deployment of this agent. Bust each affected account's deploy cache
+		// so the new lineage (and any latest_build_id changes that follow)
+		// shows up immediately.
+		//
+		// We explicitly bust the SOURCE account first: its cached payload
+		// still describes the agent's pre-transfer lineage, and legacy rows
+		// with `source_account_id IS NULL` (pre-migration) wouldn't be
+		// caught by the lineage lookup below (that query only matches by
+		// the NEW target). The target-lineage scan picks up everyone else,
+		// including the source if it owns any post-transfer rows.
+		_ = deploycache.Invalidate(c.Request.Context(), cache, sourceAcct.ID)
+		if affected := deploycache.InvalidateForLineage(c.Request.Context(), cache, deployStore, targetAcct.ID, agentName); len(affected) > 0 {
+			log.Info("Transfer: invalidated deploy cache for downstream consumers",
+				"agent", agentName,
+				"affected_accounts", len(affected),
+			)
 		}
 
 		// Move avatar in storage if the agent has one

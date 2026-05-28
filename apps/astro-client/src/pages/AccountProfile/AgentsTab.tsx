@@ -1,7 +1,5 @@
 import type { AgentDeployment } from "@/lib/api";
-import { DeployedAgentCard } from "@/components/DeployedAgentCard";
-import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
-import { deploymentPath } from "@/lib/routes";
+import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { useDeploymentSummaryMaps } from "@/components/dashboard/useDeploymentSummaryMaps";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
 
@@ -23,8 +21,7 @@ interface AgentsTabProps {
 }
 
 export function AgentsTab({ deployments, accountName, search, onSearchChange, sort, onSortChange, isLoading }: AgentsTabProps) {
-  const { requestCounts, lastActiveTimes } = useDeploymentSummaryMaps(accountName, deployments);
-
+  const { requestSeries, tokenSeries } = useDeploymentSummaryMaps(accountName, deployments);
   const hasFilters = search.trim() !== "" || sort !== "modified";
   const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Last modified";
 
@@ -47,20 +44,14 @@ export function AgentsTab({ deployments, accountName, search, onSearchChange, so
           {hasFilters ? "No agents match your search." : "No agents deployed yet."}
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3">
+        <div className="@container grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
           {deployments.map((d) => (
-            <DeployedAgentCard
+            <DeploymentAgentCard
               key={d.id}
-              name={d.name}
-              displayName={d.display_name}
-              deploymentId={d.id}
+              deployment={d}
               account={accountName}
-              href={deploymentPath(accountName, d.id)}
-              status={mapDeploymentStatus(d)}
-              requests={requestCounts.get(d.id) ?? 0}
-              lastActive={lastActiveTimes.get(d.id) ?? "—"}
-              installedAt={formatDate(d.created_at)}
-              updatedAt={formatDate(d.updated_at || d.created_at)}
+              requestSeries={requestSeries.get(d.id)}
+              tokenSeries={tokenSeries.get(d.id)}
             />
           ))}
         </div>

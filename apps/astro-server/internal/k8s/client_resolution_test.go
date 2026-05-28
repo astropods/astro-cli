@@ -13,9 +13,9 @@ type stubAPIError struct {
 	message string
 }
 
-func (e stubAPIError) Error() string   { return e.message }
-func (e stubAPIError) ErrorCode() string { return e.code }
-func (e stubAPIError) ErrorMessage() string { return e.message }
+func (e stubAPIError) Error() string                 { return e.message }
+func (e stubAPIError) ErrorCode() string             { return e.code }
+func (e stubAPIError) ErrorMessage() string          { return e.message }
 func (e stubAPIError) ErrorFault() smithy.ErrorFault { return smithy.FaultUnknown }
 
 func TestIsPermanentClientResolutionError(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
@@ -24,6 +25,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/identitygen"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -614,7 +616,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
 // If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -755,6 +757,17 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Publishing a new build shifts `latest_build_id` for every downstream
+		// deployment whose lineage points at this agent. Bust their per-account
+		// deploy caches so the "Update available" pill shows up immediately
+		// instead of waiting for SafetyTTL.
+		if affected := deploycache.InvalidateForLineage(c.Request.Context(), cache, deployStore, accountID, agentName); len(affected) > 0 {
+			log.Info("Publish: invalidated deploy cache for downstream consumers",
+				"agent", agentName,
+				"affected_accounts", len(affected),
+			)
 		}
 
 		// Emit agent_build metering event and updated agent count (fire-and-forget)

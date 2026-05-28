@@ -28,14 +28,15 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
   await expect(page.getByText("Slack Overlap Bot")).not.toBeVisible();
 });
 
-test("active agent card links to monitor tab", async ({ page }) => {
+test("active agent card links to deployment detail", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
 
-  const card = page.locator("a").filter({ hasText: "Slack Full Bot" }).first();
-  const href = await card.getAttribute("href");
+  const card = page.locator("[data-deployment-id]").filter({ hasText: "Slack Full Bot" }).first();
+  const manageLink = card.locator('a[href*="/agents/"]').first();
+  const href = await manageLink.getAttribute("href");
   expect(href).toContain("/agents/");
 });
 

@@ -191,9 +191,9 @@ type DeploymentConfig struct {
 	KnowledgeDomain string // KNOWLEDGE_DOMAIN
 	// KnowledgeAllowManagedCreate enables POST /api/v1/accounts/:account/knowledge (platform-provisioned stores).
 	// When false (default), only POST .../knowledge/connect is accepted.
-	KnowledgeAllowManagedCreate bool // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
-	IngestionACMCertARN   string // ACM certificate ARN for ingestion wildcard cert
-	IngestionALBGroupName string // ALB group name for ingestion ALB (separate from agents)
+	KnowledgeAllowManagedCreate bool   // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
+	IngestionACMCertARN         string // ACM certificate ARN for ingestion wildcard cert
+	IngestionALBGroupName       string // ALB group name for ingestion ALB (separate from agents)
 	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// KMS envelope encryption for deployment secrets

@@ -417,6 +417,42 @@ type DeploymentWithAccount struct {
 }
 
 // ListAllActive returns all active deployments across all accounts, joined with account names.
+// ListAccountIDsWithLineageAgent returns the distinct owning account IDs for
+// every non-undeployed deployment whose lineage matches the given
+// (lineageAccountID, agentName) tuple. Lineage = source_account_id when set,
+// else account_id (pre-migration legacy rows).
+//
+// Used by the publish path to bust the per-account deploy cache for every
+// downstream consumer when a new build of an agent ships: without this, those
+// accounts' agents pages would not surface the "update available" pill until
+// SafetyTTL expires.
+func (s *Store) ListAccountIDsWithLineageAgent(lineageAccountID, agentName string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT account_id
+		FROM deployments
+		WHERE agent_name = $2
+		  AND status <> 'undeployed'
+		  AND (source_account_id = $1 OR (source_account_id IS NULL AND account_id = $1))
+	`, lineageAccountID, agentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query accounts with lineage agent: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan account id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating account ids: %w", err)
+	}
+	return ids, nil
+}
+
 func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	rows, err := s.db.Query(`
 		SELECT d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id, d.namespace, d.display_name,

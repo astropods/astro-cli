@@ -111,6 +111,7 @@ func newClusterTestServer(t *testing.T) (*Server, sqlmock.Sqlmock) {
 		nil,
 		store,
 		reg,
+		nil,
 	)
 	return srv, mock
 }

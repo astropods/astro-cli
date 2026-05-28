@@ -263,9 +263,9 @@ func GetWorkloadMetrics(
 // straight from the K8s spec (rather than from Prometheus): which PVCs the
 // pod mounts plus the aggregated CPU/memory limits the scheduler enforces.
 type podMetricsInfo struct {
-	pvcs           []string
-	cpuLimitCores  float64
-	memLimitBytes  int64
+	pvcs          []string
+	cpuLimitCores float64
+	memLimitBytes int64
 }
 
 // podClusterInfo fetches the pod from the tenant cluster and returns both

@@ -1,6 +1,5 @@
 import { StatusBadge, type StatusBadgeColor } from '@/components/StatusBadge';
-import type { DeployedAgentStatus } from '@/components/DeployedAgentCard';
-import { deploymentStatusLabel } from '@/lib/deployment-utils';
+import { deploymentStatusLabel, type DeployedAgentStatus } from '@/lib/deployment-utils';
 import {
   Tooltip,
   TooltipContent,

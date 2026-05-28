@@ -20,7 +20,7 @@ func TestNewGitHubBuildWorker_WiresOMClientAndDB(t *testing.T) {
 	defer db.Close()
 
 	omClient := openmeter.NewClient("http://localhost:9999")
-	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, logger.New("error", "json"), omClient, db)
+	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, logger.New("error", "json"), omClient, db, nil, nil)
 
 	if w.omClient != omClient {
 		t.Error("omClient not stored on worker")
@@ -34,7 +34,7 @@ func TestNewGitHubBuildWorker_NilOMClient(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	defer db.Close()
 
-	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, logger.New("error", "json"), nil, db)
+	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, logger.New("error", "json"), nil, db, nil, nil)
 	if w.omClient != nil {
 		t.Error("expected nil omClient")
 	}
@@ -56,7 +56,7 @@ func TestEmitFunctions_NilClientIsNoOp(t *testing.T) {
 	defer db.Close()
 
 	log := logger.New("error", "json")
-	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, log, nil, db)
+	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, log, nil, db, nil, nil)
 
 	ctx := context.Background()
 	var wg sync.WaitGroup
@@ -107,7 +107,7 @@ func TestEmitFunctions_SendsBothEventsWithCorrectSubject(t *testing.T) {
 
 	omClient := openmeter.NewClient(srv.URL)
 	log := logger.New("error", "json")
-	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, log, omClient, db)
+	w := NewGitHubBuildWorker(nil, nil, nil, nil, nil, log, omClient, db, nil, nil)
 
 	ctx := context.Background()
 	openmeter.EmitAgentBuild(ctx, w.omClient, w.log, "acct-1", "my-agent")

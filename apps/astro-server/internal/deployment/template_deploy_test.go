@@ -194,4 +194,3 @@ func TestTemplateDeploy_AnthropicModel_MissingCredential(t *testing.T) {
 		t.Fatal("expected validation error for missing ANTHROPIC_API_KEY")
 	}
 }
-

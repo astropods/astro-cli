@@ -14,11 +14,13 @@ type taggedClusterClient struct {
 	tag string
 }
 
-func (c *taggedClusterClient) Clientset() *kubernetes.Clientset      { return nil }
-func (c *taggedClusterClient) Config() *rest.Config                  { return nil }
-func (c *taggedClusterClient) CheckHealth() error                    { return nil }
-func (c *taggedClusterClient) GetServerVersion() (string, error)     { return c.tag, nil }
-func (c *taggedClusterClient) DiagnoseConnection() map[string]string { return map[string]string{"tag": c.tag} }
+func (c *taggedClusterClient) Clientset() *kubernetes.Clientset  { return nil }
+func (c *taggedClusterClient) Config() *rest.Config              { return nil }
+func (c *taggedClusterClient) CheckHealth() error                { return nil }
+func (c *taggedClusterClient) GetServerVersion() (string, error) { return c.tag, nil }
+func (c *taggedClusterClient) DiagnoseConnection() map[string]string {
+	return map[string]string{"tag": c.tag}
+}
 
 func TestDeploymentClusterClient_PrimaryWhenClusterIDEmpty(t *testing.T) {
 	primary := &taggedClusterClient{tag: "primary"}

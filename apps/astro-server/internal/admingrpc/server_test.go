@@ -106,7 +106,7 @@ func TestProxyOpenMeter(t *testing.T) {
 				omURL = tt.omURL
 			}
 
-			srv := New(nil, nil, nil, nil, nil, omURL, "", nil, "", "", nil, nil, nil)
+			srv := New(nil, nil, nil, nil, nil, omURL, "", nil, "", "", nil, nil, nil, nil)
 			resp, err := srv.ProxyOpenMeter(context.Background(), tt.req)
 
 			if tt.wantErr {
@@ -170,7 +170,7 @@ func TestGetPodLogs_LokiPath(t *testing.T) {
 
 	deployStore := deploymentstore.NewStore(db)
 	lokiClient := loki.New(lokiSrv.URL)
-	srv := New(nil, deployStore, nil, lokiClient, nil, "", "", nil, "", "", nil, nil, nil)
+	srv := New(nil, deployStore, nil, lokiClient, nil, "", "", nil, "", "", nil, nil, nil, nil)
 
 	resp, err := srv.GetPodLogs(context.Background(), &adminv1.GetPodLogsRequest{
 		DeploymentId: "dep-1",
@@ -184,7 +184,7 @@ func TestGetPodLogs_LokiPath(t *testing.T) {
 }
 
 func TestGetPodLogs_MissingDeploymentID(t *testing.T) {
-	srv := New(nil, nil, nil, nil, nil, "", "", nil, "", "", nil, nil, nil)
+	srv := New(nil, nil, nil, nil, nil, "", "", nil, "", "", nil, nil, nil, nil)
 	_, err := srv.GetPodLogs(context.Background(), &adminv1.GetPodLogsRequest{})
 	if err == nil {
 		t.Fatal("expected error for missing deployment_id, got nil")
@@ -197,7 +197,7 @@ func TestGetPodLogs_NoBackendConfigured(t *testing.T) {
 	mock.ExpectQuery(`SELECT`).WillReturnRows(deploymentRow("dep-1", "acct-1", "astro-abc-0"))
 
 	deployStore := deploymentstore.NewStore(db)
-	srv := New(nil, deployStore, nil, nil, nil, "", "", nil, "", "", nil, nil, nil)
+	srv := New(nil, deployStore, nil, nil, nil, "", "", nil, "", "", nil, nil, nil, nil)
 
 	_, err := srv.GetPodLogs(context.Background(), &adminv1.GetPodLogsRequest{
 		DeploymentId: "dep-1",
@@ -215,7 +215,7 @@ func TestGetPodLogs_K8sFallback_PodRequired(t *testing.T) {
 
 	deployStore := deploymentstore.NewStore(db)
 	// k8sClient is nil but lokiClient is also nil — pod should be required
-	srv := New(nil, deployStore, nil, nil, nil, "", "", nil, "", "", nil, nil, nil)
+	srv := New(nil, deployStore, nil, nil, nil, "", "", nil, "", "", nil, nil, nil, nil)
 
 	_, err := srv.GetPodLogs(context.Background(), &adminv1.GetPodLogsRequest{
 		DeploymentId: "dep-1",

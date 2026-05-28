@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+
+	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
 // periodicJobs returns the periodic job definitions for the River client.
@@ -126,6 +128,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			return AccountPurgeArgs{}, &river.InsertOpts{
 				UniqueOpts: river.UniqueOpts{
 					ByPeriod: 1 * time.Hour,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
+	// Refresh the observability summary cache on the same interval the
+	// frontend's TTL admits. RunOnStart so a fresh server populates the
+	// cache immediately rather than waiting RefreshInterval for the first
+	// page-load to have data.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(obssummary.RefreshInterval),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return ObsSummaryRefreshArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: obssummary.RefreshInterval,
 				},
 			}
 		},

@@ -20,7 +20,7 @@ test("my agents card shows new build badge for out-of-date deployment", async ({
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const staleCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  const staleCard = page.locator(`[data-deployment-id="${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });
   await expect(staleCard.getByText("Update available", { exact: true })).toBeVisible();
 });
@@ -35,7 +35,7 @@ test("cross-account deployment shows update badge from source account blueprint"
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const upgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_UPGRADE_ID}"]`);
+  const upgradeCard = page.locator(`[data-deployment-id="${DEPLOYMENT_XACCT_UPGRADE_ID}"]`);
   await expect(upgradeCard).toBeVisible({ timeout: 20_000 });
   await expect(upgradeCard.getByText("Update available", { exact: true })).toBeVisible();
 });
@@ -55,8 +55,8 @@ test("cross-account collision deployment does not show update badge from persona
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const collisionCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_COLLISION_ID}"]`);
-  const validUpgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  const collisionCard = page.locator(`[data-deployment-id="${DEPLOYMENT_XACCT_COLLISION_ID}"]`);
+  const validUpgradeCard = page.locator(`[data-deployment-id="${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(collisionCard).toBeVisible({ timeout: 20_000 });
   await expect(validUpgradeCard.getByText("Update available", { exact: true })).toBeVisible();
 
@@ -98,8 +98,8 @@ test("cross-account private deployment does not show update badge from private s
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const privateCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_XACCT_PRIVATE_ID}"]`);
-  const validUpgradeCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  const privateCard = page.locator(`[data-deployment-id="${DEPLOYMENT_XACCT_PRIVATE_ID}"]`);
+  const validUpgradeCard = page.locator(`[data-deployment-id="${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(privateCard).toBeVisible({ timeout: 20_000 });
   await expect(validUpgradeCard.getByText("Update available", { exact: true })).toBeVisible();
 

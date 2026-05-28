@@ -1,11 +1,8 @@
-import { useMemo } from "react";
-import { DeployedAgentCard } from "@/components/DeployedAgentCard";
+import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
 import { useDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
-import { deploymentPath } from "@/lib/routes";
-import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
 // Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
@@ -14,62 +11,15 @@ import type { AgentDeployment } from "@/lib/api";
 // the loader's cache-primed deployments, so there's nothing to skeleton.
 export function AgentCardSkeleton() {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border bg-background px-4 pb-[22px] pt-3 animate-pulse">
-      <div className="flex items-center gap-3">
-        <div className="h-9 w-9 shrink-0 rounded-sm bg-muted" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 w-28 rounded bg-muted" />
-          <div className="h-3 w-16 rounded bg-muted" />
-        </div>
+    <div className="flex flex-col items-center gap-4 rounded-md border border-border bg-card p-4 pt-8 animate-pulse">
+      <div className="h-16 w-16 rounded-md bg-muted" />
+      <div className="flex flex-col items-center gap-1.5">
+        <div className="h-5 w-32 rounded bg-muted" />
+        <div className="h-3 w-24 rounded bg-muted" />
       </div>
-      <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="space-y-1">
-            <div className="h-3 w-14 rounded bg-muted" />
-            <div className="h-3 w-10 rounded bg-muted" />
-          </div>
-        ))}
-      </div>
+      <div className="h-12 w-full" />
+      <div className="h-10 w-full rounded bg-muted" />
     </div>
-  );
-}
-
-function AgentCard({
-  deployment,
-  account,
-  hasNewBuildAvailable,
-  latestBuildId,
-  requests,
-  lastActive,
-}: {
-  deployment: AgentDeployment;
-  account: string;
-  hasNewBuildAvailable: boolean;
-  latestBuildId?: string;
-  requests?: number;
-  lastActive?: string;
-}) {
-  const status = mapDeploymentStatus(deployment);
-  const detailHref = `${deploymentPath(account, deployment.id)}?tab=${status === "active" ? "monitor" : "deployments"}`;
-
-  return (
-    <DeployedAgentCard
-      name={deployment.name}
-      displayName={deployment.display_name}
-      deploymentId={deployment.id}
-      account={account}
-      href={detailHref}
-      status={status}
-      requests={requests ?? 0}
-      lastActive={lastActive ?? "—"}
-      installedAt={deployment.created_at}
-      updatedAt={deployment.updated_at || deployment.created_at}
-      hasNewBuildAvailable={hasNewBuildAvailable}
-      latestBuildId={latestBuildId}
-      currentBuildId={deployment.build_id}
-      errorMessage={deployment.error_message}
-      avatarColors={deployment.avatar_colors}
-    />
   );
 }
 
@@ -86,23 +36,13 @@ export function DeployedAgentsSection({
   isLoading,
   skeletonDeploymentId,
 }: DeployedAgentsSectionProps) {
-  const { requestCounts, lastActiveTimes } = useDeploymentSummaryMaps(account, deployments);
+  const { requestCounts, requestSeries, tokenSeries } = useDeploymentSummaryMaps(
+    account,
+    deployments,
+  );
 
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
-
-  // The list endpoint computes latest_build_id at request time via a single
-  // batch query against agent_versions (see populateLatestBuildIDs in
-  // apps/astro-server/handlers/deploy.go). The server is the single source of
-  // truth for the upgrade signal — the dashboard never needs to fan out
-  // per-account blueprint queries to derive it.
-  const deploymentsWithNewBuild = useMemo(() => {
-    return new Set(
-      deployments.flatMap((d) =>
-        d.latest_build_id && d.latest_build_id !== d.build_id ? [d.id] : [],
-      ),
-    );
-  }, [deployments]);
 
   if (isEmpty) {
     return <DashboardAgentsEmptyState />;
@@ -122,20 +62,18 @@ export function DeployedAgentsSection({
         </div>
       )}
       {filtered.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[800px]:grid-cols-3 @[1100px]:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
           {filtered.map((deployment) => {
             if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
               return <AgentCardSkeleton key={deployment.id} />;
             }
             return (
-              <AgentCard
+              <DeploymentAgentCard
                 key={deployment.id}
                 deployment={deployment}
                 account={account}
-                hasNewBuildAvailable={deploymentsWithNewBuild.has(deployment.id)}
-                latestBuildId={deployment.latest_build_id}
-                requests={requestCounts.get(deployment.id) ?? 0}
-                lastActive={lastActiveTimes.get(deployment.id) ?? "—"}
+                requestSeries={requestSeries.get(deployment.id)}
+                tokenSeries={tokenSeries.get(deployment.id)}
               />
             );
           })}

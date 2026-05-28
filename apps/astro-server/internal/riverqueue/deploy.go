@@ -8,6 +8,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -87,6 +88,8 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, applyErr.Error(), errDetails); err != nil {
 			w.log.Warn("Failed to mark deployment as failed", "error", err, "deployment_id", dep.ID)
 		}
+		// Status change → deploy cache for the account is stale.
+		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 		return fmt.Errorf("deploy failed: %w", applyErr)
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
@@ -100,6 +103,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "partial failure", errJSON); err != nil {
 			w.log.Warn("Failed to mark deployment as partially failed", "error", err, "deployment_id", dep.ID)
 		}
+		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 		return nil // no retry — user needs to fix the spec
 	}
 
@@ -118,6 +122,9 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
 		return fmt.Errorf("set active: %w", err)
 	}
+	// Active → external_urls / messaging_available are now populated;
+	// invalidate so the agents page picks up the Launch button.
+	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 
 	// Start event-driven compute billing for all workloads in this deployment.
 	if w.billing != nil {

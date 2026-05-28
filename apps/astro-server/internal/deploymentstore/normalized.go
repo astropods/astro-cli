@@ -1107,9 +1107,9 @@ type AgentProvisioning struct {
 // heartbeat, openmeter, and admin gRPC already read deployment state.
 func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, error) {
 	var (
-		cpuReq, memReq, cpuLim, memLim                sql.NullString
-		mountPath, size, accessMode                   sql.NullString
-		storageClass                                  sql.NullString
+		cpuReq, memReq, cpuLim, memLim sql.NullString
+		mountPath, size, accessMode    sql.NullString
+		storageClass                   sql.NullString
 	)
 	err := s.db.QueryRow(`
 		SELECT w.cpu_request, w.memory_request, w.cpu_limit, w.memory_limit,

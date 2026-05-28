@@ -23,6 +23,7 @@ import type {
   UpdateClusterRequest,
   UpdateClusterResponse,
   CheckClusterHealthResponse,
+  InvalidateCachesResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -105,6 +106,27 @@ export function useSetAccountCluster() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
     },
+  });
+}
+
+// Manual escape hatch — busts the per-account agents-page caches (deploy
+// envelope + per-deployment obs summary) without waiting for SafetyTTL.
+export function useInvalidateAccountCaches() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<InvalidateCachesResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/invalidate-cache`,
+        {},
+      ),
+  });
+}
+
+// Failsafe — busts the agents-page caches across every account. Expensive
+// at large scale; intended for incident response, not routine use.
+export function useInvalidateAllCaches() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<InvalidateCachesResponse>("/api/admin/invalidate-cache", {}),
   });
 }
 

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Github, Loader2, SquareTerminal } from "lucide-react";
-import { formatRelativeTime, mapDeploymentStatus } from "@/lib/deployment-utils";
-import type { DeployedAgentStatus } from "@/components/DeployedAgentCard";
+import { formatRelativeTime, mapDeploymentStatus, type DeployedAgentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
 type StatusColor = { bg: string; border: string; badgeBg: string; badgeText: string };

@@ -55,6 +55,8 @@ type AdminServiceClient interface {
 	SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
+	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
+	InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 }
 
 type adminServiceClient struct {
@@ -401,6 +403,22 @@ func (c *adminServiceClient) CheckClusterHealth(ctx context.Context, in *CheckCl
 	return out, nil
 }
 
+func (c *adminServiceClient) InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error) {
+	out := new(InvalidateCachesResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/InvalidateAccountCaches", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error) {
+	out := new(InvalidateCachesResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/InvalidateAllCaches", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -446,6 +464,8 @@ type AdminServiceServer interface {
 	SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
+	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
+	InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -618,6 +638,14 @@ func (UnimplementedAdminServiceServer) UpdateCluster(context.Context, *UpdateClu
 
 func (UnimplementedAdminServiceServer) CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckClusterHealth not implemented")
+}
+
+func (UnimplementedAdminServiceServer) InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InvalidateAccountCaches not implemented")
+}
+
+func (UnimplementedAdminServiceServer) InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InvalidateAllCaches not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1262,6 +1290,36 @@ func _AdminService_CheckClusterHealth_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_InvalidateAccountCaches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InvalidateAccountCachesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).InvalidateAccountCaches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/InvalidateAccountCaches"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).InvalidateAccountCaches(ctx, req.(*InvalidateAccountCachesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_InvalidateAllCaches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InvalidateAllCachesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).InvalidateAllCaches(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/InvalidateAllCaches"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).InvalidateAllCaches(ctx, req.(*InvalidateAllCachesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1309,6 +1367,8 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "SetAccountCluster", Handler: _AdminService_SetAccountCluster_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
+		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},
+		{MethodName: "InvalidateAllCaches", Handler: _AdminService_InvalidateAllCaches_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

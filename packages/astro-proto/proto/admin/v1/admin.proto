@@ -39,6 +39,8 @@ service AdminService {
   rpc SetAccountCluster(SetAccountClusterRequest) returns (SetAccountClusterResponse);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
+  rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
+  rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
 }
 
 message ListDeploymentsRequest {
@@ -527,4 +529,15 @@ message CheckClusterHealthRequest {
 
 message CheckClusterHealthResponse {
   RegisteredCluster cluster = 1;
+}
+
+message InvalidateAccountCachesRequest {
+  string account_id = 1;
+}
+
+message InvalidateAllCachesRequest {}
+
+message InvalidateCachesResponse {
+  int32 accounts_busted = 1;
+  int32 deployments_busted = 2;
 }

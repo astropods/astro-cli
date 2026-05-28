@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
@@ -90,6 +91,16 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "MessageCountSyncWorker", "period", "5m")
 
+	river.AddWorker(workers, &ObsSummaryRefreshWorker{
+		cfg:             cfg.ServerConfig,
+		db:              cfg.DB,
+		cache:           cfg.K8sCache,
+		deploymentStore: store,
+		langfuseStore:   langfuse.NewStore(cfg.DB),
+		log:             log,
+	})
+	log.Info("river: registered worker", "worker", "ObsSummaryRefreshWorker", "period", obssummary.RefreshInterval.String())
+
 	river.AddWorker(workers, &AvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
 		db:          cfg.DB,
@@ -140,6 +151,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		dynClient: dynClient,
 		log:       cfg.Logger,
 		billing:   billing,
+		cache:     cfg.K8sCache,
 		// queue is set after client creation in New()
 	}
 	river.AddWorker(workers, rw)
@@ -168,7 +180,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.OMClient, cfg.DB)
+		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.OMClient, cfg.DB, store, cfg.K8sCache)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}

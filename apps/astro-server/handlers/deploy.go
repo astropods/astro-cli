@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -170,7 +171,7 @@ func validateAgentDisplayName(name string) (string, error) {
 
 // UpdateDeploymentDisplayName returns a handler that updates only the display name
 // of a deployment without triggering a redeploy.
-func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -202,6 +203,7 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
 			return
 		}
+		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = "deployment.rename"
@@ -596,7 +598,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -838,6 +840,10 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
 		}
+		// Pre-empt the deploy worker's invalidation: the row is committed and
+		// the user may navigate to /agents before the worker picks up the job.
+		// Without this bust the cached list still reflects pre-deploy state.
+		_ = deploycache.Invalidate(c.Request.Context(), cache, dctx.acct.ID)
 
 		log.Info("Deployment queued",
 			"deployment_id", dctx.deploymentID,
@@ -1338,6 +1344,16 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			"user_id", user.ID,
 		)
 
+		// Read-through deploy cache. Write paths (deploy/undeploy/reconcile/
+		// avatar/display-name/publish) invalidate per account, so a hit here
+		// returns a payload that's accurate up to the most recent mutation.
+		// SafetyTTL bounds worst-case staleness if a future write site
+		// forgets to bust.
+		if cached, ok := deploycache.Get(c.Request.Context(), cache, acct.ID); ok {
+			c.Data(http.StatusOK, "application/json", cached)
+			return
+		}
+
 		if !k8sRegistryReady(k8sReg) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "kubernetes client not configured",
@@ -1440,10 +1456,23 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 
 		populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
 
-		c.JSON(http.StatusOK, gin.H{
+		// Marshal once, write to cache + response. Caching the full envelope
+		// (not just the deployments slice) lets the hit path do c.Data with
+		// zero re-marshal cost on subsequent loads.
+		body, marshalErr := json.Marshal(gin.H{
 			"deployments": allDeployments,
 			"count":       len(allDeployments),
 		})
+		if marshalErr != nil {
+			log.Error("Failed to marshal deployment list response", "error", marshalErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode deployments"})
+			return
+		}
+		if cerr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cerr != nil {
+			// Cache failure is non-fatal — next request just repopulates.
+			log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cerr)
+		}
+		c.Data(http.StatusOK, "application/json", body)
 	}
 }
 
@@ -4333,7 +4362,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // RollbackDeployment rolls back a deployment to a previous revision.
-func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
+func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -4385,6 +4414,10 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule rollback"})
 			return
 		}
+		// Status flipped to pending and the new revision is recorded — bust
+		// before the deploy worker picks up the job so the page reflects the
+		// rollback immediately.
+		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.DeploymentRollback

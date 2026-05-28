@@ -39,9 +39,20 @@ load_env() {
   local var="$1"
   if [ -z "${!var:-}" ] && [ -f apps/astro-server/.env ]; then
     local v
-    v=$(grep "^${var}=" apps/astro-server/.env | head -1 | cut -d= -f2- | tr -d "\"'" | tr -d '[:space:]')
-    [ -n "$v" ] && export "$var=$v"
+    # `|| true` is load-bearing: with pipefail set, a missing key makes grep
+    # exit 1 → the pipeline returns 1 → set -e kills the script before we
+    # ever check whether $v is empty. Swallow the pipeline failure here so
+    # missing-but-optional keys (e.g. OPENMETER_DEFAULT_PLAN) don't abort dev.
+    v=$(grep "^${var}=" apps/astro-server/.env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" | tr -d '[:space:]' || true)
+    if [ -n "$v" ]; then
+      export "$var=$v"
+    fi
   fi
+  # Return success explicitly: when an `.env` line is missing or empty, the
+  # short-circuit form above would propagate a non-zero status as the
+  # function's exit code, and `set -e` would kill the caller silently. The
+  # plan variable is genuinely optional (PLAN_KEY has a fallback below).
+  return 0
 }
 load_env DATABASE_URL
 load_env OPENMETER_URL

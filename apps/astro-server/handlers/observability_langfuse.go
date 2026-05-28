@@ -16,9 +16,11 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
@@ -1666,24 +1668,24 @@ func GetLangfuseSummary(
 	}
 }
 
-// GetLangfuseSummaries returns summary statistics for all active deployments in an account.
+// GetLangfuseSummaries returns summary statistics for all active deployments
+// in an account. Reads come from Redis only — the obs summary cache is
+// written periodically by ObsSummaryRefreshWorker (see internal/riverqueue)
+// so the agents page never waits on Langfuse during a request. Deployments
+// without a cache entry yet (brand-new, or refreshed-failed) are silently
+// omitted from the response; the frontend already handles missing summaries
+// by hiding the sparkline.
+//
 // GET /api/v1/accounts/:account/observability/deployment-summaries
 func GetLangfuseSummaries(
 	log *logger.Logger,
-	cfg *config.Config,
 	deploymentStore *deploymentstore.Store,
-	langfuseStore *langfuse.Store,
+	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
-			return
-		}
-
-		creds, err := langfuseStore.Get(acct.ID)
-		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, gin.H{"summaries": gin.H{}})
 			return
 		}
 
@@ -1694,53 +1696,46 @@ func GetLangfuseSummaries(
 			return
 		}
 
-		if len(deployments) == 0 {
+		if len(deployments) == 0 || cache == nil {
 			c.JSON(http.StatusOK, gin.H{"summaries": gin.H{}})
 			return
 		}
 
-		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
-		type entry struct {
-			id      string
-			summary gin.H
+		// Parallel Redis reads. The cache wrapper itself is small (one GET
+		// per call), so 10-way concurrency is plenty for typical accounts.
+		type result struct {
+			id    string
+			entry *obssummary.Entry
 		}
-		results := make([]entry, len(deployments))
-
+		results := make([]result, len(deployments))
 		var g errgroup.Group
 		g.SetLimit(10)
 		for i, dep := range deployments {
 			id := dep.ID
 			g.Go(func() error {
-				traces, err := client.GetTraces(ctx, id, "", "", 1, 0)
+				entry, _, err := obssummary.Get(c.Request.Context(), cache, id)
 				if err != nil {
-					log.Warn("Failed to get Langfuse traces for deployment summary", "deployment_id", id, "error", err)
+					log.Warn("Obs summary cache read", "deployment_id", id, "error", err)
 					return nil
 				}
-				var lastTraceAt string
-				if len(traces.Data) > 0 {
-					lastTraceAt = traces.Data[0].CreatedAt
+				if entry != nil {
+					results[i] = result{id: id, entry: entry}
 				}
-				results[i] = entry{id: id, summary: gin.H{
-					"total_traces":  traces.Meta.TotalItems,
-					"last_trace_at": lastTraceAt,
-				}}
 				return nil
 			})
 		}
 		_ = g.Wait()
 
-		if ctx.Err() != nil {
-			return
-		}
-
 		summaries := make(gin.H, len(deployments))
 		for _, r := range results {
-			if r.id != "" {
-				summaries[r.id] = r.summary
+			if r.id == "" || r.entry == nil {
+				continue
+			}
+			summaries[r.id] = gin.H{
+				"total_traces":   r.entry.TotalTraces,
+				"last_trace_at":  r.entry.LastTraceAt,
+				"request_series": r.entry.RequestSeries,
+				"token_series":   r.entry.TokenSeries,
 			}
 		}
 

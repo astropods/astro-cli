@@ -22,11 +22,13 @@ import (
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
@@ -48,6 +50,10 @@ type ReconcileWorker struct {
 	queue     *Queue
 	log       *logger.Logger
 	billing   *openmeter.BillingStateManager
+	// cache is the shared Redis-backed cache. Reconcile uses it to invalidate
+	// the per-account deploy cache when it writes a status change to the DB,
+	// so the agents page reflects pod crash / recovery on the next read.
+	cache k8scache.Cache
 }
 
 func (w *ReconcileWorker) clusterClient(ctx context.Context, dep *deploymentstore.Deployment) (k8s.ClusterClient, error) {
@@ -159,6 +165,7 @@ func (w *ReconcileWorker) escalatePodFailures(ctx context.Context) {
 					"error", err, "deployment_id", dep.ID)
 				continue
 			}
+			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 			w.log.Warn("Reconcile: escalated deployment to failed (pod failure)",
 				"deployment_id", dep.ID,
 				"namespace", dep.Namespace,
@@ -323,6 +330,8 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 				)
 				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
 					w.log.Warn("Failed to mark stale deployment as failed", "error", err, "deployment_id", dep.ID)
+				} else {
+					_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 				}
 			}
 		}
@@ -344,6 +353,8 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 				)
 				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
 					w.log.Warn("Failed to mark stale pending deployment as failed", "error", err, "deployment_id", dep.ID)
+				} else {
+					_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 				}
 			} else if stuckFor > 5*time.Minute {
 				w.log.Warn("Reconcile: deployment stuck in pending, re-enqueuing",
@@ -442,6 +453,7 @@ func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
 				w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
 				continue
 			}
+			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 			if insErr := w.queue.InsertDeployJob(ctx, dep.ID, dep.EffectiveClusterID()); insErr != nil {
 				w.log.Error("Reconcile OIDC: failed to enqueue deploy job", "deployment_id", dep.ID, "error", insErr)
 				continue

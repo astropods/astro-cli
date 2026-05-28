@@ -2,11 +2,11 @@ package auditlog
 
 // Action constants follow the pattern "<resource>.<verb>".
 const (
-	AccountCreate = "account.create"
+	AccountCreate     = "account.create"
 	AccountRename     = "account.rename"
 	AccountSetCluster = "account.set_cluster"
 	AccountDelete     = "account.delete"
-	ProfileUpdate = "profile.update"
+	ProfileUpdate     = "profile.update"
 
 	MemberAdd        = "member.add"
 	MemberUpdateRole = "member.update_role"
@@ -36,4 +36,7 @@ const (
 
 	QuotaApprove = "quota.approve"
 	QuotaDeny    = "quota.deny"
+
+	CacheInvalidateAccount = "cache.invalidate_account"
+	CacheInvalidateAll     = "cache.invalidate_all"
 )

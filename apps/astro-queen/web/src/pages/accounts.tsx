@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
-import { useAccounts, useClusters, useRenameAccount, useSetAccountCluster } from "@/api/admin";
+import {
+  useAccounts,
+  useClusters,
+  useRenameAccount,
+  useSetAccountCluster,
+  useInvalidateAccountCaches,
+  useInvalidateAllCaches,
+} from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pencil, Check, X, CircleCheck, CircleX, ChevronLeft, ChevronRight } from "lucide-react";
+import { Pencil, Check, X, CircleCheck, CircleX, ChevronLeft, ChevronRight, Trash2, AlertTriangle } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import type { AdminAccount } from "@/types/admin";
 
@@ -40,6 +47,11 @@ export function AccountsPage() {
   const { data: clustersData } = useClusters(true);
   const renameMut = useRenameAccount();
   const setClusterMut = useSetAccountCluster();
+  const invalidateAccountMut = useInvalidateAccountCaches();
+  const invalidateAllMut = useInvalidateAllCaches();
+  // Two-step confirm for the failsafe — first click arms, second click fires.
+  const [bustAllArmed, setBustAllArmed] = useState(false);
+  const [bustAllResult, setBustAllResult] = useState<string | null>(null);
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -64,9 +76,50 @@ export function AccountsPage() {
     setPage(0);
   };
 
+  const onInvalidateAccount = (id: string, name: string) => {
+    if (!window.confirm(`Invalidate agents-page caches for "${name}"?`)) return;
+    invalidateAccountMut.mutate(id);
+  };
+
+  const onBustAllClick = () => {
+    if (!bustAllArmed) {
+      setBustAllArmed(true);
+      // Disarm after a few seconds so a stray armed state can't sit forever.
+      window.setTimeout(() => setBustAllArmed(false), 5000);
+      return;
+    }
+    setBustAllArmed(false);
+    invalidateAllMut.mutate(undefined, {
+      onSuccess: (r) =>
+        setBustAllResult(`Busted ${r.accounts_busted} account(s), ${r.deployments_busted} deployment(s)`),
+      onError: (e) => setBustAllResult(`Failed: ${(e as Error).message}`),
+    });
+  };
+
   return (
     <div>
-      <h2 className="mb-4 text-xl font-semibold">Accounts</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Accounts</h2>
+        <div className="flex items-center gap-2">
+          {bustAllResult && (
+            <span className="text-xs text-muted-foreground">{bustAllResult}</span>
+          )}
+          <Button
+            variant={bustAllArmed ? "destructive" : "outline"}
+            size="sm"
+            onClick={onBustAllClick}
+            disabled={invalidateAllMut.isPending}
+            title="Failsafe — clears the agents-page cache (deploy envelope + obs summaries) for every account. Click twice within 5s to confirm."
+          >
+            <AlertTriangle className="size-3.5" />
+            {invalidateAllMut.isPending
+              ? "Busting…"
+              : bustAllArmed
+                ? "Click again to confirm"
+                : "Invalidate all caches"}
+          </Button>
+        </div>
+      </div>
 
       {/* Filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -223,13 +276,25 @@ export function AccountsPage() {
                       <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(a.created_at)}</td>
                       <td className="px-2 py-0.5">
                         {editing !== a.id && !isDeleted && (
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => { setEditing(a.id); setNewName(a.name); }}
-                          >
-                            <Pencil className="size-3" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => { setEditing(a.id); setNewName(a.name); }}
+                              title="Rename"
+                            >
+                              <Pencil className="size-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => onInvalidateAccount(a.id, a.name)}
+                              disabled={invalidateAccountMut.isPending}
+                              title="Invalidate agents-page caches for this account"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
                         )}
                       </td>
                     </tr>

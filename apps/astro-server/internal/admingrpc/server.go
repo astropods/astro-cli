@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
@@ -58,6 +59,7 @@ type Server struct {
 	workosClientID string
 	databaseURL    string
 	queue          *riverqueue.Queue
+	cache          k8scache.Cache
 
 	auditStore   *auditlog.Store
 	workosClient *auth.WorkOSClient
@@ -112,6 +114,7 @@ func New(
 	auditStore *auditlog.Store,
 	clusterStore *clusterstore.Store,
 	k8sRegistry *k8s.Registry,
+	cache k8scache.Cache,
 ) *Server {
 	return &Server{
 		log:                    log,
@@ -127,6 +130,7 @@ func New(
 		ingressDomain:          ingressDomain,
 		ingestionIngressDomain: ingestionIngressDomain,
 		auditStore:             auditStore,
+		cache:                  cache,
 	}
 }
 

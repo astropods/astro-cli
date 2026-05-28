@@ -145,6 +145,12 @@ func (m *mockAdminClient) UpdateCluster(context.Context, *adminv1.UpdateClusterR
 func (m *mockAdminClient) CheckClusterHealth(context.Context, *adminv1.CheckClusterHealthRequest, ...grpc.CallOption) (*adminv1.CheckClusterHealthResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) InvalidateAccountCaches(context.Context, *adminv1.InvalidateAccountCachesRequest, ...grpc.CallOption) (*adminv1.InvalidateCachesResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) InvalidateAllCaches(context.Context, *adminv1.InvalidateAllCachesRequest, ...grpc.CallOption) (*adminv1.InvalidateCachesResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

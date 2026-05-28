@@ -2569,7 +2569,7 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, preflighter, nil, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -3249,7 +3249,7 @@ func setupRollbackRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sq
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}, nil))
+	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -6214,7 +6214,7 @@ func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[s
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, db, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, clusterMock
 }

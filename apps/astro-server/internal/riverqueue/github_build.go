@@ -12,10 +12,13 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
@@ -64,10 +67,14 @@ type GitHubBuildWorker struct {
 	log         *logger.Logger
 	omClient    *openmeter.Client
 	db          *sql.DB
+	// deployStore + cache are used to fan out deploy-cache invalidations to
+	// downstream consumers once a new agent build is registered.
+	deployStore *deploymentstore.Store
+	cache       k8scache.Cache
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
-func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB) *GitHubBuildWorker {
+func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB, deployStore *deploymentstore.Store, cache k8scache.Cache) *GitHubBuildWorker {
 	var builder *githubbuild.Builder
 	if registry != nil {
 		builder = githubbuild.New(registry.Default(), cfg, log)
@@ -82,6 +89,8 @@ func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.S
 		log:         log,
 		omClient:    omClient,
 		db:          db,
+		deployStore: deployStore,
+		cache:       cache,
 	}
 }
 
@@ -228,6 +237,15 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		log.Error("failed to update build status to registered", "error", err, "record_id", args.BuildRecordID)
 	}
 	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
+
+	// Fan out deploy-cache invalidations to every downstream consumer: a new
+	// registered build shifts `latest_build_id` on the agents-page payload.
+	if affected := deploycache.InvalidateForLineage(ctx, w.cache, w.deployStore, conn.AccountID, agentName); len(affected) > 0 {
+		log.Info("GitHub build: invalidated deploy cache for downstream consumers",
+			"agent", agentName,
+			"affected_accounts", len(affected),
+		)
+	}
 
 	// Emit synchronously — Work() is already a long-running background job so
 	// blocking here is fine and keeps job completion atomic with metering.

@@ -800,3 +800,14 @@ type CheckClusterHealthRequest struct {
 type CheckClusterHealthResponse struct {
 	Cluster *RegisteredCluster `json:"cluster,omitempty"`
 }
+
+type InvalidateAccountCachesRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type InvalidateAllCachesRequest struct{}
+
+type InvalidateCachesResponse struct {
+	AccountsBusted    int32 `json:"accounts_busted,omitempty"`
+	DeploymentsBusted int32 `json:"deployments_busted,omitempty"`
+}

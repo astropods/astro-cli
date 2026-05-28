@@ -406,3 +406,24 @@ html.dark .sbdocs-preview {
 .card-entering-edit {
   animation: card-edit-entrance 0.5s ease both;
 }
+
+/* DeployedAgentCard starfield. Defined globally instead of inline in the
+   card SVG so we don't ship one copy of the keyframes per rendered card. */
+@keyframes card-star-drift {
+  from { transform: translateX(-240px); }
+  to   { transform: translateX(240px); }
+}
+@keyframes card-star-twinkle {
+  0%, 98.55%   { opacity: 0; }
+  98.6%, 99.8% { opacity: 0.45; }
+  99.85%, 100% { opacity: 0; }
+}
+/* Light mode: white stars on a light gradient need full opacity to read.
+   Dark mode: restore the per-star opacity stored in --star-o on each circle. */
+.card-v2-star { opacity: 1; }
+.dark .card-v2-star { opacity: var(--star-o); }
+/* Animations are born paused so the negative animation-delay doesn't snap
+   stars to a mid-cycle position on first paint. The card mounts the JS
+   hover effect, which flips each animation to running at playbackRate=0
+   and ramps from there. */
+.card-v2-star-anim { animation-play-state: paused; }

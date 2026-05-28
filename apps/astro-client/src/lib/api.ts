@@ -1746,6 +1746,11 @@ export interface ObservabilityMetricsResponse {
 export interface DeploymentSummaryEntry {
   total_traces: number;
   last_trace_at: string;
+  /** 30-day daily request counts, oldest → newest. Server pads days with no
+   *  activity to zero so consumers can rely on a fixed-length array. */
+  request_series?: number[];
+  /** 30-day daily token totals (input + output), oldest → newest. */
+  token_series?: number[];
 }
 
 export interface DeploymentSummariesResponse {

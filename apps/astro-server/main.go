@@ -475,7 +475,7 @@ func runAPI(
 	setupRoutes(router, deps)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg, k8sCache)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
@@ -1222,7 +1222,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore), "agents", "agent_builds"),
+					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1248,7 +1248,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore),
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Source account name"),
@@ -1279,7 +1279,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter, tmplCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -1302,7 +1302,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 			)
-			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore),
+			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1319,7 +1319,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore),
+			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1351,14 +1351,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 			if avatarStore != nil {
 				api.POST(protected, "/deployments/:id/avatar", "Upload deployment avatar",
-					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore),
+					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore, k8sCache),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("id", "Deployment ID"),
 					oapispec.Response(200, &handlers.AvatarResponse{}),
 				)
 				api.DELETE(protected, "/deployments/:id/avatar", "Reset deployment avatar",
-					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore),
+					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore, k8sCache),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("id", "Deployment ID"),
@@ -1517,7 +1517,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
 
-			api.GET(accountMember, "/observability/deployment-summaries", "Get bulk deployment observability summaries", handlers.GetLangfuseSummaries(log, cfg, deploymentStore, langfuseStore),
+			api.GET(accountMember, "/observability/deployment-summaries", "Get bulk deployment observability summaries", handlers.GetLangfuseSummaries(log, deploymentStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

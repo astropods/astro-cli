@@ -12,7 +12,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -279,7 +281,7 @@ func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index *
 }
 
 // UploadDeploymentAvatar handles POST /api/v1/deployments/:id/avatar
-func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
@@ -304,6 +306,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			func(j []byte) error { return deployStore.SetAvatarColors(dep.ID, j) },
 			"deployment", dep.ID,
 		)
+		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarUpload
@@ -321,7 +324,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 }
 
 // ResetDeploymentAvatar handles DELETE /api/v1/deployments/:id/avatar
-func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
@@ -337,6 +340,7 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 
 		// Clear colors — the backfill worker will re-copy from the blueprint and re-extract.
 		_ = deployStore.SetAvatarColors(dep.ID, nil)
+		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.AvatarReset

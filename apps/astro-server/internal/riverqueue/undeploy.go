@@ -8,6 +8,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -76,6 +77,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "undeploy failed: "+err.Error(), nil); sErr != nil {
 				w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
 			}
+			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 			return fmt.Errorf("teardown failed: %w", err)
 		}
 	}
@@ -92,6 +94,8 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	if err := w.store.MarkUndeployedByID(dep.ID); err != nil {
 		w.log.Warn("Failed to set undeployed_at", "error", err, "deployment_id", dep.ID)
 	}
+	// Undeploy → the deployment drops out of the visible list for this account.
+	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 
 	// Record billing stop — heartbeat emits the final CU-hours on its next tick.
 	if w.billing != nil {

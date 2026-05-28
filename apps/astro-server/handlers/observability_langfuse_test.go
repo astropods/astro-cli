@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -14,7 +13,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -695,168 +693,5 @@ func TestAccountDailyMetrics_NoTagsReturnsEmpty(t *testing.T) {
 	}
 	if len(out) != 0 || len(active) != 0 {
 		t.Errorf("expected empty results, got out=%d active=%d", len(out), len(active))
-	}
-}
-
-func TestGetLangfuseSummaries_NotConfigured(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	langfuseDB, langfuseMock, _ := sqlmock.New()
-	deploymentDB, deploymentMock, _ := sqlmock.New()
-
-	langfuseStore := langfuse.NewStore(langfuseDB)
-	deployStore := deploymentstore.NewStore(deploymentDB)
-	log := logger.New("error", "json")
-	cfg := &config.Config{}
-
-	_ = deploymentMock
-
-	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}))
-
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "myorg"})
-		c.Next()
-	})
-	router.GET("/api/v1/accounts/:account/observability/deployment-summaries",
-		GetLangfuseSummaries(log, cfg, deployStore, langfuseStore))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployment-summaries", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	summaries, ok := resp["summaries"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected summaries map, got %T", resp["summaries"])
-	}
-	if len(summaries) != 0 {
-		t.Errorf("expected empty summaries when langfuse not configured, got %d entries", len(summaries))
-	}
-}
-
-func TestGetLangfuseSummaries_NoDeployments(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	langfuseDB, langfuseMock, _ := sqlmock.New()
-	deploymentDB, deploymentMock, _ := sqlmock.New()
-
-	langfuseStore := langfuse.NewStore(langfuseDB)
-	deployStore := deploymentstore.NewStore(deploymentDB)
-	log := logger.New("error", "json")
-	cfg := &config.Config{}
-
-	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}).
-			AddRow("acct-1", "proj-1", "pk", "sk", nil, nil, time.Now()))
-
-	deploymentMock.ExpectQuery("SELECT .+ FROM deployments").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at"}))
-
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "myorg"})
-		c.Next()
-	})
-	router.GET("/api/v1/accounts/:account/observability/deployment-summaries",
-		GetLangfuseSummaries(log, cfg, deployStore, langfuseStore))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployment-summaries", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	summaries, ok := resp["summaries"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected summaries map, got %T", resp["summaries"])
-	}
-	if len(summaries) != 0 {
-		t.Errorf("expected empty summaries, got %d entries", len(summaries))
-	}
-}
-
-func TestGetLangfuseSummaries_WithDeployments(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	langfuseServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tag := r.URL.Query().Get("tags")
-		var depID string
-		fmt.Sscanf(tag, "deployment:%s", &depID)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"data":[{"id":"trace-1","createdAt":"2026-05-01T10:00:00Z","latency":0.1}],"meta":{"page":1,"limit":50,"totalItems":3,"totalPages":1}}`)
-	}))
-	defer langfuseServer.Close()
-
-	langfuseDB, langfuseMock, _ := sqlmock.New()
-	deploymentDB, deploymentMock, _ := sqlmock.New()
-
-	langfuseStore := langfuse.NewStore(langfuseDB)
-	deployStore := deploymentstore.NewStore(deploymentDB)
-	log := logger.New("error", "json")
-	cfg := &config.Config{}
-	cfg.Deployment.LangfuseBaseURL = langfuseServer.URL
-
-	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}).
-			AddRow("acct-1", "proj-1", "pk", "sk", nil, nil, time.Now()))
-
-	now := time.Now()
-	deploymentMock.ExpectQuery("SELECT .+ FROM deployments").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at"}).
-			AddRow("dep-abc", "acct-1", nil, "my-agent", "build-1", "ns-1", "My Agent", "{}", "active", now, nil))
-
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "myorg"})
-		c.Next()
-	})
-	router.GET("/api/v1/accounts/:account/observability/deployment-summaries",
-		GetLangfuseSummaries(log, cfg, deployStore, langfuseStore))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployment-summaries", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	summaries, ok := resp["summaries"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected summaries map, got %T", resp["summaries"])
-	}
-	entry, ok := summaries["dep-abc"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected entry for dep-abc, got %T", summaries["dep-abc"])
-	}
-	if entry["total_traces"] != float64(3) {
-		t.Errorf("total_traces = %v, want 3", entry["total_traces"])
-	}
-	if entry["last_trace_at"] != "2026-05-01T10:00:00Z" {
-		t.Errorf("last_trace_at = %v, want 2026-05-01T10:00:00Z", entry["last_trace_at"])
 	}
 }

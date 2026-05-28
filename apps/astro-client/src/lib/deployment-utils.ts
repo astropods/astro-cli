@@ -1,6 +1,18 @@
 import type { AgentDeployment } from "./api";
-import type { DeployedAgentStatus } from "../components/DeployedAgentCard";
 import type { StatusIndicatorVariant } from "../components/StatusIndicator";
+
+// Canonical status enum surfaced to UI. Mapped from the AgentDeployment row
+// (server-derived + DB fallbacks) by `mapDeploymentStatus` below. Status
+// indicators / badges import this directly rather than reaching into a card.
+export type DeployedAgentStatus =
+  | "active"
+  | "inactive"
+  | "deploying"
+  | "undeploying"
+  | "error"
+  | "restarting"
+  | "pausing"
+  | "resuming";
 
 export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicatorVariant> = {
   active: "success",

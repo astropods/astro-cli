@@ -1,14 +1,27 @@
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type StatusBadgeColor = 'success' | 'warning' | 'error' | 'muted';
+export type StatusBadgeColor = 'success' | 'warning' | 'error' | 'muted' | 'primary';
 
 const COLOR: Record<StatusBadgeColor, { bg: string; bdr: string; fg: string }> = {
   success: { bg: 'color-mix(in oklch, var(--success) 12%, transparent)', bdr: 'color-mix(in oklch, var(--success) 28%, transparent)', fg: 'var(--success)' },
   warning: { bg: 'color-mix(in oklch, var(--warning) 12%, transparent)', bdr: 'color-mix(in oklch, var(--warning) 28%, transparent)', fg: 'var(--warning)' },
   error:   { bg: 'color-mix(in oklch, var(--error) 12%, transparent)',   bdr: 'color-mix(in oklch, var(--error) 28%, transparent)',   fg: 'var(--error)'   },
   muted:   { bg: 'var(--muted)',                                                   bdr: 'var(--border)',                                                  fg: 'var(--muted-foreground)' },
+  // Primary uses CSS variables with fallbacks so consumers (or dark-mode
+  // utility classes on the badge itself) can brighten the text/bg without
+  // touching the global --primary token.
+  primary: {
+    bg: 'var(--sb-primary-bg, color-mix(in oklch, var(--primary) 12%, transparent))',
+    bdr: 'var(--sb-primary-bdr, color-mix(in oklch, var(--primary) 28%, transparent))',
+    fg: 'var(--sb-primary-fg, var(--primary))',
+  },
 };
+
+// Dark-mode override for the primary variant only: indigo-600/700 is hard to
+// read on the dark card surface, so swap text + tint to lighter indigos.
+const PRIMARY_DARK_OVERRIDES =
+  "dark:[--sb-primary-bg:color-mix(in_oklch,var(--color-indigo-400)_22%,transparent)] dark:[--sb-primary-bdr:color-mix(in_oklch,var(--color-indigo-400)_36%,transparent)] dark:[--sb-primary-fg:var(--color-indigo-300)]";
 
 export interface StatusBadgeProps {
   color: StatusBadgeColor;
@@ -23,7 +36,11 @@ export function StatusBadge({ color, indicator = false, spinning = false, outlin
   const s = COLOR[color];
   return (
     <span
-      className={cn("inline-flex items-center gap-[5px] px-[10px] py-1 rounded-full font-mono font-normal text-label tracking-[0.06em] border", className)}
+      className={cn(
+        "inline-flex items-center gap-[5px] px-[10px] py-1 rounded-full font-mono font-normal text-label tracking-[0.06em] border",
+        color === 'primary' && PRIMARY_DARK_OVERRIDES,
+        className,
+      )}
       style={{ background: outline ? 'transparent' : s.bg, borderColor: s.bdr, color: s.fg }}
     >
       {indicator && (
