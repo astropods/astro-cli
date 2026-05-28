@@ -2161,8 +2161,11 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	return result, nil
 }
 
-// listAstroDeploymentsLight fetches only Deployments and StatefulSets for a namespace,
-// skipping ingresses, pods, and jobs. Returns status, replicas, ready, and components.
+// listAstroDeploymentsLight fetches Deployments, StatefulSets, and Ingresses for
+// a namespace, skipping pods and jobs. Returns status, replicas, ready,
+// components, and external URLs. Ingresses are included so the agents-grid card
+// can render its Launch button from the cached payload without falling back to
+// the heavy detail-page fetch.
 func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, _ []string, _ *k8sListOpts) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
 	labelSelector := "app.kubernetes.io/managed-by=astro-server"
@@ -2175,6 +2178,38 @@ func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient,
 	statefulSetList, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
+	}
+
+	ingressList, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		// Non-fatal: a missing ingress list just means cards render without
+		// Launch until the next cache repopulate succeeds.
+		ingressList = nil
+	}
+
+	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agent:version"
+	if ingressList != nil {
+		for i := range ingressList.Items {
+			ing := &ingressList.Items[i]
+			agentKey := ing.Labels[deployment.LabelKeyAgent]
+			version := ing.Labels["app.kubernetes.io/version"]
+			component := ing.Labels["app.kubernetes.io/component"]
+			if agentKey == "" || len(ing.Spec.Rules) == 0 {
+				continue
+			}
+			for _, rule := range ing.Spec.Rules {
+				if rule.Host == "" {
+					continue
+				}
+				ep := ServiceEndpointInfo{
+					Name: component,
+					URL:  fmt.Sprintf("https://%s", rule.Host),
+					Type: component,
+				}
+				key := agentKey + ":" + version
+				agentExternalURLs[key] = append(agentExternalURLs[key], ep)
+			}
+		}
 	}
 
 	agentDeployments := make(map[string]*AgentDeployment)
@@ -2199,6 +2234,9 @@ func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient,
 				Ready:      dep.Status.ReadyReplicas,
 				CreatedAt:  dep.CreationTimestamp.Format(time.RFC3339),
 				Components: []string{},
+			}
+			if urls, ok := agentExternalURLs[key]; ok {
+				info.ExternalURLs = urls
 			}
 			agentDeployments[key] = info
 		}
@@ -2238,6 +2276,9 @@ func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient,
 				Ready:      sts.Status.ReadyReplicas,
 				CreatedAt:  sts.CreationTimestamp.Format(time.RFC3339),
 				Components: []string{},
+			}
+			if urls, ok := agentExternalURLs[key]; ok {
+				info.ExternalURLs = urls
 			}
 			agentDeployments[key] = info
 		}

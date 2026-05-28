@@ -739,7 +739,7 @@ func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
 	}
 }
 
-func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
+func TestListAstroDeploymentsLight_SkipsPodsJobs(t *testing.T) {
 	namespace := "astro-abc123def-0"
 	var calledPaths []string
 
@@ -754,6 +754,10 @@ func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
 			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
+		if strings.Contains(r.URL.Path, "/ingresses") {
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+			return
+		}
 		w.WriteHeader(http.StatusNotFound)
 	})
 
@@ -761,9 +765,88 @@ func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
 	_, _ = listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil, nil)
 
 	for _, p := range calledPaths {
-		if strings.Contains(p, "/pods") || strings.Contains(p, "/ingresses") || strings.Contains(p, "/jobs") {
+		if strings.Contains(p, "/pods") || strings.Contains(p, "/jobs") {
 			t.Errorf("light variant made unexpected K8s call: %s", p)
 		}
+	}
+}
+
+// Ingresses are fetched by the light variant so the agents-grid card can
+// render its Launch button from the cached list payload — without it,
+// `external_urls` is empty and the card falls back to "Manage agent".
+func TestListAstroDeploymentsLight_PopulatesMessagingURL(t *testing.T) {
+	namespace := "astro-abc123def-0"
+	agentName := "my-agent"
+	buildID := "build-1"
+	messagingHost := "my-agent.messaging.example.com"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+		if strings.Contains(path, "/deployments") {
+			fmt.Fprintf(w, `{
+				"kind":"DeploymentList","apiVersion":"apps/v1","items":[{
+					"metadata":{
+						"name":"agent","namespace":%q,
+						"creationTimestamp":"2026-03-12T21:08:24Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"agent"
+						}
+					},
+					"spec":{"replicas":1},
+					"status":{"replicas":1,"readyReplicas":1}
+				}]
+			}`, namespace, agentName, buildID)
+			return
+		}
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
+		if strings.Contains(path, "/ingresses") {
+			fmt.Fprintf(w, `{
+				"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[{
+					"metadata":{
+						"name":"messaging","namespace":%q,
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"messaging"
+						}
+					},
+					"spec":{"rules":[{"host":%q}]}
+				}]
+			}`, namespace, agentName, buildID, messagingHost)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	k8sClient := newMockK8sClient(handler)
+	deps, err := listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+	var messaging *ServiceEndpointInfo
+	for i := range deps[0].ExternalURLs {
+		if deps[0].ExternalURLs[i].Type == "messaging" {
+			messaging = &deps[0].ExternalURLs[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatalf("expected messaging endpoint in ExternalURLs, got %+v", deps[0].ExternalURLs)
+	}
+	want := "https://" + messagingHost
+	if messaging.URL != want {
+		t.Errorf("messaging URL = %q, want %q", messaging.URL, want)
 	}
 }
 
