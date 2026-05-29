@@ -64,27 +64,42 @@ const emptyIngress: IngressFields = {
   knowledge_domain: "",
 };
 
-function trimIngress(f: IngressFields): IngressFields {
+/** Primary cluster omits ingress fields in API JSON (env-sourced); coalesce before use. */
+function ingressFromCluster(cluster: Pick<RegisteredCluster, keyof IngressFields>): IngressFields {
   return {
-    agent_ingress_domain: f.agent_ingress_domain.trim(),
-    agent_acm_certificate_arn: f.agent_acm_certificate_arn.trim(),
-    agent_alb_group_name: f.agent_alb_group_name.trim(),
-    ingestion_ingress_domain: f.ingestion_ingress_domain.trim(),
-    ingestion_acm_certificate_arn: f.ingestion_acm_certificate_arn.trim(),
-    ingestion_alb_group_name: f.ingestion_alb_group_name.trim(),
-    knowledge_domain: f.knowledge_domain.trim(),
+    agent_ingress_domain: cluster.agent_ingress_domain ?? "",
+    agent_acm_certificate_arn: cluster.agent_acm_certificate_arn ?? "",
+    agent_alb_group_name: cluster.agent_alb_group_name ?? "",
+    ingestion_ingress_domain: cluster.ingestion_ingress_domain ?? "",
+    ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn ?? "",
+    ingestion_alb_group_name: cluster.ingestion_alb_group_name ?? "",
+    knowledge_domain: cluster.knowledge_domain ?? "",
+  };
+}
+
+function trimIngress(f: IngressFields): IngressFields {
+  const normalized = ingressFromCluster(f);
+  return {
+    agent_ingress_domain: normalized.agent_ingress_domain.trim(),
+    agent_acm_certificate_arn: normalized.agent_acm_certificate_arn.trim(),
+    agent_alb_group_name: normalized.agent_alb_group_name.trim(),
+    ingestion_ingress_domain: normalized.ingestion_ingress_domain.trim(),
+    ingestion_acm_certificate_arn: normalized.ingestion_acm_certificate_arn.trim(),
+    ingestion_alb_group_name: normalized.ingestion_alb_group_name.trim(),
+    knowledge_domain: normalized.knowledge_domain.trim(),
   };
 }
 
 function ingressComplete(f: IngressFields): boolean {
+  const normalized = ingressFromCluster(f);
   return (
-    f.agent_ingress_domain.trim() !== "" &&
-    f.agent_acm_certificate_arn.trim() !== "" &&
-    f.agent_alb_group_name.trim() !== "" &&
-    f.ingestion_ingress_domain.trim() !== "" &&
-    f.ingestion_acm_certificate_arn.trim() !== "" &&
-    f.ingestion_alb_group_name.trim() !== "" &&
-    f.knowledge_domain.trim() !== ""
+    normalized.agent_ingress_domain.trim() !== "" &&
+    normalized.agent_acm_certificate_arn.trim() !== "" &&
+    normalized.agent_alb_group_name.trim() !== "" &&
+    normalized.ingestion_ingress_domain.trim() !== "" &&
+    normalized.ingestion_acm_certificate_arn.trim() !== "" &&
+    normalized.ingestion_alb_group_name.trim() !== "" &&
+    normalized.knowledge_domain.trim() !== ""
   );
 }
 
@@ -330,15 +345,7 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
   const [region, setRegion] = useState(cluster.region);
   const [eksName, setEksName] = useState(cluster.eks_cluster_name);
   const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
-  const [ingress, setIngress] = useState<IngressFields>({
-    agent_ingress_domain: cluster.agent_ingress_domain,
-    agent_acm_certificate_arn: cluster.agent_acm_certificate_arn,
-    agent_alb_group_name: cluster.agent_alb_group_name,
-    ingestion_ingress_domain: cluster.ingestion_ingress_domain,
-    ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn,
-    ingestion_alb_group_name: cluster.ingestion_alb_group_name,
-    knowledge_domain: cluster.knowledge_domain,
-  });
+  const [ingress, setIngress] = useState<IngressFields>(() => ingressFromCluster(cluster));
 
   const busy =
     enableMut.isPending ||
@@ -362,15 +369,7 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
     setRegion(cluster.region);
     setEksName(cluster.eks_cluster_name);
     setEksEndpoint(cluster.eks_cluster_endpoint);
-    setIngress({
-      agent_ingress_domain: cluster.agent_ingress_domain,
-      agent_acm_certificate_arn: cluster.agent_acm_certificate_arn,
-      agent_alb_group_name: cluster.agent_alb_group_name,
-      ingestion_ingress_domain: cluster.ingestion_ingress_domain,
-      ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn,
-      ingestion_alb_group_name: cluster.ingestion_alb_group_name,
-      knowledge_domain: cluster.knowledge_domain,
-    });
+    setIngress(ingressFromCluster(cluster));
   };
 
   const handleEditOpenChange = (open: boolean) => {

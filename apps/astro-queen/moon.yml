@@ -18,6 +18,9 @@ tasks:
       - "web/index.html"
       - "web/vite.config.ts"
       - "web/tsconfig.json"
+      - "web/package.json"
+      - "web/bun.lock"
+      - "web/components.json"
     outputs:
       - "web/dist/**"
 
@@ -27,6 +30,7 @@ tasks:
       - "web-build"
     inputs:
       - "**/*.go"
+      - "web_embed.go"
       - "go.mod"
       - "go.sum"
       - "/packages/astro-proto/**"
@@ -45,9 +49,18 @@ tasks:
     local: true
 
   link:
-    command: "ln -sf $(pwd)/bin/queen $HOME/go/bin/queen"
+    # Always rebuild web + binary before symlinking. go:embed reads web/dist at
+    # compile time; a cached build task can otherwise serve a stale embedded SPA.
+    script: |
+      set -euo pipefail
+      cd web && bun run build
+      cd .. && go build -o bin/queen .
+      ln -sf "$(pwd)/bin/queen" "$HOME/go/bin/queen"
     deps:
-      - "build"
+      - "web-install"
+    local: true
+    options:
+      cache: false
 
   unlink:
     command: "rm -f $HOME/go/bin/queen"
