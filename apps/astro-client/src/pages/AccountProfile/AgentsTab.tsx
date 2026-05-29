@@ -1,4 +1,4 @@
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { useDeploymentSummaryMaps } from "@/components/dashboard/useDeploymentSummaryMaps";
 import { TabSearchInput, TabFilterDropdown } from "./TabToolbar";
@@ -11,7 +11,7 @@ const SORT_OPTIONS: { value: AgentSort; label: string }[] = [
 ];
 
 interface AgentsTabProps {
-  deployments: AgentDeployment[];
+  deployments: AgentDeploymentSummary[];
   accountName: string;
   search: string;
   onSearchChange: (v: string) => void;

@@ -16,10 +16,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -351,8 +349,6 @@ func newLatestBuildIDRouter(t *testing.T, userID string, accountStore *account.A
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
-	cfg := &config.Config{}
-	k8sClient := newFakeK8sNotFound(t)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -360,7 +356,7 @@ func newLatestBuildIDRouter(t *testing.T, userID string, accountStore *account.A
 		c.Next()
 	})
 	r.GET("/api/v1/deployments", handlers.ListDeployments(
-		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, nil, nil, k8scache.NoopCache{},
+		log, accountStore, deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	return r
 }

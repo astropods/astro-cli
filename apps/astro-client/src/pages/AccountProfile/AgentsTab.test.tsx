@@ -4,23 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/test-utils';
 import { AgentsTab } from './AgentsTab';
 import type { AgentSort } from './AgentsTab';
-import type { AgentDeployment } from '@/lib/api';
+import type { AgentDeploymentSummary } from '@/lib/api';
 
 afterEach(cleanup);
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
-const makeDeployment = (id: string, name: string, displayName?: string): AgentDeployment => ({
+const makeDeployment = (id: string, name: string, displayName?: string): AgentDeploymentSummary => ({
   id,
   name,
   display_name: displayName,
-  status: 'Running',
-  replicas: 1,
-  ready: 1,
   build_id: 'b1',
   namespace: 'ns1',
   created_at: '2025-01-01T00:00:00Z',
-  components: [],
 });
 
 const defaultProps = {

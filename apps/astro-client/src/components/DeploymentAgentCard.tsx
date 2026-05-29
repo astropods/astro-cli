@@ -1,8 +1,8 @@
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
-import { getMessagingEndpoint, mapDeploymentStatus } from "@/lib/deployment-utils";
-import type { AgentDeployment } from "@/lib/api";
+import { getMessagingEndpoint } from "@/lib/deployment-utils";
+import type { AgentDeploymentSummary } from "@/lib/api";
 
 // Thin adapter: maps an AgentDeployment row into the neutral props that
 // DeployedAgentCard takes. Kept separate so the card stays decoupled from
@@ -14,7 +14,7 @@ export function DeploymentAgentCard({
   requestSeries,
   tokenSeries,
 }: {
-  deployment: AgentDeployment;
+  deployment: AgentDeploymentSummary;
   account: string;
   requestSeries?: number[];
   tokenSeries?: number[];
@@ -25,7 +25,7 @@ export function DeploymentAgentCard({
   const launchUrl = messaging?.url;
   const hasUpdateAvailable =
     !!deployment.latest_build_id && deployment.latest_build_id !== deployment.build_id;
-  const hasError = mapDeploymentStatus(deployment) === "error";
+  const hasError = deployment.status === "error";
 
   return (
     <DeployedAgentCard

@@ -1603,8 +1603,22 @@ export interface AgentDeployment {
   workloads?: WorkloadDetail[];
 }
 
+export interface AgentDeploymentSummary {
+  id: string;
+  name: string;
+  display_name?: string;
+  avatar_colors?: AvatarColors;
+  build_id: string;
+  latest_build_id?: string;
+  status?: string;
+  namespace?: string;
+  external_urls?: ServiceEndpointInfo[];
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface DeploymentsListResponse {
-  deployments: AgentDeployment[];
+  deployments: AgentDeploymentSummary[];
   count: number;
 }
 

@@ -45,7 +45,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 
-	"golang.org/x/sync/errgroup"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1175,6 +1174,24 @@ type AgentDeployment struct {
 	Workloads          []WorkloadDetail      `json:"workloads,omitempty"`
 }
 
+// AgentDeploymentSummary is the trimmed shape returned by ListDeployments.
+// It contains only the fields consumed by the agents-grid card and profile
+// page, omitting K8s-derived replica counts, workloads, and other detail-only
+// fields that are served by GetDeployment instead.
+type AgentDeploymentSummary struct {
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	DisplayName   string                `json:"display_name,omitempty"`
+	AvatarColors  json.RawMessage       `json:"avatar_colors,omitempty"`
+	BuildID       string                `json:"build_id"`
+	LatestBuildID string                `json:"latest_build_id,omitempty"`
+	Status        string                `json:"status,omitempty"`
+	Namespace     string                `json:"namespace,omitempty"`
+	ExternalURLs  []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	CreatedAt     string                `json:"created_at"`
+	UpdatedAt     string                `json:"updated_at,omitempty"`
+}
+
 // CountDeployments returns a handler that returns the number of visible deployments for an account.
 // This is a lightweight DB-only query with no K8s calls, suitable for skeleton rendering.
 func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
@@ -1307,7 +1324,7 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -1354,13 +1371,6 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		if !k8sRegistryReady(k8sReg) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "kubernetes client not configured",
-			})
-			return
-		}
-
 		if deployStore == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "deployment store not configured",
@@ -1379,40 +1389,28 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// For each DB deployment, fetch live K8s status from its namespace in parallel.
-		// Deployments without K8s resources (failed, pending) get a DB-only entry.
-		// Results are pre-allocated by index to avoid a mutex; each slice is merged after.
-		enriched := make([][]AgentDeployment, len(dbDeps))
-		g, gctx := errgroup.WithContext(c.Request.Context())
+		allDeployments := make([]AgentDeployment, len(dbDeps))
+		depIDs := make([]string, len(dbDeps))
 		for i, dbDep := range dbDeps {
-			g.Go(func() error {
-				kc, kerr := deploymentClusterClient(gctx, k8sReg, dbDep)
-				if kerr != nil {
-					log.Warn("ListDeployments: skip K8s enrichment",
-						"deployment_id", dbDep.ID,
-						"cluster_id", dbDep.EffectiveClusterID(),
-						"error", kerr,
-					)
-					enriched[i] = []AgentDeployment{agentDeploymentFromDB(log, accountStore, agentIdx, dbDep)}
-					return nil
-				}
-				enriched[i] = enrichDeployment(gctx, log, accountStore, kc, deployStore, agentIdx, dbDep, listAstroDeploymentsLight, cache, k8scache.ListKeyPrefix, k8scache.ListTTL, nil)
-				return nil
-			})
+			allDeployments[i] = agentDeploymentFromDB(log, dbDep)
+			depIDs[i] = dbDep.ID
 		}
-		_ = g.Wait()
 
-		var allDeployments []AgentDeployment
-		for _, deps := range enriched {
-			allDeployments = append(allDeployments, deps...)
+		// Populate messaging URLs from DB in one batch query.
+		if messagingURLs, merr := deployStore.GetMessagingURLs(depIDs); merr != nil {
+			log.Warn("Failed to load messaging URLs", "error", merr)
+		} else {
+			for i, d := range allDeployments {
+				if url, ok := messagingURLs[d.ID]; ok {
+					allDeployments[i].ExternalURLs = []ServiceEndpointInfo{
+						{Name: "messaging", Type: "messaging", URL: url, Ready: true},
+					}
+				}
+			}
 		}
 
 		// Resolve updated_at from the latest audit log entry per deployment.
 		if auditStore != nil && len(allDeployments) > 0 {
-			depIDs := make([]string, len(allDeployments))
-			for i, d := range allDeployments {
-				depIDs[i] = d.ID
-			}
 			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", depIDs)
 			if err != nil {
 				log.Warn("Failed to load audit timestamps for deployments", "error", err)
@@ -1456,12 +1454,29 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 
 		populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
 
+		summaries := make([]AgentDeploymentSummary, len(allDeployments))
+		for i, d := range allDeployments {
+			summaries[i] = AgentDeploymentSummary{
+				ID:            d.ID,
+				Name:          d.Name,
+				DisplayName:   d.DisplayName,
+				AvatarColors:  d.AvatarColors,
+				BuildID:       d.BuildID,
+				LatestBuildID: d.LatestBuildID,
+				Status:        d.Status,
+				Namespace:     d.Namespace,
+				ExternalURLs:  d.ExternalURLs,
+				CreatedAt:     d.CreatedAt,
+				UpdatedAt:     d.UpdatedAt,
+			}
+		}
+
 		// Marshal once, write to cache + response. Caching the full envelope
 		// (not just the deployments slice) lets the hit path do c.Data with
 		// zero re-marshal cost on subsequent loads.
 		body, marshalErr := json.Marshal(gin.H{
-			"deployments": allDeployments,
-			"count":       len(allDeployments),
+			"deployments": summaries,
+			"count":       len(summaries),
 		})
 		if marshalErr != nil {
 			log.Error("Failed to marshal deployment list response", "error", marshalErr)
@@ -1649,7 +1664,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
-func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, dep *deploymentstore.Deployment) AgentDeployment {
+func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.Deployment) AgentDeployment {
 	status := "error"
 	switch dep.Status {
 	case deploymentstore.StatusActive:
@@ -1663,17 +1678,16 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 	}
 
 	ad := AgentDeployment{
-		ID:            dep.ID,
-		Name:          dep.AgentName,
-		DisplayName:   dep.DisplayName,
-		BuildID:       dep.BuildID,
-		SourceAccount: resolveSourceAccountName(log, accountStore, v, dep),
-		Namespace:     dep.Namespace,
-		Status:        status,
-		Replicas:      0,
-		Ready:         0,
-		CreatedAt:     dep.DeployedAt.Format(time.RFC3339),
-		Components:    []string{},
+		ID:          dep.ID,
+		Name:        dep.AgentName,
+		DisplayName: dep.DisplayName,
+		BuildID:     dep.BuildID,
+		Namespace:   dep.Namespace,
+		Status:      status,
+		Replicas:    0,
+		Ready:       0,
+		CreatedAt:   dep.DeployedAt.Format(time.RFC3339),
+		Components:  []string{},
 	}
 	if dep.AvatarColors != nil {
 		ad.AvatarColors = *dep.AvatarColors
@@ -1698,7 +1712,7 @@ func agentDeploymentFromDB(log *logger.Logger, accountStore *account.AccountStor
 // When cache and keyPrefix are provided, a cache hit skips all K8s calls entirely.
 type k8sListOpts struct{}
 
-// k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
+// k8sListFn is the function signature for listAstroDeployments and related K8s list functions.
 type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string, opts *k8sListOpts) ([]AgentDeployment, error)
 
 func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, v deploymentstore.LineageValidator, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration, listOpts *k8sListOpts) []AgentDeployment {
@@ -1755,8 +1769,9 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *acc
 	}
 
 	dbOnly := func() []AgentDeployment {
-		entry := agentDeploymentFromDB(log, accountStore, v, dbDep)
+		entry := agentDeploymentFromDB(log, dbDep)
 		entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+		entry.SourceAccount = sourceAccount
 		return []AgentDeployment{entry}
 	}
 
@@ -2158,140 +2173,6 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		result = append(result, *info)
 	}
 
-	return result, nil
-}
-
-// listAstroDeploymentsLight fetches Deployments, StatefulSets, and Ingresses for
-// a namespace, skipping pods and jobs. Returns status, replicas, ready,
-// components, and external URLs. Ingresses are included so the agents-grid card
-// can render its Launch button from the cached payload without falling back to
-// the heavy detail-page fetch.
-func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, _ []string, _ *k8sListOpts) ([]AgentDeployment, error) {
-	clientset := k8sClient.Clientset()
-	labelSelector := "app.kubernetes.io/managed-by=astro-server"
-
-	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list deployments: %w", err)
-	}
-
-	statefulSetList, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
-	}
-
-	ingressList, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		// Non-fatal: a missing ingress list just means cards render without
-		// Launch until the next cache repopulate succeeds.
-		ingressList = nil
-	}
-
-	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agent:version"
-	if ingressList != nil {
-		for i := range ingressList.Items {
-			ing := &ingressList.Items[i]
-			agentKey := ing.Labels[deployment.LabelKeyAgent]
-			version := ing.Labels["app.kubernetes.io/version"]
-			component := ing.Labels["app.kubernetes.io/component"]
-			if agentKey == "" || len(ing.Spec.Rules) == 0 {
-				continue
-			}
-			for _, rule := range ing.Spec.Rules {
-				if rule.Host == "" {
-					continue
-				}
-				ep := ServiceEndpointInfo{
-					Name: component,
-					URL:  fmt.Sprintf("https://%s", rule.Host),
-					Type: component,
-				}
-				key := agentKey + ":" + version
-				agentExternalURLs[key] = append(agentExternalURLs[key], ep)
-			}
-		}
-	}
-
-	agentDeployments := make(map[string]*AgentDeployment)
-	agentStatusFromPrimary := make(map[string]bool)
-
-	for _, dep := range deploymentList.Items {
-		agentKey := dep.Labels[deployment.LabelKeyAgent]
-		version := dep.Labels["app.kubernetes.io/version"]
-		component := dep.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:    version,
-				Namespace:  namespace,
-				Status:     deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas),
-				Replicas:   dep.Status.Replicas,
-				Ready:      dep.Status.ReadyReplicas,
-				CreatedAt:  dep.CreationTimestamp.Format(time.RFC3339),
-				Components: []string{},
-			}
-			if urls, ok := agentExternalURLs[key]; ok {
-				info.ExternalURLs = urls
-			}
-			agentDeployments[key] = info
-		}
-
-		isPrimary := component == "agent" || component == ""
-		if isPrimary || !agentStatusFromPrimary[key] {
-			info.Status = deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas)
-			info.Replicas = dep.Status.Replicas
-			info.Ready = dep.Status.ReadyReplicas
-			info.CreatedAt = dep.CreationTimestamp.Format(time.RFC3339)
-			if isPrimary {
-				agentStatusFromPrimary[key] = true
-			}
-		}
-
-		if component != "" {
-			info.Components = append(info.Components, component)
-		}
-	}
-
-	for _, sts := range statefulSetList.Items {
-		agentKey := sts.Labels[deployment.LabelKeyAgent]
-		version := sts.Labels["app.kubernetes.io/version"]
-		component := sts.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:    version,
-				Namespace:  namespace,
-				Status:     deploymentReadinessStatus(sts.Status.Replicas, sts.Status.ReadyReplicas),
-				Replicas:   sts.Status.Replicas,
-				Ready:      sts.Status.ReadyReplicas,
-				CreatedAt:  sts.CreationTimestamp.Format(time.RFC3339),
-				Components: []string{},
-			}
-			if urls, ok := agentExternalURLs[key]; ok {
-				info.ExternalURLs = urls
-			}
-			agentDeployments[key] = info
-		}
-
-		if component != "" {
-			info.Components = append(info.Components, component)
-		}
-	}
-
-	result := make([]AgentDeployment, 0, len(agentDeployments))
-	for _, info := range agentDeployments {
-		result = append(result, *info)
-	}
 	return result, nil
 }
 

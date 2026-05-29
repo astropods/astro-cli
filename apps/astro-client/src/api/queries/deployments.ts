@@ -250,7 +250,7 @@ export function useWakeUpDeployment(account: string) {
           return {
             ...old,
             deployments: old.deployments.map((d) =>
-              d.id === variables.deploymentId ? { ...d, status: 'pending', ready: 0 } : d
+              d.id === variables.deploymentId ? { ...d, status: 'pending' } : d
             ),
           };
         },

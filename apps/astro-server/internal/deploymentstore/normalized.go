@@ -1246,6 +1246,38 @@ func (s *Store) GetSidecars(deploymentID string) ([]*Sidecar, error) {
 	return result, rows.Err()
 }
 
+// GetMessagingURLs returns a map of deployment ID → messaging URL for the given
+// deployment IDs. Only deployments with a messaging sidecar and a web ingress
+// are included; IDs with no messaging entry are absent from the map.
+func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, error) {
+	if len(deploymentIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT sc.deployment_id, di.hostname
+		FROM deployment_sidecars sc
+		JOIN deployment_services ds ON ds.sidecar_id = sc.id
+		JOIN deployment_ingresses di ON di.service_id = ds.id
+		WHERE sc.deployment_id = ANY($1)
+		  AND sc.component_kind = 'messaging'
+		  AND ds.name = 'http'
+	`, pq.Array(deploymentIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query messaging URLs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string]string, len(deploymentIDs))
+	for rows.Next() {
+		var depID, hostname string
+		if err := rows.Scan(&depID, &hostname); err != nil {
+			return nil, fmt.Errorf("scan messaging URL: %w", err)
+		}
+		result[depID] = "https://" + hostname
+	}
+	return result, rows.Err()
+}
+
 // GetIngresses returns all ingresses for a deployment.
 func (s *Store) GetIngresses(deploymentID string) ([]*Ingress, error) {
 	rows, err := s.db.Query(`

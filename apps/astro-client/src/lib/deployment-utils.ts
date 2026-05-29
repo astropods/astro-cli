@@ -1,4 +1,4 @@
-import type { AgentDeployment } from "./api";
+import type { AgentDeployment, AgentDeploymentSummary } from "./api";
 import type { StatusIndicatorVariant } from "../components/StatusIndicator";
 
 // Canonical status enum surfaced to UI. Mapped from the AgentDeployment row
@@ -61,7 +61,7 @@ export function hasContainerMismatch(dep: AgentDeployment | null | undefined): b
 export const launchUnavailableMessage =
   "Launch is unavailable while we create your custom URL";
 
-export function getMessagingEndpoint(deployment: AgentDeployment | null | undefined) {
+export function getMessagingEndpoint(deployment: AgentDeployment | AgentDeploymentSummary | null | undefined) {
   return deployment?.external_urls?.find((u) => u.type === "messaging");
 }
 

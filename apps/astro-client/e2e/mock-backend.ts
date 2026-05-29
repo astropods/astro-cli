@@ -1150,7 +1150,7 @@ Bun.serve({
     if (deploymentStopMatch && request.method === "POST") {
       const depId = deploymentStopMatch[1]!;
       deployments = deployments.map((d) =>
-        d.id === depId ? { ...d, status: "stopped", replicas: 0, ready: 0 } : d,
+        d.id === depId ? { ...d, status: "stopped" } : d,
       );
       return json({ status: "stopped", deployment_id: depId });
     }
@@ -1159,7 +1159,7 @@ Bun.serve({
     if (deploymentWakeupMatch && request.method === "POST") {
       const depId = deploymentWakeupMatch[1]!;
       deployments = deployments.map((d) =>
-        d.id === depId ? { ...d, status: "healthy", replicas: 1, ready: 1 } : d,
+        d.id === depId ? { ...d, status: "healthy" } : d,
       );
       return json({ status: "healthy", deployment_id: depId });
     }

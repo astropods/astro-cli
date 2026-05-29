@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
-import type { Blueprint, AgentDeployment, AccountPublic } from "@/lib/api";
+import type { Blueprint, AgentDeploymentSummary, AccountPublic } from "@/lib/api";
 import { useUpdateAccountProfile } from "@/api/queries/accounts";
 import { PageContainer } from "@/components/PageLayout";
 import { GradientGridWash } from "@/components/GradientGridWash";
@@ -47,7 +47,7 @@ export interface ProfileLayoutProps {
   isAdmin: boolean;
   canViewDeployments: boolean;
   rawBlueprints: Blueprint[];
-  rawDeployments: AgentDeployment[];
+  rawDeployments: AgentDeploymentSummary[];
   isBlueprintsLoading?: boolean;
   isDeploymentsLoading?: boolean;
   renderViewSidebar: (opts: SidebarRenderOpts) => ReactNode;

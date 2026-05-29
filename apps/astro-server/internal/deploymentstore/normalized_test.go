@@ -1402,3 +1402,100 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 		t.Errorf("Repair must preserve deployment_build_env: before=%d, after=%d", beBefore, beAfter)
 	}
 }
+
+func TestGetMessagingURLs(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Helper to create a deployment and wire up the sidecar → service → ingress
+	// chain that GetMessagingURLs queries. Uses direct SQL inserts so the test
+	// doesn't depend on the spec-processing path in SaveNormalizedSpec.
+	insertMessagingIngress := func(t *testing.T, depID, hostname string) {
+		t.Helper()
+		var scID int
+		if err := db.QueryRow(`
+			INSERT INTO deployment_sidecars (deployment_id, name, component_kind, image,
+				cpu_request, memory_request, cpu_limit, memory_limit)
+			VALUES ($1, 'messaging', 'messaging', 'msg:latest', '100m', '128Mi', '200m', '256Mi')
+			RETURNING id`, depID).Scan(&scID); err != nil {
+			t.Fatalf("insert sidecar: %v", err)
+		}
+		var svcID int
+		if err := db.QueryRow(`
+			INSERT INTO deployment_services (workload_id, sidecar_id, name, port, target_port, protocol)
+			VALUES (NULL, $1, 'http', 8080, 8080, 'http') RETURNING id`, scID).Scan(&svcID); err != nil {
+			t.Fatalf("insert service: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO deployment_ingresses (service_id, hostname, path, tls_enabled)
+			VALUES ($1, $2, '/', true)`, svcID, hostname); err != nil {
+			t.Fatalf("insert ingress: %v", err)
+		}
+	}
+
+	makeDeployment := func(t *testing.T, name string) string {
+		t.Helper()
+		d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+			ID: newID(), AccountID: accountID, AgentName: name,
+			BuildID: "b1", Namespace: "ns-" + name, SpecJSON: `{}`,
+		}, nil)
+		if err != nil {
+			t.Fatalf("SaveDeploymentPending: %v", err)
+		}
+		return d.ID
+	}
+
+	t.Run("returns URL for deployment with messaging ingress", func(t *testing.T) {
+		depID := makeDeployment(t, "msg-url-agent")
+		insertMessagingIngress(t, depID, "msg-agent.example.com")
+
+		urls, err := store.GetMessagingURLs([]string{depID})
+		if err != nil {
+			t.Fatalf("GetMessagingURLs: %v", err)
+		}
+		want := "https://msg-agent.example.com"
+		if got := urls[depID]; got != want {
+			t.Errorf("want %q, got %q", want, got)
+		}
+	})
+
+	t.Run("absent for deployment with no messaging ingress", func(t *testing.T) {
+		depID := makeDeployment(t, "no-msg-agent")
+
+		urls, err := store.GetMessagingURLs([]string{depID})
+		if err != nil {
+			t.Fatalf("GetMessagingURLs: %v", err)
+		}
+		if _, ok := urls[depID]; ok {
+			t.Errorf("expected no URL for deployment without messaging ingress, got %q", urls[depID])
+		}
+	})
+
+	t.Run("returns only matching deployment in a batch", func(t *testing.T) {
+		depWithMsg := makeDeployment(t, "batch-msg-agent")
+		depWithout := makeDeployment(t, "batch-no-msg-agent")
+		insertMessagingIngress(t, depWithMsg, "batch-msg.example.com")
+
+		urls, err := store.GetMessagingURLs([]string{depWithMsg, depWithout})
+		if err != nil {
+			t.Fatalf("GetMessagingURLs: %v", err)
+		}
+		if got := urls[depWithMsg]; got != "https://batch-msg.example.com" {
+			t.Errorf("want URL for %q, got %q", depWithMsg, got)
+		}
+		if _, ok := urls[depWithout]; ok {
+			t.Errorf("expected no URL for %q, got %q", depWithout, urls[depWithout])
+		}
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		urls, err := store.GetMessagingURLs([]string{})
+		if err != nil {
+			t.Fatalf("GetMessagingURLs: %v", err)
+		}
+		if urls != nil {
+			t.Errorf("expected nil for empty input, got %v", urls)
+		}
+	})
+}

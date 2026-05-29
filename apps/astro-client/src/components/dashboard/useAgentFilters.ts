@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 
 export type SortOption = "recent" | "name" | "requests";
 
 export function useAgentFilters(
-  deployments: AgentDeployment[],
+  deployments: AgentDeploymentSummary[],
   requestCounts: Map<string, number> = new Map(),
 ) {
   const [filter, setFilter] = useState("");

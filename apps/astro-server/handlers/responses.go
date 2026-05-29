@@ -153,8 +153,8 @@ type TriggerIngestionResponse struct {
 
 // ListDeploymentsResponse wraps the deployments list.
 type ListDeploymentsResponse struct {
-	Deployments []AgentDeployment `json:"deployments"`
-	Count       int               `json:"count"`
+	Deployments []AgentDeploymentSummary `json:"deployments"`
+	Count       int                      `json:"count"`
 }
 
 // GetDeploymentDetailResponse wraps a single deployment for the detail endpoint.

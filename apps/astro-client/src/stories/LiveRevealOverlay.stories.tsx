@@ -1,18 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 
-const mockDeployment: AgentDeployment = {
+const mockDeployment: AgentDeploymentSummary = {
   id: "dep-live-reveal-story-1",
   name: "code-reviewer",
   display_name: "Code Reviewer",
   build_id: "build-live-reveal",
   namespace: "storybook",
   status: "pending",
-  replicas: 1,
-  ready: 0,
   created_at: new Date().toISOString(),
-  components: ["agent"],
 };
 
 const meta = {

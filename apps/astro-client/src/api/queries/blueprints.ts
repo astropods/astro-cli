@@ -79,7 +79,6 @@ export function useDeployAgent(account: string, agentName: string) {
                 ? {
                     ...d,
                     status: "pending",
-                    ready: 0,
                   }
                 : d,
             ),
@@ -106,7 +105,6 @@ export function useDeployAgent(account: string, agentName: string) {
                       ...d,
                       build_id: data.build_id,
                       status: "pending",
-                      ready: 0,
                     }
                   : d,
               ),

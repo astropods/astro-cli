@@ -3,7 +3,7 @@ import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
 import { useDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 
 // Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
 // into its slot, we show this placeholder card in its spot until the real
@@ -24,7 +24,7 @@ export function AgentCardSkeleton() {
 }
 
 interface DeployedAgentsSectionProps {
-  deployments: AgentDeployment[];
+  deployments: AgentDeploymentSummary[];
   account: string;
   isLoading: boolean;
   skeletonDeploymentId?: string | null;

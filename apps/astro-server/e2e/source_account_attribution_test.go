@@ -249,7 +249,7 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 		c.Next()
 	})
 	r.GET("/api/v1/deployments", handlers.ListDeployments(
-		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, nil, nil, k8scache.NoopCache{},
+		log, accountStore, deployStore, index, nil, nil, k8scache.NoopCache{},
 	))
 	r.GET("/api/v1/deployments/:id", handlers.GetDeployment(
 		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, nil, nil, k8scache.NoopCache{},
@@ -322,111 +322,10 @@ func indexByID(deps []map[string]json.RawMessage) map[string]map[string]json.Raw
 	return out
 }
 
-// TestListDeploymentsE2E_PreservesDistinctSourceAccountLineages is the
-// headline guard for the cross-account lineage bug. Two deployments live
-// in the same target account with the same agent name but different
-// source_account_ids (one published from a separate org, one from the
-// target itself). The handler must return source_account on each
-// deployment's JSON so the client can attribute upgrade signals to the
-// correct lineage. Pre-fix this field did not exist and the client would
-// pick whichever same-named blueprint it found in the viewer's account,
-// fabricating an "Update available" badge against an unrelated lineage.
-func TestListDeploymentsE2E_PreservesDistinctSourceAccountLineages(t *testing.T) {
-	fx := setupSourceAccountFixture(t)
-
-	resp := listDeployments(t, fx)
-	if resp.Count < 3 {
-		t.Fatalf("expected at least 3 deployments, got %d (%s)", resp.Count, mustJSON(resp))
-	}
-
-	byID := indexByID(resp.Deployments)
-
-	xacct, ok := byID[fx.xAcctDep.ID]
-	if !ok {
-		t.Fatalf("cross-account deployment %q missing from response: %s", fx.xAcctDep.ID, mustJSON(resp))
-	}
-	xacctSrc := decodeString(t, xacct["source_account"], "source_account")
-	if xacctSrc != fx.publisherAcct.Name {
-		t.Errorf("cross-account deployment: source_account = %q, want %q (publisher) — clients would fall back to the viewer account and mis-attribute upgrades",
-			xacctSrc, fx.publisherAcct.Name)
-	}
-
-	same, ok := byID[fx.sameAcctDep.ID]
-	if !ok {
-		t.Fatalf("same-account deployment %q missing from response", fx.sameAcctDep.ID)
-	}
-	sameSrc := decodeString(t, same["source_account"], "source_account")
-	if sameSrc != fx.targetAcct.Name {
-		t.Errorf("same-account deployment: source_account = %q, want %q (target)", sameSrc, fx.targetAcct.Name)
-	}
-
-	if xacctSrc == sameSrc {
-		t.Fatalf("two same-named deployments collapsed to identical source_account = %q; lineages are unrelated and must be distinguishable",
-			xacctSrc)
-	}
-
-	if got := decodeString(t, xacct["build_id"], "build_id"); got != fx.xAcctDep.BuildID {
-		t.Errorf("cross-account build_id: got %q, want %q", got, fx.xAcctDep.BuildID)
-	}
-	if got := decodeString(t, same["build_id"], "build_id"); got != fx.sameAcctDep.BuildID {
-		t.Errorf("same-account build_id: got %q, want %q", got, fx.sameAcctDep.BuildID)
-	}
-}
-
-// TestListDeploymentsE2E_LegacyRowFallsBackToSpecAccount covers
-// pre-migration rows where source_account_id is NULL. The handler must
-// still surface the publisher's account name by parsing
-// deployment_spec_json.source.account. This guards the fallback branch in
-// resolveSourceAccountName.
-func TestListDeploymentsE2E_LegacyRowFallsBackToSpecAccount(t *testing.T) {
-	fx := setupSourceAccountFixture(t)
-
-	resp := listDeployments(t, fx)
-	byID := indexByID(resp.Deployments)
-
-	legacy, ok := byID[fx.legacyDep.ID]
-	if !ok {
-		t.Fatalf("legacy deployment %q missing from response", fx.legacyDep.ID)
-	}
-	got := decodeString(t, legacy["source_account"], "source_account")
-	if got != fx.publisherAcct.Name {
-		t.Errorf("legacy fallback: source_account = %q, want %q (from spec JSON)",
-			got, fx.publisherAcct.Name)
-	}
-}
-
-// TestListDeploymentsE2E_SourceIDFallsBackToSpecWhenAccountLookupFails covers
-// the fallback branch where source_account_id is populated but no longer
-// resolves to an active account row. Foreign-key deletes can SET NULL, but
-// soft-deleted accounts still leave an ID that GetByID intentionally hides.
-// The response should still carry the original source.account from the stored
-// deployment spec so legacy/corrupted rows do not collapse to the target
-// account and revive the same-name lineage bug.
-func TestListDeploymentsE2E_SourceIDFallsBackToSpecWhenAccountLookupFails(t *testing.T) {
-	fx := setupSourceAccountFixture(t)
-	if _, err := fx.db.Exec("UPDATE accounts SET deleted_at = NOW() WHERE id = $1", fx.publisherAcct.ID); err != nil {
-		t.Fatalf("soft-delete publisher account: %v", err)
-	}
-
-	resp := listDeployments(t, fx)
-	byID := indexByID(resp.Deployments)
-
-	xacct, ok := byID[fx.xAcctDep.ID]
-	if !ok {
-		t.Fatalf("cross-account deployment %q missing from response", fx.xAcctDep.ID)
-	}
-	got := decodeString(t, xacct["source_account"], "source_account")
-	if got != fx.publisherAcct.Name {
-		t.Errorf("source_account fallback after unresolved source_account_id = %q, want %q from spec JSON",
-			got, fx.publisherAcct.Name)
-	}
-}
-
-// TestGetDeploymentE2E_CrossAccountSurfacesSourceAccount mirrors the
-// list-endpoint check for the single-deployment GET that the detail page
-// uses. The deployment-detail "Update available" banner reads
-// source_account from this response; without it the banner would compare
-// against the wrong lineage.
+// TestGetDeploymentE2E_CrossAccountSurfacesSourceAccount verifies the detail
+// endpoint surfaces source_account for cross-account deployments. The
+// deployment-detail "Update available" banner reads source_account from this
+// response; without it the banner would compare against the wrong lineage.
 func TestGetDeploymentE2E_CrossAccountSurfacesSourceAccount(t *testing.T) {
 	fx := setupSourceAccountFixture(t)
 
@@ -438,7 +337,55 @@ func TestGetDeploymentE2E_CrossAccountSurfacesSourceAccount(t *testing.T) {
 	}
 }
 
-func TestListDeploymentsE2E_StaleSourceIDWithoutTupleLeavesSourceAccountEmpty(t *testing.T) {
+// TestGetDeploymentE2E_SameAccountSurfacesSourceAccount verifies the detail
+// endpoint surfaces source_account when the deployment's source is the same
+// account as the viewer.
+func TestGetDeploymentE2E_SameAccountSurfacesSourceAccount(t *testing.T) {
+	fx := setupSourceAccountFixture(t)
+
+	dep := getDeployment(t, fx, fx.sameAcctDep.ID)
+	got := decodeString(t, dep["source_account"], "source_account")
+	if got != fx.targetAcct.Name {
+		t.Errorf("GetDeployment same-account: source_account = %q, want %q",
+			got, fx.targetAcct.Name)
+	}
+}
+
+// TestGetDeploymentE2E_LegacyRowFallsBackToSpecAccount covers pre-migration
+// rows where source_account_id is NULL. The handler must still surface the
+// publisher's account name by parsing deployment_spec_json.source.account.
+func TestGetDeploymentE2E_LegacyRowFallsBackToSpecAccount(t *testing.T) {
+	fx := setupSourceAccountFixture(t)
+
+	dep := getDeployment(t, fx, fx.legacyDep.ID)
+	got := decodeString(t, dep["source_account"], "source_account")
+	if got != fx.publisherAcct.Name {
+		t.Errorf("legacy fallback: source_account = %q, want %q (from spec JSON)",
+			got, fx.publisherAcct.Name)
+	}
+}
+
+// TestGetDeploymentE2E_SourceIDFallsBackToSpecWhenAccountLookupFails covers
+// the fallback branch where source_account_id is populated but no longer
+// resolves to an active account row (soft-deleted publisher).
+func TestGetDeploymentE2E_SourceIDFallsBackToSpecWhenAccountLookupFails(t *testing.T) {
+	fx := setupSourceAccountFixture(t)
+	if _, err := fx.db.Exec("UPDATE accounts SET deleted_at = NOW() WHERE id = $1", fx.publisherAcct.ID); err != nil {
+		t.Fatalf("soft-delete publisher account: %v", err)
+	}
+
+	dep := getDeployment(t, fx, fx.xAcctDep.ID)
+	got := decodeString(t, dep["source_account"], "source_account")
+	if got != fx.publisherAcct.Name {
+		t.Errorf("source_account fallback after unresolved source_account_id = %q, want %q from spec JSON",
+			got, fx.publisherAcct.Name)
+	}
+}
+
+// TestGetDeploymentE2E_StaleSourceIDWithoutTupleLeavesSourceAccountEmpty
+// verifies that a deployment with a source_account_id that has no matching
+// lineage tuple does not fabricate a source_account value.
+func TestGetDeploymentE2E_StaleSourceIDWithoutTupleLeavesSourceAccountEmpty(t *testing.T) {
 	fx := setupSourceAccountFixture(t)
 	ghost := "ghost-build-" + deployid.New()
 	kindID := deployid.New()
@@ -464,14 +411,8 @@ func TestListDeploymentsE2E_StaleSourceIDWithoutTupleLeavesSourceAccountEmpty(t 
 		t.Fatalf("insert bad-tuple deployment: %v", err)
 	}
 
-	resp := listDeployments(t, fx)
-	byID := indexByID(resp.Deployments)
-
-	badRow, ok := byID[kindID]
-	if !ok {
-		t.Fatal("seeded BadTuple deployment missing from response")
-	}
-	if raw, has := badRow["source_account"]; has && len(raw) > 0 {
+	dep := getDeployment(t, fx, kindID)
+	if raw, has := dep["source_account"]; has && len(raw) > 0 {
 		t.Fatalf("expected empty/absent source_account for invalid tuple; got %s", string(raw))
 	}
 }

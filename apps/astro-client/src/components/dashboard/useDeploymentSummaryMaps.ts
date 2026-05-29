@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { useObservabilitySummaries } from "@/api/queries/observability";
 import { formatRelativeTime } from "@/lib/deployment-utils";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 
 export function useDeploymentSummaryMaps(
   accountName: string,
-  deployments: AgentDeployment[],
+  deployments: AgentDeploymentSummary[],
 ) {
   const { data: summariesData } = useObservabilitySummaries(accountName);
   return useMemo(() => {

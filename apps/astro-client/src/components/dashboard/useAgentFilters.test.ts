@@ -1,24 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useAgentFilters } from './useAgentFilters';
-import type { AgentDeployment } from '@/lib/api';
+import type { AgentDeploymentSummary } from '@/lib/api';
 
-function makeDeployment(overrides: Partial<AgentDeployment> & { id: string; name: string }): AgentDeployment {
+function makeDeployment(overrides: Partial<AgentDeploymentSummary> & { id: string; name: string }): AgentDeploymentSummary {
   return {
     build_id: 'b1',
     namespace: 'ns-1',
     status: 'Running',
-    replicas: 1,
-    ready: 1,
     created_at: '2025-01-01T00:00:00Z',
-    components: [],
     ...overrides,
   };
 }
 
 const alpha = makeDeployment({ id: 'a', name: 'alpha-agent', display_name: 'Alpha Bot', created_at: '2025-01-03T00:00:00Z' });
 const beta = makeDeployment({ id: 'b', name: 'beta-agent', display_name: 'Beta Bot', created_at: '2025-01-02T00:00:00Z' });
-const gamma = makeDeployment({ id: 'c', name: 'gamma-agent', display_name: 'Error Gamma', status: 'Error', ready: 0, created_at: '2025-01-01T00:00:00Z' });
+const gamma = makeDeployment({ id: 'c', name: 'gamma-agent', display_name: 'Error Gamma', status: 'error', created_at: '2025-01-01T00:00:00Z' });
 
 const deployments = [alpha, beta, gamma];
 

@@ -3,7 +3,7 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { DeployedAgentsSection } from './DeployedAgentsSection';
-import type { AgentDeployment } from '@/lib/api';
+import type { AgentDeploymentSummary } from '@/lib/api';
 
 // The dashboard derives the "Update available" badge purely from
 // `deployment.latest_build_id` vs `deployment.build_id`. Both values are
@@ -12,7 +12,7 @@ import type { AgentDeployment } from '@/lib/api';
 // per-account blueprint queries. These tests pin that contract so the
 // fan-out path can't regress back in.
 
-function renderSection(deployments: AgentDeployment[], account: string) {
+function renderSection(deployments: AgentDeploymentSummary[], account: string) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: Infinity, staleTime: 0 },
@@ -28,25 +28,22 @@ function renderSection(deployments: AgentDeployment[], account: string) {
   );
 }
 
-function makeDeployment(overrides: Partial<AgentDeployment> & { id: string; name: string; build_id: string }): AgentDeployment {
+function makeDeployment(overrides: Partial<AgentDeploymentSummary> & { id: string; name: string; build_id: string }): AgentDeploymentSummary {
   return {
     namespace: `ns-${overrides.id}`,
-    status: 'Running',
-    replicas: 1,
-    ready: 1,
     created_at: '2026-01-01T00:00:00Z',
-    components: [],
     ...overrides,
   };
 }
 
 const updateBadge = /update available/i;
+const errorBadge = /error/i;
 
 describe('DeployedAgentsSection — upgrade badge from server-supplied latest_build_id', () => {
   beforeEach(() => cleanup());
 
   it('renders the badge when latest_build_id differs from current build_id', async () => {
-    const deployments: AgentDeployment[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-stale',
         name: 'critical-agent',
@@ -66,7 +63,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   });
 
   it('does not render the badge when latest_build_id equals current build_id', async () => {
-    const deployments: AgentDeployment[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-current',
         name: 'critical-agent',
@@ -88,7 +85,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   it('does not render the badge when latest_build_id is absent', async () => {
     // Mirrors the server behaviour when there are no published versions, the
     // batch lookup failed, or the response predates the field.
-    const deployments: AgentDeployment[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-unknown',
         name: 'critical-agent',
@@ -106,8 +103,30 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
     expect(card?.textContent ?? '').not.toMatch(updateBadge);
   });
 
+  it('renders the error badge when status is "error"', async () => {
+    // The server maps StatusFailed (DB) → "error" in agentDeploymentFromDB.
+    // The card checks deployment.status === "error" exactly — pin that contract.
+    renderSection(
+      [makeDeployment({ id: 'dep-err', name: 'broken', build_id: 'b1', display_name: 'Broken Agent', status: 'error' })],
+      'team',
+    );
+    await waitFor(() => expect(screen.getByText('Broken Agent')).toBeInTheDocument());
+    const card = screen.getByText('Broken Agent').closest('a, div');
+    expect(card?.textContent ?? '').toMatch(errorBadge);
+  });
+
+  it('does not render the error badge when status is absent or non-error', async () => {
+    renderSection(
+      [makeDeployment({ id: 'dep-ok', name: 'healthy', build_id: 'b1', display_name: 'Healthy Agent', status: 'Running' })],
+      'team',
+    );
+    await waitFor(() => expect(screen.getByText('Healthy Agent')).toBeInTheDocument());
+    const card = screen.getByText('Healthy Agent').closest('a, div');
+    expect(card?.textContent ?? '').not.toMatch(errorBadge);
+  });
+
   it('badges only the deployments whose latest_build_id has drifted', async () => {
-    const deployments: AgentDeployment[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-stale',
         name: 'agent-a',

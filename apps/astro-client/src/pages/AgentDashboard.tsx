@@ -12,7 +12,7 @@ import { useActiveAccount } from "@/hooks/use-active-account";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
-import type { AgentDeployment, AvatarColors } from "@/lib/api";
+import type { AgentDeploymentSummary, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
@@ -33,23 +33,17 @@ function AgentDashboardInner() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [revealDeployment] = useState<AgentDeployment | null>(() => {
-    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string; revealAvatarColors?: AvatarColors } | null;
+  const [revealDeployment] = useState<AgentDeploymentSummary | null>(() => {
+    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarColors?: AvatarColors } | null;
     if (!rs?.revealDeploymentId || !rs.revealAgentName) return null;
     return {
       id: rs.revealDeploymentId,
       name: rs.revealAgentName,
       display_name: rs.revealDisplayName ?? rs.revealAgentName,
-      avatar_url: rs.revealAvatarUrl ?? undefined,
       avatar_colors: rs.revealAvatarColors,
       build_id: "",
-      namespace: "",
-      status: "pending",
-      replicas: 1,
-      ready: 0,
       created_at: new Date().toISOString(),
-      components: [],
-    } satisfies AgentDeployment;
+    } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
 

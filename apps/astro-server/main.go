@@ -1393,7 +1393,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.DeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sReg, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),

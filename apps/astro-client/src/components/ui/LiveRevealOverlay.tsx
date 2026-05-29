@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, Share2, X } from "lucide-react";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeploymentSummary } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
@@ -27,7 +27,7 @@ export function LiveRevealOverlay({
   onViewDeployment,
   onDismiss,
 }: {
-  deployment: AgentDeployment;
+  deployment: AgentDeploymentSummary;
   account: string;
   onViewDeployment: () => void;
   onDismiss: () => void;
