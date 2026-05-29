@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -10,10 +11,13 @@ export interface UserBadgeProps {
   account: string;
   /** Hide the name and render only the avatar. */
   avatarOnly?: boolean;
+  /** Wrap the badge in a `<Link to="/{username}">` so clicking opens
+   *  the person's profile. Only takes effect when a member is resolved. */
+  linkToProfile?: boolean;
   className?: string;
 }
 
-export function UserBadge({ userId, account, avatarOnly, className }: UserBadgeProps) {
+export function UserBadge({ userId, account, avatarOnly, linkToProfile, className }: UserBadgeProps) {
   const { data, isLoading } = useAccountMembers(account, { enabled: !!userId && !!account });
 
   const member = useMemo(
@@ -40,21 +44,36 @@ export function UserBadge({ userId, account, avatarOnly, className }: UserBadgeP
   const displayName = member.display_name || member.username;
 
   if (avatarOnly) {
-    return (
+    const avatar = (
       <UserAvatar
         handle={member.username}
         name={displayName}
         className={cn("size-5", className)}
       />
     );
+    return linkToProfile ? (
+      <Link to={`/${member.username}`} className="inline-flex rounded-full">
+        {avatar}
+      </Link>
+    ) : avatar;
   }
 
-  return (
-    <div className={cn("flex min-w-0 items-center gap-2", className)}>
+  const body = (
+    <>
       <UserAvatar handle={member.username} name={displayName} className="size-5" />
       <span className="truncate text-body-sm text-foreground" title={displayName}>
         {displayName}
       </span>
-    </div>
+    </>
+  );
+  return linkToProfile ? (
+    <Link
+      to={`/${member.username}`}
+      className={cn("flex min-w-0 items-center gap-2 hover:underline", className)}
+    >
+      {body}
+    </Link>
+  ) : (
+    <div className={cn("flex min-w-0 items-center gap-2", className)}>{body}</div>
   );
 }

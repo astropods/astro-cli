@@ -84,16 +84,21 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
   // so the previous window's chart stays mounted during cross-key refetches,
   // and the global progress bar signals navigation. On a true cold load we
   // render the empty state briefly before data arrives.
-  const isEmpty = data.length === 0;
+  //
+  // Also empty when the per-day rows exist but every model's cost is zero
+  // (which is what the data-shape looks like for an account that has the
+  // date axis materialised but no spend yet — without this, the chart
+  // renders a bare grid with no placeholder).
+  const isEmpty = !data.some((d) => d.models.some((m) => m.cost_usd > 0));
 
   return (
     <Card className="flex h-full flex-col dark:bg-surface p-5">
       <div className="mb-4 shrink-0">
-        <h3 className="text-heading-4 text-foreground">Agent Spend</h3>
+        <h3 className="text-heading-4 text-foreground">Agent spend over time</h3>
       </div>
       {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-body-sm text-faint-foreground">No cost data for this period</p>
+          <p className="text-body-sm text-faint-foreground">No spend yet</p>
         </div>
       ) : (
         <>

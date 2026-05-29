@@ -15,23 +15,23 @@ describe("AgentsUsedChips", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders one avatar per agent up to maxVisible (default 5) with no overflow indicator", () => {
+  it("renders one avatar per agent up to maxVisible (default 3) with no overflow indicator", () => {
     const { container } = renderWithProviders(
       <AgentsUsedChips
-        agents={[ref("a1"), ref("a2"), ref("a3"), ref("a4"), ref("a5")]}
+        agents={[ref("a1"), ref("a2"), ref("a3")]}
       />,
     );
-    expect(container.querySelectorAll("img").length).toBe(5);
+    expect(container.querySelectorAll("img").length).toBe(3);
     expect(container.textContent).not.toMatch(/\+\d/);
   });
 
   it("renders a +N overflow indicator when agents exceed maxVisible", () => {
     const { container } = renderWithProviders(
       <AgentsUsedChips
-        agents={[ref("a1"), ref("a2"), ref("a3"), ref("a4"), ref("a5"), ref("a6"), ref("a7")]}
+        agents={[ref("a1"), ref("a2"), ref("a3"), ref("a4"), ref("a5")]}
       />,
     );
-    expect(container.querySelectorAll("img").length).toBe(5);
+    expect(container.querySelectorAll("img").length).toBe(3);
     expect(container.textContent).toContain("+2");
   });
 

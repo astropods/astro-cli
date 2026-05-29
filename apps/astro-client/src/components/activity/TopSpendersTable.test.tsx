@@ -106,13 +106,13 @@ describe("TopSpendersTable", () => {
     expect(screen.getByRole("columnheader", { name: /^Model$/ })).toBeInTheDocument();
   });
 
-  it("renders a Users column; empty users_used renders the em-dash", () => {
+  it("renders a People column; empty users_used renders the em-dash", () => {
     const blueprints: Blueprint[] = [
       makeBlueprint({ agent_name: "alpha", cost_usd: 30, users_used: ["u_alice", "u_bob", "u_carol"] }),
       makeBlueprint({ agent_name: "beta",  cost_usd: 10, users_used: [] }),
     ];
     renderWithProviders(<TopSpendersTable mode="agents" blueprints={blueprints} loading={false} />);
-    expect(screen.getByRole("columnheader", { name: /^Users$/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^People$/ })).toBeInTheDocument();
     const rows = screen.getAllByRole("row").slice(1); // skip header
     const betaRow = rows.find((r) => within(r).queryByText("beta"))!;
     // Empty users_used renders as em-dash, not "0".
@@ -174,7 +174,7 @@ describe("TopSpendersTable users mode", () => {
     // The table also waits on the members query for classification — seed
     // empty members so the loading gate clears.
     seedMembers(queryClient, []);
-    expect(await screen.findByText("No user activity in this period")).toBeInTheDocument();
+    expect(await screen.findByText("No activity from people in this period")).toBeInTheDocument();
   });
 
   it("renders member display_name via UserBadge and renders AgentsUsedChips per row", async () => {
@@ -252,7 +252,7 @@ describe("TopSpendersTable users mode", () => {
       { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
     ]);
 
-    const unidentified = await screen.findByText(/Unidentified · 2 users/);
+    const unidentified = await screen.findByText(/Unidentified · 2 people/);
     expect(unidentified).toBeInTheDocument();
 
     // The Unidentified row should sit at the bottom (after Alice).
@@ -274,6 +274,6 @@ describe("TopSpendersTable users mode", () => {
       />,
     );
     seedMembers(queryClient, []);
-    expect(await screen.findByText("Infrastructure")).toBeInTheDocument();
+    expect(await screen.findByText("System spend")).toBeInTheDocument();
   });
 });

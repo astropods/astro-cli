@@ -6,13 +6,34 @@ function Table({
   className,
   containerClassName,
   children,
+  header,
+  bare,
   ...props
-}: React.ComponentProps<"table"> & { containerClassName?: string }) {
+}: React.ComponentProps<"table"> & {
+  containerClassName?: string;
+  /** Optional content rendered inside the bordered container, above the
+   *  table — used for a panel title + toolbar (e.g. view toggle + search).
+   *  Separated from the table by a thin border so the chrome reads as one
+   *  unified card without nesting a second border. */
+  header?: React.ReactNode;
+  /** Drop the rounded-card chrome (outer border + rounded corners +
+   *  overflow clip) so the table flows in the page surface. The header
+   *  row + per-row border-b still render. */
+  bare?: boolean;
+}) {
   return (
     <div
       data-slot="table-container"
-      className={cn("rounded-sm border border-border overflow-hidden", containerClassName)}
+      className={cn(!bare && "rounded-sm border border-border overflow-hidden", containerClassName)}
     >
+      {header && (
+        <div
+          data-slot="table-header-bar"
+          className={cn("px-4 py-3", !bare && "border-b border-border")}
+        >
+          {header}
+        </div>
+      )}
       <div className="relative w-full overflow-auto">
         <table
           data-slot="table"
@@ -78,16 +99,53 @@ function TableRow({
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+export type SortDirection = "asc" | "desc"
+
+function TableHead({
+  className,
+  sortable,
+  sortDirection,
+  onSort,
+  onClick,
+  children,
+  ...props
+}: React.ComponentProps<"th"> & {
+  /** Render a sort indicator and make the header clickable. */
+  sortable?: boolean
+  /** Current sort direction for this column. Omit when sortable but not the
+   *  current sort target — no indicator is rendered (only the active column
+   *  carries an arrow). */
+  sortDirection?: SortDirection
+  /** Fired on click when sortable. Caller decides which direction to toggle to. */
+  onSort?: () => void
+}) {
   return (
     <th
       data-slot="table-head"
       className={cn(
         "px-4 py-2 text-left text-body-sm font-medium text-muted-foreground",
+        sortable && "cursor-pointer select-none transition-colors hover:text-foreground",
         className,
       )}
+      onClick={sortable && onSort ? (e) => { onClick?.(e); onSort() } : onClick}
+      aria-sort={
+        sortable
+          ? sortDirection === "asc"
+            ? "ascending"
+            : sortDirection === "desc"
+              ? "descending"
+              : "none"
+          : undefined
+      }
       {...props}
-    />
+    >
+      {children}
+      {sortable && sortDirection && (
+        <span aria-hidden className="ml-1 inline-block text-foreground">
+          {sortDirection === "asc" ? "↑" : "↓"}
+        </span>
+      )}
+    </th>
   )
 }
 
