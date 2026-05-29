@@ -1,0 +1,49 @@
+---
+title: May 28, 2026 — Know Your Agents
+slug: 2026-05-28-know-your-agents
+tags: ["release", "astro"]
+---
+## Insights — per-people view and instant range switching
+See consumption by agent and find out which agents people are actually using. Insights gains a **By Agent / By People** toggle on the Top Spenders table. The people view groups spend by member and distinguishes **Unidentified** (a real person from an inbound adapter who isn't linked) from **Unattributed** (no person — background jobs, cron, SDK calls).
+
+Historical traces from undeployed agents no longer inflate account totals.
+
+## Resource sizing and persistent disks for agents
+For advanced agents that need control over underlying compute and data resources, you can now size an agent and give it a persistent disk at deploy time from the deploy form. CPU, memory, and storage tier are tunable, with a live cost estimate as you adjust. Data on a mounted volume survives redeploys; turning the volume off releases the disk. The deployment Metrics tab shows pod CPU and memory limits as reference lines so headroom is clear.
+
+Editing only the advanced provisioning fields (CPU, memory, volume mount, storage size) now triggers the **Save & Redeploy** action like every other redeploy-relevant field.
+
+## Network traffic on the Monitor page
+See whether your agents are doing what they should and catch unexpected API calls before they become a bill or a security question. The agent Monitor page has a new Network Traffic section alongside Token Usage, Requests & Latency, and Traces. It surfaces inbound, outbound, and database call volume with top peers, response class breakdown, and latency.
+
+## Pod workload metrics
+Right-size with confidence, see exactly how much CPU and memory each agent is using before you bump its limits.
+The pod detail panel now has a Metrics tab with live CPU and memory charts across 1h / 6h / 24h / 7d windows.
+
+## Agents page — faster loads, clearer state
+Open the Agents page and trust what you see: live state, fresh "Update available" pills, no stale red errors.
+The Agents page now loads in well under a second. The "Update available" pill appears immediately after a new build is published rather than waiting on a refresh. The Launch button stays available as soon as a messaging URL exists, and the Error pill only shows when a deployment is actually in an error state (not when an old error message is still on the row).
+
+## Deploy form awareness of agent interfaces
+Simpler deploy flow for self-hosted-frontend agents: no adapter picker, no validation step for something they don't use.
+The deploy form now reads what an agent declares. Agents that don't run the messaging sidecar no longer see a Slack/Web adapter picker, and the validation around it is also gone.
+
+## Inline secrets survive configure and redeploy
+Reconfigure or redeploy without re-typing your API keys.
+Inline secrets typed directly at deploy time now round-trip through configure and redeploy. Configure shows a masked placeholder for stored values; a redeploy that doesn't touch the secret carries it forward instead of clearing it.
+
+## Public URL readiness
+Deployment endpoints now report whether each public URL is actually reachable. The web Launch button reflects this with a clear tooltip while the load balancer finishes provisioning. `ast deploy --wait` polls until the URL is ready, and `ast agent get` prints readiness alongside the URL.
+
+## Connectors moved to their own settings page
+Identity connections are an org-level concern now, not a personal-account afterthought.
+GitHub and Slack identity links now live at **Settings → Connectors**. Reauthorize on the GitHub connector works (previously no-op). Because GitHub's OAuth re-auth doesn't re-show the org selection screen for already-authorized apps, a "Request access on GitHub" link is now exposed for managing org access directly in GitHub.
+
+## CLI
+- Every interactive prompt and TUI now accepts `esc` (and `ctrl+c`) to cancel cleanly with a uniform footer and a `Cancelled.` exit.
+- `ast push` and `ast secrets` recover from mid-command auth expiry with a single refresh + retry — no more token-expired failures during long Docker builds.
+- `ast push` asks about visibility before the build step, so declining doesn't waste build time.
+- `ast create` no longer falls through to printing an empty Claude prompt when the form is cancelled.
+- `ast push` accepts `dev.interfaces.messaging.slack.observe_channel_ids`.
+
+Run `ast upgrade` to pick up 0.13.2.
