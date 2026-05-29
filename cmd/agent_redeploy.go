@@ -5,19 +5,19 @@ import (
 )
 
 var agentRedeployCmd = &cobra.Command{
-	Use:   "redeploy <name>",
+	Use:   "redeploy [name|id]",
 	Short: "Redeploy an existing agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentRedeploy,
 }
 
 func init() {
 	agentCmd.AddCommand(agentRedeployCmd)
 	registerDeployCommonFlags(agentRedeployCmd)
+	registerAgentTargetFlags(agentRedeployCmd)
 }
 
 func runAgentRedeploy(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
@@ -37,7 +37,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := findDeploymentByName(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}

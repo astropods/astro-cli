@@ -103,7 +103,7 @@ func TestRunAgentRedeploy(t *testing.T) {
 			name:       "agent not found",
 			tmplStatus: http.StatusOK,
 			tmplResp:   validTmplResp,
-			wantErr:    `no deployment found for agent "unknown-agent"`,
+			wantErr:    `no deployment found for "unknown-agent"`,
 			wantNoDep:  true,
 		},
 		{

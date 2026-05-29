@@ -21,6 +21,10 @@ func errNoSpecFile() error {
 	)
 }
 
+func errAgentTargetRequired() error {
+	return fmt.Errorf("expected a deployment name or ID — multi-word names can be unquoted, e.g. ast agent get Pirate Parrot EU")
+}
+
 func errDeployNameConflict(displayName string) error {
 	return fmt.Errorf(
 		"deployment name %q is already in use — choose a different name:\n  %s deploy <blueprint> --name <new-name>",
