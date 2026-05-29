@@ -551,6 +551,8 @@ func TestAgentLogs(t *testing.T) {
 			"id": "dep-abc-123",
 			"workloads": []any{
 				map[string]any{"name": "my-agent-agent", "component": "agent", "pod_name": "my-agent-agent-abc-xyz"},
+				map[string]any{"name": "my-agent-knowledge-chat-sandbox", "component": "knowledge", "pod_name": "my-agent-knowledge-chat-sandbox-0"},
+				map[string]any{"name": "my-agent-knowledge-vectors", "component": "knowledge", "pod_name": "my-agent-knowledge-vectors-0"},
 			},
 		},
 	}
@@ -558,30 +560,38 @@ func TestAgentLogs(t *testing.T) {
 	ssePayload := "data: {\"timestamp\":\"2026-01-01T10:00:00Z\",\"level\":\"\",\"message\":\"agent started\"}\n\n"
 
 	cases := []struct {
-		name       string
-		container  string
-		tail       bool
-		useID      bool
-		listStatus int
-		logsStatus int
-		logsBody   string
-		wantErr    bool
-		wantOut    string
+		name         string
+		container    string
+		workload     string
+		tail         bool
+		useID        bool
+		listStatus   int
+		logsStatus   int
+		logsBody     string
+		wantErr      bool
+		wantOut      string
+		wantWorkload string
 	}{
-		{name: "app container", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started"},
-		{name: "messaging container", container: "messaging", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started"},
-		{name: "unknown container returns error", container: "collector", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
-		{name: "with --id skips lookup", container: "app", useID: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started"},
-		{name: "--tail streams SSE", container: "app", tail: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: ssePayload, wantOut: "agent started"},
-		{name: "empty logs", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: `[]`, wantOut: "No logs found"},
+		{name: "app container", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "messaging container", container: "messaging", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "non-default container forwarded to server", container: "collector", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "with --id skips lookup", container: "app", useID: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "--tail streams SSE", container: "app", tail: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: ssePayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "empty logs", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: `[]`, wantOut: "No logs found", wantWorkload: "my-agent-agent"},
 		{name: "deployment not found", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusNotFound, logsBody: `{}`, wantErr: true},
+		{name: "--workload by knowledge entry name", container: "app", workload: "chat-sandbox", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-chat-sandbox"},
+		{name: "--workload by full workload name", container: "app", workload: "my-agent-knowledge-vectors", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-vectors"},
+		{name: "--workload ambiguous component errors", container: "app", workload: "knowledge", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
+		{name: "--workload no match errors", container: "app", workload: "ghost", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			lookupCalled := false
+			var capturedWorkload string
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(r.URL.Path, "/logs/stream") {
+					capturedWorkload = r.URL.Query().Get("workload")
 					if tc.tail {
 						assert.NotEmpty(t, r.URL.Query().Get("since"), "tail stream must pass since to skip backfill")
 					}
@@ -589,6 +599,7 @@ func TestAgentLogs(t *testing.T) {
 					w.WriteHeader(tc.logsStatus)
 					fmt.Fprint(w, tc.logsBody)
 				} else if strings.Contains(r.URL.Path, "/logs") {
+					capturedWorkload = r.URL.Query().Get("workload")
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(tc.logsStatus)
 					fmt.Fprint(w, tc.logsBody)
@@ -603,6 +614,10 @@ func TestAgentLogs(t *testing.T) {
 
 			require.NoError(t, agentLogsCmd.Flags().Set("container", tc.container))
 			t.Cleanup(func() { agentLogsCmd.Flags().Set("container", "") }) //nolint:errcheck
+			if tc.workload != "" {
+				require.NoError(t, agentLogsCmd.Flags().Set("workload", tc.workload))
+				t.Cleanup(func() { agentLogsCmd.Flags().Set("workload", "") }) //nolint:errcheck
+			}
 			if tc.useID {
 				require.NoError(t, agentLogsCmd.Flags().Set("id", "dep-abc-123"))
 				t.Cleanup(func() { agentLogsCmd.Flags().Set("id", "") }) //nolint:errcheck
@@ -630,6 +645,9 @@ func TestAgentLogs(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Contains(t, buf.String(), tc.wantOut)
+				if tc.wantWorkload != "" {
+					assert.Equal(t, tc.wantWorkload, capturedWorkload, "server should receive resolved workload name")
+				}
 			}
 			if tc.useID {
 				assert.False(t, lookupCalled, "lookup should be skipped when --id is provided")

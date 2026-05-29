@@ -118,8 +118,9 @@ func init() {
 	agentRestartCmd.Flags().String("component", "", "Component to restart (agent)")
 	agentRestartCmd.MarkFlagRequired("component") //nolint:errcheck,gosec
 	agentLogsCmd.Flags().String("id", "", "Deployment ID (skips name lookup)")
-	agentLogsCmd.Flags().String("container", "", "Container to fetch logs from: app or messaging")
+	agentLogsCmd.Flags().String("container", "", "Container name inside the pod (typically \"app\" or \"messaging\")")
 	agentLogsCmd.MarkFlagRequired("container") //nolint:errcheck,gosec
+	agentLogsCmd.Flags().String("workload", "", "Workload to read logs from. Accepts the workload name (e.g. my-agent-knowledge-vectors), a knowledge/model/ingestion entry name (e.g. vectors), or a component (agent, messaging, collector). Defaults to the agent workload.")
 	agentLogsCmd.Flags().BoolP("tail", "t", false, "Stream logs in real time")
 }
 
@@ -152,6 +153,60 @@ type workloadDetail struct {
 type deploymentDetail struct {
 	ID        string           `json:"id"`
 	Workloads []workloadDetail `json:"workloads"`
+}
+
+// resolveWorkload picks a workload from the deployment detail based on a
+// user-supplied identifier. The identifier may be:
+//   - empty: defaults to the "agent" component
+//   - an exact workload name (e.g. "my-agent-knowledge-vectors")
+//   - an entry-name suffix (e.g. "vectors" — matches "*-knowledge-vectors",
+//     "*-model-vectors", etc.)
+//   - a component label (e.g. "agent", "messaging", "knowledge", "collector")
+//
+// When the identifier could match multiple workloads (e.g. component "knowledge"
+// with several entries), the error message lists the candidates.
+func resolveWorkload(workloads []workloadDetail, requested string) (string, error) {
+	if requested == "" {
+		for _, wl := range workloads {
+			if wl.Component == "agent" {
+				return wl.Name, nil
+			}
+		}
+		return "", fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", workloadList(workloads))
+	}
+	// Exact name match.
+	for _, wl := range workloads {
+		if wl.Name == requested {
+			return wl.Name, nil
+		}
+	}
+	// Match by component or by entry-name suffix.
+	matches := []workloadDetail{}
+	for _, wl := range workloads {
+		if wl.Component == requested || strings.HasSuffix(wl.Name, "-"+requested) {
+			matches = append(matches, wl)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0].Name, nil
+	case 0:
+		return "", fmt.Errorf("no workload matches %q (available: %s)", requested, workloadList(workloads))
+	default:
+		names := make([]string, 0, len(matches))
+		for _, wl := range matches {
+			names = append(names, wl.Name)
+		}
+		return "", fmt.Errorf("%q is ambiguous; pass the full workload name (matches: %s)", requested, strings.Join(names, ", "))
+	}
+}
+
+func workloadList(workloads []workloadDetail) string {
+	parts := make([]string, 0, len(workloads))
+	for _, wl := range workloads {
+		parts = append(parts, wl.Name)
+	}
+	return strings.Join(parts, ", ")
 }
 
 type deploymentDetailResponse struct {
@@ -261,7 +316,13 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 			if component == "" {
 				component = wl.Name
 			}
-			fmt.Fprintf(w, "    %s\n", dim.Render(component)) //nolint:errcheck,gosec
+			// Show workload name alongside component so users can pass it to
+			// `agent logs --workload <name>` for non-agent components.
+			if wl.Name != "" && wl.Name != component {
+				fmt.Fprintf(w, "    %s %s\n", dim.Render(component), dim.Render("("+wl.Name+")")) //nolint:errcheck,gosec
+			} else {
+				fmt.Fprintf(w, "    %s\n", dim.Render(component)) //nolint:errcheck,gosec
+			}
 		}
 	}
 	return nil
@@ -568,22 +629,15 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("fetching deployment detail: %w", err)
 	}
-	workload := ""
-	for _, wl := range detail.Workloads {
-		if wl.Component == "agent" {
-			workload = wl.Name
-			break
-		}
-	}
-	if workload == "" {
-		return fmt.Errorf("no agent workload found for deployment %q", id)
+	requested, _ := cmd.Flags().GetString("workload")
+	workload, err := resolveWorkload(detail.Workloads, requested)
+	if err != nil {
+		return err
 	}
 
 	container, _ := cmd.Flags().GetString("container")
-	switch container {
-	case "app", "messaging":
-	default:
-		return fmt.Errorf("unknown container %q — must be one of: app, messaging", container)
+	if container == "" {
+		return fmt.Errorf("--container is required")
 	}
 
 	since := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339)
