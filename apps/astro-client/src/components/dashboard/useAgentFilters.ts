@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
 export type SortOption = "recent" | "name" | "requests";
@@ -10,7 +9,6 @@ export function useAgentFilters(
 ) {
   const [filter, setFilter] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
   const filtered = useMemo(() => {
     let list = deployments;
@@ -22,10 +20,6 @@ export function useAgentFilters(
           d.name.toLowerCase().includes(lower) ||
           d.display_name?.toLowerCase().includes(lower),
       );
-    }
-
-    if (statusFilter.length > 0) {
-      list = list.filter((d) => statusFilter.includes(mapDeploymentStatus(d)));
     }
 
     if (sortBy === "name") {
@@ -45,15 +39,13 @@ export function useAgentFilters(
     }
 
     return list;
-  }, [deployments, filter, statusFilter, sortBy, requestCounts]);
+  }, [deployments, filter, sortBy, requestCounts]);
 
   return {
     filtered,
     toolbarProps: {
       filter,
       onFilterChange: setFilter,
-      statusFilter,
-      onStatusFilterChange: setStatusFilter,
       sortBy,
       onSortChange: setSortBy,
     },

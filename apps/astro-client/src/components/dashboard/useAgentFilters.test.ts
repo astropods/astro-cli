@@ -46,19 +46,6 @@ describe('useAgentFilters', () => {
     expect(result.current.filtered).toHaveLength(0);
   });
 
-  it('filters by status', () => {
-    const { result } = renderHook(() => useAgentFilters(deployments));
-    act(() => result.current.toolbarProps.onStatusFilterChange(['error']));
-    expect(result.current.filtered).toEqual([gamma]);
-  });
-
-  it('returns only active deployments when status filter is active', () => {
-    const { result } = renderHook(() => useAgentFilters(deployments));
-    act(() => result.current.toolbarProps.onStatusFilterChange(['active']));
-    expect(result.current.filtered).toHaveLength(2);
-    expect(result.current.filtered).not.toContain(gamma);
-  });
-
   it('sorts by name alphabetically', () => {
     const { result } = renderHook(() => useAgentFilters(deployments));
     act(() => result.current.toolbarProps.onSortChange('name'));
@@ -84,14 +71,13 @@ describe('useAgentFilters', () => {
     expect(result.current.filtered.map((d) => d.id)).toEqual(['b', 'a', 'c']);
   });
 
-  it('applies text filter and status filter together', () => {
+  it('applies text filter and sort together', () => {
     const { result } = renderHook(() => useAgentFilters(deployments));
     act(() => {
       result.current.toolbarProps.onFilterChange('bot');
-      result.current.toolbarProps.onStatusFilterChange(['active']);
+      result.current.toolbarProps.onSortChange('name');
     });
-    expect(result.current.filtered).toHaveLength(2);
-    expect(result.current.filtered).not.toContain(gamma);
+    expect(result.current.filtered).toEqual([alpha, beta]);
   });
 
   it('clears filter on empty string', () => {

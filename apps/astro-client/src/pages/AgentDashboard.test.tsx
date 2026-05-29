@@ -59,6 +59,25 @@ describe('AgentDashboard page', () => {
     });
   });
 
+  it('does not render a status filter', async () => {
+    server.use(
+      http.get('/api/v1/deployments', () =>
+        HttpResponse.json({
+          deployments: [
+            { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
+          ],
+          count: 1,
+        }),
+      ),
+    );
+
+    renderDashboard();
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('All statuses')).not.toBeInTheDocument();
+  });
+
   it('shows deployed agent cards with display_name', async () => {
     server.use(
       http.get('/api/v1/deployments', () =>
@@ -151,7 +170,7 @@ describe('AgentDashboard page', () => {
     fireEvent.change(screen.getByPlaceholderText('Search agents...'), { target: { value: 'zzz-no-match' } });
 
     await waitFor(() => {
-      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
+      expect(screen.getByText('No agents match your search.')).toBeInTheDocument();
     });
   });
 });

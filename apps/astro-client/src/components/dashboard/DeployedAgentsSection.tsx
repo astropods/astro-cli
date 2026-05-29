@@ -57,7 +57,7 @@ export function DeployedAgentsSection({
       {filtered.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <p className="text-body-sm text-muted-foreground">
-            No agents match your filters.
+            No agents match your search.
           </p>
         </div>
       )}
