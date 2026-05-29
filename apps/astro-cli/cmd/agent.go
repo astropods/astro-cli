@@ -22,13 +22,6 @@ import (
 // agentServerURLOverride is set in tests to redirect API calls to a test server.
 var agentServerURLOverride string
 
-func exactValidAgentDeploymentName(_ *cobra.Command, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("this command expected exactly one argument <agent deployment name>, but got %d", len(args))
-	}
-	return nil
-}
-
 func agentBaseURL() string {
 	if agentServerURLOverride != "" {
 		return strings.TrimSuffix(agentServerURLOverride, "/")
@@ -49,51 +42,51 @@ var agentListCmd = &cobra.Command{
 }
 
 var agentGetCmd = &cobra.Command{
-	Use:   "get <name>",
+	Use:   "get [name|id]",
 	Short: "Get details for a deployed agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentGet,
 }
 
 var agentPauseCmd = &cobra.Command{
-	Use:   "pause <name>",
+	Use:   "pause [name|id]",
 	Short: "Pause a running agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentPause,
 }
 
 var agentResumeCmd = &cobra.Command{
-	Use:   "resume <name>",
+	Use:   "resume [name|id]",
 	Short: "Resume a paused agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentResume,
 }
 
 var agentDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
+	Use:   "delete [name|id]",
 	Short: "Delete a deployed agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentDelete,
 }
 
 var agentHistoryCmd = &cobra.Command{
-	Use:   "history <name>",
+	Use:   "history [name|id]",
 	Short: "List deployment history for an agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentHistory,
 }
 
 var agentRestartCmd = &cobra.Command{
-	Use:   "restart <name>",
+	Use:   "restart [name|id]",
 	Short: "Restart a running agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentRestart,
 }
 
 var agentLogsCmd = &cobra.Command{
-	Use:   "logs <name>",
+	Use:   "logs [name|id]",
 	Short: "Fetch logs for a deployed agent",
-	Args:  exactValidAgentDeploymentName,
+	Args:  agentTargetArgs,
 	RunE:  runAgentLogs,
 }
 
@@ -110,14 +103,17 @@ func init() {
 
 	agentListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	agentGetCmd.Flags().Bool("json", false, "Print raw JSON output")
-	agentPauseCmd.Flags().String("id", "", "Deployment ID (skips name lookup)")
-	agentResumeCmd.Flags().String("id", "", "Deployment ID (skips name lookup)")
-	agentDeleteCmd.Flags().String("confirm", "", "Skip prompt by passing the agent name as confirmation (--confirm <name>)")
+	registerAgentTargetFlags(agentGetCmd)
+	registerAgentTargetFlags(agentPauseCmd)
+	registerAgentTargetFlags(agentResumeCmd)
+	registerAgentTargetFlags(agentDeleteCmd)
+	registerAgentTargetFlags(agentHistoryCmd)
+	registerAgentTargetFlags(agentRestartCmd)
+	registerAgentTargetFlags(agentLogsCmd)
+	agentDeleteCmd.Flags().String("confirm", "", "Skip prompt by passing the agent name or ID as confirmation")
 	agentHistoryCmd.Flags().Bool("json", false, "Print raw JSON output")
-	agentRestartCmd.Flags().String("id", "", "Deployment ID (skips name lookup)")
 	agentRestartCmd.Flags().String("component", "", "Component to restart (agent)")
 	agentRestartCmd.MarkFlagRequired("component") //nolint:errcheck,gosec
-	agentLogsCmd.Flags().String("id", "", "Deployment ID (skips name lookup)")
 	agentLogsCmd.Flags().String("container", "", "Container name inside the pod (typically \"app\" or \"messaging\")")
 	agentLogsCmd.MarkFlagRequired("container") //nolint:errcheck,gosec
 	agentLogsCmd.Flags().String("workload", "", "Workload to read logs from. Accepts the workload name (e.g. my-agent-knowledge-vectors), a knowledge/model/ingestion entry name (e.g. vectors), or a component (agent, messaging, collector). Defaults to the agent workload.")
@@ -213,18 +209,6 @@ type deploymentDetailResponse struct {
 	Deployment deploymentDetail `json:"deployment"`
 }
 
-// resolveDeploymentID returns the deployment ID from --id or by looking up the agent name.
-func resolveDeploymentID(cmd *cobra.Command, name string, at AccountToken, verbose bool) (string, error) {
-	if id, _ := cmd.Flags().GetString("id"); id != "" {
-		return id, nil
-	}
-	dep, err := findDeploymentByName(cmd, name, at, verbose)
-	if err != nil {
-		return "", err
-	}
-	return dep.ID, nil
-}
-
 func getDeploymentDetail(cmd *cobra.Command, id string, at AccountToken, verbose bool) (*deploymentDetail, error) {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s", agentBaseURL(), url.PathEscape(id))
 	var result deploymentDetailResponse
@@ -249,13 +233,12 @@ type deploymentHistoryResponse struct {
 }
 
 func runAgentGet(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	dep, err := findDeploymentByName(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -285,7 +268,7 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	}
 
-	fmt.Fprintln(w, bold.Render(dep.DisplayName)+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
+	fmt.Fprintln(w, bold.Render(deploymentLabel(dep))+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))      //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID))          //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                            //nolint:errcheck,gosec
@@ -326,22 +309,6 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
-}
-
-// findDeploymentByName searches the full deployment list (which includes all states)
-// and returns the first deployment matching the given agent name.
-func findDeploymentByName(cmd *cobra.Command, name string, at AccountToken, verbose bool) (*agentDeployment, error) {
-	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
-	var result listDeploymentsResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
-		return nil, err
-	}
-	for i := range result.Deployments {
-		if result.Deployments[i].DisplayName == name {
-			return &result.Deployments[i], nil
-		}
-	}
-	return nil, fmt.Errorf("no deployment found for agent %q", name)
 }
 
 func runAgentList(cmd *cobra.Command, _ []string) error {
@@ -410,85 +377,85 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 }
 
 func runAgentPause(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	id, err := resolveDeploymentID(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
+	label := deploymentLabel(dep)
 
 	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "%s→%s Pausing %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s→%s Pausing %s%s%s\n", colorCyan, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 
-	u := fmt.Sprintf("%s/api/v1/deployments/%s/stop", agentBaseURL(), url.PathEscape(id))
+	u := fmt.Sprintf("%s/api/v1/deployments/%s/stop", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for agent %q", name)
+		return fmt.Errorf("no deployment found for %q", label)
 	}
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "  %s✓%s %s%s%s paused\n", colorGreen, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  %s✓%s %s%s%s paused\n", colorGreen, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 	return nil
 }
 
 func runAgentResume(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	id, err := resolveDeploymentID(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
+	label := deploymentLabel(dep)
 
 	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "%s→%s Resuming %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s→%s Resuming %s%s%s\n", colorCyan, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 
-	u := fmt.Sprintf("%s/api/v1/deployments/%s/wakeup", agentBaseURL(), url.PathEscape(id))
+	u := fmt.Sprintf("%s/api/v1/deployments/%s/wakeup", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for agent %q", name)
+		return fmt.Errorf("no deployment found for %q", label)
 	}
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "  %s✓%s %s%s%s resumed\n", colorGreen, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  %s✓%s %s%s%s resumed\n", colorGreen, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 	return nil
 }
 
 func runAgentDelete(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	dep, err := findDeploymentByName(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
+	label := deploymentLabel(dep)
 
 	confirm, _ := cmd.Flags().GetString("confirm")
-	if confirm != "" && confirm != name {
+	if confirm != "" && confirm != label && confirm != dep.ID {
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "%sCancelled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
-	if confirm != name {
+	if confirm != label && confirm != dep.ID {
 		var confirmed bool
 		form := huh.NewForm(
 			huh.NewGroup(
 				huh.NewConfirm().
-					Title(fmt.Sprintf("Delete agent %q?", name)).
+					Title(fmt.Sprintf("Delete agent %q?", label)).
 					Description("This will permanently remove the deployment and cannot be undone.").
 					Value(&confirmed),
 			),
@@ -500,29 +467,34 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "%s→%s Deleting %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s→%s Deleting %s%s%s\n", colorCyan, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 
 	u := agentBaseURL() + "/api/v1/undeploy"
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{"deployment_id": dep.ID}, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for agent %q", name)
+		return fmt.Errorf("no deployment found for %q", label)
 	}
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(w, "  %s✓%s %s%s%s deleted\n", colorGreen, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  %s✓%s %s%s%s deleted\n", colorGreen, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
 	return nil
 }
 
 func runAgentHistory(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	u := apiPath(agentBaseURL(), at.Account, "agents", name, "deployment", "history")
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	if err != nil {
+		return err
+	}
+	label := deploymentLabel(dep)
+
+	u := apiPath(agentBaseURL(), at.Account, "agents", dep.Name, "deployment", "history")
 	var result deploymentHistoryResponse
 	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
 		return err
@@ -535,7 +507,7 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	if result.Count == 0 {
-		fmt.Fprintf(w, "%sNo deployment history found for %s%s\n", colorDim, name, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "%sNo deployment history found for %s%s\n", colorDim, label, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 
@@ -564,16 +536,16 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 }
 
 func runAgentRestart(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	id, err := resolveDeploymentID(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
+	label := deploymentLabel(dep)
 
 	component, _ := cmd.Flags().GetString("component")
 
@@ -583,7 +555,7 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown component %q — must be: agent", component)
 	}
 
-	detail, err := getDeploymentDetail(cmd, id, at, verbose)
+	detail, err := getDeploymentDetail(cmd, dep.ID, at, verbose)
 	if err != nil {
 		return fmt.Errorf("fetching deployment detail: %w", err)
 	}
@@ -595,15 +567,15 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if podName == "" {
-		return fmt.Errorf("no pod found for component %q — use 'agent get %s' to see available components", component, name)
+		return fmt.Errorf("no pod found for component %q — use 'agent get %s' to see available components", component, label)
 	}
 
-	fmt.Fprintf(w, "%s→%s Restarting %s%s%s component of %s%s%s\n", colorCyan, colorReset, colorBold, component, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
-	u := fmt.Sprintf("%s/api/v1/deployments/%s/pods/%s/restart", agentBaseURL(), url.PathEscape(id), url.PathEscape(podName))
+	fmt.Fprintf(w, "%s→%s Restarting %s%s%s component of %s%s%s\n", colorCyan, colorReset, colorBold, component, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
+	u := fmt.Sprintf("%s/api/v1/deployments/%s/pods/%s/restart", agentBaseURL(), url.PathEscape(dep.ID), url.PathEscape(podName))
 
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for agent %q", name)
+		return fmt.Errorf("no deployment found for %q", label)
 	}
 	if err != nil {
 		return err
@@ -614,18 +586,18 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 }
 
 func runAgentLogs(cmd *cobra.Command, args []string) error {
-	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	id, err := resolveDeploymentID(cmd, name, at, verbose)
+	dep, err := resolveAgentTarget(cmd, args, at, verbose)
 	if err != nil {
 		return err
 	}
+	label := deploymentLabel(dep)
 
-	detail, err := getDeploymentDetail(cmd, id, at, verbose)
+	detail, err := getDeploymentDetail(cmd, dep.ID, at, verbose)
 	if err != nil {
 		return fmt.Errorf("fetching deployment detail: %w", err)
 	}
@@ -650,12 +622,12 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 		q.Set("workload", workload)
 		q.Set("container", container)
 		q.Set("since", time.Now().UTC().Format(time.RFC3339))
-		streamURL := fmt.Sprintf("%s/api/v1/deployments/%s/logs/stream?%s", agentBaseURL(), url.PathEscape(id), q.Encode())
+		streamURL := fmt.Sprintf("%s/api/v1/deployments/%s/logs/stream?%s", agentBaseURL(), url.PathEscape(dep.ID), q.Encode())
 
 		for {
 			httpStatus, body, err := apiStream(cmd.Context(), streamURL, at.Token, verbose)
 			if httpStatus == http.StatusNotFound {
-				return fmt.Errorf("no deployment found for agent %q", name)
+				return fmt.Errorf("no deployment found for %q", label)
 			}
 			if err != nil {
 				return err
@@ -706,12 +678,12 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 	q.Set("workload", workload)
 	q.Set("container", container)
 	q.Set("since", since)
-	batchURL := fmt.Sprintf("%s/api/v1/deployments/%s/logs?%s", agentBaseURL(), url.PathEscape(id), q.Encode())
+	batchURL := fmt.Sprintf("%s/api/v1/deployments/%s/logs?%s", agentBaseURL(), url.PathEscape(dep.ID), q.Encode())
 
 	var raw json.RawMessage
 	httpStatus, err := apiCall(cmd.Context(), http.MethodGet, batchURL, nil, at.Token, verbose, &raw)
 	if httpStatus == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for agent %q", name)
+		return fmt.Errorf("no deployment found for %q", label)
 	}
 	if err != nil {
 		return err

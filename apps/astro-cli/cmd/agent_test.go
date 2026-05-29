@@ -244,12 +244,22 @@ func TestAgentPauseResume(t *testing.T) {
 		"count": 1,
 	}
 	emptyPayload := map[string]any{"deployments": []any{}, "count": 0}
+	detailPayload := map[string]any{
+		"deployment": map[string]any{
+			"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent",
+			"build_id": "abc12345", "status": "scaled_down", "created_at": "2026-01-01T10:00:00Z",
+		},
+	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			lookupCalled := false
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
+					if strings.Contains(r.URL.Path, "/deployments/dep-abc-123") {
+						jsonHandler(http.StatusOK, detailPayload)(w, r)
+						return
+					}
 					lookupCalled = true
 					if tc.emptyList {
 						jsonHandler(http.StatusOK, emptyPayload)(w, r)
@@ -351,6 +361,12 @@ func TestAgentDelete(t *testing.T) {
 }
 
 func TestAgentHistory(t *testing.T) {
+	listPayload := map[string]any{
+		"deployments": []any{
+			map[string]any{"id": "dep-1", "name": "my-agent", "display_name": "my-agent", "build_id": "abc12345", "status": "active", "created_at": "2026-01-01T10:00:00Z"},
+		},
+		"count": 1,
+	}
 	payload := map[string]any{
 		"deployments": []any{
 			map[string]any{
@@ -392,7 +408,14 @@ func TestAgentHistory(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			setupAgentTest(t, jsonHandler(tc.statusCode, tc.body))
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(r.URL.Path, "/api/v1/deployments") && r.URL.Query().Get("account") != "" {
+					jsonHandler(http.StatusOK, listPayload)(w, r)
+					return
+				}
+				jsonHandler(tc.statusCode, tc.body)(w, r)
+			})
+			setupAgentTest(t, handler)
 			if tc.jsonOutput {
 				require.NoError(t, agentHistoryCmd.Flags().Set("json", "true"))
 				t.Cleanup(func() { agentHistoryCmd.Flags().Set("json", "false") }) //nolint:errcheck

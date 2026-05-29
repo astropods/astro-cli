@@ -58,17 +58,19 @@ Top-level aliases: `ast build <name>`, `ast push <name>`, `ast deploy <name>`.
 
 Manages running deployments — instances of a blueprint deployed to the platform.
 
+Target a deployment by display name (from `agent list`), blueprint name, or deployment ID (`ze5-r2l-m16`). Multi-word display names can be passed unquoted: `ast agent get Pirate Parrot EU!`. Use `--id` to skip name lookup.
+
 | Command | Description |
 |---|---|
 | `agent list` | List deployments in the active account |
-| `agent get <name>` | Get deployment status and detail |
-| `agent delete <name>` | Undeploy |
-| `agent pause <name>` | Scale to zero |
-| `agent resume <name>` | Wake up a paused deployment |
-| `agent restart <name>` | Rolling restart |
-| `agent redeploy <name>` | Redeploy with updated config or build |
-| `agent history <name>` | List deployment history |
-| `agent logs <name>` | Fetch deployment logs; `--follow` streams live |
+| `agent get [name\|id]` | Get deployment status and detail (`--id`) |
+| `agent delete [name\|id]` | Undeploy (`--id`, `--confirm`) |
+| `agent pause [name\|id]` | Scale to zero (`--id`) |
+| `agent resume [name\|id]` | Wake up a paused deployment (`--id`) |
+| `agent restart [name\|id]` | Rolling restart (`--id`, `--component`) |
+| `agent redeploy [name\|id]` | Redeploy with updated config or build (`--id`) |
+| `agent history [name\|id]` | List deployment history (`--id`) |
+| `agent logs [name\|id]` | Fetch deployment logs; `--tail` streams live (`--id`, `--container`) |
 
 ---
 
