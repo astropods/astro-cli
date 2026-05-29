@@ -1,21 +1,18 @@
 import { useMemo } from "react";
 import {
   useAccountActivitySummary,
-  useBlueprintsSummary,
+  useDeploymentsSummary,
 } from "@/api/queries/observability";
 import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
 import { classifyUserId } from "./user-classification";
 import type {
-  AccountBlueprintsSummaryResponse,
+  AccountDeploymentsSummaryResponse,
   AccountObservabilitySummaryResponse,
   AccountUsersSummaryResponse,
 } from "@/lib/api";
 
-export const ALL_AGENTS_KEY = "__all__";
-export const ALL_AGENTS_COLOR = "var(--color-indigo-500)";
-
-type Blueprint = AccountBlueprintsSummaryResponse["blueprints"][number];
+type Deployment = AccountDeploymentsSummaryResponse["deployments"][number];
 
 // emptyAccountSummary is the zero-state both insights hooks fall back to
 // before their underlying data fetch resolves. Mirrors the server's response
@@ -32,8 +29,8 @@ const emptyAccountSummary: AccountObservabilitySummaryResponse = {
   sparklines: { cost: [], requests: [], tokens: [] },
 };
 
-// sliceBlueprintByWindow rebuilds a single Blueprint's totals + over_time
-// arrays from a UTC day window [fromDate, toDate] inclusive. Each blueprint
+// sliceDeploymentByWindow rebuilds a single Deployment's totals + over_time
+// arrays from a UTC day window [fromDate, toDate] inclusive. Each deployment
 // from the server already carries per-day data for cost/requests/tokens, so
 // every range toggle is a pure JS computation against in-memory data — no
 // network round-trip.
@@ -43,9 +40,9 @@ const emptyAccountSummary: AccountObservabilitySummaryResponse = {
 // these two fields reflected the selected range. With client-side slicing
 // the client queries all-time and we can't reproduce these locally (no
 // per-day latency distribution, no per-(day, model) breakdown on the
-// blueprint shape). They now stay at the server's all-time values — a
+// deployment shape). They now stay at the server's all-time values — a
 // deliberate trade-off accepted in exchange for instant toggles.
-export function sliceBlueprintByWindow(b: Blueprint, fromDate: string, toDate: string): Blueprint {
+export function sliceDeploymentByWindow(b: Deployment, fromDate: string, toDate: string): Deployment {
   const inRange = (d: { date: string }) => d.date >= fromDate && d.date <= toDate;
   const cost_over_time = (b.cost_over_time ?? []).filter(inRange);
   const requests_over_time = (b.requests_over_time ?? []).filter(inRange);
@@ -71,13 +68,13 @@ export function sliceBlueprintByWindow(b: Blueprint, fromDate: string, toDate: s
   };
 }
 
-// sliceBlueprintsResponseByRange returns a synthetic response derived from the
-// all-time response, with every blueprint sliced to the URL window. Returns
+// sliceDeploymentsResponseByRange returns a synthetic response derived from the
+// all-time response, with every deployment sliced to the URL window. Returns
 // the input unchanged for the all-time range.
-export function sliceBlueprintsResponseByRange(
-  response: AccountBlueprintsSummaryResponse | undefined,
+export function sliceDeploymentsResponseByRange(
+  response: AccountDeploymentsSummaryResponse | undefined,
   range: ActivityRange,
-): AccountBlueprintsSummaryResponse | undefined {
+): AccountDeploymentsSummaryResponse | undefined {
   if (!response) return response;
   if (range === "all") return response;
   const { from, to } = buildPeriodParams(range);
@@ -86,7 +83,7 @@ export function sliceBlueprintsResponseByRange(
   if (!fromDate || !toDate) return response;
   const days = Math.max(1, Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000) + 1);
   return {
-    blueprints: response.blueprints.map((b) => sliceBlueprintByWindow(b, fromDate, toDate)),
+    deployments: response.deployments.map((b) => sliceDeploymentByWindow(b, fromDate, toDate)),
     period: { start: from!, end: to!, days },
   };
 }
@@ -154,17 +151,17 @@ export function shiftPriorWindow(
   };
 }
 
-// sumBlueprintsWindow returns the [cost, requests, tokens] totals for a
-// UTC day window across the supplied blueprints. Drives prior-period
-// change% in the agents view — must be called against ALL-TIME blueprints,
+// sumDeploymentsWindow returns the [cost, requests, tokens] totals for a
+// UTC day window across the supplied deployments. Drives prior-period
+// change% in the agents view — must be called against ALL-TIME deployments,
 // not range-sliced ones, so the prior days are still present.
-function sumBlueprintsWindow(
-  blueprints: Blueprint[],
+function sumDeploymentsWindow(
+  deployments: Deployment[],
   fromDate: string,
   toDate: string,
 ): ChangeTotals {
   let cost = 0, requests = 0, tokens = 0;
-  for (const b of blueprints) {
+  for (const b of deployments) {
     for (const d of b.cost_over_time ?? []) {
       if (d.date >= fromDate && d.date <= toDate) cost += d.cost_usd;
     }
@@ -179,12 +176,12 @@ function sumBlueprintsWindow(
 }
 
 export function buildFilteredSummary(
-  blueprints: Blueprint[],
+  deployments: Deployment[],
   period: { start: string; end: string; days: number },
   prior: ChangeTotals | null = null,
 ): AccountObservabilitySummaryResponse {
-  // Single pass over blueprints: accumulate scalar totals, the per-(agent, date)
-  // cost index used for the chart output, and per-date totals for sparklines.
+  // Single pass over deployments: accumulate scalar totals, the per-(deployment,
+  // date) cost index used for the chart output, and per-date totals for sparklines.
   let totalCost = 0, totalReqs = 0, totalIn = 0, totalOut = 0;
   const dateSet = new Set<string>();
   const costIndex = new Map<string, Map<string, number>>();
@@ -199,17 +196,17 @@ export function buildFilteredSummary(
   };
 
   let totalTok = 0;
-  for (const b of blueprints) {
+  for (const b of deployments) {
     totalCost += b.cost_usd;
     totalReqs += b.requests;
     totalIn   += b.input_tokens;
     totalOut  += b.output_tokens;
     totalTok  += b.total_tokens;
-    const perAgentCost = new Map<string, number>();
-    for (const d of b.cost_over_time ?? [])     { perAgentCost.set(d.date, d.cost_usd); addToDate(totalsByDate.cost, d.date, d.cost_usd); }
+    const perDepCost = new Map<string, number>();
+    for (const d of b.cost_over_time ?? [])     { perDepCost.set(d.date, d.cost_usd); addToDate(totalsByDate.cost, d.date, d.cost_usd); }
     for (const d of b.requests_over_time ?? []) { addToDate(totalsByDate.req,  d.date, d.requests); }
     for (const d of b.tokens_over_time ?? [])   { addToDate(totalsByDate.tok,  d.date, d.total_tokens); }
-    costIndex.set(b.agent_name, perAgentCost);
+    costIndex.set(b.deployment_id, perDepCost);
   }
 
   // Bounded periods walk the full day range so the chart x-axis + sparklines
@@ -234,7 +231,7 @@ export function buildFilteredSummary(
       input_tokens: totalIn,
       output_tokens: totalOut,
       total_tokens: totalTok,
-      active_agents: blueprints.length,
+      active_agents: deployments.length,
     },
     daily_avg: {
       cost_usd: parseFloat((totalCost / n).toFixed(2)),
@@ -247,7 +244,10 @@ export function buildFilteredSummary(
     ),
     cost_over_time: allDates.map((date) => ({
       date,
-      models: blueprints.map((b) => ({ model: b.agent_name, cost_usd: costIndex.get(b.agent_name)?.get(date) ?? 0 })),
+      // Each chart series is one deployment; the series key is the
+      // deployment_id so multi-region deployments of the same agent_name
+      // get distinct lines. Callers can map id → label via seriesLabels.
+      models: deployments.map((b) => ({ model: b.deployment_id, cost_usd: costIndex.get(b.deployment_id)?.get(date) ?? 0 })),
     })),
     cost_by_model: [],
     sparklines,
@@ -257,119 +257,126 @@ export function buildFilteredSummary(
 interface UseInsightsDataOpts {
   account: string;
   range: ActivityRange;
-  selectedAgents: string[];
   enabled?: boolean;
 }
 
 export function useInsightsData({
   account,
   range,
-  selectedAgents,
   enabled = true,
 }: UseInsightsDataOpts) {
-  // Always fetch all-time blueprints; everything below derives from that
+  // Always fetch all-time deployments; everything below derives from that
   // single source via client-side slicing. The account summary endpoint
   // used to be a fallback for displaySummary — dropped because the
-  // blueprints data carries everything we need and the fallback path is
+  // deployments data carries everything we need and the fallback path is
   // now a static zero-state.
-  const blueprintsQ = useBlueprintsSummary(account, undefined, undefined, { enabled });
+  const deploymentsQ = useDeploymentsSummary(account, undefined, undefined, { enabled });
 
-  const blueprintsAll = blueprintsQ.data;
-  const blueprintsLoading = blueprintsQ.isLoading;
+  const deploymentsAll = deploymentsQ.data;
+  const deploymentsLoading = deploymentsQ.isLoading;
 
   // Slice the all-time response down to the URL range. Every memo downstream
-  // reads from `blueprintsData` so the URL range is the only thing they need
-  // to react to.
-  const blueprintsData = useMemo(
-    () => sliceBlueprintsResponseByRange(blueprintsAll, range),
-    [blueprintsAll, range],
+  // reads from `deploymentsData` so the URL range is the only thing they
+  // need to react to.
+  const deploymentsData = useMemo(
+    () => sliceDeploymentsResponseByRange(deploymentsAll, range),
+    [deploymentsAll, range],
   );
 
-  const allAgentNames = useMemo(
-    () => blueprintsData?.blueprints.map((b) => b.agent_name) ?? [],
-    [blueprintsData],
+  // Series key for the chart is `deployment_id` so multi-region deployments
+  // of the same agent_name get distinct lines. The label map below pairs
+  // each id with a human-readable name for the legend / tooltip.
+  const allDeploymentIds = useMemo(
+    () => deploymentsData?.deployments.map((b) => b.deployment_id) ?? [],
+    [deploymentsData],
   );
 
-  const filteredBlueprints = useMemo(() => {
-    const all = blueprintsData?.blueprints ?? [];
-    if (selectedAgents.length > 0 && selectedAgents[0] !== ALL_AGENTS_KEY)
-      return all.filter((b) => selectedAgents.includes(b.agent_name));
-    return all;
-  }, [blueprintsData, selectedAgents]);
+  const seriesLabels = useMemo<Record<string, string>>(() => {
+    // Two-pass build: first count how many deployments share each base
+    // label (display_name || agent_name); then in the second pass, append
+    // ` (namespace)` only where there's a collision AND the namespace is
+    // non-empty — so multi-region deployments of the same blueprint stay
+    // readable in the legend.
+    const deps = deploymentsData?.deployments ?? [];
+    const baseLabelCounts = new Map<string, number>();
+    for (const d of deps) {
+      const base = d.display_name || d.agent_name;
+      baseLabelCounts.set(base, (baseLabelCounts.get(base) ?? 0) + 1);
+    }
+    const labels: Record<string, string> = {};
+    for (const d of deps) {
+      const base = d.display_name || d.agent_name;
+      labels[d.deployment_id] =
+        (baseLabelCounts.get(base) ?? 0) > 1 && d.namespace
+          ? `${base} (${d.namespace})`
+          : base;
+    }
+    return labels;
+  }, [deploymentsData]);
 
-  const chartBlueprints = useMemo(() => {
-    if (selectedAgents.length > 0) return filteredBlueprints;
-    return [...(blueprintsData?.blueprints ?? [])].sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 5);
-  }, [selectedAgents, filteredBlueprints, blueprintsData]);
+  // Chart series source — top 5 deployments by all-time cost.
+  const chartDeployments = useMemo(() => {
+    return [...(deploymentsData?.deployments ?? [])]
+      .sort((a, b) => b.cost_usd - a.cost_usd)
+      .slice(0, 5);
+  }, [deploymentsData]);
 
-  const agentCostOverTime = useMemo(() => {
-    const isAll = selectedAgents.length > 0 && selectedAgents[0] === ALL_AGENTS_KEY;
-    const source = isAll ? (blueprintsData?.blueprints ?? []) : chartBlueprints;
-    // Bounded periods enumerate every day in the window — server returns sparse
-    // per-blueprint cost_over_time (only days with activity), so without this
-    // the chart's first bar is the first day anything ran, not the first day
-    // of the requested range.
-    const enumerated = enumerateDates(blueprintsData?.period?.start, blueprintsData?.period?.end);
+  const deploymentCostOverTime = useMemo(() => {
+    const source = chartDeployments;
+    // Bounded periods enumerate every day in the window — server returns
+    // sparse per-deployment cost_over_time (only days with activity), so
+    // without this the chart's first bar is the first day anything ran,
+    // not the first day of the requested range.
+    const enumerated = enumerateDates(deploymentsData?.period?.start, deploymentsData?.period?.end);
     const unionDates = [...new Set(source.flatMap((b) => b.cost_over_time?.map((d) => d.date) ?? []))].sort();
     const allDates = enumerated.length > 0 ? enumerated : unionDates;
-    const costIndex = new Map(source.map((b) => [b.agent_name, new Map(b.cost_over_time?.map((d) => [d.date, d.cost_usd]) ?? [])]));
-    if (isAll) {
-      return allDates.map((date) => ({
-        date,
-        models: [{ model: ALL_AGENTS_KEY, cost_usd: source.reduce((sum, b) => sum + (costIndex.get(b.agent_name)?.get(date) ?? 0), 0) }],
-      }));
-    }
+    const costIndex = new Map(
+      source.map((b) => [b.deployment_id, new Map(b.cost_over_time?.map((d) => [d.date, d.cost_usd]) ?? [])]),
+    );
     return allDates.map((date) => ({
       date,
-      models: source.map((b) => ({ model: b.agent_name, cost_usd: costIndex.get(b.agent_name)?.get(date) ?? 0 })),
+      models: source.map((b) => ({
+        model: b.deployment_id,
+        cost_usd: costIndex.get(b.deployment_id)?.get(date) ?? 0,
+      })),
     }));
-  }, [chartBlueprints, selectedAgents, blueprintsData]);
+  }, [chartDeployments, deploymentsData]);
 
-  const allAgentColorMap = useMemo(() => buildModelColorMap(allAgentNames), [allAgentNames]);
+  const colorMap = useMemo(() => buildModelColorMap(allDeploymentIds), [allDeploymentIds]);
 
   // Prior-period totals (this-week vs last-week semantic). Computed from
-  // the all-time blueprints we already hold, filtered the same way as the
-  // current view, so the StatCards change% badge stays a pure JS op.
+  // the all-time deployments we already hold, so the StatCards change%
+  // badge stays a pure JS op.
   const priorTotals = useMemo<ChangeTotals | null>(() => {
-    if (!blueprintsAll || range === "all") return null;
+    if (!deploymentsAll || range === "all") return null;
     const { fromDate, toDate } = rangeWindow(range);
     if (!fromDate || !toDate) return null;
     const prior = shiftPriorWindow(fromDate, toDate);
     if (!prior) return null;
-    const all = blueprintsAll.blueprints;
-    const filtered =
-      selectedAgents.length > 0 && selectedAgents[0] !== ALL_AGENTS_KEY
-        ? all.filter((b) => selectedAgents.includes(b.agent_name))
-        : all;
-    return sumBlueprintsWindow(filtered, prior.priorFrom, prior.priorTo);
-  }, [blueprintsAll, range, selectedAgents]);
+    return sumDeploymentsWindow(deploymentsAll.deployments, prior.priorFrom, prior.priorTo);
+  }, [deploymentsAll, range]);
 
   const displaySummary = useMemo(() => {
-    // The headline cards / sparklines derive from the SLICED blueprints so
+    // The headline cards / sparklines derive from the SLICED deployments so
     // the totals refresh instantly on a range toggle. Pre-fetch state is
     // a zero-state response (not the server summary, which we no longer
     // fetch here) — StatCards already handles undefined/zero gracefully.
-    if (!blueprintsData?.period) return emptyAccountSummary;
-    return buildFilteredSummary(filteredBlueprints, blueprintsData.period, priorTotals);
-  }, [filteredBlueprints, blueprintsData, priorTotals]);
-
-  const activeColorMap = useMemo(
-    () => ({ ...allAgentColorMap, [ALL_AGENTS_KEY]: ALL_AGENTS_COLOR }),
-    [allAgentColorMap],
-  );
+    if (!deploymentsData?.period) return emptyAccountSummary;
+    return buildFilteredSummary(deploymentsData.deployments, deploymentsData.period, priorTotals);
+  }, [deploymentsData, priorTotals]);
 
   return {
-    from: blueprintsData?.period?.start,
-    to: blueprintsData?.period?.end,
-    allAgentNames,
-    filteredBlueprints,
-    agentCostOverTime,
+    from: deploymentsData?.period?.start,
+    to: deploymentsData?.period?.end,
+    allDeploymentIds,
+    deployments: deploymentsData?.deployments ?? [],
+    deploymentCostOverTime,
+    seriesLabels,
     displaySummary,
-    allAgentColorMap,
-    activeColorMap,
-    blueprintsLoading,
-    isLoading: blueprintsLoading,
-    hasData: filteredBlueprints.some((b) => b.requests > 0),
+    colorMap,
+    deploymentsLoading,
+    isLoading: deploymentsLoading,
+    hasData: (deploymentsData?.deployments ?? []).some((b) => b.requests > 0),
   };
 }
 

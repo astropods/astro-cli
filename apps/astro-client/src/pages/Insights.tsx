@@ -12,7 +12,7 @@ import {
   useInsightsData,
   useActiveSpendSeries,
 } from "@/components/activity/use-insights-data";
-import { useBlueprintsSummary, useUsersSummary } from "@/api/queries/observability";
+import { useDeploymentsSummary, useUsersSummary } from "@/api/queries/observability";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
 import { useMemo } from "react";
@@ -44,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const ctx = await getActiveAccount(request);
   if (!ctx) {
     return {
-      account: null, summary: null, blueprintsData: null,
+      account: null, summary: null, deploymentsSummary: null,
       usersData: null, members: null, deployments: null,
     };
   }
@@ -60,15 +60,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Summary is fetched with group_by=user because that's the only summary
   // shape any consumer reads (powers the Active Users + Spend chart). The
   // model-grouped summary that used to feed StatCards/CostOverTimeChart is
-  // no longer needed — those derive from blueprints now.
+  // no longer needed — those derive from deployments now.
   //
-  // Deployments are primed so the agent-name picker has its 1-to-many
-  // agent_name → deployments map ready on first paint (otherwise the row
-  // links flash through "no deployments → blueprint detail" before the
-  // useDeployments fetch resolves).
-  const [summary, blueprintsData, usersData, members, deployments] = await Promise.all([
+  // Deployments list (separate from the obs summary) primes the
+  // AgentsUsedChips picker in the People view so the agent-name links
+  // resolve to a Monitor tab on first paint instead of flashing through
+  // the blueprint-detail fallback.
+  const [summary, deploymentsSummary, usersData, members, deployments] = await Promise.all([
     ctx.api.getAccountObservabilitySummary(ctx.accountName, { group_by: "user" }).catch(() => null),
-    ctx.api.getAccountBlueprintsSummary(ctx.accountName, {}).catch(() => null),
+    ctx.api.getAccountDeploymentsSummary(ctx.accountName, {}).catch(() => null),
     ctx.api.getAccountUsersSummary(ctx.accountName, {}).catch(() => null),
     ctx.api.getAccountMembers(ctx.accountName, {}).catch(() => null),
     ctx.api.listDeployments(ctx.accountName).catch(() => null),
@@ -77,7 +77,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return {
     account: ctx.accountName,
     summary,
-    blueprintsData,
+    deploymentsSummary,
     usersData,
     members,
     deployments,
@@ -111,8 +111,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     if (ld.summary) {
       qc.setQueryData(observabilityKeys.activitySummary(ld.account, undefined, undefined, "user"), ld.summary);
     }
-    if (ld.blueprintsData) {
-      qc.setQueryData(observabilityKeys.blueprintsSummary(ld.account, undefined, undefined), ld.blueprintsData);
+    if (ld.deploymentsSummary) {
+      qc.setQueryData(observabilityKeys.deploymentsSummary(ld.account, undefined, undefined), ld.deploymentsSummary);
     }
     if (ld.usersData) {
       qc.setQueryData(observabilityKeys.usersSummary(ld.account, undefined, undefined), ld.usersData);
@@ -256,18 +256,18 @@ function InsightsView({
   onQueryChange,
 }: InsightsViewProps) {
   // ── Charts (view-independent) ────────────────────────────────────────────
-  const chartsData = useInsightsData({ account, range, selectedAgents: [] });
+  const chartsData = useInsightsData({ account, range });
   const activeSpendSeries = useActiveSpendSeries(account, range);
   const days = RANGE_DAYS[range];
 
-  // ── Agents-mode table data (all-time) ────────────────────────────────────
-  const agentsTableQ = useBlueprintsSummary(account, undefined, undefined);
-  const allTimeBlueprints = agentsTableQ.data?.blueprints ?? [];
-  // Map agent_name → all deployments with that name. Blueprints data rolls
-  // up multi-region deployments under one agent_name, but the table row's
-  // link needs a specific deployment to target. The picker (in
-  // TopSpendersTable) handles 0 / 1 / 2+ cases so the 1-to-many shape stays
-  // visible to the user without splitting the row.
+  // ── Agents-mode table data (all-time, per-deployment rows) ───────────────
+  const deploymentsSummaryQ = useDeploymentsSummary(account, undefined, undefined);
+  const allTimeDeployments = deploymentsSummaryQ.data?.deployments ?? [];
+
+  // Deployments list (separate from the summary) feeds the AgentsUsedChips
+  // picker on the People view — chips can reference the same agent_name
+  // across multiple deployments, and clicking one should still route to a
+  // specific Monitor tab.
   const deploymentsQ = useDeployments(account);
   const deploymentsByAgent = useMemo(() => {
     const m = new Map<string, Array<{ id: string; name: string; display_name?: string; namespace?: string }>>();
@@ -296,14 +296,17 @@ function InsightsView({
   }, [allTimeUsers, memberIds]);
 
   // ── Search filter ─────────────────────────────────────────────────────────
-  // Single free-text input filters whichever view is active. Match agents by
-  // agent_name; match users by display_name / username / user_id (whichever
-  // is available — falls back through). Empty query → no filtering.
+  // Single free-text input filters whichever view is active. Match
+  // deployments by agent_name / display_name / namespace; match users by
+  // display_name / username / user_id. Empty query → no filtering.
   const needle = query.trim().toLowerCase();
-  const filteredBlueprints = useMemo(() => {
-    if (!needle) return allTimeBlueprints;
-    return allTimeBlueprints.filter((b) => b.agent_name.toLowerCase().includes(needle));
-  }, [allTimeBlueprints, needle]);
+  const filteredDeployments = useMemo(() => {
+    if (!needle) return allTimeDeployments;
+    return allTimeDeployments.filter((d) => {
+      const haystack = `${d.agent_name} ${d.display_name ?? ""} ${d.namespace ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [allTimeDeployments, needle]);
   const memberById = useMemo(
     () => new Map(members.map((m) => [m.user_id, m])),
     [members],
@@ -320,9 +323,9 @@ function InsightsView({
   // % Total denominator: total cost across the un-filtered population, so
   // percentages stay anchored while the user searches. Computed once per
   // dataset change rather than on every keystroke.
-  const totalAgentCost = useMemo(
-    () => allTimeBlueprints.reduce((s, b) => s + b.cost_usd, 0),
-    [allTimeBlueprints],
+  const totalDeploymentCost = useMemo(
+    () => allTimeDeployments.reduce((s, b) => s + b.cost_usd, 0),
+    [allTimeDeployments],
   );
   const totalUserCost = useMemo(
     () => allTimeUsers.reduce((s, u) => s + u.cost_usd, 0),
@@ -339,7 +342,7 @@ function InsightsView({
         value={view}
         onChange={onViewChange}
         usersCount={allUserBuckets || undefined}
-        agentsCount={allTimeBlueprints.length || undefined}
+        agentsCount={allTimeDeployments.length || undefined}
       />
       <FilterInput
         containerClassName="h-8 w-full @md:max-w-xs"
@@ -356,10 +359,10 @@ function InsightsView({
         displaySummary={chartsData.displaySummary}
         chartLeft={
           <CostOverTimeChart
-            data={chartsData.agentCostOverTime}
+            data={chartsData.deploymentCostOverTime}
             days={days}
-            colorMap={chartsData.activeColorMap}
-            seriesLabels={{ __all__: "All Agents" }}
+            colorMap={chartsData.colorMap}
+            seriesLabels={chartsData.seriesLabels}
             variant={range === "all" ? "line" : "bar"}
           />
         }
@@ -368,12 +371,11 @@ function InsightsView({
           view === "agents" ? (
             <TopSpendersTable
               mode="agents"
-              blueprints={filteredBlueprints}
-              loading={agentsTableQ.isLoading}
+              deployments={filteredDeployments}
+              loading={deploymentsSummaryQ.isLoading}
               groupLabel="Name"
               account={account}
-              deploymentsByAgent={deploymentsByAgent}
-              totalCost={totalAgentCost}
+              totalCost={totalDeploymentCost}
               panelHeader={panelHeader}
             />
           ) : (

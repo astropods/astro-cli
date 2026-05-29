@@ -741,10 +741,11 @@ func dateFromTimeDim(v any) string {
 	return ts
 }
 
-// ── blueprints-summary ────────────────────────────────────────────────────────
+// ── deployments-summary ───────────────────────────────────────────────────────
 
 // deploymentMetrics holds the raw Langfuse data fetched for one deployment.
 type deploymentMetrics struct {
+	DeploymentID string
 	AgentName    string
 	DailyMetrics []langfuse.DailyMetric
 	P95LatencyMs float64
@@ -755,10 +756,10 @@ type deploymentMetrics struct {
 // /metrics/daily endpoint is the only path to the per-(deployment, model)
 // breakdown that powers TopModel — Langfuse's /metrics endpoint can't group
 // observations by tags, so it can't produce per-(deployment, model) rows.
-// Errors are swallowed — missing data is treated as zero so the blueprint row
-// still appears in the aggregated response.
+// Errors are swallowed — missing data is treated as zero so the deployment
+// row still appears in the response.
 func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) deploymentMetrics {
-	result := deploymentMetrics{AgentName: dep.AgentName}
+	result := deploymentMetrics{DeploymentID: dep.ID, AgentName: dep.AgentName}
 	daily, err := client.GetDailyMetrics(ctx, dep.ID, from, to)
 	if err == nil {
 		result.DailyMetrics = daily
@@ -817,60 +818,38 @@ func batchedP95Latencies(
 	return out
 }
 
-// buildBlueprintsSummary aggregates per-deployment metrics into per-agent-name
-// blueprint entries, sorted by cost descending. tagsRows is the per-(userId,
-// tag) Langfuse response used to populate users_used; pass nil to skip.
-func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]any, depToAgent map[string]string) []BlueprintSummaryEntry {
-	type group struct {
-		requests     int
-		costUSD      float64
-		inputTokens  int
-		outputTokens int
-		p95LatencyMs float64
-		modelCosts   map[string]float64
-		dayCosts     map[string]float64 // date → total cost for this agent
-		dayRequests  map[string]int     // date → trace count for this agent
-		dayTokens    map[string][2]int  // date → [inputTokens, outputTokens]
+// buildDeploymentSummary turns the per-deployment metrics into one
+// DeploymentSummaryEntry per deployment, sorted by cost descending. tagsRows
+// is the per-(userId, tag) Langfuse response used to populate users_used;
+// pass nil to skip. deployments carries the deployment-store rows so display
+// metadata (display_name, namespace) can be threaded into each entry.
+//
+// Unlike the previous build helper, this one does NOT roll up by
+// agent_name — multi-region deployments of the same blueprint show up as
+// separate rows.
+func buildDeploymentSummary(
+	metrics []deploymentMetrics,
+	tagsRows []map[string]any,
+	deployments []*deploymentstore.Deployment,
+) []DeploymentSummaryEntry {
+	// Sidecar: deployment_id → display metadata. Walk the deployments slice
+	// once so the per-row build below can look up display_name / namespace
+	// without scanning.
+	type meta struct {
+		displayName string
+		namespace   string
 	}
-
-	groups := make(map[string]*group)
-	// order preserves agent_name insertion order so sort is the only reordering.
-	order := make([]string, 0, len(metrics))
-
-	for _, m := range metrics {
-		g, exists := groups[m.AgentName]
-		if !exists {
-			g = &group{
-				modelCosts:  make(map[string]float64),
-				dayCosts:    make(map[string]float64),
-				dayRequests: make(map[string]int),
-				dayTokens:   make(map[string][2]int),
-			}
-			groups[m.AgentName] = g
-			order = append(order, m.AgentName)
-		}
-		for _, d := range m.DailyMetrics {
-			g.requests += d.CountTraces
-			g.costUSD += d.TotalCost
-			g.inputTokens += d.InputTokens()
-			g.outputTokens += d.OutputTokens()
-			g.dayCosts[d.Date] += d.TotalCost
-			g.dayRequests[d.Date] += d.CountTraces
-			prev := g.dayTokens[d.Date]
-			g.dayTokens[d.Date] = [2]int{prev[0] + d.InputTokens(), prev[1] + d.OutputTokens()}
-			for _, u := range d.Usage {
-				g.modelCosts[u.Model] += u.TotalCost
-			}
-		}
-		if m.P95LatencyMs > g.p95LatencyMs {
-			g.p95LatencyMs = m.P95LatencyMs
+	depMeta := make(map[string]meta, len(deployments))
+	for _, d := range deployments {
+		depMeta[d.ID] = meta{
+			displayName: d.DisplayName,
+			namespace:   d.Namespace,
 		}
 	}
 
-	// Invert (userId, tag) rows into agent_name → set of userIDs. The same row
-	// can match multiple deployments under the same agent_name (e.g. duplicate
-	// deployments of the same blueprint); the set dedupes naturally.
-	usersByAgent := make(map[string]map[string]struct{})
+	// Invert (userId, tag) rows into deployment_id → set of userIDs. With the
+	// agent_name rollup gone, the inversion key is the deployment id itself.
+	usersByDep := make(map[string]map[string]struct{})
 	for _, row := range tagsRows {
 		userID, _ := row["userId"].(string)
 		userID = normalizeUserID(userID)
@@ -885,26 +864,42 @@ func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]a
 				continue
 			}
 			depID := strings.TrimPrefix(tag, "deployment:")
-			agentName, ok := depToAgent[depID]
-			if !ok {
-				continue
-			}
-			set, exists := usersByAgent[agentName]
+			set, exists := usersByDep[depID]
 			if !exists {
 				set = make(map[string]struct{})
-				usersByAgent[agentName] = set
+				usersByDep[depID] = set
 			}
 			set[userID] = struct{}{}
 		}
 	}
 
-	entries := make([]BlueprintSummaryEntry, 0, len(groups))
-	for _, name := range order {
-		g := groups[name]
+	entries := make([]DeploymentSummaryEntry, 0, len(metrics))
+	for _, m := range metrics {
+		// Per-day rollups for this single deployment.
+		modelCosts := make(map[string]float64)
+		dayCosts := make(map[string]float64)
+		dayRequests := make(map[string]int)
+		dayTokens := make(map[string][2]int)
+
+		var requests, inputTokens, outputTokens int
+		var costUSD float64
+		for _, d := range m.DailyMetrics {
+			requests += d.CountTraces
+			costUSD += d.TotalCost
+			inputTokens += d.InputTokens()
+			outputTokens += d.OutputTokens()
+			dayCosts[d.Date] += d.TotalCost
+			dayRequests[d.Date] += d.CountTraces
+			prev := dayTokens[d.Date]
+			dayTokens[d.Date] = [2]int{prev[0] + d.InputTokens(), prev[1] + d.OutputTokens()}
+			for _, u := range d.Usage {
+				modelCosts[u.Model] += u.TotalCost
+			}
+		}
 
 		topModel := ""
 		var maxModelCost float64
-		for model, cost := range g.modelCosts {
+		for model, cost := range modelCosts {
 			if cost > maxModelCost {
 				maxModelCost = cost
 				topModel = model
@@ -912,31 +907,31 @@ func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]a
 		}
 
 		var costPerRequest, tokPerRequest float64
-		if g.requests > 0 {
-			costPerRequest = math.Round(g.costUSD/float64(g.requests)*10000) / 10000
-			tokPerRequest = math.Round(float64(g.inputTokens+g.outputTokens)/float64(g.requests)*10) / 10
+		if requests > 0 {
+			costPerRequest = math.Round(costUSD/float64(requests)*10000) / 10000
+			tokPerRequest = math.Round(float64(inputTokens+outputTokens)/float64(requests)*10) / 10
 		}
 
 		// Build *_over_time slices sorted by date ascending.
-		dates := make([]string, 0, len(g.dayCosts))
-		for d := range g.dayCosts {
+		dates := make([]string, 0, len(dayCosts))
+		for d := range dayCosts {
 			dates = append(dates, d)
 		}
 		sort.Strings(dates)
-		costOverTime := make([]BlueprintDailyCost, 0, len(dates))
-		requestsOverTime := make([]BlueprintDailyRequests, 0, len(dates))
-		tokensOverTime := make([]BlueprintDailyTokens, 0, len(dates))
+		costOverTime := make([]DeploymentDailyCost, 0, len(dates))
+		requestsOverTime := make([]DeploymentDailyRequests, 0, len(dates))
+		tokensOverTime := make([]DeploymentDailyTokens, 0, len(dates))
 		for _, d := range dates {
-			costOverTime = append(costOverTime, BlueprintDailyCost{
+			costOverTime = append(costOverTime, DeploymentDailyCost{
 				Date:    d,
-				CostUSD: math.Round(g.dayCosts[d]*10000) / 10000,
+				CostUSD: math.Round(dayCosts[d]*10000) / 10000,
 			})
-			requestsOverTime = append(requestsOverTime, BlueprintDailyRequests{
+			requestsOverTime = append(requestsOverTime, DeploymentDailyRequests{
 				Date:     d,
-				Requests: g.dayRequests[d],
+				Requests: dayRequests[d],
 			})
-			tok := g.dayTokens[d]
-			tokensOverTime = append(tokensOverTime, BlueprintDailyTokens{
+			tok := dayTokens[d]
+			tokensOverTime = append(tokensOverTime, DeploymentDailyTokens{
 				Date:         d,
 				InputTokens:  tok[0],
 				OutputTokens: tok[1],
@@ -944,22 +939,26 @@ func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]a
 			})
 		}
 
-		usersUsed := make([]string, 0, len(usersByAgent[name]))
-		for uid := range usersByAgent[name] {
+		usersUsed := make([]string, 0, len(usersByDep[m.DeploymentID]))
+		for uid := range usersByDep[m.DeploymentID] {
 			usersUsed = append(usersUsed, uid)
 		}
 		sort.Strings(usersUsed)
 
-		entries = append(entries, BlueprintSummaryEntry{
-			AgentName:        name,
-			Requests:         g.requests,
-			CostUSD:          math.Round(g.costUSD*10000) / 10000,
+		md := depMeta[m.DeploymentID]
+		entries = append(entries, DeploymentSummaryEntry{
+			DeploymentID:     m.DeploymentID,
+			AgentName:        m.AgentName,
+			DisplayName:      md.displayName,
+			Namespace:        md.namespace,
+			Requests:         requests,
+			CostUSD:          math.Round(costUSD*10000) / 10000,
 			CostPerRequest:   costPerRequest,
-			InputTokens:      g.inputTokens,
-			OutputTokens:     g.outputTokens,
-			TotalTokens:      g.inputTokens + g.outputTokens,
+			InputTokens:      inputTokens,
+			OutputTokens:     outputTokens,
+			TotalTokens:      inputTokens + outputTokens,
 			TokPerRequest:    tokPerRequest,
-			P95LatencyMs:     int(math.Round(g.p95LatencyMs)),
+			P95LatencyMs:     int(math.Round(m.P95LatencyMs)),
 			TopModel:         topModel,
 			CostOverTime:     costOverTime,
 			RequestsOverTime: requestsOverTime,
@@ -975,18 +974,20 @@ func buildBlueprintsSummary(metrics []deploymentMetrics, tagsRows []map[string]a
 	return entries
 }
 
-// zeroBlueprintEntries returns an empty blueprints response when Langfuse is not configured.
-func zeroBlueprintEntries(from, to string) AccountBlueprintsSummaryResponse {
-	return AccountBlueprintsSummaryResponse{
-		Blueprints: []BlueprintSummaryEntry{},
-		Period:     buildPeriod(from, to),
+// zeroDeploymentEntries returns an empty deployments response when Langfuse is not configured.
+func zeroDeploymentEntries(from, to string) AccountDeploymentsSummaryResponse {
+	return AccountDeploymentsSummaryResponse{
+		Deployments: []DeploymentSummaryEntry{},
+		Period:      buildPeriod(from, to),
 	}
 }
 
-// GetAccountBlueprintsSummary returns per-blueprint aggregated cost, tokens, requests,
-// and P95 latency by fanning out to Langfuse across all account deployments.
-// GET /api/v1/accounts/:account/observability/blueprints-summary
-func GetAccountBlueprintsSummary(
+// GetAccountDeploymentsSummary returns per-deployment cost, tokens, requests,
+// and P95 latency by fanning out to Langfuse across all visible account
+// deployments. One row per deployment — multi-region deployments of the same
+// blueprint surface as separate entries.
+// GET /api/v1/accounts/:account/observability/deployments-summary
+func GetAccountDeploymentsSummary(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
@@ -1035,18 +1036,18 @@ func GetAccountBlueprintsSummary(
 
 		creds, err := langfuseStore.Get(acct.ID)
 		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, zeroBlueprintEntries(from, to))
+			c.JSON(http.StatusOK, zeroDeploymentEntries(from, to))
 			return
 		}
 
 		if deploymentStore == nil {
-			c.JSON(http.StatusOK, zeroBlueprintEntries(from, to))
+			c.JSON(http.StatusOK, zeroDeploymentEntries(from, to))
 			return
 		}
 
 		deployments, err := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list deployments for blueprints summary", "error", err)
+			log.Error("Failed to list deployments for deployments summary", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
 			return
 		}
@@ -1055,18 +1056,14 @@ func GetAccountBlueprintsSummary(
 
 		const maxDeployments = 100
 		if len(deployments) > maxDeployments {
-			log.Warn("Truncating deployments for blueprints summary",
+			log.Warn("Truncating deployments for deployments summary",
 				"account", acct.Name, "total", len(deployments), "cap", maxDeployments)
 			deployments = deployments[:maxDeployments]
 		}
 
-		// Build depID → agent_name + visible tag list now so both batched
-		// queries (P95 + Q_tags inversion) and the depToAgent lookup are ready
-		// at the point the errgroup launches.
-		depToAgent := make(map[string]string, len(deployments))
+		// Tag list for batched filters (P95 + Q_tags inversion).
 		tagValues := make([]string, len(deployments))
 		for i, d := range deployments {
-			depToAgent[d.ID] = d.AgentName
 			tagValues[i] = "deployment:" + d.ID
 		}
 
@@ -1074,11 +1071,11 @@ func GetAccountBlueprintsSummary(
 		defer cancel()
 
 		// Per-deployment daily metrics fan-out + TWO batched /metrics queries
-		// (P95 latency + users-per-agent inversion) run in parallel. The daily
-		// fan-out is unavoidable today (per-deployment per-model breakdown
-		// isn't expressible in a batched /metrics query because Langfuse's
-		// observations view can't group by trace tags); the P95 + users
-		// batches save 2N calls.
+		// (P95 latency + users-per-deployment inversion) run in parallel. The
+		// daily fan-out is unavoidable today (per-(deployment, model)
+		// breakdown isn't expressible in a batched /metrics query because
+		// Langfuse's observations view can't group by trace tags); the P95 +
+		// users batches save 2N calls.
 		g, gCtx := errgroup.WithContext(ctx)
 		g.SetLimit(10)
 
@@ -1098,8 +1095,8 @@ func GetAccountBlueprintsSummary(
 
 		// Single account-level Q_tags query (per-(userId, tag) trace count) runs
 		// in parallel with the per-deployment fan-out so wall time is unchanged.
-		// Powers the users_used field on each blueprint — mirror of agents_used
-		// on users-summary.
+		// Powers the users_used field on each deployment — mirror of
+		// agents_used on users-summary.
 		var tagsRows []map[string]any
 		g.Go(func() error {
 			qFrom, qTo := metricsTimeRange(from, to)
@@ -1119,8 +1116,8 @@ func GetAccountBlueprintsSummary(
 			resp, ferr := client.GetMetrics(gCtx, q)
 			if ferr != nil {
 				// Fail-open: a missing users_used surface is preferable to a
-				// 502 on the whole blueprints view, which is the headline page.
-				log.Warn("Failed to fetch users-per-agent for blueprints summary", "error", ferr)
+				// 502 on the whole deployments view, which is the headline page.
+				log.Warn("Failed to fetch users-per-deployment for deployments summary", "error", ferr)
 				return nil
 			}
 			tagsRows = resp.Data
@@ -1133,9 +1130,9 @@ func GetAccountBlueprintsSummary(
 			results[i].P95LatencyMs = p95ByDep[dep.ID]
 		}
 
-		c.JSON(http.StatusOK, AccountBlueprintsSummaryResponse{
-			Blueprints: buildBlueprintsSummary(results, tagsRows, depToAgent),
-			Period:     buildPeriod(from, to),
+		c.JSON(http.StatusOK, AccountDeploymentsSummaryResponse{
+			Deployments: buildDeploymentSummary(results, tagsRows, deployments),
+			Period:      buildPeriod(from, to),
 		})
 	}
 }

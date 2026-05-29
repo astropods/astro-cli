@@ -53,26 +53,23 @@ export function AgentsUsedChips({
               className="size-5 rounded-full"
             />
           );
-          const link = (
-            <AgentNameLink
-              account={account}
-              agentName={name}
-              deployments={deps}
-              className="inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {avatarNode}
-            </AgentNameLink>
-          );
-          // Skip the Tooltip wrapper when AgentNameLink renders a
-          // DropdownMenu trigger (2+ deployments) — Radix doesn't compose
-          // Tooltip + DropdownMenu cleanly on the same element, and the
-          // dropdown label already shows the agent name on hover/click.
-          if (deps.length > 1) {
-            return <span key={`${account}/${name}`}>{link}</span>;
-          }
+          // Every chip gets a hover tooltip with the agent name. The chip
+          // itself is just a tiny avatar — without the tooltip the user
+          // can't tell what they're hovering before clicking.
           return (
             <Tooltip key={`${account}/${name}`}>
-              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <AgentNameLink
+                    account={account}
+                    agentName={name}
+                    deployments={deps}
+                    className="inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {avatarNode}
+                  </AgentNameLink>
+                </span>
+              </TooltipTrigger>
               <TooltipContent side="top">{name}</TooltipContent>
             </Tooltip>
           );

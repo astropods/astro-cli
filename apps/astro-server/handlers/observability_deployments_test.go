@@ -18,19 +18,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ── buildBlueprintsSummary ────────────────────────────────────────────────────
+// ── buildDeploymentSummary ────────────────────────────────────────────────────
 
-func TestBuildBlueprintsSummary_Empty(t *testing.T) {
-	entries := buildBlueprintsSummary(nil, nil, nil)
+func TestBuildDeploymentSummary_Empty(t *testing.T) {
+	entries := buildDeploymentSummary(nil, nil, nil)
 	if len(entries) != 0 {
 		t.Errorf("expected empty slice, got %d entries", len(entries))
 	}
 }
 
-func TestBuildBlueprintsSummary_SingleDeployment(t *testing.T) {
+func TestBuildDeploymentSummary_SingleDeployment(t *testing.T) {
 	metrics := []deploymentMetrics{
 		{
-			AgentName: "code-reviewer",
+			DeploymentID: "dep-1",
+			AgentName:    "code-reviewer",
 			DailyMetrics: []langfuse.DailyMetric{
 				{
 					Date: "2026-05-01", CountTraces: 100, TotalCost: 5.0,
@@ -42,14 +43,26 @@ func TestBuildBlueprintsSummary_SingleDeployment(t *testing.T) {
 			P95LatencyMs: 800,
 		},
 	}
+	deployments := []*deploymentstore.Deployment{
+		{ID: "dep-1", AgentName: "code-reviewer", DisplayName: "Code Reviewer", Namespace: "us-east-1"},
+	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, deployments)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 	e := entries[0]
+	if e.DeploymentID != "dep-1" {
+		t.Errorf("deployment_id = %q, want dep-1", e.DeploymentID)
+	}
 	if e.AgentName != "code-reviewer" {
-		t.Errorf("agent_name = %q, want %q", e.AgentName, "code-reviewer")
+		t.Errorf("agent_name = %q, want code-reviewer", e.AgentName)
+	}
+	if e.DisplayName != "Code Reviewer" {
+		t.Errorf("display_name = %q, want Code Reviewer", e.DisplayName)
+	}
+	if e.Namespace != "us-east-1" {
+		t.Errorf("namespace = %q, want us-east-1", e.Namespace)
 	}
 	if e.Requests != 100 {
 		t.Errorf("requests = %d, want 100", e.Requests)
@@ -61,18 +74,20 @@ func TestBuildBlueprintsSummary_SingleDeployment(t *testing.T) {
 		t.Errorf("output_tokens = %d, want 500", e.OutputTokens)
 	}
 	if e.TopModel != "claude-sonnet" {
-		t.Errorf("top_model = %q, want %q", e.TopModel, "claude-sonnet")
+		t.Errorf("top_model = %q, want claude-sonnet", e.TopModel)
 	}
 	if e.P95LatencyMs != 800 {
 		t.Errorf("p95_latency_ms = %d, want 800", e.P95LatencyMs)
 	}
 }
 
-func TestBuildBlueprintsSummary_MultipleDeploymentsSameBlueprint(t *testing.T) {
-	// Two deployments of the same agent_name (e.g. two regions) should be merged.
+func TestBuildDeploymentSummary_MultipleDeploymentsSameAgentName(t *testing.T) {
+	// Two deployments of the same agent_name (e.g. two regions) must surface
+	// as TWO separate entries — no rollup. Per-deployment P95 is preserved.
 	metrics := []deploymentMetrics{
 		{
-			AgentName: "summarizer",
+			DeploymentID: "dep-east",
+			AgentName:    "summarizer",
 			DailyMetrics: []langfuse.DailyMetric{
 				{Date: "2026-05-01", CountTraces: 50, TotalCost: 2.0,
 					Usage: []langfuse.DailyMetricUsage{
@@ -82,70 +97,75 @@ func TestBuildBlueprintsSummary_MultipleDeploymentsSameBlueprint(t *testing.T) {
 			P95LatencyMs: 300,
 		},
 		{
-			AgentName: "summarizer",
+			DeploymentID: "dep-west",
+			AgentName:    "summarizer",
 			DailyMetrics: []langfuse.DailyMetric{
 				{Date: "2026-05-01", CountTraces: 30, TotalCost: 1.5,
 					Usage: []langfuse.DailyMetricUsage{
 						{Model: "claude-haiku", InputUsage: 200, OutputUsage: 80, TotalCost: 1.5},
 					}},
 			},
-			P95LatencyMs: 500, // higher — should win
+			P95LatencyMs: 500,
 		},
 	}
+	deployments := []*deploymentstore.Deployment{
+		{ID: "dep-east", AgentName: "summarizer", Namespace: "us-east-1"},
+		{ID: "dep-west", AgentName: "summarizer", Namespace: "us-west-2"},
+	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 merged entry, got %d", len(entries))
+	entries := buildDeploymentSummary(metrics, nil, deployments)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 separate entries (no rollup), got %d", len(entries))
 	}
-	e := entries[0]
-	if e.Requests != 80 {
-		t.Errorf("requests = %d, want 80", e.Requests)
+	// Cost-desc sort puts dep-east first ($2.00 vs $1.50).
+	if entries[0].DeploymentID != "dep-east" {
+		t.Errorf("entries[0].deployment_id = %q, want dep-east", entries[0].DeploymentID)
 	}
-	if e.InputTokens != 600 {
-		t.Errorf("input_tokens = %d, want 600", e.InputTokens)
+	if entries[0].P95LatencyMs != 300 {
+		t.Errorf("entries[0].p95 = %d, want 300 (own value, no max)", entries[0].P95LatencyMs)
 	}
-	if e.P95LatencyMs != 500 {
-		t.Errorf("p95_latency_ms = %d, want 500 (max across deployments)", e.P95LatencyMs)
+	if entries[1].P95LatencyMs != 500 {
+		t.Errorf("entries[1].p95 = %d, want 500 (own value)", entries[1].P95LatencyMs)
 	}
 }
 
-func TestBuildBlueprintsSummary_SortByCostDesc(t *testing.T) {
+func TestBuildDeploymentSummary_SortByCostDesc(t *testing.T) {
 	metrics := []deploymentMetrics{
-		{AgentName: "cheap-agent", DailyMetrics: []langfuse.DailyMetric{
+		{DeploymentID: "dep-cheap", AgentName: "cheap-agent", DailyMetrics: []langfuse.DailyMetric{
 			{CountTraces: 10, TotalCost: 1.0},
 		}},
-		{AgentName: "expensive-agent", DailyMetrics: []langfuse.DailyMetric{
+		{DeploymentID: "dep-expensive", AgentName: "expensive-agent", DailyMetrics: []langfuse.DailyMetric{
 			{CountTraces: 100, TotalCost: 9.0},
 		}},
-		{AgentName: "mid-agent", DailyMetrics: []langfuse.DailyMetric{
+		{DeploymentID: "dep-mid", AgentName: "mid-agent", DailyMetrics: []langfuse.DailyMetric{
 			{CountTraces: 50, TotalCost: 4.5},
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil)
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
-	if entries[0].AgentName != "expensive-agent" {
-		t.Errorf("entries[0] = %q, want expensive-agent", entries[0].AgentName)
+	if entries[0].DeploymentID != "dep-expensive" {
+		t.Errorf("entries[0] = %q, want dep-expensive", entries[0].DeploymentID)
 	}
-	if entries[1].AgentName != "mid-agent" {
-		t.Errorf("entries[1] = %q, want mid-agent", entries[1].AgentName)
+	if entries[1].DeploymentID != "dep-mid" {
+		t.Errorf("entries[1] = %q, want dep-mid", entries[1].DeploymentID)
 	}
-	if entries[2].AgentName != "cheap-agent" {
-		t.Errorf("entries[2] = %q, want cheap-agent", entries[2].AgentName)
+	if entries[2].DeploymentID != "dep-cheap" {
+		t.Errorf("entries[2] = %q, want dep-cheap", entries[2].DeploymentID)
 	}
 }
 
-func TestBuildBlueprintsSummary_ZeroRequestsGuard(t *testing.T) {
+func TestBuildDeploymentSummary_ZeroRequestsGuard(t *testing.T) {
 	// Deployment with no traces — cost_per_request and tok_per_request must be 0, not +Inf.
 	metrics := []deploymentMetrics{
-		{AgentName: "idle-agent", DailyMetrics: []langfuse.DailyMetric{
+		{DeploymentID: "dep-1", AgentName: "idle-agent", DailyMetrics: []langfuse.DailyMetric{
 			{CountTraces: 0, TotalCost: 0},
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -166,10 +186,11 @@ func TestBuildBlueprintsSummary_ZeroRequestsGuard(t *testing.T) {
 	}
 }
 
-func TestBuildBlueprintsSummary_TopModel(t *testing.T) {
+func TestBuildDeploymentSummary_TopModel(t *testing.T) {
 	metrics := []deploymentMetrics{
 		{
-			AgentName: "multi-model-agent",
+			DeploymentID: "dep-1",
+			AgentName:    "multi-model-agent",
 			DailyMetrics: []langfuse.DailyMetric{
 				{CountTraces: 10, TotalCost: 6.0,
 					Usage: []langfuse.DailyMetricUsage{
@@ -180,70 +201,37 @@ func TestBuildBlueprintsSummary_TopModel(t *testing.T) {
 		},
 	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil)
 	if entries[0].TopModel != "claude-sonnet" {
 		t.Errorf("top_model = %q, want claude-sonnet", entries[0].TopModel)
 	}
 }
 
-func TestBuildBlueprintsSummary_TopModelMergedAcrossDeployments(t *testing.T) {
-	// Haiku is dominant in dep-1, Sonnet is dominant in dep-2; sonnet wins on total.
+func TestBuildDeploymentSummary_CostPerRequestRounding(t *testing.T) {
 	metrics := []deploymentMetrics{
-		{
-			AgentName: "shared-agent",
-			DailyMetrics: []langfuse.DailyMetric{
-				{CountTraces: 5, TotalCost: 2.0,
-					Usage: []langfuse.DailyMetricUsage{
-						{Model: "claude-haiku", TotalCost: 2.0},
-					}},
-			},
-		},
-		{
-			AgentName: "shared-agent",
-			DailyMetrics: []langfuse.DailyMetric{
-				{CountTraces: 20, TotalCost: 8.0,
-					Usage: []langfuse.DailyMetricUsage{
-						{Model: "claude-sonnet", TotalCost: 8.0},
-					}},
-			},
-		},
-	}
-
-	entries := buildBlueprintsSummary(metrics, nil, nil)
-	if entries[0].TopModel != "claude-sonnet" {
-		t.Errorf("top_model = %q, want claude-sonnet (highest cumulative cost)", entries[0].TopModel)
-	}
-}
-
-func TestBuildBlueprintsSummary_CostPerRequestRounding(t *testing.T) {
-	metrics := []deploymentMetrics{
-		{AgentName: "agent-a", DailyMetrics: []langfuse.DailyMetric{
+		{DeploymentID: "dep-1", AgentName: "agent-a", DailyMetrics: []langfuse.DailyMetric{
 			{CountTraces: 3, TotalCost: 1.0},
 		}},
 	}
 
-	entries := buildBlueprintsSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil)
 	// 1.0 / 3 = 0.3333... → rounded to 4dp = 0.3333
 	if entries[0].CostPerRequest != 0.3333 {
 		t.Errorf("cost_per_request = %v, want 0.3333", entries[0].CostPerRequest)
 	}
 }
 
-func TestBuildBlueprintsSummary_UsersUsedInversion(t *testing.T) {
+func TestBuildDeploymentSummary_UsersUsedInversion(t *testing.T) {
 	metrics := []deploymentMetrics{
-		{AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
-		{AgentName: "summarizer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{DeploymentID: "dep-2", AgentName: "summarizer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
 	}
-	depToAgent := map[string]string{
-		"dep-1": "code-reviewer",
-		"dep-2": "summarizer",
-	}
-	// Two users on dep-1 (alice, bob); only alice on dep-2; one row carries the
-	// SDK "-" sentinel which normalizeUserID collapses to "" → dropped. A row
-	// against an unknown deployment is skipped (defensive — shouldn't happen
-	// since the Q_tags filter is bounded to visibleTagValues). The dave row
-	// arrives as a JSON-array tag value — tagStrings() handles both shapes,
-	// matching the users-summary inversion path.
+	// Two users on dep-1 (alice, bob); only alice on dep-2; one row carries
+	// the SDK "-" sentinel which normalizeUserID collapses to "" → dropped.
+	// A row against an unknown deployment is skipped (defensive — shouldn't
+	// happen since the Q_tags filter is bounded to visibleTagValues). The
+	// dave row arrives as a JSON-array tag value — tagStrings() handles
+	// both shapes.
 	tagsRows := []map[string]any{
 		{"userId": "u_alice", "tags": "deployment:dep-1"},
 		{"userId": "u_bob", "tags": "deployment:dep-1"},
@@ -253,44 +241,54 @@ func TestBuildBlueprintsSummary_UsersUsedInversion(t *testing.T) {
 		{"userId": "u_dave", "tags": []any{"deployment:dep-1"}},
 	}
 
-	entries := buildBlueprintsSummary(metrics, tagsRows, depToAgent)
+	entries := buildDeploymentSummary(metrics, tagsRows, nil)
 
-	byName := make(map[string][]string)
+	byID := make(map[string][]string)
 	for _, e := range entries {
-		byName[e.AgentName] = e.UsersUsed
+		byID[e.DeploymentID] = e.UsersUsed
 	}
-	if got, want := byName["code-reviewer"], []string{"u_alice", "u_bob", "u_dave"}; !equalStrings(got, want) {
-		t.Errorf("code-reviewer users_used = %v, want %v", got, want)
+	if got, want := byID["dep-1"], []string{"u_alice", "u_bob", "u_dave"}; !equalStrings(got, want) {
+		t.Errorf("dep-1 users_used = %v, want %v", got, want)
 	}
-	if got, want := byName["summarizer"], []string{"u_alice"}; !equalStrings(got, want) {
-		t.Errorf("summarizer users_used = %v, want %v", got, want)
+	if got, want := byID["dep-2"], []string{"u_alice"}; !equalStrings(got, want) {
+		t.Errorf("dep-2 users_used = %v, want %v", got, want)
+	}
+	// dep-unknown row should NOT appear under any visible deployment.
+	for id, users := range byID {
+		for _, u := range users {
+			if u == "u_carol" {
+				t.Errorf("u_carol leaked into %s — should have been dropped (unknown deployment)", id)
+			}
+		}
 	}
 }
 
-func TestBuildBlueprintsSummary_UsersUsedDedupesAcrossDeployments(t *testing.T) {
-	// Two deployments of the same agent_name (multi-region case) should fold
-	// into one users_used set with no duplicates.
+func TestBuildDeploymentSummary_SameUserAcrossDeployments(t *testing.T) {
+	// Same user touching two deployments of the same agent_name shows up
+	// under BOTH deployment rows. No rollup → no dedupe across deployments.
 	metrics := []deploymentMetrics{
-		{AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
-		{AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
-	}
-	depToAgent := map[string]string{
-		"dep-east": "shared-agent",
-		"dep-west": "shared-agent",
+		{DeploymentID: "dep-east", AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{DeploymentID: "dep-west", AgentName: "shared-agent", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
 	}
 	tagsRows := []map[string]any{
 		{"userId": "u_alice", "tags": "deployment:dep-east"},
-		{"userId": "u_alice", "tags": []any{"deployment:dep-west"}}, // array shape — tagStrings() normalizes both
+		{"userId": "u_alice", "tags": []any{"deployment:dep-west"}},
 		{"userId": "u_bob", "tags": "deployment:dep-west"},
 	}
 
-	entries := buildBlueprintsSummary(metrics, tagsRows, depToAgent)
-
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 merged entry, got %d", len(entries))
+	entries := buildDeploymentSummary(metrics, tagsRows, nil)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (per deployment), got %d", len(entries))
 	}
-	if got, want := entries[0].UsersUsed, []string{"u_alice", "u_bob"}; !equalStrings(got, want) {
-		t.Errorf("users_used = %v, want %v", got, want)
+	byID := make(map[string][]string)
+	for _, e := range entries {
+		byID[e.DeploymentID] = e.UsersUsed
+	}
+	if got, want := byID["dep-east"], []string{"u_alice"}; !equalStrings(got, want) {
+		t.Errorf("dep-east users_used = %v, want %v", got, want)
+	}
+	if got, want := byID["dep-west"], []string{"u_alice", "u_bob"}; !equalStrings(got, want) {
+		t.Errorf("dep-west users_used = %v, want %v", got, want)
 	}
 }
 
@@ -306,9 +304,9 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// ── GetAccountBlueprintsSummary handler ───────────────────────────────────────
+// ── GetAccountDeploymentsSummary handler ──────────────────────────────────────
 
-func TestGetAccountBlueprintsSummary_NotConfigured(t *testing.T) {
+func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	accountDB, accountMock, _ := sqlmock.New()
@@ -336,10 +334,10 @@ func TestGetAccountBlueprintsSummary_NotConfigured(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/accounts/:account/observability/blueprints-summary",
-		GetAccountBlueprintsSummary(log, cfg, accountStore, nil, langfuseStore))
+	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/blueprints-summary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -347,19 +345,19 @@ func TestGetAccountBlueprintsSummary_NotConfigured(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp AccountBlueprintsSummaryResponse
+	var resp AccountDeploymentsSummaryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Blueprints == nil {
-		t.Error("blueprints should be empty slice, not nil")
+	if resp.Deployments == nil {
+		t.Error("deployments should be empty slice, not nil")
 	}
-	if len(resp.Blueprints) != 0 {
-		t.Errorf("blueprints len = %d, want 0", len(resp.Blueprints))
+	if len(resp.Deployments) != 0 {
+		t.Errorf("deployments len = %d, want 0", len(resp.Deployments))
 	}
 }
 
-func TestGetAccountBlueprintsSummary_InvalidPeriod(t *testing.T) {
+func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	accountDB, accountMock, _ := sqlmock.New()
@@ -385,10 +383,10 @@ func TestGetAccountBlueprintsSummary_InvalidPeriod(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/accounts/:account/observability/blueprints-summary",
-		GetAccountBlueprintsSummary(log, cfg, accountStore, nil, langfuseStore))
+	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/blueprints-summary?from=not-a-date&to=also-not-a-date", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary?from=not-a-date&to=also-not-a-date", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -397,7 +395,7 @@ func TestGetAccountBlueprintsSummary_InvalidPeriod(t *testing.T) {
 	}
 }
 
-func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
+func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	langfuseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -469,11 +467,11 @@ func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/accounts/:account/observability/blueprints-summary",
-		GetAccountBlueprintsSummary(log, cfg, accountStore, depStore, langfuseStore))
+	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
+		GetAccountDeploymentsSummary(log, cfg, accountStore, depStore, langfuseStore))
 
 	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/accounts/myorg/observability/blueprints-summary?from=2026-05-01T00:00:00Z&to=2026-05-08T00:00:00Z", nil)
+		"/api/v1/accounts/myorg/observability/deployments-summary?from=2026-05-01T00:00:00Z&to=2026-05-08T00:00:00Z", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -481,25 +479,34 @@ func TestGetAccountBlueprintsSummary_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp AccountBlueprintsSummaryResponse
+	var resp AccountDeploymentsSummaryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(resp.Blueprints) != 1 {
-		t.Fatalf("expected 1 blueprint, got %d: %s", len(resp.Blueprints), rec.Body.String())
+	if len(resp.Deployments) != 1 {
+		t.Fatalf("expected 1 deployment, got %d: %s", len(resp.Deployments), rec.Body.String())
 	}
-	b := resp.Blueprints[0]
-	if b.AgentName != "code-reviewer" {
-		t.Errorf("agent_name = %q, want code-reviewer", b.AgentName)
+	d := resp.Deployments[0]
+	if d.DeploymentID != "dep-1" {
+		t.Errorf("deployment_id = %q, want dep-1", d.DeploymentID)
 	}
-	if b.Requests != 10 {
-		t.Errorf("requests = %d, want 10", b.Requests)
+	if d.AgentName != "code-reviewer" {
+		t.Errorf("agent_name = %q, want code-reviewer", d.AgentName)
 	}
-	if b.P95LatencyMs != 1200 {
-		t.Errorf("p95_latency_ms = %d, want 1200", b.P95LatencyMs)
+	if d.DisplayName != "Code Reviewer" {
+		t.Errorf("display_name = %q, want Code Reviewer", d.DisplayName)
 	}
-	if b.TopModel != "claude-sonnet" {
-		t.Errorf("top_model = %q, want claude-sonnet", b.TopModel)
+	if d.Namespace != "ns-1" {
+		t.Errorf("namespace = %q, want ns-1", d.Namespace)
+	}
+	if d.Requests != 10 {
+		t.Errorf("requests = %d, want 10", d.Requests)
+	}
+	if d.P95LatencyMs != 1200 {
+		t.Errorf("p95_latency_ms = %d, want 1200", d.P95LatencyMs)
+	}
+	if d.TopModel != "claude-sonnet" {
+		t.Errorf("top_model = %q, want claude-sonnet", d.TopModel)
 	}
 	if resp.Period.Start != "2026-05-01T00:00:00Z" {
 		t.Errorf("period.start = %q, want 2026-05-01T00:00:00Z", resp.Period.Start)

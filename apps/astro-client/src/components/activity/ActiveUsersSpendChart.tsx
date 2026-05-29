@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { formatCost, formatDateShort } from "@/lib/format-utils";
 import { dayKeysForRange } from "@/lib/date-utils";
 import type { ActiveSpendPoint } from "./use-insights-data";
@@ -48,26 +49,50 @@ function CustomTooltip({
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
-  const users = payload.find((p) => p.dataKey === "users")?.value ?? 0;
-  const cost  = payload.find((p) => p.dataKey === "cost")?.value ?? 0;
+  // Only render the rows for series currently in the payload — when the
+  // user hides a series via the clickable legend, Recharts drops it from
+  // the payload and the tooltip should follow suit. (A hardcoded both-rows
+  // tooltip would show the hidden series with a $0 fallback.)
+  const usersEntry = payload.find((p) => p.dataKey === "users");
+  const costEntry  = payload.find((p) => p.dataKey === "cost");
   return (
     <div className="rounded-md border border-border bg-surface/95 px-3 py-2 shadow-lg backdrop-blur">
       <p className="mb-1.5 text-mono-sm text-muted-foreground">{label}</p>
-      <div className="flex items-center gap-2">
-        <span className="size-2 shrink-0 rounded-full bg-primary-400" />
-        <span className="font-mono text-body-sm text-muted-foreground">By People</span>
-        <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{users}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="size-2 shrink-0 rounded-full bg-muted-foreground" />
-        <span className="font-mono text-body-sm text-muted-foreground">Total spend</span>
-        <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{formatCost(cost)}</span>
-      </div>
+      {usersEntry && (
+        <div className="flex items-center gap-2">
+          <span className="size-2 shrink-0 rounded-full bg-primary-400" />
+          <span className="font-mono text-body-sm text-muted-foreground">By People</span>
+          <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{usersEntry.value}</span>
+        </div>
+      )}
+      {costEntry && (
+        <div className="flex items-center gap-2">
+          <span className="size-2 shrink-0 rounded-full bg-muted-foreground" />
+          <span className="font-mono text-body-sm text-muted-foreground">Total spend</span>
+          <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{formatCost(costEntry.value)}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps) {
+  // Clickable legend: toggle either series off to compare scales on a
+  // single axis. One series always stays visible — hiding both leaves an
+  // empty chart, which is silly.
+  const [hidden, setHidden] = useState<Set<"users" | "cost">>(new Set());
+  function toggle(key: "users" | "cost") {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      if (next.size >= 2) return prev;
+      return next;
+    });
+  }
+  const showUsers = !hidden.has("users");
+  const showCost = !hidden.has("cost");
+
   const chartData = useMemo(() => {
     const byDate = new Map(data.map((p) => [p.date, p]));
     const keys = days ? dayKeysForRange(days) : data.map((p) => p.date);
@@ -124,20 +149,35 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
                   allowDecimals={false}
                 />
                 <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
-                <Line yAxisId="users" type="monotone" dataKey="users" stroke={USERS_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: USERS_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: USERS_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
-                <Line yAxisId="cost"  type="monotone" dataKey="cost"  stroke={SPEND_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: SPEND_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: SPEND_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                {showUsers && (
+                  <Line yAxisId="users" type="monotone" dataKey="users" stroke={USERS_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: USERS_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: USERS_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                )}
+                {showCost && (
+                  <Line yAxisId="cost"  type="monotone" dataKey="cost"  stroke={SPEND_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: SPEND_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: SPEND_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-3 flex items-center justify-center gap-4 text-body-sm">
-            <div className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-primary-400" />
-              <span className="text-muted-foreground">By People</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-muted-foreground" />
-              <span className="text-muted-foreground">Total spend</span>
-            </div>
+            {([
+              { key: "users", label: "By People", dot: "bg-primary-400", visible: showUsers },
+              { key: "cost",  label: "Total spend", dot: "bg-muted-foreground", visible: showCost },
+            ] as const).map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => toggle(s.key)}
+                aria-pressed={s.visible}
+                className={cn(
+                  "flex items-center gap-1.5 transition-opacity",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded",
+                  s.visible ? "text-muted-foreground hover:text-foreground" : "text-faint-foreground opacity-50",
+                )}
+              >
+                <span className={cn("size-2 rounded-full", s.dot, !s.visible && "opacity-40")} />
+                <span className={cn(!s.visible && "line-through")}>{s.label}</span>
+              </button>
+            ))}
           </div>
         </>
       )}

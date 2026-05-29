@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   buildFilteredSummary,
-  sliceBlueprintByWindow,
-  sliceBlueprintsResponseByRange,
-  ALL_AGENTS_KEY,
+  sliceDeploymentByWindow,
+  sliceDeploymentsResponseByRange,
 } from "./use-insights-data";
 
-// `buildPeriodParams` (used by `sliceBlueprintsResponseByRange`) derives the
+// `buildPeriodParams` (used by `sliceDeploymentsResponseByRange`) derives the
 // window from `new Date()`. Freeze it so 7d = [2026-05-20, 2026-05-26] and
 // 30d = [2026-04-27, 2026-05-26], matching the fixture dates below.
 beforeAll(() => {
@@ -17,16 +16,11 @@ afterAll(() => {
   vi.useRealTimers();
 });
 
-// ALL_AGENTS_KEY is a module constant — just verify it's exported and is a string
-describe("ALL_AGENTS_KEY", () => {
-  it("is a non-empty string", () => {
-    expect(typeof ALL_AGENTS_KEY).toBe("string");
-    expect(ALL_AGENTS_KEY.length).toBeGreaterThan(0);
-  });
-});
-
-type Blueprint = {
+type Deployment = {
+  deployment_id: string;
   agent_name: string;
+  display_name?: string;
+  namespace?: string;
   cost_usd: number;
   requests: number;
   input_tokens: number;
@@ -44,8 +38,9 @@ type Blueprint = {
 
 const period = { start: "2026-01-01T00:00:00Z", end: "2026-01-07T00:00:00Z", days: 7 };
 
-function makeBlueprint(overrides: Partial<Blueprint> = {}): Blueprint {
+function makeDeployment(overrides: Partial<Deployment> = {}): Deployment {
   return {
+    deployment_id: "dep-a",
     agent_name: "agent-a",
     cost_usd: 10,
     requests: 5,
@@ -86,7 +81,7 @@ describe("buildFilteredSummary", () => {
     // Bug: /insights?range=30d would show the first bar at whichever day
     // activity began (e.g. May 7), not at the start of the requested window
     // (April 27). cost_over_time must span every day in [period.start, end].
-    const bp = makeBlueprint({
+    const bp = makeDeployment({
       cost_over_time: [
         // Only one active day, in the middle of the period.
         { date: "2026-01-04", cost_usd: 5 },
@@ -111,7 +106,7 @@ describe("buildFilteredSummary", () => {
     // on empty strings yields NaN and naive `new Date(NaN).toISOString()`
     // throws "Invalid time value" — guard against that.
     const allTimePeriod = { start: "", end: "", days: 365 };
-    const bp = makeBlueprint({ cost_over_time: [{ date: "2026-01-01", cost_usd: 1 }] });
+    const bp = makeDeployment({ cost_over_time: [{ date: "2026-01-01", cost_usd: 1 }] });
     expect(() => buildFilteredSummary([bp], allTimePeriod)).not.toThrow();
     const result = buildFilteredSummary([bp], allTimePeriod);
     // No meaningful midpoint → change itself is null (matches the
@@ -120,7 +115,7 @@ describe("buildFilteredSummary", () => {
   });
 
   it("totals match single blueprint fields", () => {
-    const bp = makeBlueprint({
+    const bp = makeDeployment({
       agent_name: "solo",
       cost_usd: 42.5,
       requests: 100,
@@ -136,13 +131,13 @@ describe("buildFilteredSummary", () => {
   });
 
   it("change is null when no prior totals are supplied", () => {
-    const bp = makeBlueprint({ cost_usd: 10, requests: 5 });
+    const bp = makeDeployment({ cost_usd: 10, requests: 5 });
     const result = buildFilteredSummary([bp], period);
     expect(result.change).toBeNull();
   });
 
   it("cost_pct is null when the prior total is 0 (division by zero guard)", () => {
-    const bp = makeBlueprint({ cost_usd: 10, requests: 5 });
+    const bp = makeDeployment({ cost_usd: 10, requests: 5 });
     const result = buildFilteredSummary([bp], period, { cost: 0, requests: 0, tokens: 0 });
     expect(result.change?.cost_pct).toBeNull();
     expect(result.change?.requests_pct).toBeNull();
@@ -152,7 +147,7 @@ describe("buildFilteredSummary", () => {
   it("change% compares supplied prior totals against current totals", () => {
     // Current totals: cost 10, requests 5, tokens 150 (input 100 + output 50).
     // Prior totals: cost 5, requests 2, tokens 75 → pct ≈ {100, 150, 100}.
-    const bp = makeBlueprint({
+    const bp = makeDeployment({
       cost_usd: 10,
       requests: 5,
       input_tokens: 100,
@@ -166,7 +161,7 @@ describe("buildFilteredSummary", () => {
   });
 
   it("sparklines.cost length equals the bounded period length, not the number of active days", () => {
-    const bp = makeBlueprint({
+    const bp = makeDeployment({
       cost_over_time: [
         { date: "2026-01-01", cost_usd: 1 },
         { date: "2026-01-02", cost_usd: 2 },
@@ -183,14 +178,14 @@ describe("buildFilteredSummary", () => {
   });
 
   it("sums costs from different blueprints sharing the same date — full period is enumerated", () => {
-    const bpA = makeBlueprint({
+    const bpA = makeDeployment({
       agent_name: "agent-a",
       cost_over_time: [
         { date: "2026-01-01", cost_usd: 3 },
         { date: "2026-01-02", cost_usd: 7 },
       ],
     });
-    const bpB = makeBlueprint({
+    const bpB = makeDeployment({
       agent_name: "agent-b",
       cost_over_time: [
         { date: "2026-01-01", cost_usd: 2 },
@@ -210,7 +205,7 @@ describe("buildFilteredSummary", () => {
     // the URL window. buildFilteredSummary then aggregates them — confirm
     // the rolled-up totals reflect only the sliced data, not what the
     // blueprint's all-time fields might have been.
-    const bp = makeBlueprint({
+    const bp = makeDeployment({
       // Imagine the unsliced blueprint had $100 total; this is post-slice.
       cost_usd: 8,
       requests: 4,
@@ -228,10 +223,11 @@ describe("buildFilteredSummary", () => {
     expect(result.totals.total_tokens).toBe(100);
   });
 
-  it("sliceBlueprintByWindow trims over_time arrays and recomputes totals", () => {
+  it("sliceDeploymentByWindow trims over_time arrays and recomputes totals", () => {
     // Blueprint with activity spread across 5 days. Slicing to a 3-day window
     // should drop the out-of-window days and rebuild cost/requests/tokens.
-    const all: Parameters<typeof sliceBlueprintByWindow>[0] = {
+    const all: Parameters<typeof sliceDeploymentByWindow>[0] = {
+      deployment_id: "dep-alpha",
       agent_name: "alpha",
       requests: 1000, // server's all-time total — slicer should overwrite
       cost_usd: 100,
@@ -263,7 +259,7 @@ describe("buildFilteredSummary", () => {
       users_used: [],
     };
     // Slice to 5-24 .. 5-26.
-    const sliced = sliceBlueprintByWindow(all, "2026-05-24", "2026-05-26");
+    const sliced = sliceDeploymentByWindow(all, "2026-05-24", "2026-05-26");
     expect(sliced.cost_over_time).toHaveLength(2);
     expect(sliced.cost_usd).toBeCloseTo(70, 5); // 30+40
     expect(sliced.requests).toBe(700); // 300+400
@@ -274,11 +270,12 @@ describe("buildFilteredSummary", () => {
     expect(sliced.top_model).toBe("claude-sonnet");
   });
 
-  it("sliceBlueprintsResponseByRange emits different per-blueprint totals for 7d vs 30d", () => {
+  it("sliceDeploymentsResponseByRange emits different per-blueprint totals for 7d vs 30d", () => {
     // Same blueprint, sliced by two different ranges. Today is 2026-05-26
     // (per the session reminder); buildPeriodParams handles the date math.
-    const allTime: Parameters<typeof sliceBlueprintsResponseByRange>[0] = {
-      blueprints: [{
+    const allTime: Parameters<typeof sliceDeploymentsResponseByRange>[0] = {
+      deployments: [{
+        deployment_id: "dep-alpha",
         agent_name: "alpha",
         requests: 0,
         cost_usd: 0,
@@ -309,20 +306,20 @@ describe("buildFilteredSummary", () => {
       period: { start: "", end: "", days: 0 },
     };
 
-    const sliced7d = sliceBlueprintsResponseByRange(allTime, "7d");
-    const sliced30d = sliceBlueprintsResponseByRange(allTime, "30d");
-    expect(sliced7d!.blueprints[0].requests).toBe(1); // only 2026-05-21
-    expect(sliced30d!.blueprints[0].requests).toBe(3); // all three days
-    expect(sliced7d!.blueprints[0].cost_usd).toBeCloseTo(1, 5);
-    expect(sliced30d!.blueprints[0].cost_usd).toBeCloseTo(3, 5);
+    const sliced7d = sliceDeploymentsResponseByRange(allTime, "7d");
+    const sliced30d = sliceDeploymentsResponseByRange(allTime, "30d");
+    expect(sliced7d!.deployments[0].requests).toBe(1); // only 2026-05-21
+    expect(sliced30d!.deployments[0].requests).toBe(3); // all three days
+    expect(sliced7d!.deployments[0].cost_usd).toBeCloseTo(1, 5);
+    expect(sliced30d!.deployments[0].cost_usd).toBeCloseTo(3, 5);
   });
 
   it("cost_over_time spans the full period — non-overlapping blueprint dates are filled, not unioned", () => {
-    const bpA = makeBlueprint({
+    const bpA = makeDeployment({
       agent_name: "agent-a",
       cost_over_time: [{ date: "2026-01-01", cost_usd: 10 }],
     });
-    const bpB = makeBlueprint({
+    const bpB = makeDeployment({
       agent_name: "agent-b",
       cost_over_time: [{ date: "2026-01-02", cost_usd: 20 }],
     });

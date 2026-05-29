@@ -50,15 +50,15 @@ export function useAccountActivitySummary(
   });
 }
 
-export function useBlueprintsSummary(
+export function useDeploymentsSummary(
   account: string,
   from?: string,
   to?: string,
   opts?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.blueprintsSummary(account, from, to),
-    queryFn: () => api.getAccountBlueprintsSummary(account, buildDateParams(from, to)),
+    queryKey: observabilityKeys.deploymentsSummary(account, from, to),
+    queryFn: () => api.getAccountDeploymentsSummary(account, buildDateParams(from, to)),
     enabled: (opts?.enabled ?? true) && !!account,
     ...ACTIVITY_QUERY_OPTS,
   });

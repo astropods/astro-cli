@@ -1500,13 +1500,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "Set to 'user' to include cost_over_time_by_user", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/blueprints-summary", "Get per-blueprint observability summary", handlers.GetAccountBlueprintsSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.QueryParam("from", "Period start (RFC3339)", false),
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
-				oapispec.Response(200, &handlers.AccountBlueprintsSummaryResponse{}),
+				oapispec.Response(200, &handlers.AccountDeploymentsSummaryResponse{}),
 			)
 			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),

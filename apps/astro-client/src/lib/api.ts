@@ -662,12 +662,12 @@ class ApiClient {
     );
   }
 
-  async getAccountBlueprintsSummary(
+  async getAccountDeploymentsSummary(
     account: string,
     params?: Record<string, string>,
-  ): Promise<AccountBlueprintsSummaryResponse> {
-    return this.request<AccountBlueprintsSummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/blueprints-summary${buildQS(params)}`
+  ): Promise<AccountDeploymentsSummaryResponse> {
+    return this.request<AccountDeploymentsSummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployments-summary${buildQS(params)}`
     );
   }
 
@@ -1835,9 +1835,12 @@ export interface AccountUsersSummaryResponse {
   period: { start: string; end: string; days: number };
 }
 
-export interface AccountBlueprintsSummaryResponse {
-  blueprints: Array<{
+export interface AccountDeploymentsSummaryResponse {
+  deployments: Array<{
+    deployment_id: string;
     agent_name: string;
+    display_name?: string;
+    namespace?: string;
     requests: number;
     cost_usd: number;
     cost_per_request: number;
@@ -1845,7 +1848,7 @@ export interface AccountBlueprintsSummaryResponse {
     input_tokens: number;
     /** @deprecated prefer total_tokens. */
     output_tokens: number;
-    /** Combined token count for the blueprint. New source of truth. */
+    /** Combined token count for the deployment. New source of truth. */
     total_tokens: number;
     tok_per_request: number;
     p95_latency_ms: number;
@@ -1859,7 +1862,7 @@ export interface AccountBlueprintsSummaryResponse {
       /** Combined per-day token count. Prefer over input+output. */
       total_tokens: number;
     }>;
-    /** WorkOS user IDs that drove ≥1 trace against the agent in the period. */
+    /** WorkOS user IDs that drove ≥1 trace against this deployment in the period. */
     users_used: string[];
   }>;
   period: { start: string; end: string; days: number };

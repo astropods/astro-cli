@@ -249,15 +249,16 @@ type ObservabilitySummaryResponse struct {
 	Metrics     ObservabilitySummaryMetrics `json:"metrics"`
 }
 
-// DeploymentSummaryEntry holds the per-deployment data returned by the bulk summaries endpoint.
-type DeploymentSummaryEntry struct {
+// DeploymentTraceSummary is the lightweight per-deployment trace count
+// projection returned by the bulk obs-summary endpoint.
+type DeploymentTraceSummary struct {
 	TotalTraces int    `json:"total_traces"`
 	LastTraceAt string `json:"last_trace_at"`
 }
 
 // DeploymentSummariesResponse is returned by the bulk deployment summaries endpoint.
 type DeploymentSummariesResponse struct {
-	Summaries map[string]DeploymentSummaryEntry `json:"summaries"`
+	Summaries map[string]DeploymentTraceSummary `json:"summaries"`
 }
 
 // AccountSummaryPeriod describes the queried time window.
@@ -382,56 +383,65 @@ type AccountUsersSummaryResponse struct {
 	Period AccountSummaryPeriod `json:"period"`
 }
 
-// BlueprintDailyCost is one day's total cost for a single blueprint.
-type BlueprintDailyCost struct {
+// DeploymentDailyCost is one day's total cost for a single deployment.
+type DeploymentDailyCost struct {
 	Date    string  `json:"date"`
 	CostUSD float64 `json:"cost_usd"`
 }
 
-// BlueprintDailyRequests is one day's request count for a blueprint.
-type BlueprintDailyRequests struct {
+// DeploymentDailyRequests is one day's request count for a deployment.
+type DeploymentDailyRequests struct {
 	Date     string `json:"date"`
 	Requests int    `json:"requests"`
 }
 
-// BlueprintDailyTokens is one day's token usage for a blueprint.
-type BlueprintDailyTokens struct {
+// DeploymentDailyTokens is one day's token usage for a deployment.
+type DeploymentDailyTokens struct {
 	Date         string `json:"date"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
 	TotalTokens  int    `json:"total_tokens"`
 }
 
-// BlueprintSummaryEntry holds per-agent-name aggregated observability for the blueprints summary.
+// DeploymentSummaryEntry holds per-deployment observability totals for the
+// deployments-summary endpoint. One entry per row of the Insights table —
+// the deployment is the unit of measure, not the agent_name (multi-region
+// deployments of the same blueprint show up as separate rows).
 //
 // TotalTokens is the new source of truth — clients should prefer it. Input/
 // OutputTokens stay populated when the daily-metrics fan-out provides them
 // (legacy per-deployment endpoint), but are 0 when the batched traces-view
 // path supplies tokens (combined-only).
-type BlueprintSummaryEntry struct {
-	AgentName        string                   `json:"agent_name"`
-	Requests         int                      `json:"requests"`
-	CostUSD          float64                  `json:"cost_usd"`
-	CostPerRequest   float64                  `json:"cost_per_request"`
-	InputTokens      int                      `json:"input_tokens"`
-	OutputTokens     int                      `json:"output_tokens"`
-	TotalTokens      int                      `json:"total_tokens"`
-	TokPerRequest    float64                  `json:"tok_per_request"`
-	P95LatencyMs     int                      `json:"p95_latency_ms"`
-	TopModel         string                   `json:"top_model"`
-	CostOverTime     []BlueprintDailyCost     `json:"cost_over_time"`
-	RequestsOverTime []BlueprintDailyRequests `json:"requests_over_time"`
-	TokensOverTime   []BlueprintDailyTokens   `json:"tokens_over_time"`
-	// UsersUsed lists WorkOS user IDs that drove ≥1 trace against the agent in
-	// the period. Mirrors agents_used on the users-summary endpoint — the same
-	// (userId, tag) → agent_name mapping, just inverted.
+type DeploymentSummaryEntry struct {
+	// Deployment identity — DeploymentID is the canonical row key and the
+	// target of the Insights row's deep-link to the Monitor tab.
+	DeploymentID string `json:"deployment_id"`
+	AgentName    string `json:"agent_name"`
+	DisplayName  string `json:"display_name,omitempty"`
+	Namespace    string `json:"namespace,omitempty"`
+	// Observability totals for the period.
+	Requests         int                       `json:"requests"`
+	CostUSD          float64                   `json:"cost_usd"`
+	CostPerRequest   float64                   `json:"cost_per_request"`
+	InputTokens      int                       `json:"input_tokens"`
+	OutputTokens     int                       `json:"output_tokens"`
+	TotalTokens      int                       `json:"total_tokens"`
+	TokPerRequest    float64                   `json:"tok_per_request"`
+	P95LatencyMs     int                       `json:"p95_latency_ms"`
+	TopModel         string                    `json:"top_model"`
+	CostOverTime     []DeploymentDailyCost     `json:"cost_over_time"`
+	RequestsOverTime []DeploymentDailyRequests `json:"requests_over_time"`
+	TokensOverTime   []DeploymentDailyTokens   `json:"tokens_over_time"`
+	// UsersUsed lists WorkOS user IDs that drove ≥1 trace against this specific
+	// deployment in the period. Mirrors agents_used on the users-summary
+	// endpoint — the same (userId, tag) → deployment mapping, just inverted.
 	UsersUsed []string `json:"users_used"`
 }
 
-// AccountBlueprintsSummaryResponse is returned by the blueprints-summary endpoint.
-type AccountBlueprintsSummaryResponse struct {
-	Blueprints []BlueprintSummaryEntry `json:"blueprints"`
-	Period     AccountSummaryPeriod    `json:"period"`
+// AccountDeploymentsSummaryResponse is returned by the deployments-summary endpoint.
+type AccountDeploymentsSummaryResponse struct {
+	Deployments []DeploymentSummaryEntry `json:"deployments"`
+	Period      AccountSummaryPeriod     `json:"period"`
 }
 
 // TraceEntry represents a single trace in the traces list.

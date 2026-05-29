@@ -66,8 +66,8 @@ export const observabilityKeys = {
     ['observability', 'deployment-summaries', account] as const,
   activitySummary: (account: string, from?: string, to?: string, groupBy?: string) =>
     ['observability', 'activity-summary', account, from, to, groupBy] as const,
-  blueprintsSummary: (account: string, from?: string, to?: string) =>
-    ['observability', 'blueprints-summary', account, from, to] as const,
+  deploymentsSummary: (account: string, from?: string, to?: string) =>
+    ['observability', 'deployments-summary', account, from, to] as const,
   usersSummary: (account: string, from?: string, to?: string) =>
     ['observability', 'users-summary', account, from, to] as const,
 };

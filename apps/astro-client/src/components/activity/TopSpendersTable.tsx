@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { formatTimeAgo } from "@/lib/time-format";
-import { AgentNameLink, type AgentDeploymentRef } from "./AgentNameLink";
+import { type AgentDeploymentRef } from "./AgentNameLink";
 import {
   Table,
   TableBody,
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatCost, formatCompact, formatLatency } from "@/lib/format-utils";
 import type {
-  AccountBlueprintsSummaryResponse,
+  AccountDeploymentsSummaryResponse,
   AccountUsersSummaryResponse,
 } from "@/lib/api";
 import { AgentsUsedChips } from "./AgentsUsedChips";
@@ -24,7 +25,7 @@ import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { classifyUserId, UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY } from "./user-classification";
 
-type AgentRow = AccountBlueprintsSummaryResponse["blueprints"][number];
+type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
 
 type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
@@ -64,19 +65,14 @@ function GhostRow({ columns }: { columns: number }) {
 type TopSpendersTableProps =
   | {
       mode: "agents";
-      blueprints: AgentRow[];
+      /** One row per deployment — multi-region deployments of the same
+       *  agent_name surface as separate rows. */
+      deployments: DeploymentRow[];
       loading: boolean;
       groupLabel?: string;
-      /** Account name used to render the agent avatar + linkify the row. When
-       *  omitted (e.g. Models view), the cell renders text-only. */
+      /** Account name used to linkify the row. When omitted (e.g. a future
+       *  Models view), the cell renders text-only. */
       account?: string;
-      /** Optional map of agent_name → all matching deployments. Behavior:
-       *   - 0 entries: row links to the blueprint detail page
-       *   - 1 entry:   row links straight to that deployment's Monitor tab
-       *   - 2+ entries: row opens a popover so the user picks a deployment
-       *  Lets the table cover the 1-to-many agent_name → deployment case
-       *  without rendering duplicate rows for multi-region deployments. */
-      deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
       /** Denominator for the `% Total` column. Owned by the caller so it can
        *  stay stable across search-driven row filtering — otherwise typing in
        *  the search input shifts every visible percentage. */
@@ -90,8 +86,8 @@ type TopSpendersTableProps =
       users: UserRow[];
       account: string;
       loading: boolean;
-      /** Same agent_name → deployments map as the agents-mode prop. Forwarded
-       *  to `AgentsUsedChips` so each chip / popover row routes to a
+      /** Map of agent_name → all matching deployments. Forwarded to
+       *  `AgentsUsedChips` so each chip / popover row routes to a
        *  deployment's Monitor tab instead of the blueprint detail page. */
       deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
       /** Denominator for the `% Total` column. Owned by the caller — see the
@@ -106,34 +102,33 @@ export function TopSpendersTable(props: TopSpendersTableProps) {
   if (props.mode === "users") {
     return <UsersTopSpenders {...props} />;
   }
-  return <AgentsTopSpenders {...props} />;
+  return <DeploymentsTopSpenders {...props} />;
 }
 
 // ── Agents mode ──────────────────────────────────────────────────────────────
 
-function AgentsTopSpenders({
-  blueprints,
+function DeploymentsTopSpenders({
+  deployments,
   loading,
-  groupLabel = "Agent",
+  groupLabel = "Name",
   account,
-  deploymentsByAgent,
   totalCost,
   panelHeader,
 }: Extract<TopSpendersTableProps, { mode: "agents" }>) {
   const { sortKey, asc, handleSort } = useSort<AgentSortKey>("cost_usd");
 
   const sorted = useMemo(
-    () => [...blueprints].sort((a, b) => {
+    () => [...deployments].sort((a, b) => {
       const diff = a[sortKey] - b[sortKey];
       return asc ? diff : -diff;
     }),
-    [blueprints, sortKey, asc],
+    [deployments, sortKey, asc],
   );
 
   // Fall back to a self-computed sum when the caller hasn't wired a stable
-  // denominator (e.g. the Models view) — percentages still render, they just
-  // re-base if rows get filtered.
-  const denom = totalCost ?? blueprints.reduce((s, b) => s + b.cost_usd, 0);
+  // denominator — percentages still render, they just re-base if rows get
+  // filtered.
+  const denom = totalCost ?? deployments.reduce((s, b) => s + b.cost_usd, 0);
 
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
 
@@ -157,16 +152,17 @@ function AgentsTopSpenders({
         ) : sorted.length === 0 ? (
           <TableRow>
             <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
-              No agent activity in this period
+              No deployment activity in this period
             </TableCell>
           </TableRow>
         ) : (
           sorted.map((b) => {
             // Zero requests in the period means no traces ever landed for
-            // this agent — usually the OTel exporter isn't wired up. Flag
-            // with a small warning icon so the all-zero row reads as
-            // "not instrumented" rather than "agent did nothing".
+            // this deployment — usually the agent isn't sending observability
+            // data. Flag with a small warning icon so the all-zero row reads
+            // as "not instrumented" rather than "deployment did nothing".
             const notInstrumented = b.requests === 0;
+            const label = b.display_name || b.agent_name;
             const nameNode = (
               <span className="inline-flex min-w-0 items-center gap-2">
                 {account && (
@@ -177,21 +173,24 @@ function AgentsTopSpenders({
                     className="size-5 shrink-0 rounded-full"
                   />
                 )}
-                <span className="truncate font-medium text-foreground">{b.agent_name}</span>
+                <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
               </span>
             );
+            // Row link goes to the deployment's blueprint page — the
+            // canonical "what is this agent" surface. (Earlier iteration
+            // pointed at the Monitor tab; switched to the blueprint page
+            // per design call.)
             return (
-              <TableRow key={b.agent_name}>
+              <TableRow key={b.deployment_id}>
                 <TableCell className="pr-4">
                   <span className="inline-flex items-center gap-1.5">
                     {account ? (
-                      <AgentNameLink
-                        account={account}
-                        agentName={b.agent_name}
-                        deployments={deploymentsByAgent?.get(b.agent_name) ?? []}
+                      <Link
+                        to={`/${account}/${b.agent_name}`}
+                        className="inline-flex items-center hover:underline"
                       >
                         {nameNode}
-                      </AgentNameLink>
+                      </Link>
                     ) : (
                       nameNode
                     )}
@@ -206,9 +205,8 @@ function AgentsTopSpenders({
                               <TriangleAlert className="size-3.5" />
                             </span>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs">
-                            Instrumentation not available — no requests, spend, or token data
-                            available.
+                          <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
+                            Instrumentation not available — no requests, spend, or token data available.
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -450,7 +448,7 @@ function BucketRow({ variant, agg, totalCost, deploymentsByAgent }: BucketRowPro
                 <Info className="size-3 text-faint-foreground" aria-hidden />
               </span>
             </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[260px]">{tooltipText}</TooltipContent>
+            <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">{tooltipText}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </TableCell>

@@ -6,8 +6,11 @@ import { accountKeys } from "@/api/queries/keys";
 
 afterEach(cleanup);
 
-type Blueprint = {
+type Deployment = {
+  deployment_id: string;
   agent_name: string;
+  display_name?: string;
+  namespace?: string;
   cost_usd: number;
   requests: number;
   cost_per_request: number;
@@ -20,8 +23,9 @@ type Blueprint = {
   users_used: string[];
 };
 
-function makeBlueprint(overrides: Partial<Blueprint> & { agent_name: string }): Blueprint {
+function makeDeployment(overrides: Partial<Deployment> & { agent_name: string }): Deployment {
   return {
+    deployment_id: `dep-${overrides.agent_name}`,
     cost_usd: 10,
     requests: 5,
     cost_per_request: 2,
@@ -36,34 +40,34 @@ function makeBlueprint(overrides: Partial<Blueprint> & { agent_name: string }): 
   };
 }
 
-const sampleBlueprints: Blueprint[] = [
-  makeBlueprint({ agent_name: "alpha", cost_usd: 30, requests: 10 }),
-  makeBlueprint({ agent_name: "beta",  cost_usd: 10, requests: 50 }),
-  makeBlueprint({ agent_name: "gamma", cost_usd: 20, requests: 30 }),
+const sampleDeployments: Deployment[] = [
+  makeDeployment({ agent_name: "alpha", cost_usd: 30, requests: 10 }),
+  makeDeployment({ agent_name: "beta",  cost_usd: 10, requests: 50 }),
+  makeDeployment({ agent_name: "gamma", cost_usd: 20, requests: 30 }),
 ];
 
-describe("TopSpendersTable", () => {
+describe("TopSpendersTable (agents view, per-deployment rows)", () => {
   it("shows ghost (skeleton) rows when loading=true", () => {
     const { container } = renderWithProviders(
-      <TopSpendersTable mode="agents" blueprints={[]} loading={true} />
+      <TopSpendersTable mode="agents" deployments={[]} loading={true} />
     );
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 
-  it("shows empty state message when blueprints is empty and not loading", () => {
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={[]} loading={false} />);
-    expect(screen.getByText("No agent activity in this period")).toBeInTheDocument();
+  it("shows empty state message when deployments is empty and not loading", () => {
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={[]} loading={false} />);
+    expect(screen.getByText("No deployment activity in this period")).toBeInTheDocument();
   });
 
-  it("renders each blueprint's agent_name", () => {
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+  it("renders each deployment's agent_name as the row label", () => {
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.getByText("beta")).toBeInTheDocument();
     expect(screen.getByText("gamma")).toBeInTheDocument();
   });
 
   it("clicking 'Total Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
 
     const spendHeader = screen.getByText("Total Spend");
 
@@ -85,38 +89,49 @@ describe("TopSpendersTable", () => {
   });
 
   it("initial sort is cost_usd descending — alpha(30) first, beta(10) last", () => {
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
     const rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
     expect(rows[0].textContent).toBe("alpha");
     expect(rows[rows.length - 1].textContent).toBe("beta");
   });
 
-  it("groupLabel column header ('Agent') has no sort icon (no ↕, ↑, or ↓)", () => {
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} />);
-    const agentHeader = screen.getByRole("columnheader", { name: /^Agent$/ });
-    expect(agentHeader.textContent).not.toContain("↕");
-    expect(agentHeader.textContent).not.toContain("↑");
-    expect(agentHeader.textContent).not.toContain("↓");
+  it("groupLabel column header ('Name') has no sort icon (no ↕, ↑, or ↓)", () => {
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
+    const header = screen.getByRole("columnheader", { name: /^Name$/ });
+    expect(header.textContent).not.toContain("↕");
+    expect(header.textContent).not.toContain("↑");
+    expect(header.textContent).not.toContain("↓");
   });
 
   it("respects custom groupLabel prop", () => {
     renderWithProviders(
-      <TopSpendersTable mode="agents" blueprints={sampleBlueprints} loading={false} groupLabel="Model" />
+      <TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} groupLabel="Model" />
     );
     expect(screen.getByRole("columnheader", { name: /^Model$/ })).toBeInTheDocument();
   });
 
   it("renders a People column; empty users_used renders the em-dash", () => {
-    const blueprints: Blueprint[] = [
-      makeBlueprint({ agent_name: "alpha", cost_usd: 30, users_used: ["u_alice", "u_bob", "u_carol"] }),
-      makeBlueprint({ agent_name: "beta",  cost_usd: 10, users_used: [] }),
+    const deployments: Deployment[] = [
+      makeDeployment({ agent_name: "alpha", cost_usd: 30, users_used: ["u_alice", "u_bob", "u_carol"] }),
+      makeDeployment({ agent_name: "beta",  cost_usd: 10, users_used: [] }),
     ];
-    renderWithProviders(<TopSpendersTable mode="agents" blueprints={blueprints} loading={false} />);
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={deployments} loading={false} />);
     expect(screen.getByRole("columnheader", { name: /^People$/ })).toBeInTheDocument();
     const rows = screen.getAllByRole("row").slice(1); // skip header
     const betaRow = rows.find((r) => within(r).queryByText("beta"))!;
     // Empty users_used renders as em-dash, not "0".
     expect(within(betaRow).getByText("—")).toBeInTheDocument();
+  });
+
+  it("two deployments of the same agent_name render as separate rows (no rollup)", () => {
+    const deployments: Deployment[] = [
+      makeDeployment({ deployment_id: "dep-east", agent_name: "swipefile", display_name: "Swipefile East", cost_usd: 30 }),
+      makeDeployment({ deployment_id: "dep-west", agent_name: "swipefile", display_name: "Swipefile West", cost_usd: 10 }),
+    ];
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={deployments} loading={false} />);
+    // Both display names visible → both rows rendered (no agent_name rollup).
+    expect(screen.getByText("Swipefile East")).toBeInTheDocument();
+    expect(screen.getByText("Swipefile West")).toBeInTheDocument();
   });
 });
 
