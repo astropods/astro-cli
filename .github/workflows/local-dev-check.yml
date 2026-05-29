@@ -5,10 +5,9 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'apps/astro-cli/**'
+      - '!apps/astro-cli/VERSION'
       - 'deployment/moon.yml'
       - '.gitmodules'
-    paths-ignore:
-      - 'apps/astro-cli/VERSION'
 
 jobs:
   local-dev-lint:
