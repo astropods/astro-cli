@@ -41,7 +41,7 @@ import {
 import { useAuth } from '@/lib/auth'
 import { formatRelativeTime } from '@/lib/deployment-utils'
 import type { VaultEntry } from '@/lib/vault'
-import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
+import type { AccountVariable, CreateAccountVariableInput, UpdateAccountVariableInput } from '@/lib/api'
 import { ApiRequestError } from '@/lib/api'
 import { ErrorPanel } from '@/components/ui/status-panel'
 
@@ -79,10 +79,15 @@ export function VaultSettings({ account: accountName }: { account: string }) {
     })
   }
 
-  const handleOverwrite = (data: { value: string; description: string }) => {
+  const handleOverwrite = (data: { value?: string; description: string }) => {
     if (!overwriteEntry) return
+    const payload: UpdateAccountVariableInput = { description: data.description }
+    if (data.value?.trim()) {
+      payload.value = data.value
+      payload.secret = true
+    }
     updateMutation.mutate(
-      { name: overwriteEntry.name, data: { value: data.value, secret: true, description: data.description } },
+      { name: overwriteEntry.name, data: payload },
       { onSuccess: () => setOverwriteEntry(null) }
     )
   }

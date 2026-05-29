@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Eye, EyeOff } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 interface OverwriteSecretDialogProps {
   secretName: string
@@ -18,24 +18,29 @@ interface OverwriteSecretDialogProps {
   open: boolean
   isPending?: boolean
   onClose: () => void
-  onConfirm: (data: { value: string; description: string }) => void
+  onConfirm: (data: { value?: string; description: string }) => void
 }
 
 export function OverwriteSecretDialog({ secretName, description: initialDescription = '', open, isPending, onClose, onConfirm }: OverwriteSecretDialogProps) {
   const [value, setValue] = useState('')
   const [description, setDescription] = useState(initialDescription)
-  const [revealed, setRevealed] = useState(false)
+
+  const trimmedDescription = description.trim()
+  const descriptionChanged = trimmedDescription !== initialDescription.trim()
+  const canSave = Boolean(value.trim()) || descriptionChanged
 
   const handleClose = () => {
     setValue('')
     setDescription(initialDescription)
-    setRevealed(false)
     onClose()
   }
 
   const handleConfirm = () => {
-    if (!value.trim()) return
-    onConfirm({ value, description: description.trim() })
+    if (!canSave) return
+    onConfirm({
+      ...(value.trim() ? { value } : {}),
+      description: trimmedDescription,
+    })
   }
 
   return (
@@ -43,38 +48,27 @@ export function OverwriteSecretDialog({ secretName, description: initialDescript
       <DialogContent className="max-w-[420px]">
         <DialogHeader>
           <DialogTitle>
-            Change value for{' '}
+            Edit{' '}
             <span className="font-mono text-sm font-medium">{secretName}</span>
           </DialogTitle>
           <DialogDescription>
-            The current value will be permanently replaced. The previous value can't be recovered.
+            Leave the value blank to keep the current secret. Enter a new value to replace it permanently.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
             <Label size="md" htmlFor="overwrite-value">Value</Label>
-            <div className="relative">
-              <Input
-                id="overwrite-value"
-                type={revealed ? 'text' : 'password'}
-                value={value}
-                onChange={e => setValue(e.target.value)}
-                placeholder="••••••••••••"
-                autoComplete="off"
-                data-1p-ignore
-                autoFocus
-                className="pr-9"
-              />
-              <button
-                type="button"
-                onClick={() => setRevealed(r => !r)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                aria-label={revealed ? 'Hide value' : 'Reveal value'}
-              >
-                {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
+            <Input
+              id="overwrite-value"
+              type="password"
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder="••••••••••••"
+              autoComplete="off"
+              data-1p-ignore
+              autoFocus
+            />
           </div>
           <div className="space-y-1.5">
             <Label size="md" htmlFor="overwrite-description">
@@ -91,7 +85,7 @@ export function OverwriteSecretDialog({ secretName, description: initialDescript
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={isPending}>Cancel</Button>
-          <Button onClick={handleConfirm} disabled={!value.trim() || isPending}>
+          <Button onClick={handleConfirm} disabled={!canSave || isPending}>
             {isPending && <Loader2 className="size-3.5 animate-spin" />}
             Save
           </Button>
