@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { motion, useSpring, useTransform } from "motion/react";
 import { curveBasis, line as d3Line } from "d3-shape";
 import {
@@ -34,6 +34,19 @@ import cloud3 from "@/assets/clouds/cloud-3.png";
 import cloud4 from "@/assets/clouds/cloud-4.png";
 
 const CLOUD_SPRITES = [cloud1, cloud2, cloud3, cloud4];
+
+const CARD_INTERACTIVE_SELECTOR = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "[role='button']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[tabindex]:not([tabindex='-1'])",
+  "[data-card-click-ignore='true']",
+].join(",");
 
 export interface DeployedAgentCardProps {
   account: string;
@@ -97,6 +110,12 @@ function normalizeSeries(series: number[]): { x: number; y: number }[] {
   const ys = rawPoints.map((p) => p.y);
   const shift = SPARK_H / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
   return rawPoints.map((p) => ({ x: p.x, y: p.y + shift }));
+}
+
+function eventStartedFromCardInteractive(target: EventTarget | null, currentTarget: HTMLElement) {
+  if (!(target instanceof Element)) return false;
+  const interactiveElement = target.closest(CARD_INTERACTIVE_SELECTOR);
+  return !!interactiveElement && interactiveElement !== currentTarget && currentTarget.contains(interactiveElement);
 }
 
 const numberFormatter = new Intl.NumberFormat("en-US");
@@ -483,8 +502,21 @@ export function DeployedAgentCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
+  const navigate = useNavigate();
+  const detailPath = deploymentId ? deploymentPath(account, deploymentId) : undefined;
   const copyId = () => {
     if (deploymentId) void copyToClipboard(deploymentId);
+  };
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!detailPath || eventStartedFromCardInteractive(e.target, e.currentTarget)) return;
+    navigate(detailPath);
+  };
+  const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!detailPath || e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      navigate(detailPath);
+    }
   };
   // Menu visibility: revealed on card hover OR while the menu (or its dialogs)
   // are open — otherwise dismissing the menu by mouse-leaving the card while
@@ -494,7 +526,12 @@ export function DeployedAgentCard({
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
       data-deployment-id={deploymentId}
+      role={detailPath ? "link" : undefined}
+      tabIndex={detailPath ? 0 : undefined}
+      aria-label={detailPath ? `View details for ${displayName || name}` : undefined}
       className={cn(
         "relative flex flex-col items-center gap-4 overflow-hidden rounded-md border border-border bg-[var(--card-base)] p-4 pt-8",
         // --card-base is the card's underlying surface. Default to var(--card);
@@ -509,6 +546,7 @@ export function DeployedAgentCard({
         // agent's `glow` color so each card's nebula carries its own theme.
         "[--card-cloud:#ffffff] dark:[--card-cloud:oklch(58.40%_0.2055_274.722)]",
         avatarColors && "[--tint-strong:30%] dark:[--tint-strong:18%]",
+        detailPath && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
       style={tintStyle}
