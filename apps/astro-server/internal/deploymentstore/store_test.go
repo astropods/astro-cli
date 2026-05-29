@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -365,39 +366,6 @@ func TestGetDeploymentHistory(t *testing.T) {
 	}
 }
 
-func TestMarkUndeployed(t *testing.T) {
-	db := testDB(t)
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	dep, _ := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: "agent-e",
-		DisplayName: "Agent E", BuildID: "build-1", Namespace: "ns-test",
-		SpecJSON: `{"spec":"v1"}`,
-	}, nil)
-	// Mark as active so MarkUndeployedByID has an active row
-	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", dep.ID)
-
-	err := store.MarkUndeployedByID(dep.ID)
-	if err != nil {
-		t.Fatalf("MarkUndeployedByID failed: %v", err)
-	}
-
-	d, err := store.GetActiveDeployment(accountID, "agent-e")
-	if err != nil {
-		t.Fatalf("GetActiveDeployment failed: %v", err)
-	}
-	if d != nil {
-		t.Errorf("expected no active deployment after MarkUndeployedByID, got %+v", d)
-	}
-
-	// MarkUndeployedByID on already-undeployed should not error
-	err = store.MarkUndeployedByID(dep.ID)
-	if err != nil {
-		t.Fatalf("MarkUndeployedByID on already-undeployed should not error: %v", err)
-	}
-}
-
 func TestUpdateStatus(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
@@ -444,6 +412,58 @@ func TestUpdateStatus(t *testing.T) {
 	}
 	if events[0].Message != "all good" {
 		t.Errorf("expected event message 'all good', got %q", events[0].Message)
+	}
+}
+
+func TestUpdateStatus_StampsUndeployedAt(t *testing.T) {
+	// updateStatusTx is the single entry point for status changes. When the
+	// new status is 'undeployed' it should populate undeployed_at in the same
+	// UPDATE (replacing the old MarkUndeployedByID call which had a broken
+	// WHERE-status guard). A second transition to 'undeployed' must NOT shift
+	// the timestamp — the CASE guard only stamps when undeployed_at IS NULL.
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "undeploy-stamp",
+		DisplayName: "Stamp", BuildID: "build-1", Namespace: "ns-undeploy-stamp",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
+	}
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d.ID)
+
+	// First transition to 'undeployed' should stamp undeployed_at.
+	if err := store.UpdateStatus(d.ID, StatusUndeployed, "", nil); err != nil {
+		t.Fatalf("UpdateStatus(undeployed) failed: %v", err)
+	}
+	dep, err := store.GetDeploymentByID(d.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID failed: %v", err)
+	}
+	if dep.UndeployedAt == nil {
+		t.Fatalf("expected undeployed_at to be stamped, got nil")
+	}
+	firstStamp := *dep.UndeployedAt
+
+	// A second transition to 'undeployed' must preserve the original timestamp.
+	// The CASE guard `undeployed_at IS NULL THEN NOW() ELSE undeployed_at` keeps
+	// the first stamp; we'd lose the original delete time otherwise.
+	time.Sleep(10 * time.Millisecond) // ensure a clock tick so a buggy implementation would visibly shift
+	if err := store.UpdateStatus(d.ID, StatusUndeployed, "", nil); err != nil {
+		t.Fatalf("UpdateStatus(undeployed) second call failed: %v", err)
+	}
+	dep, err = store.GetDeploymentByID(d.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID failed: %v", err)
+	}
+	if dep.UndeployedAt == nil {
+		t.Fatalf("expected undeployed_at to still be set after second call, got nil")
+	}
+	if !dep.UndeployedAt.Equal(firstStamp) {
+		t.Errorf("undeployed_at shifted: first=%v second=%v (expected idempotent)", firstStamp, *dep.UndeployedAt)
 	}
 }
 

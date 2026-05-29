@@ -1878,6 +1878,16 @@ export interface AccountDeploymentsSummaryResponse {
     }>;
     /** WorkOS user IDs that drove ≥1 trace against this deployment in the period. */
     users_used: string[];
+    /** RFC3339 timestamp set when the deployment has been soft-deleted (status
+     *  flipped to 'undeployed'). Optional date for the tombstone caption —
+     *  can be missing even on archived rows (e.g. status='undeploying'
+     *  mid-tear-down). Don't use this as the tombstone signal; use
+     *  is_archived instead. */
+    undeployed_at?: string | null;
+    /** True when this entry corresponds to a deployment not in the visible
+     *  list (i.e. archived). Source of truth for the tombstone styling —
+     *  set independently of undeployed_at. */
+    is_archived?: boolean;
   }>;
   period: { start: string; end: string; days: number };
 }

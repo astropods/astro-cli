@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { formatTimeAgo } from "@/lib/time-format";
@@ -24,6 +25,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { classifyUserId, UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY } from "./user-classification";
+
+// motion.create wraps TableRow so the agents-mode rows keep the shared
+// row chrome (data-slot, border, interactive hover state) while
+// AnimatePresence drives the opacity transition. Defined at module
+// scope per Motion's guidance — wrapping inside the component body
+// would create a new motion component on every render.
+const MotionTableRow = motion.create(TableRow);
 
 type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
@@ -156,37 +164,86 @@ function DeploymentsTopSpenders({
             </TableCell>
           </TableRow>
         ) : (
-          sorted.map((b) => {
+          // AnimatePresence handles the "Show deleted" toggle smoothly:
+          // rows fade in/out instead of snapping. initial={false} prevents
+          // the first mount of the table from animating (only subsequent
+          // membership changes do). Live rows keep their identity across
+          // toggles since the key (deployment_id) is stable, so only the
+          // archived rows actually animate.
+          <AnimatePresence initial={false}>
+          {sorted.map((b) => {
             // Zero requests in the period means no traces ever landed for
             // this deployment — usually the agent isn't sending observability
             // data. Flag with a small warning icon so the all-zero row reads
             // as "not instrumented" rather than "deployment did nothing".
             const notInstrumented = b.requests === 0;
+            // Archived deployments still surface in the table when the user
+            // toggles "Show archived". The backend's `is_archived` flag is
+            // the source of truth — `undeployed_at` can be nil even on
+            // archived rows (e.g. status='undeploying' mid-tear-down), so
+            // checking the date alone misses tombstones.
+            const isDeleted = !!b.is_archived;
             const label = b.display_name || b.agent_name;
-            const nameNode = (
+            // The muted avatar + grayed text is enough to read as a
+            // tombstone row — no status dot needed. Hovering the identity
+            // unit still surfaces the deletion date via the tooltip
+            // wrapper below. Date includes the year because deletions can
+            // be years old and an unqualified "Apr 10" reads ambiguously.
+            const deletedTooltipLabel = b.undeployed_at
+              ? `Deleted ${new Date(b.undeployed_at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  timeZone: "UTC",
+                })}`
+              : "Deleted";
+            const identityRow = (
               <span className="inline-flex min-w-0 items-center gap-2">
                 {account && (
                   <BlueprintIdentity
                     account={account}
                     name={b.agent_name}
                     size={20}
-                    className="size-5 shrink-0 rounded-full"
+                    className={cn("size-5 shrink-0 rounded-full", isDeleted && "opacity-60")}
                   />
                 )}
-                <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
+                <span
+                  className={cn(
+                    "min-w-0 truncate font-medium",
+                    isDeleted ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {label}
+                </span>
               </span>
             );
-            // Row link goes to the deployment's blueprint page — the
-            // canonical "what is this agent" surface. (Earlier iteration
-            // pointed at the Monitor tab; switched to the blueprint page
-            // per design call.)
+            const nameNode = isDeleted ? (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>{identityRow}</TooltipTrigger>
+                  <TooltipContent side="top">{deletedTooltipLabel}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              identityRow
+            );
+            // Live rows deep-link to their deployment's Monitor tab — rows
+            // are per-deployment, so the Monitor view is the most direct
+            // landing target. Deleted rows render a non-interactive span
+            // (the deployment is gone; a click would 404).
             return (
-              <TableRow key={b.deployment_id}>
+              <MotionTableRow
+                key={b.deployment_id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
                 <TableCell className="pr-4">
                   <span className="inline-flex items-center gap-1.5">
-                    {account ? (
+                    {account && !isDeleted ? (
                       <Link
-                        to={`/${account}/${b.agent_name}`}
+                        to={`/${account}/agents/${b.deployment_id}/monitor`}
                         className="inline-flex items-center hover:underline"
                       >
                         {nameNode}
@@ -194,12 +251,12 @@ function DeploymentsTopSpenders({
                     ) : (
                       nameNode
                     )}
-                    {notInstrumented && (
+                    {notInstrumented && !isDeleted && (
                       <TooltipProvider delayDuration={200}>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span
-                              className="cursor-help text-faint-foreground"
+                              className="text-faint-foreground"
                               aria-label="Not instrumented"
                             >
                               <TriangleAlert className="size-3.5" />
@@ -213,30 +270,31 @@ function DeploymentsTopSpenders({
                     )}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell className={cn(isDeleted && "opacity-60")}>
                   <UsersUsedAvatars userIds={b.users_used ?? []} account={account ?? ""} />
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {formatCompact(b.requests)}
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {formatCost(b.cost_usd)}
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {formatShare(b.cost_usd, denom)}
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {formatCost(b.cost_per_request)}
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {formatCompact(b.tok_per_request)}
                 </TableCell>
-                <TableCell className="text-right text-foreground">
+                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
                   {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
                 </TableCell>
-              </TableRow>
+              </MotionTableRow>
             );
-          })
+          })}
+          </AnimatePresence>
         )}
       </TableBody>
     </Table>
@@ -438,14 +496,14 @@ function BucketRow({ variant, agg, totalCost, deploymentsByAgent }: BucketRowPro
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-2 text-body-sm text-faint-foreground cursor-help">
+              <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
                 {isUnidentified ? (
                   <CircleUserRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 ) : (
                   <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 )}
                 {label}
-                <Info className="size-3 text-faint-foreground" aria-hidden />
+                <Info className="size-3 text-muted-foreground" aria-hidden />
               </span>
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">{tooltipText}</TooltipContent>

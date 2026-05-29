@@ -115,6 +115,11 @@ func GetAccountLangfuseSummary(
 		from := c.Query("from")
 		to := c.Query("to")
 		groupBy := c.Query("group_by") // "", "user"
+		// When true, Langfuse queries skip the visible-deployment tag filter
+		// so spend from archived deployments rolls into the headline KPIs and
+		// the People-spend-over-time chart. Mirrors the deployments-summary
+		// toggle — the Insights frontend passes both flags together.
+		includeArchived := c.Query("include_archived") == "true"
 
 		if (from == "") != (to == "") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
@@ -189,9 +194,10 @@ func GetAccountLangfuseSummary(
 		var userCostRows []map[string]any
 		g, gCtx := errgroup.WithContext(ctx)
 
+		applyTagFilter := !includeArchived
 		g.Go(func() error {
 			var err error
-			currentMetrics, activeDepIDs, err = accountDailyMetrics(gCtx, client, visibleTagValues, from, to)
+			currentMetrics, activeDepIDs, err = accountDailyMetrics(gCtx, client, visibleTagValues, from, to, applyTagFilter)
 			return err
 		})
 
@@ -200,7 +206,7 @@ func GetAccountLangfuseSummary(
 			g.Go(func() error {
 				// Prior-period failures degrade the % change tile to "—" but
 				// shouldn't fail the whole response — fail-open.
-				priorMetrics, _, _ = accountDailyMetrics(gCtx, client, visibleTagValues, priorFrom, priorTo)
+				priorMetrics, _, _ = accountDailyMetrics(gCtx, client, visibleTagValues, priorFrom, priorTo, applyTagFilter)
 				return nil
 			})
 		}
@@ -225,11 +231,13 @@ func GetAccountLangfuseSummary(
 					},
 					Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
 					TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
-					Filters: []langfuse.MetricsFilter{
-						{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
-					},
 					FromTimestamp: qFrom,
 					ToTimestamp:   qTo,
+				}
+				if !includeArchived {
+					q.Filters = []langfuse.MetricsFilter{
+						{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+					}
 				}
 				resp, ferr := client.GetMetrics(gCtx, q)
 				if ferr != nil {
@@ -583,19 +591,28 @@ func tagStrings(v any) []string {
 //
 // Returns merged []DailyMetric + active deps + error. Caller's downstream
 // logic (buildAccountSummary) is unchanged.
+// applyTagFilter=false drops the deployment-tag scope entirely so archived
+// deployments' historical traces flow into the response. Callers pass false
+// when the Insights "Show deleted" toggle is on. tagValues is still required
+// (it scopes the `activeDepIDs` map on the live-only path); ignored when
+// applyTagFilter is false.
 func accountDailyMetrics(
 	ctx context.Context,
 	client *langfuse.Client,
 	tagValues []string,
 	from, to string,
+	applyTagFilter bool,
 ) ([]langfuse.DailyMetric, map[string]bool, error) {
-	if len(tagValues) == 0 {
+	if applyTagFilter && len(tagValues) == 0 {
 		return nil, map[string]bool{}, nil
 	}
 
 	qFrom, qTo := metricsTimeRange(from, to)
-	tagFilter := []langfuse.MetricsFilter{
-		{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+	var tagFilter []langfuse.MetricsFilter
+	if applyTagFilter {
+		tagFilter = []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+		}
 	}
 
 	var (
@@ -831,19 +848,22 @@ func buildDeploymentSummary(
 	metrics []deploymentMetrics,
 	tagsRows []map[string]any,
 	deployments []*deploymentstore.Deployment,
+	archivedIDs map[string]struct{},
 ) []DeploymentSummaryEntry {
 	// Sidecar: deployment_id → display metadata. Walk the deployments slice
 	// once so the per-row build below can look up display_name / namespace
 	// without scanning.
 	type meta struct {
-		displayName string
-		namespace   string
+		displayName  string
+		namespace    string
+		undeployedAt *time.Time
 	}
 	depMeta := make(map[string]meta, len(deployments))
 	for _, d := range deployments {
 		depMeta[d.ID] = meta{
-			displayName: d.DisplayName,
-			namespace:   d.Namespace,
+			displayName:  d.DisplayName,
+			namespace:    d.Namespace,
+			undeployedAt: d.UndeployedAt,
 		}
 	}
 
@@ -946,6 +966,14 @@ func buildDeploymentSummary(
 		sort.Strings(usersUsed)
 
 		md := depMeta[m.DeploymentID]
+		_, isArchived := archivedIDs[m.DeploymentID]
+		// Drop archived deployments that contributed nothing to the
+		// selected range — tombstones are only useful when there's spend to
+		// preserve. Live deployments with zero spend still surface (a
+		// configured-but-unused agent is meaningful signal).
+		if isArchived && requests == 0 && costUSD == 0 {
+			continue
+		}
 		entries = append(entries, DeploymentSummaryEntry{
 			DeploymentID:     m.DeploymentID,
 			AgentName:        m.AgentName,
@@ -964,6 +992,8 @@ func buildDeploymentSummary(
 			RequestsOverTime: requestsOverTime,
 			TokensOverTime:   tokensOverTime,
 			UsersUsed:        usersUsed,
+			UndeployedAt:     md.undeployedAt,
+			IsArchived:       isArchived,
 		})
 	}
 
@@ -972,6 +1002,40 @@ func buildDeploymentSummary(
 	})
 
 	return entries
+}
+
+// discoverTombstoneIDs scans a Q_tags response for deployment tags that don't
+// belong to any live deployment in the account — those IDs are soft-deleted
+// deployments with spend in the window, which Insights renders as tombstoned
+// rows. Live deployments are looked up by ID; the Q_tags row's `tags` field is
+// either a single string or a JSON array (tagStrings normalises both shapes).
+func discoverTombstoneIDs(tagsRows []map[string]any, live []*deploymentstore.Deployment) []string {
+	liveSet := make(map[string]struct{}, len(live))
+	for _, d := range live {
+		liveSet[d.ID] = struct{}{}
+	}
+	seen := make(map[string]struct{})
+	for _, row := range tagsRows {
+		for _, tag := range tagStrings(row["tags"]) {
+			if !strings.HasPrefix(tag, "deployment:") {
+				continue
+			}
+			depID := strings.TrimPrefix(tag, "deployment:")
+			if _, isLive := liveSet[depID]; isLive {
+				continue
+			}
+			seen[depID] = struct{}{}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	// Sort for deterministic ordering — when the caller hits the
+	// maxTombstones cap and truncates, the same subset is selected on
+	// every request instead of map-iteration roulette.
+	sort.Strings(ids)
+	return ids
 }
 
 // zeroDeploymentEntries returns an empty deployments response when Langfuse is not configured.
@@ -1023,6 +1087,14 @@ func GetAccountDeploymentsSummary(
 
 		hasPeriod := from != "" && to != ""
 
+		// `?include_archived=true` opts the response into surfacing tombstoned
+		// deployments (soft-deleted, but had Langfuse traces in the window).
+		// Default-off: most Insights views care about live state and the
+		// per-deployment fan-out is the page's hot path; only pay the
+		// tombstone-discovery cost when the user explicitly asks for it via
+		// the table's "Show archived agents" toggle.
+		includeArchived := c.Query("include_archived") == "true"
+
 		if hasPeriod {
 			if _, err := time.Parse(time.RFC3339, from); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp: must be RFC3339"})
@@ -1045,6 +1117,11 @@ func GetAccountDeploymentsSummary(
 			return
 		}
 
+		// Start with currently-visible deployments only. Tombstoned (soft-
+		// deleted) deployments are surfaced separately below, but only the
+		// ones that actually had Langfuse traces in the window — fetching
+		// every archived deployment up-front would balloon the per-deployment
+		// fan-out for accounts with churn history.
 		deployments, err := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
 			log.Error("Failed to list deployments for deployments summary", "error", err)
@@ -1096,7 +1173,11 @@ func GetAccountDeploymentsSummary(
 		// Single account-level Q_tags query (per-(userId, tag) trace count) runs
 		// in parallel with the per-deployment fan-out so wall time is unchanged.
 		// Powers the users_used field on each deployment — mirror of
-		// agents_used on users-summary.
+		// agents_used on users-summary. When include_archived is requested
+		// the filter is dropped so the response also doubles as the
+		// tombstone-discovery probe; the default keeps the live-only filter
+		// so the response stays bounded to deployments the page already
+		// knows about.
 		var tagsRows []map[string]any
 		g.Go(func() error {
 			qFrom, qTo := metricsTimeRange(from, to)
@@ -1107,12 +1188,27 @@ func GetAccountDeploymentsSummary(
 					{Field: "userId"},
 					{Field: "tags"},
 				},
-				Filters: []langfuse.MetricsFilter{
-					{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
-				},
 				FromTimestamp: qFrom,
 				ToTimestamp:   qTo,
 			}
+			if !includeArchived {
+				q.Filters = []langfuse.MetricsFilter{
+					{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+				}
+			}
+			// When includeArchived is true the filter is dropped entirely
+			// instead of being narrowed. Langfuse's arrayOptions filter on
+			// the tags column is set-membership only (`any of`, `none of`,
+			// `all of`) — there's no prefix / starts-with operator that
+			// would let us scope to just `deployment:*` tags without
+			// enumerating the full set up-front. Enumerating tombstones
+			// is what we're trying to AVOID (that was the perf regression);
+			// taking the broader response and post-filtering by
+			// `strings.HasPrefix(tag, "deployment:")` in discoverTombstoneIDs
+			// is the practical tradeoff. User-added free-form tags inflate
+			// the response slightly but are dropped during tag-string
+			// inspection — they don't bleed into users_used or the
+			// tombstone discovery set.
 			resp, ferr := client.GetMetrics(gCtx, q)
 			if ferr != nil {
 				// Fail-open: a missing users_used surface is preferable to a
@@ -1121,6 +1217,15 @@ func GetAccountDeploymentsSummary(
 				return nil
 			}
 			tagsRows = resp.Data
+			if includeArchived {
+				// Observability hook for monitoring runaway response sizes
+				// on the unfiltered path. The filtered path is bounded by
+				// the visible-deployment tag set; the unfiltered path is
+				// bounded only by the account's distinct (userId, tag)
+				// combinations — accounts with lots of churn history can
+				// produce surprisingly large responses.
+				log.Debug("Q_tags unfiltered response", "account", acct.Name, "rows", len(resp.Data))
+			}
 			return nil
 		})
 		_ = g.Wait()
@@ -1130,8 +1235,73 @@ func GetAccountDeploymentsSummary(
 			results[i].P95LatencyMs = p95ByDep[dep.ID]
 		}
 
+		// Tombstone discovery only runs when the caller opted in via
+		// include_archived. Q_tags returned every deployment tag that had
+		// traces in the window; subtract the live set and anything left is
+		// a soft-deleted deployment with spend worth surfacing.
+		// `archivedIDs` is the source of truth for the frontend's tombstone
+		// styling (frontend can't rely on undeployed_at alone — a deployment
+		// in status='undeploying' is archived for Insights purposes but
+		// hasn't had undeployed_at populated yet).
+		archivedIDs := make(map[string]struct{})
+		var tombstoneIDs []string
+		if includeArchived {
+			tombstoneIDs = discoverTombstoneIDs(tagsRows, deployments)
+			// Same fan-out bound as the live list (mirrors the maxDeployments
+			// cap above). Surfacing every dormant tombstone for an account
+			// with thousands of historical deletes would balloon both the
+			// second-phase Langfuse round-trip count and the response size.
+			const maxTombstones = 50
+			if len(tombstoneIDs) > maxTombstones {
+				log.Warn("Truncating tombstoned deployments for deployments summary",
+					"account", acct.Name, "total", len(tombstoneIDs), "cap", maxTombstones)
+				tombstoneIDs = tombstoneIDs[:maxTombstones]
+			}
+			for _, id := range tombstoneIDs {
+				archivedIDs[id] = struct{}{}
+			}
+		}
+		if len(tombstoneIDs) > 0 {
+			tombstones, terr := deploymentStore.GetDeploymentsByIDsForAccount(acct.ID, tombstoneIDs)
+			if terr != nil {
+				log.Warn("Failed to load tombstoned deployments for deployments summary", "error", terr)
+			} else if len(tombstones) > 0 {
+				// Fan out P95 + daily for tombstones in a second errgroup. We
+				// could batch these into the first errgroup if Q_tags ran on
+				// its own ahead of the fan-out, but that would regress wall
+				// time for the common (no-tombstones) case.
+				tombstoneTags := make([]string, len(tombstones))
+				for i, d := range tombstones {
+					tombstoneTags[i] = "deployment:" + d.ID
+				}
+				tombstoneResults := make([]deploymentMetrics, len(tombstones))
+				var tombstoneP95 map[string]float64
+				g2, g2Ctx := errgroup.WithContext(ctx)
+				g2.SetLimit(10)
+				g2.Go(func() error {
+					tombstoneP95 = batchedP95Latencies(g2Ctx, client, log, tombstoneTags, from, to)
+					return nil
+				})
+				for i, dep := range tombstones {
+					g2.Go(func() error {
+						tombstoneResults[i] = fetchDeploymentDaily(g2Ctx, client, dep, from, to)
+						return nil
+					})
+				}
+				_ = g2.Wait()
+				for i, dep := range tombstones {
+					tombstoneResults[i].P95LatencyMs = tombstoneP95[dep.ID]
+				}
+				deployments = append(deployments, tombstones...)
+				// makezero: deliberate. results was pre-sized for the live
+				// fan-out (parallel index writes); we're concatenating the
+				// tombstone fan-out's pre-sized slice after, not zero-padding.
+				results = append(results, tombstoneResults...) //nolint:makezero
+			}
+		}
+
 		c.JSON(http.StatusOK, AccountDeploymentsSummaryResponse{
-			Deployments: buildDeploymentSummary(results, tagsRows, deployments),
+			Deployments: buildDeploymentSummary(results, tagsRows, deployments, archivedIDs),
 			Period:      buildPeriod(from, to),
 		})
 	}

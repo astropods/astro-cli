@@ -83,7 +83,13 @@ export function sliceDeploymentsResponseByRange(
   if (!fromDate || !toDate) return response;
   const days = Math.max(1, Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000) + 1);
   return {
-    deployments: response.deployments.map((b) => sliceDeploymentByWindow(b, fromDate, toDate)),
+    deployments: response.deployments
+      .map((b) => sliceDeploymentByWindow(b, fromDate, toDate))
+      // Tombstones (archived deployments) only earn a row when they
+      // contributed spend or requests inside the selected window. Without
+      // this filter an archived deployment with no traces in the selected
+      // window would render a zero-spend grayed-out row — noise.
+      .filter((b) => !b.is_archived || b.requests > 0 || b.cost_usd > 0),
     period: { start: from!, end: to!, days },
   };
 }
@@ -258,19 +264,25 @@ interface UseInsightsDataOpts {
   account: string;
   range: ActivityRange;
   enabled?: boolean;
+  /** When true, the deployments-summary fetch includes soft-deleted
+   *  deployments that had Langfuse traces in the window. Drives the
+   *  "Show archived agents" toggle — flipping it triggers a new fetch
+   *  via the cache key. */
+  includeArchived?: boolean;
 }
 
 export function useInsightsData({
   account,
   range,
   enabled = true,
+  includeArchived = false,
 }: UseInsightsDataOpts) {
   // Always fetch all-time deployments; everything below derives from that
   // single source via client-side slicing. The account summary endpoint
   // used to be a fallback for displaySummary — dropped because the
   // deployments data carries everything we need and the fallback path is
   // now a static zero-state.
-  const deploymentsQ = useDeploymentsSummary(account, undefined, undefined, { enabled });
+  const deploymentsQ = useDeploymentsSummary(account, undefined, undefined, { enabled, includeArchived });
 
   const deploymentsAll = deploymentsQ.data;
   const deploymentsLoading = deploymentsQ.isLoading;
@@ -495,12 +507,13 @@ export interface ActiveSpendPoint {
 export function useActiveSpendSeries(
   account: string,
   range: ActivityRange,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; includeArchived?: boolean },
 ): { data: ActiveSpendPoint[]; isLoading: boolean } {
   // All-time fetch — no from/to.
   const summaryQ = useAccountActivitySummary(account, undefined, undefined, {
     groupBy: "user",
     enabled: opts?.enabled ?? true,
+    includeArchived: opts?.includeArchived ?? false,
   });
 
   const data = useMemo<ActiveSpendPoint[]>(() => {

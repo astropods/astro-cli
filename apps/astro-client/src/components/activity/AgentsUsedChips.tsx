@@ -45,17 +45,22 @@ export function AgentsUsedChips({
       <TooltipProvider delayDuration={200}>
         {visible.map(({ name, account }) => {
           const deps = deploymentsByAgent?.get(name) ?? [];
+          // Agent is "deleted" when no live deployments exist under its
+          // name. deploymentsByAgent is built from GetVisibleDeployments…
+          // (live-only), so an agent that's only present in users_used
+          // because its archived deployments still have spend will have
+          // an empty deps slice here. Mute the avatar + note in the
+          // tooltip so the People view tells the same story as the
+          // Agents view.
+          const isDeleted = deps.length === 0;
           const avatarNode = (
             <BlueprintIdentity
               account={account}
               name={name}
               size={20}
-              className="size-5 rounded-full"
+              className={cn("size-5 rounded-full", isDeleted && "opacity-60")}
             />
           );
-          // Every chip gets a hover tooltip with the agent name. The chip
-          // itself is just a tiny avatar — without the tooltip the user
-          // can't tell what they're hovering before clicking.
           return (
             <Tooltip key={`${account}/${name}`}>
               <TooltipTrigger asChild>
@@ -70,7 +75,9 @@ export function AgentsUsedChips({
                   </AgentNameLink>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="top">{name}</TooltipContent>
+              <TooltipContent side="top">
+                {isDeleted ? `${name} (deleted)` : name}
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -84,21 +91,30 @@ export function AgentsUsedChips({
           <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
             {agents.map(({ name, account }) => {
               const deps = deploymentsByAgent?.get(name) ?? [];
+              const isDeleted = deps.length === 0;
               return (
                 <li key={`${account}/${name}`}>
                   <AgentNameLink
                     account={account}
                     agentName={name}
                     deployments={deps}
-                    className="flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className={cn(
+                      "flex items-center gap-2 rounded px-2 py-1 text-body-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      isDeleted ? "text-muted-foreground" : "text-foreground",
+                    )}
                   >
                     <BlueprintIdentity
                       account={account}
                       name={name}
                       size={16}
-                      className="size-4 shrink-0 rounded-full"
+                      className={cn("size-4 shrink-0 rounded-full", isDeleted && "opacity-60")}
                     />
-                    <span className="truncate">{name}</span>
+                    <span className="truncate">
+                      {name}
+                      {isDeleted && (
+                        <span className="ml-1.5 text-faint-foreground">(deleted)</span>
+                      )}
+                    </span>
                   </AgentNameLink>
                 </li>
               );

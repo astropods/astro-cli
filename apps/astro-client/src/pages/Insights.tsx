@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { useSearchParams } from "react-router";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { ViewToggle, parseActivityView, type ActivityView } from "@/components/activity/ViewToggle";
@@ -22,6 +22,7 @@ import { formatDateShort } from "@/lib/format-utils";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
+import { Switch } from "@/components/ui/switch";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { accountKeys, deploymentKeys, observabilityKeys } from "@/api/queries/keys";
@@ -46,8 +47,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     return {
       account: null, summary: null, deploymentsSummary: null,
       usersData: null, members: null, deployments: null,
+      includeArchived: false,
     };
   }
+
+  // Read ?archived from the URL so a deep-link to ?archived=true primes
+  // the right cache slot. Without this, a shared link lands cold on the
+  // archived-included variant and the hook fires its own fetch on mount.
+  const includeArchived = new URL(request.url).searchParams.get("archived") === "true";
 
   // Both views share the same chart subtree (Agent Spend + Active Users +
   // Spend) and both view modes' tables mount independently, so InsightsView
@@ -66,9 +73,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   // AgentsUsedChips picker in the People view so the agent-name links
   // resolve to a Monitor tab on first paint instead of flashing through
   // the blueprint-detail fallback.
+  const archivedParams: Record<string, string> = {};
+  if (includeArchived) archivedParams.include_archived = "true";
+  const summaryParams: Record<string, string> = { group_by: "user", ...archivedParams };
   const [summary, deploymentsSummary, usersData, members, deployments] = await Promise.all([
-    ctx.api.getAccountObservabilitySummary(ctx.accountName, { group_by: "user" }).catch(() => null),
-    ctx.api.getAccountDeploymentsSummary(ctx.accountName, {}).catch(() => null),
+    ctx.api.getAccountObservabilitySummary(ctx.accountName, summaryParams).catch(() => null),
+    ctx.api.getAccountDeploymentsSummary(ctx.accountName, archivedParams).catch(() => null),
     ctx.api.getAccountUsersSummary(ctx.accountName, {}).catch(() => null),
     ctx.api.getAccountMembers(ctx.accountName, {}).catch(() => null),
     ctx.api.listDeployments(ctx.accountName).catch(() => null),
@@ -81,6 +91,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     usersData,
     members,
     deployments,
+    includeArchived,
   };
 }
 
@@ -109,10 +120,10 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     // Loader-fetched data primed under the same keys the hooks read on
     // mount. Summary is always group_by=user (matches useActiveSpendSeries).
     if (ld.summary) {
-      qc.setQueryData(observabilityKeys.activitySummary(ld.account, undefined, undefined, "user"), ld.summary);
+      qc.setQueryData(observabilityKeys.activitySummary(ld.account, undefined, undefined, "user", ld.includeArchived), ld.summary);
     }
     if (ld.deploymentsSummary) {
-      qc.setQueryData(observabilityKeys.deploymentsSummary(ld.account, undefined, undefined), ld.deploymentsSummary);
+      qc.setQueryData(observabilityKeys.deploymentsSummary(ld.account, undefined, undefined, ld.includeArchived), ld.deploymentsSummary);
     }
     if (ld.usersData) {
       qc.setQueryData(observabilityKeys.usersSummary(ld.account, undefined, undefined), ld.usersData);
@@ -136,6 +147,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
+  const archived = searchParams.get("archived") === "true";
 
   function setView(next: ActivityView) {
     // Toggling views always clears the current search — a People-view term
@@ -152,6 +164,14 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     setSearchParams((prev) => {
       if (next === "") prev.delete("q");
       else prev.set("q", next);
+      return prev;
+    }, { replace: true });
+  }
+
+  function setArchived(next: boolean) {
+    setSearchParams((prev) => {
+      if (next) prev.set("archived", "true");
+      else prev.delete("archived");
       return prev;
     }, { replace: true });
   }
@@ -192,6 +212,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         onViewChange={setView}
         query={q}
         onQueryChange={setQuery}
+        archived={archived}
+        onArchivedChange={setArchived}
       />
     </PageContainer>
   );
@@ -245,6 +267,8 @@ interface InsightsViewProps {
   onViewChange: (v: ActivityView) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  archived: boolean;
+  onArchivedChange: (v: boolean) => void;
 }
 
 function InsightsView({
@@ -254,14 +278,19 @@ function InsightsView({
   onViewChange,
   query,
   onQueryChange,
+  archived,
+  onArchivedChange,
 }: InsightsViewProps) {
   // ── Charts (view-independent) ────────────────────────────────────────────
-  const chartsData = useInsightsData({ account, range });
-  const activeSpendSeries = useActiveSpendSeries(account, range);
+  // Both useInsightsData and useDeploymentsSummary below pass the same
+  // includeArchived flag so they share a single fetch via TanStack's
+  // query-key dedupe.
+  const chartsData = useInsightsData({ account, range, includeArchived: archived });
+  const activeSpendSeries = useActiveSpendSeries(account, range, { includeArchived: archived });
   const days = RANGE_DAYS[range];
 
   // ── Agents-mode table data (all-time, per-deployment rows) ───────────────
-  const deploymentsSummaryQ = useDeploymentsSummary(account, undefined, undefined);
+  const deploymentsSummaryQ = useDeploymentsSummary(account, undefined, undefined, { includeArchived: archived });
   const allTimeDeployments = deploymentsSummaryQ.data?.deployments ?? [];
 
   // Deployments list (separate from the summary) feeds the AgentsUsedChips
@@ -338,12 +367,20 @@ function InsightsView({
   // Table primitive's `header` slot.
   const panelHeader = (
     <div className="flex flex-col gap-3 @md:flex-row @md:items-center @md:justify-between">
-      <ViewToggle
-        value={view}
-        onChange={onViewChange}
-        usersCount={allUserBuckets || undefined}
-        agentsCount={allTimeDeployments.length || undefined}
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <ViewToggle
+          value={view}
+          onChange={onViewChange}
+          usersCount={allUserBuckets || undefined}
+          agentsCount={allTimeDeployments.length || undefined}
+        />
+        {view === "agents" && (
+          <label className="flex cursor-pointer items-center gap-2 text-body-sm text-muted-foreground">
+            <Switch checked={archived} onCheckedChange={onArchivedChange} aria-label="Show deleted deployments" />
+            <span>Show deleted deployments</span>
+          </label>
+        )}
+      </div>
       <FilterInput
         containerClassName="h-8 w-full @md:max-w-xs"
         placeholder="Search people or agents..."
@@ -368,27 +405,44 @@ function InsightsView({
         }
         chartRight={<ActiveUsersSpendChart data={activeSpendSeries.data} days={days} />}
         table={
-          view === "agents" ? (
-            <TopSpendersTable
-              mode="agents"
-              deployments={filteredDeployments}
-              loading={deploymentsSummaryQ.isLoading}
-              groupLabel="Name"
-              account={account}
-              totalCost={totalDeploymentCost}
-              panelHeader={panelHeader}
-            />
-          ) : (
-            <TopSpendersTable
-              mode="users"
-              account={account}
-              users={filteredUsers}
-              loading={usersTableQ.isLoading || membersQ.isLoading}
-              deploymentsByAgent={deploymentsByAgent}
-              totalCost={totalUserCost}
-              panelHeader={panelHeader}
-            />
-          )
+          // Crossfade the whole table when toggling People <-> Agents.
+          // mode="wait" lets the old table fully exit before the new one
+          // enters — keeps the layout stable through the transition and
+          // avoids a brief frame where both tables (with different column
+          // counts) try to occupy the same space. The ViewToggle inside
+          // panelHeader animates with the rest; the toggle's own indicator
+          // slide is independent and runs in parallel.
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              {view === "agents" ? (
+                <TopSpendersTable
+                  mode="agents"
+                  deployments={filteredDeployments}
+                  loading={deploymentsSummaryQ.isLoading}
+                  groupLabel="Name"
+                  account={account}
+                  totalCost={totalDeploymentCost}
+                  panelHeader={panelHeader}
+                />
+              ) : (
+                <TopSpendersTable
+                  mode="users"
+                  account={account}
+                  users={filteredUsers}
+                  loading={usersTableQ.isLoading || membersQ.isLoading}
+                  deploymentsByAgent={deploymentsByAgent}
+                  totalCost={totalUserCost}
+                  panelHeader={panelHeader}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         }
       />
   );

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 // ── buildDeploymentSummary ────────────────────────────────────────────────────
 
 func TestBuildDeploymentSummary_Empty(t *testing.T) {
-	entries := buildDeploymentSummary(nil, nil, nil)
+	entries := buildDeploymentSummary(nil, nil, nil, nil)
 	if len(entries) != 0 {
 		t.Errorf("expected empty slice, got %d entries", len(entries))
 	}
@@ -47,7 +48,7 @@ func TestBuildDeploymentSummary_SingleDeployment(t *testing.T) {
 		{ID: "dep-1", AgentName: "code-reviewer", DisplayName: "Code Reviewer", Namespace: "us-east-1"},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, deployments)
+	entries := buildDeploymentSummary(metrics, nil, deployments, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -113,7 +114,7 @@ func TestBuildDeploymentSummary_MultipleDeploymentsSameAgentName(t *testing.T) {
 		{ID: "dep-west", AgentName: "summarizer", Namespace: "us-west-2"},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, deployments)
+	entries := buildDeploymentSummary(metrics, nil, deployments, nil)
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 separate entries (no rollup), got %d", len(entries))
 	}
@@ -142,7 +143,7 @@ func TestBuildDeploymentSummary_SortByCostDesc(t *testing.T) {
 		}},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil, nil)
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
@@ -165,7 +166,7 @@ func TestBuildDeploymentSummary_ZeroRequestsGuard(t *testing.T) {
 		}},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil, nil)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -201,7 +202,7 @@ func TestBuildDeploymentSummary_TopModel(t *testing.T) {
 		},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil, nil)
 	if entries[0].TopModel != "claude-sonnet" {
 		t.Errorf("top_model = %q, want claude-sonnet", entries[0].TopModel)
 	}
@@ -214,7 +215,7 @@ func TestBuildDeploymentSummary_CostPerRequestRounding(t *testing.T) {
 		}},
 	}
 
-	entries := buildDeploymentSummary(metrics, nil, nil)
+	entries := buildDeploymentSummary(metrics, nil, nil, nil)
 	// 1.0 / 3 = 0.3333... → rounded to 4dp = 0.3333
 	if entries[0].CostPerRequest != 0.3333 {
 		t.Errorf("cost_per_request = %v, want 0.3333", entries[0].CostPerRequest)
@@ -241,7 +242,7 @@ func TestBuildDeploymentSummary_UsersUsedInversion(t *testing.T) {
 		{"userId": "u_dave", "tags": []any{"deployment:dep-1"}},
 	}
 
-	entries := buildDeploymentSummary(metrics, tagsRows, nil)
+	entries := buildDeploymentSummary(metrics, tagsRows, nil, nil)
 
 	byID := make(map[string][]string)
 	for _, e := range entries {
@@ -276,7 +277,7 @@ func TestBuildDeploymentSummary_SameUserAcrossDeployments(t *testing.T) {
 		{"userId": "u_bob", "tags": "deployment:dep-west"},
 	}
 
-	entries := buildDeploymentSummary(metrics, tagsRows, nil)
+	entries := buildDeploymentSummary(metrics, tagsRows, nil, nil)
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries (per deployment), got %d", len(entries))
 	}
@@ -289,6 +290,90 @@ func TestBuildDeploymentSummary_SameUserAcrossDeployments(t *testing.T) {
 	}
 	if got, want := byID["dep-west"], []string{"u_alice", "u_bob"}; !equalStrings(got, want) {
 		t.Errorf("dep-west users_used = %v, want %v", got, want)
+	}
+}
+
+// ── discoverTombstoneIDs ──────────────────────────────────────────────────────
+
+func TestDiscoverTombstoneIDs(t *testing.T) {
+	live := []*deploymentstore.Deployment{
+		{ID: "dep-live-1"},
+		{ID: "dep-live-2"},
+	}
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": "deployment:dep-live-1"},            // live → skip
+		{"userId": "u_bob", "tags": "deployment:dep-archived-a"},          // archived → keep
+		{"userId": "u_carol", "tags": []any{"deployment:dep-archived-b"}}, // archived via JSON array → keep
+		{"userId": "u_dave", "tags": "deployment:dep-archived-a"},         // duplicate archived → dedupe
+		{"userId": "u_eve", "tags": "env:prod"},                           // non-deployment tag → skip
+		{"userId": "u_frank", "tags": "deployment:dep-live-2"},            // live → skip
+	}
+
+	ids := discoverTombstoneIDs(tagsRows, live)
+	sort.Strings(ids)
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 tombstones, got %d (%v)", len(ids), ids)
+	}
+	if ids[0] != "dep-archived-a" || ids[1] != "dep-archived-b" {
+		t.Errorf("unexpected tombstone ids: %v", ids)
+	}
+}
+
+// ── buildDeploymentSummary with archivedIDs ───────────────────────────────────
+
+func TestBuildDeploymentSummary_ArchivedIDsMarksEntries(t *testing.T) {
+	undeployed := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	metrics := []deploymentMetrics{
+		{DeploymentID: "dep-live", AgentName: "agent-a", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 10, TotalCost: 5.0}}},
+		{DeploymentID: "dep-arch", AgentName: "agent-b", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 4, TotalCost: 2.0}}},
+	}
+	deployments := []*deploymentstore.Deployment{
+		{ID: "dep-live", AgentName: "agent-a"},
+		{ID: "dep-arch", AgentName: "agent-b", UndeployedAt: &undeployed},
+	}
+	archivedIDs := map[string]struct{}{"dep-arch": {}}
+
+	entries := buildDeploymentSummary(metrics, nil, deployments, archivedIDs)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	byID := make(map[string]DeploymentSummaryEntry, len(entries))
+	for _, e := range entries {
+		byID[e.DeploymentID] = e
+	}
+	if byID["dep-live"].IsArchived {
+		t.Errorf("dep-live: IsArchived = true, want false")
+	}
+	if !byID["dep-arch"].IsArchived {
+		t.Errorf("dep-arch: IsArchived = false, want true")
+	}
+	if byID["dep-arch"].UndeployedAt == nil || !byID["dep-arch"].UndeployedAt.Equal(undeployed) {
+		t.Errorf("dep-arch: UndeployedAt = %v, want %v", byID["dep-arch"].UndeployedAt, undeployed)
+	}
+}
+
+func TestBuildDeploymentSummary_DropsZeroSpendArchivedEntries(t *testing.T) {
+	// Archived deployments with no spend in the window are noise — buildDeploymentSummary
+	// drops them so the table doesn't bloat with empty tombstones. Live deployments at
+	// zero spend still surface (configured-but-unused is meaningful signal).
+	metrics := []deploymentMetrics{
+		{DeploymentID: "dep-live-zero", AgentName: "agent-quiet", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 0, TotalCost: 0}}},
+		{DeploymentID: "dep-arch-zero", AgentName: "agent-gone", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 0, TotalCost: 0}}},
+		{DeploymentID: "dep-arch-spend", AgentName: "agent-gone-but-spendy", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 3, TotalCost: 1.0}}},
+	}
+	archivedIDs := map[string]struct{}{
+		"dep-arch-zero":  {},
+		"dep-arch-spend": {},
+	}
+
+	entries := buildDeploymentSummary(metrics, nil, nil, archivedIDs)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (live-zero + arch-spend), got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.DeploymentID == "dep-arch-zero" {
+			t.Errorf("dep-arch-zero should have been dropped — archived with zero spend")
+		}
 	}
 }
 

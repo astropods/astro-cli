@@ -58,15 +58,13 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 		WithArgs("astro-test-0").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
+	// UpdateStatus(StatusUndeployed) stamps undeployed_at in the same UPDATE.
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE deployments`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-
-	mock.ExpectExec(`UPDATE deployments`).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

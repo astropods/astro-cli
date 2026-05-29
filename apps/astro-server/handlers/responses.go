@@ -436,6 +436,20 @@ type DeploymentSummaryEntry struct {
 	// deployment in the period. Mirrors agents_used on the users-summary
 	// endpoint — the same (userId, tag) → deployment mapping, just inverted.
 	UsersUsed []string `json:"users_used"`
+	// UndeployedAt is set when the deployment has been soft-deleted (status
+	// transitioned to 'undeployed' via the undeploy worker). Used by the
+	// frontend to render the "Deleted MMM DD" suffix when known. Can be nil
+	// even for archived rows — a deployment can be archived (not in the
+	// visible list) without having a populated undeployed_at, e.g. status
+	// 'undeploying' mid-tear-down. Use IsArchived for the boolean tombstone
+	// signal; UndeployedAt is only for the date suffix.
+	UndeployedAt *time.Time `json:"undeployed_at,omitempty"`
+	// IsArchived is true when this entry corresponds to a deployment that
+	// isn't in the currently-visible deployment list (i.e. it was discovered
+	// via the Q_tags tombstone pass). The frontend uses this — not
+	// UndeployedAt — to decide whether to render the row as a tombstone,
+	// since some archived states leave UndeployedAt nil.
+	IsArchived bool `json:"is_archived,omitempty"`
 }
 
 // AccountDeploymentsSummaryResponse is returned by the deployments-summary endpoint.

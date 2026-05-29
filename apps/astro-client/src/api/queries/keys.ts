@@ -64,10 +64,10 @@ export const observabilityKeys = {
     ['observability', 'account-summary', account, window] as const,
   deploymentSummaries: (account: string) =>
     ['observability', 'deployment-summaries', account] as const,
-  activitySummary: (account: string, from?: string, to?: string, groupBy?: string) =>
-    ['observability', 'activity-summary', account, from, to, groupBy] as const,
-  deploymentsSummary: (account: string, from?: string, to?: string) =>
-    ['observability', 'deployments-summary', account, from, to] as const,
+  activitySummary: (account: string, from?: string, to?: string, groupBy?: string, includeArchived?: boolean) =>
+    ['observability', 'activity-summary', account, from, to, groupBy, includeArchived ?? false] as const,
+  deploymentsSummary: (account: string, from?: string, to?: string, includeArchived?: boolean) =>
+    ['observability', 'deployments-summary', account, from, to, includeArchived ?? false] as const,
   usersSummary: (account: string, from?: string, to?: string) =>
     ['observability', 'users-summary', account, from, to] as const,
 };

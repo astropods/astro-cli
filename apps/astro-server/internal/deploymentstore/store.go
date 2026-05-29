@@ -377,6 +377,39 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 	return deployments, nil
 }
 
+// GetDeploymentsByIDsForAccount fetches a slice of deployments by ID, scoped to
+// an account (the account filter is a defence against cross-account lookups
+// even though IDs are globally unique). Used by the Insights tombstone path:
+// after a Langfuse probe discovers which tombstoned deployment_ids had spend
+// in the window, this method loads their metadata for rendering.
+func (s *Store) GetDeploymentsByIDsForAccount(accountID string, ids []string) ([]*Deployment, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE account_id = $1 AND id = ANY($2)
+	`, accountID, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deployments by ids: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var deployments []*Deployment
+	for rows.Next() {
+		d, err := scanDeployment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan deployment: %w", err)
+		}
+		deployments = append(deployments, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
 // GetDeploymentHistory returns all deployment records for an agent, ordered by deployed_at DESC.
 func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`
@@ -410,10 +443,10 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 // DeploymentWithAccount extends Deployment with the owning account name.
 type DeploymentWithAccount struct {
 	Deployment
-	AccountName       string  `json:"account_name"`
-	AccountClusterID  string  `json:"account_cluster_id"` // accounts.cluster_id; empty = primary
-	DriftReportJSON   *string `json:"-"`                  // raw JSONB from DB, parsed by caller
-	OwnerUserID       string  `json:"-"`                  // first member's user_id, resolved by caller
+	AccountName      string  `json:"account_name"`
+	AccountClusterID string  `json:"account_cluster_id"` // accounts.cluster_id; empty = primary
+	DriftReportJSON  *string `json:"-"`                  // raw JSONB from DB, parsed by caller
+	OwnerUserID      string  `json:"-"`                  // first member's user_id, resolved by caller
 }
 
 // ListAllActive returns all active deployments across all accounts, joined with account names.
@@ -548,19 +581,6 @@ func (s *Store) GetDeploymentByNamespace(namespace string) (*Deployment, error) 
 	return d, nil
 }
 
-// MarkUndeployedByID sets a specific deployment to 'undeployed'.
-func (s *Store) MarkUndeployedByID(deploymentID string) error {
-	_, err := s.db.Exec(`
-		UPDATE deployments
-		SET status = 'undeployed', undeployed_at = NOW()
-		WHERE id = $1 AND status = 'active'
-	`, deploymentID)
-	if err != nil {
-		return fmt.Errorf("failed to mark deployment as undeployed: %w", err)
-	}
-	return nil
-}
-
 // nilIfEmptyJSON returns nil (SQL NULL) if the JSON is nil or empty, otherwise the value.
 func nilIfEmptyJSON(j json.RawMessage) interface{} {
 	if len(j) == 0 {
@@ -570,11 +590,27 @@ func nilIfEmptyJSON(j json.RawMessage) interface{} {
 }
 
 // updateStatusTx updates a deployment's status and records an event within an existing transaction.
+// When the new status is 'undeployed' the undeployed_at column is populated
+// (unless already set) — this is the single entry point for status changes, so
+// stamping the timestamp here avoids the previous bug where the undeploy
+// worker tried to set it via a separate call with a stale WHERE-status guard.
 func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.RawMessage) error {
 	details := nilIfEmptyJSON(errorDetails)
+	// $2 is cast to text explicitly: pq's parameter-type deduction fails
+	// with "inconsistent types deduced for parameter $2" when the same
+	// placeholder appears as both a varchar column value (status = $2)
+	// and a text literal comparison ($2 = 'undeployed'). The cast pins
+	// it to text in both contexts.
 	_, err := tx.Exec(`
 		UPDATE deployments
-		SET status = $2, error_message = $3, error_details = $4, status_changed_at = NOW()
+		SET status = $2::text,
+		    error_message = $3,
+		    error_details = $4,
+		    status_changed_at = NOW(),
+		    undeployed_at = CASE
+		      WHEN $2::text = 'undeployed' AND undeployed_at IS NULL THEN NOW()
+		      ELSE undeployed_at
+		    END
 		WHERE id = $1
 	`, id, status, nilIfEmpty(errorMsg), details)
 	if err != nil {

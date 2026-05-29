@@ -639,7 +639,7 @@ func TestAccountDailyMetrics_MergesPerDateAndTracksActiveDeps(t *testing.T) {
 
 	out, activeDeps, err := accountDailyMetrics(context.Background(), client,
 		[]string{"deployment:dep-a", "deployment:dep-b", "deployment:dep-c"},
-		"2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+		"2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -672,7 +672,7 @@ func TestAccountDailyMetrics_TracesQueryFailFailsAll(t *testing.T) {
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
 	_, _, err := accountDailyMetrics(context.Background(), client,
-		[]string{"deployment:dep-a"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z")
+		[]string{"deployment:dep-a"}, "2026-04-01T00:00:00Z", "2026-04-03T00:00:00Z", true)
 	if err == nil {
 		t.Fatal("expected error when /metrics returns 500")
 	}
@@ -687,7 +687,7 @@ func TestAccountDailyMetrics_NoTagsReturnsEmpty(t *testing.T) {
 	defer srv.Close()
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
-	out, active, err := accountDailyMetrics(context.Background(), client, nil, "", "")
+	out, active, err := accountDailyMetrics(context.Background(), client, nil, "", "", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

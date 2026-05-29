@@ -64,6 +64,17 @@ atlas schema apply \
   --exclude river \
   --auto-approve
 
+# Backfill undeployed_at for soft-deletes that predate the bugfix making
+# UpdateStatus(StatusUndeployed) stamp the timestamp in the same UPDATE.
+# Before the fix, the undeploy worker called MarkUndeployedByID after
+# transitioning to 'undeployed', and that helper's `WHERE status='active'`
+# guard always failed in the normal flow — so undeployed_at stayed NULL
+# for every soft-delete. status_changed_at carries the same moment, so
+# it's a safe proxy. Idempotent: after the first run the WHERE matches
+# zero rows.
+echo "==> Backfilling undeployed_at for legacy soft-deletes..."
+psql "$DATABASE_URL" -c "UPDATE deployments SET undeployed_at = status_changed_at WHERE status = 'undeployed' AND undeployed_at IS NULL;" >/dev/null
+
 # Apply River queue migrations (idempotent — CREATE IF NOT EXISTS)
 echo "==> Applying River migrations..."
 atlas migrate apply \
