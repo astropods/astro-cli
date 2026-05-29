@@ -160,21 +160,27 @@ type ParsedAgentCard struct {
 	AgentCard
 	Body                 string                `json:"body"`
 	ResolvedIntegrations []ResolvedIntegration `json:"integrations,omitempty"`
+	// Warnings describe fields that were invalid and dropped/truncated. Display-only;
+	// not stored or serialized to clients.
+	Warnings []string `json:"-"`
 }
 
 // ParseAgentCard parses raw AGENT.md content into structured metadata and a markdown body.
 // It extracts YAML frontmatter (delimited by --- lines) and returns the remaining content as body.
-func ParseAgentCard(content string) (*ParsedAgentCard, error) {
+//
+// Parsing is best-effort: any field that fails to validate is dropped and recorded in
+// result.Warnings. The function never returns a nil result.
+func ParseAgentCard(content string) *ParsedAgentCard {
 	result := &ParsedAgentCard{}
 
 	if content == "" {
-		return result, nil
+		return result
 	}
 
 	// Frontmatter must start at the very beginning of the file with "---\n"
 	if !strings.HasPrefix(content, "---\n") {
 		result.Body = content
-		return result, nil
+		return result
 	}
 
 	// Find the closing "---" delimiter (search after the opening "---\n")
@@ -195,7 +201,7 @@ func ParseAgentCard(content string) (*ParsedAgentCard, error) {
 		if closingIdx == -1 {
 			// No closing delimiter — treat the entire content as body (no valid frontmatter)
 			result.Body = content
-			return result, nil
+			return result
 		}
 		frontmatterYAML = rest[:closingIdx]
 		afterClosing = strings.TrimPrefix(rest[closingIdx+4:], "\n") // skip "\n---" and optional trailing newline
@@ -203,16 +209,14 @@ func ParseAgentCard(content string) (*ParsedAgentCard, error) {
 
 	result.Body = afterClosing
 
-	// Parse YAML frontmatter (empty frontmatter is fine — yields zero-value AgentCard)
 	if strings.TrimSpace(frontmatterYAML) != "" {
-		if err := yaml.Unmarshal([]byte(frontmatterYAML), &result.AgentCard); err != nil {
-			return nil, fmt.Errorf("failed to parse agent card frontmatter: %w", err)
-		}
+		decodeFrontmatter(frontmatterYAML, result)
 	}
 
-	// Validate limits
+	// Enforce tag limit by truncating rather than rejecting
 	if len(result.Tags) > MaxAgentCardTags {
-		return nil, fmt.Errorf("agent card has %d tags, maximum is %d", len(result.Tags), MaxAgentCardTags)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("tags: more than %d provided, kept the first %d", MaxAgentCardTags, MaxAgentCardTags))
+		result.Tags = result.Tags[:MaxAgentCardTags]
 	}
 
 	// Normalize tags: lowercase, spaces→hyphens, strip invalid characters
@@ -228,17 +232,17 @@ func ParseAgentCard(content string) (*ParsedAgentCard, error) {
 	}
 	result.Tags = filtered
 
-	// Truncate description to MaxDescriptionLength
 	if len([]rune(result.Description)) > MaxDescriptionLength {
 		runes := []rune(result.Description)
 		result.Description = string(runes[:MaxDescriptionLength])
+		result.Warnings = append(result.Warnings, fmt.Sprintf("description: truncated to %d characters", MaxDescriptionLength))
 	}
 
-	// Truncate each capability to MaxCapabilityLength
 	for i, cap := range result.Capabilities {
 		if len([]rune(cap)) > MaxCapabilityLength {
 			runes := []rune(cap)
 			result.Capabilities[i] = string(runes[:MaxCapabilityLength])
+			result.Warnings = append(result.Warnings, fmt.Sprintf("capabilities[%d]: truncated to %d characters", i, MaxCapabilityLength))
 		}
 	}
 
@@ -250,7 +254,82 @@ func ParseAgentCard(content string) (*ParsedAgentCard, error) {
 	// Resolve integrations against the known registry
 	result.ResolvedIntegrations = MergeResolvedIntegrations(nil, result.Integrations)
 
-	return result, nil
+	return result
+}
+
+// decodeFrontmatter walks the frontmatter YAML field-by-field, recording any
+// invalid entries on result.Warnings instead of failing the whole parse.
+func decodeFrontmatter(frontmatterYAML string, result *ParsedAgentCard) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(frontmatterYAML), &doc); err != nil {
+		result.Warnings = append(result.Warnings, "frontmatter: invalid YAML, dropped")
+		return
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		result.Warnings = append(result.Warnings, "frontmatter: expected a mapping, dropped")
+		return
+	}
+
+	decodeStringList := func(name string, node *yaml.Node) []string {
+		if node.Kind != yaml.SequenceNode {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: expected a list, dropped", name))
+			return nil
+		}
+		out := make([]string, 0, len(node.Content))
+		for i, item := range node.Content {
+			var s string
+			if err := item.Decode(&s); err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("%s[%d]: not a string, dropped", name, i))
+				continue
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		keyNode := root.Content[i]
+		valueNode := root.Content[i+1]
+		switch keyNode.Value {
+		case "description":
+			var s string
+			if err := valueNode.Decode(&s); err != nil {
+				result.Warnings = append(result.Warnings, "description: must be a string, dropped")
+				continue
+			}
+			result.Description = s
+		case "tags":
+			result.Tags = decodeStringList("tags", valueNode)
+		case "capabilities":
+			result.Capabilities = decodeStringList("capabilities", valueNode)
+		case "integrations":
+			result.Integrations = decodeStringList("integrations", valueNode)
+		case "authors":
+			if valueNode.Kind != yaml.SequenceNode {
+				result.Warnings = append(result.Warnings, "authors: expected a list, dropped")
+				continue
+			}
+			for j, item := range valueNode.Content {
+				var a AgentCardAuthor
+				if err := item.Decode(&a); err != nil {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("authors[%d]: invalid format, dropped", j))
+					continue
+				}
+				result.Authors = append(result.Authors, a)
+			}
+		case "repository":
+			var r AgentCardRepo
+			if err := valueNode.Decode(&r); err != nil {
+				result.Warnings = append(result.Warnings, "repository: invalid format, dropped")
+				continue
+			}
+			result.Repository = &r
+		}
+	}
 }
 
 // NormalizeTag converts a tag string to a valid format: lowercase, spaces to hyphens,
@@ -299,6 +378,7 @@ func MergeResolvedIntegrations(existing []ResolvedIntegration, additional []stri
 
 // ParseAgentCardFile reads and parses an AGENT.md file from the given path.
 // If the file does not exist, it returns an empty ParsedAgentCard without error.
+// Parsing the file contents is best-effort; see ParseAgentCard.
 func ParseAgentCardFile(path string) (*ParsedAgentCard, error) {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
@@ -307,7 +387,7 @@ func ParseAgentCardFile(path string) (*ParsedAgentCard, error) {
 		}
 		return nil, fmt.Errorf("failed to read agent card: %w", err)
 	}
-	return ParseAgentCard(string(data))
+	return ParseAgentCard(string(data)), nil
 }
 
 // DeprecatedMetaFields checks raw spec YAML bytes for deprecated meta fields

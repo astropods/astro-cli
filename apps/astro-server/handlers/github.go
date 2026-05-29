@@ -750,11 +750,10 @@ func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store, pipesClie
 			})
 			if tokenErr == nil {
 				if content, fetchErr := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, conn.RepoFullName, conn.Branch, "AGENT.md"); fetchErr == nil && content != "" {
-					if card, parseErr := spec.ParseAgentCard(content); parseErr == nil && card != nil {
-						draftCard = card
-						if b, marshalErr := json.Marshal(card); marshalErr == nil {
-							_ = cache.Set(c.Request.Context(), cacheKey, b, agentMDCacheTTL)
-						}
+					card := spec.ParseAgentCard(content)
+					draftCard = card
+					if b, marshalErr := json.Marshal(card); marshalErr == nil {
+						_ = cache.Set(c.Request.Context(), cacheKey, b, agentMDCacheTTL)
 					}
 				}
 			}

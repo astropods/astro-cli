@@ -352,7 +352,8 @@ var colorCyan = theme.PrimaryANSI
 
 // warnDeprecatedMetaFields reads a spec file and prints deprecation warnings
 // for meta.description and meta.tags that have moved to AGENT.md frontmatter.
-// It also warns if no AGENT.md file exists in the working directory.
+// It also warns if AGENT.md is missing, or contains fields that were dropped
+// or truncated by the lenient parser.
 func warnDeprecatedMetaFields(specPath, workingDir string) {
 	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
@@ -365,6 +366,15 @@ func warnDeprecatedMetaFields(specPath, workingDir string) {
 	agentMdPath := filepath.Join(workingDir, "AGENT.md")
 	if _, err := os.Stat(agentMdPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "%s⚠%s  No AGENT.md found — create one next to your astropods.yml to make your agent more discoverable\n", colorYellow, colorReset)
+		return
+	}
+
+	card, err := spec.ParseAgentCardFile(agentMdPath)
+	if err != nil {
+		return
+	}
+	for _, msg := range card.Warnings {
+		fmt.Fprintf(os.Stderr, "%s⚠%s  AGENT.md: %s\n", colorYellow, colorReset, msg)
 	}
 }
 

@@ -94,10 +94,7 @@ func BuildAgentCardJSON(readme string, specMap map[string]any) string {
 	if readme == "" {
 		return ""
 	}
-	card, err := spec.ParseAgentCard(readme)
-	if err != nil || card == nil {
-		return ""
-	}
+	card := spec.ParseAgentCard(readme)
 	var providers []string
 	if integrations, ok := specMap["integrations"].(map[string]any); ok {
 		for _, v := range integrations {

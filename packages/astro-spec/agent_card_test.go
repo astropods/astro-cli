@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,6 @@ func TestParseAgentCard(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
-		wantErr bool
 		check   func(*testing.T, *ParsedAgentCard)
 	}{
 		{
@@ -136,13 +136,23 @@ Body here.
 			},
 		},
 		{
-			name: "malformed YAML in frontmatter",
+			name: "malformed YAML in frontmatter drops fields and keeps body",
 			content: `---
 description: [invalid yaml
 ---
 Body.
 `,
-			wantErr: true,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if p.Description != "" {
+					t.Errorf("Description = %q, want empty", p.Description)
+				}
+				if p.Body != "Body.\n" {
+					t.Errorf("Body = %q, want %q", p.Body, "Body.\n")
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "invalid YAML") {
+					t.Errorf("Warnings = %v, want one mentioning invalid YAML", p.Warnings)
+				}
+			},
 		},
 		{
 			name: "body containing horizontal rules not confused for frontmatter",
@@ -201,7 +211,7 @@ description: "Unclosed"
 			},
 		},
 		{
-			name: "too many tags",
+			name: "too many tags keeps the first 10 and warns",
 			content: `---
 tags:
   - one
@@ -218,7 +228,93 @@ tags:
 ---
 Body.
 `,
-			wantErr: true,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if len(p.Tags) != MaxAgentCardTags {
+					t.Errorf("len(Tags) = %d, want %d", len(p.Tags), MaxAgentCardTags)
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "tags") {
+					t.Errorf("Warnings = %v, want one mentioning tags", p.Warnings)
+				}
+			},
+		},
+		{
+			name: "bad field type for description drops just that field",
+			content: `---
+description:
+  - not
+  - a
+  - string
+tags:
+  - keep-me
+---
+Body.
+`,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if p.Description != "" {
+					t.Errorf("Description = %q, want empty", p.Description)
+				}
+				if len(p.Tags) != 1 || p.Tags[0] != "keep-me" {
+					t.Errorf("Tags = %v, want [keep-me]", p.Tags)
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "description") {
+					t.Errorf("Warnings = %v, want one mentioning description", p.Warnings)
+				}
+			},
+		},
+		{
+			name: "bad item in tags list drops just that item",
+			content: `---
+tags:
+  - ok
+  - [nested, list]
+  - also-ok
+---
+`,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if len(p.Tags) != 2 || p.Tags[0] != "ok" || p.Tags[1] != "also-ok" {
+					t.Errorf("Tags = %v, want [ok also-ok]", p.Tags)
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "tags[1]") {
+					t.Errorf("Warnings = %v, want one mentioning tags[1]", p.Warnings)
+				}
+			},
+		},
+		{
+			name: "bad author entry drops just that author",
+			content: `---
+authors:
+  - Alice
+  - [not, an, author]
+  - name: Bob
+---
+`,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if len(p.Authors) != 2 || p.Authors[0].Name != "Alice" || p.Authors[1].Name != "Bob" {
+					t.Errorf("Authors = %v, want [Alice Bob]", p.Authors)
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "authors[1]") {
+					t.Errorf("Warnings = %v, want one mentioning authors[1]", p.Warnings)
+				}
+			},
+		},
+		{
+			name: "frontmatter as scalar drops everything",
+			content: `---
+just a string
+---
+Body.
+`,
+			check: func(t *testing.T, p *ParsedAgentCard) {
+				if p.Description != "" {
+					t.Errorf("Description = %q, want empty", p.Description)
+				}
+				if p.Body != "Body.\n" {
+					t.Errorf("Body = %q, want %q", p.Body, "Body.\n")
+				}
+				if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "mapping") {
+					t.Errorf("Warnings = %v, want one mentioning mapping", p.Warnings)
+				}
+			},
 		},
 		{
 			name: "exactly 10 tags is allowed",
@@ -237,12 +333,8 @@ Body.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ParseAgentCard(tt.content)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseAgentCard() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && tt.check != nil {
+			result := ParseAgentCard(tt.content)
+			if tt.check != nil {
 				tt.check(t, result)
 			}
 		})
@@ -371,10 +463,7 @@ tags:
 ---
 Body.
 `
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	want := []string{"analytics", "knowledge-graph", "data-ml"}
 	if len(result.Tags) != len(want) {
 		t.Fatalf("len(Tags) = %d, want %d: %v", len(result.Tags), len(want), result.Tags)
@@ -390,22 +479,19 @@ func TestParseAgentCard_DescriptionTruncation(t *testing.T) {
 	// 210-char description should be truncated to 200
 	long := strings.Repeat("a", 210)
 	content := "---\ndescription: \"" + long + "\"\n---\n"
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	if len([]rune(result.Description)) != MaxDescriptionLength {
 		t.Errorf("Description length = %d, want %d", len([]rune(result.Description)), MaxDescriptionLength)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "description") {
+		t.Errorf("Warnings = %v, want one mentioning description", result.Warnings)
 	}
 }
 
 func TestParseAgentCard_CapabilityTruncation(t *testing.T) {
 	long := strings.Repeat("b", 120)
 	content := "---\ncapabilities:\n  - \"" + long + "\"\n  - short\n---\n"
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	if len(result.Capabilities) != 2 {
 		t.Fatalf("len(Capabilities) = %d, want 2", len(result.Capabilities))
 	}
@@ -414,6 +500,9 @@ func TestParseAgentCard_CapabilityTruncation(t *testing.T) {
 	}
 	if result.Capabilities[1] != "short" {
 		t.Errorf("Capabilities[1] = %q, want %q", result.Capabilities[1], "short")
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "capabilities[0]") {
+		t.Errorf("Warnings = %v, want one mentioning capabilities[0]", result.Warnings)
 	}
 }
 
@@ -441,10 +530,7 @@ func TestParseAgentCard_AuthorStringShorthand(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ParseAgentCard(tt.content)
-			if err != nil {
-				t.Fatalf("ParseAgentCard() error = %v", err)
-			}
+			result := ParseAgentCard(tt.content)
 			if len(result.Authors) != len(tt.want) {
 				t.Fatalf("len(Authors) = %d, want %d: %v", len(result.Authors), len(tt.want), result.Authors)
 			}
@@ -465,10 +551,7 @@ authors:
   - name: Bob Smith
 ---
 `
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	if result.Authors[0].Account != "janedoe" {
 		t.Errorf("Authors[0].Account = %q, want %q", result.Authors[0].Account, "janedoe")
 	}
@@ -496,10 +579,7 @@ func TestParseAgentCard_RepositoryStringShorthand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := "---\nrepository: \"" + tt.repo + "\"\n---\n"
-			result, err := ParseAgentCard(content)
-			if err != nil {
-				t.Fatalf("ParseAgentCard() error = %v", err)
-			}
+			result := ParseAgentCard(content)
 			if result.Repository == nil {
 				t.Fatal("Repository is nil, want non-nil")
 			}
@@ -522,10 +602,7 @@ repository:
 ---
 Body.
 `
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	if result.Repository == nil {
 		t.Fatal("Repository is nil, want non-nil")
 	}
@@ -542,10 +619,7 @@ Body.
 
 func TestParseAgentCard_RepositoryOmitted(t *testing.T) {
 	content := "---\ndescription: \"No repo\"\n---\n"
-	result, err := ParseAgentCard(content)
-	if err != nil {
-		t.Fatalf("ParseAgentCard() error = %v", err)
-	}
+	result := ParseAgentCard(content)
 	if result.Repository != nil {
 		t.Errorf("Repository = %+v, want nil", result.Repository)
 	}
@@ -627,5 +701,47 @@ func TestMergeResolvedIntegrations_EmptyAdditional(t *testing.T) {
 	result := MergeResolvedIntegrations(existing, nil)
 	if len(result) != 1 {
 		t.Errorf("len(result) = %d, want 1", len(result))
+	}
+}
+
+// TestParseAgentCard_AlwaysMarshalsToValidJSON asserts that any input — including
+// inputs that cause warnings, drop everything, or are pure garbage — still
+// produces a non-nil card that marshals to valid JSON. This is what the API and
+// front-end depend on: missing/invalid fields are absent, never malformed.
+func TestParseAgentCard_AlwaysMarshalsToValidJSON(t *testing.T) {
+	inputs := map[string]string{
+		"empty":                "",
+		"plain markdown":       "# Hello\n",
+		"empty frontmatter":    "---\n---\n",
+		"valid":                "---\ndescription: ok\n---\nBody.\n",
+		"malformed yaml":       "---\ndescription: [bad\n---\nBody.\n",
+		"scalar frontmatter":   "---\nnot a mapping\n---\nBody.\n",
+		"bad field type":       "---\ndescription:\n  - list\n---\n",
+		"too many tags":        "---\ntags: [a,b,c,d,e,f,g,h,i,j,k,l,m]\n---\n",
+		"bad author entry":     "---\nauthors:\n  - [nested]\n---\n",
+		"bad repository value": "---\nrepository:\n  - 1\n  - 2\n---\n",
+	}
+	for name, content := range inputs {
+		t.Run(name, func(t *testing.T) {
+			card := ParseAgentCard(content)
+			if card == nil {
+				t.Fatal("ParseAgentCard returned nil")
+			}
+			data, err := json.Marshal(card)
+			if err != nil {
+				t.Fatalf("json.Marshal failed: %v", err)
+			}
+			// Round-trip must succeed and produce a map at minimum containing "body".
+			var roundTrip map[string]any
+			if err := json.Unmarshal(data, &roundTrip); err != nil {
+				t.Fatalf("json.Unmarshal failed: %v\nJSON was: %s", err, data)
+			}
+			if _, ok := roundTrip["body"]; !ok {
+				t.Errorf("output missing required \"body\" field: %s", data)
+			}
+			if _, ok := roundTrip["Warnings"]; ok {
+				t.Errorf("Warnings should not appear in JSON output: %s", data)
+			}
+		})
 	}
 }

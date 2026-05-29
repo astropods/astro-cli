@@ -109,9 +109,7 @@ func buildLegacyAgentCard(specMap map[string]any, readme string) *spec.ParsedAge
 	// Try parsing readme as AGENT.md with frontmatter
 	var card *spec.ParsedAgentCard
 	if readme != "" {
-		if parsed, err := spec.ParseAgentCard(readme); err == nil && parsed != nil {
-			card = parsed
-		}
+		card = spec.ParseAgentCard(readme)
 	}
 	if card == nil {
 		card = &spec.ParsedAgentCard{}
@@ -143,15 +141,12 @@ func buildLegacyAgentCard(specMap map[string]any, readme string) *spec.ParsedAge
 }
 
 // buildAgentCardJSON parses the raw AGENT.md content and merges spec-derived integrations,
-// returning the serialized JSON for storage. Returns empty string on parse failure.
+// returning the serialized JSON for storage. Returns empty string on marshal failure.
 func buildAgentCardJSON(readme string, specMap map[string]any) string {
 	if readme == "" {
 		return ""
 	}
-	card, err := spec.ParseAgentCard(readme)
-	if err != nil || card == nil {
-		return ""
-	}
+	card := spec.ParseAgentCard(readme)
 
 	// Extract provider IDs from spec integrations and merge into resolved list
 	card.ResolvedIntegrations = spec.MergeResolvedIntegrations(
