@@ -22,6 +22,7 @@ export interface AdminDeployment {
   cluster_id?: string;
   account_cluster_id?: string;
   placement_mismatch?: boolean;
+  account_id?: string;
 }
 
 export interface DeploymentEvent {
@@ -135,6 +136,13 @@ export interface DeploymentJob {
   attempted_at?: string;
   finalized_at?: string;
   errors?: string;
+  cluster_id?: string;
+}
+
+export interface ReapplyDeploymentResponse {
+  status: string;
+  cluster_placement_updated?: boolean;
+  message?: string;
 }
 
 export interface GetDeploymentJobsResponse {

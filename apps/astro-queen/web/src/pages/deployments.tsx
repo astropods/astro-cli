@@ -1,11 +1,17 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { useDeployments, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
+import { useNavigate, useSearchParams } from "react-router";
+import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { formatDateTime, truncateUUID, formatClusterId } from "@/lib/utils";
+import {
+  formatDateTime,
+  truncateUUID,
+  formatClusterId,
+  PRIMARY_CLUSTER_FILTER,
+  deploymentMatchesClusterFilter,
+} from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -21,6 +27,8 @@ function filterDeployments(
   search: string,
   status: StatusFilter,
   drift: DriftFilter,
+  cluster: string,
+  mismatchOnly: boolean,
 ): AdminDeployment[] {
   return deployments.filter((d) => {
     if (search) {
@@ -39,25 +47,48 @@ function filterDeployments(
     if (drift === "ok" && (!d.drift_summary || (d.drift_summary.missing + d.drift_summary.drift + d.drift_summary.extra) > 0)) return false;
     if (drift === "drifted" && (!d.drift_summary || (d.drift_summary.missing + d.drift_summary.drift + d.drift_summary.extra) === 0)) return false;
     if (drift === "unchecked" && d.drift_summary) return false;
+    if (!deploymentMatchesClusterFilter(d.cluster_id, cluster)) return false;
+    if (mismatchOnly && !d.placement_mismatch) return false;
     return true;
   });
 }
 
 export function DeploymentsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data, isLoading, error } = useDeployments();
+  const { data: clustersData } = useClusters(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastClicked, setLastClicked] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [drift, setDrift] = useState<DriftFilter>("all");
+  const cluster = searchParams.get("cluster") ?? "all";
+  const mismatchOnly = searchParams.get("mismatch") === "1";
   const [page, setPage] = useState(0);
 
+  const setClusterFilter = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "all") next.delete("cluster");
+    else next.set("cluster", value);
+    setSearchParams(next, { replace: true });
+    setPage(0);
+  };
+
+  const setMismatchFilter = (enabled: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (enabled) next.set("mismatch", "1");
+    else next.delete("mismatch");
+    setSearchParams(next, { replace: true });
+    setPage(0);
+  };
+
   const deployments = data?.deployments ?? [];
+  const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
 
   const filtered = useMemo(
-    () => filterDeployments(deployments, search, status, drift),
-    [deployments, search, status, drift],
+    () => filterDeployments(deployments, search, status, drift, cluster, mismatchOnly),
+    [deployments, search, status, drift, cluster, mismatchOnly],
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -132,6 +163,29 @@ export function DeploymentsPage() {
             <SelectItem value="unchecked">Unchecked</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={cluster} onValueChange={setClusterFilter}>
+          <SelectTrigger className="h-7 w-36 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All clusters</SelectItem>
+            <SelectItem value={PRIMARY_CLUSTER_FILTER}>Primary</SelectItem>
+            {additionalClusters.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-3 accent-amber"
+            checked={mismatchOnly}
+            onChange={(e) => setMismatchFilter(e.target.checked)}
+          />
+          Placement mismatch only
+        </label>
         <span className="ml-auto text-xs text-muted-foreground">
           {filtered.length} deployment{filtered.length !== 1 ? "s" : ""}
           {deployments.length > 0 && filtered.length !== deployments.length && ` of ${deployments.length}`}

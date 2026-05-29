@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, Link } from "react-router";
 import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,7 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
-import { formatDateTime, truncateUUID, formatClusterId, ecrRegionFromImage } from "@/lib/utils";
+import { formatDateTime, truncateUUID, formatClusterId, ecrRegionFromImage, specTargetClusterId } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
 
@@ -95,8 +95,19 @@ export function DeploymentDetailPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              if (confirm("Redeploy this deployment? This will rebuild and apply all K8s resources.")) {
-                reapplyMut.mutate(id!, { onSuccess: () => { refetch(); showSuccess("Redeploy initiated — K8s resources are being rebuilt."); } });
+              const mismatchNote = dep.placement_mismatch
+                ? "\n\nRouting will be synced to the account cluster before redeploy. Existing pods may stay on the previous cluster until the deploy worker finishes."
+                : "";
+              if (confirm(`Redeploy this deployment? This will rebuild and apply all K8s resources.${mismatchNote}`)) {
+                reapplyMut.mutate(id!, {
+                  onSuccess: (resp) => {
+                    refetch();
+                    const msg = resp.cluster_placement_updated && resp.message
+                      ? resp.message
+                      : "Redeploy initiated — K8s resources are being rebuilt.";
+                    showSuccess(msg);
+                  },
+                });
               }
             }}
             disabled={reapplyMut.isPending || dep.status === "undeploying"}
@@ -196,7 +207,17 @@ export function DeploymentDetailPage() {
       )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-3 sm:gap-4">
         <InfoCard label="Status" value={dep.status} />
-        <InfoCard label="Account" value={dep.account_name} />
+        <InfoCard
+          label="Account"
+          value={dep.account_name}
+          href={
+            dep.account_id
+              ? `/admin/accounts?q=${encodeURIComponent(dep.account_id)}`
+              : dep.account_name
+                ? `/admin/accounts?q=${encodeURIComponent(dep.account_name)}`
+                : undefined
+          }
+        />
         <InfoCard
           label="Deployment cluster"
           value={formatClusterId(dep.cluster_id)}
@@ -224,6 +245,12 @@ export function DeploymentDetailPage() {
         <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
+      {data.placement_hint && dep.placement_mismatch && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3 text-xs text-amber-950">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
+          <p>{data.placement_hint}</p>
+        </div>
+      )}
       {(() => {
         const image = data.workloads?.[0]?.image;
         const ecrRegion = image ? ecrRegionFromImage(image) : null;
@@ -435,7 +462,17 @@ export function DeploymentDetailPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="spec" className="mt-2">
+        <TabsContent value="spec" className="mt-2 space-y-2">
+          {(() => {
+            const specCluster = specTargetClusterId(data.spec_json);
+            if (specCluster === null) return null;
+            return (
+              <div className="rounded-lg border border-glass-border-honey/60 bg-glass-light px-3 py-2 text-xs">
+                <span className="text-muted-foreground">target.cluster_id in stored spec: </span>
+                <span className="font-mono font-medium">{specCluster}</span>
+              </div>
+            );
+          })()}
           {data.spec_json ? (
             <pre className="max-h-[600px] overflow-auto rounded-lg glass p-4 text-xs font-mono text-foreground">
               {(() => { try { return JSON.stringify(JSON.parse(data.spec_json), null, 2); } catch { return data.spec_json; } })()}
@@ -568,6 +605,7 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
           <tr className="border-b border-glass-border-honey">
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Time</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Cluster</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">State</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Attempts</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Duration</th>
@@ -600,6 +638,7 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
                   {formatDistanceToNow(new Date(j.created_at), { addSuffix: true })}
                 </td>
                 <td className="px-3 py-1.5 font-medium">{j.kind}</td>
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">{formatClusterId(j.cluster_id)}</td>
                 <td className={`px-3 py-1.5 ${stateColors[j.state] ?? "text-muted-foreground"}`}>{j.state}</td>
                 <td className="px-3 py-1.5 text-muted-foreground">{j.attempt}/{j.max_attempt}</td>
                 <td className="px-3 py-1.5 text-muted-foreground">{duration}</td>
@@ -619,13 +658,19 @@ function InfoCard({
   mono,
   mismatch,
   mismatchHint,
+  href,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   mismatch?: boolean;
   mismatchHint?: string;
+  href?: string;
 }) {
+  const valueClass = `mt-0.5 block break-words text-sm leading-snug ${
+    mono ? "font-mono text-xs" : ""
+  } ${mismatch ? "font-semibold text-amber-950" : ""}`;
+
   return (
     <div
       className={`rounded-lg px-3 py-2 ${
@@ -636,13 +681,13 @@ function InfoCard({
         {label}
         {mismatch && <span className="ml-1 text-[10px] font-normal text-amber-700">≠</span>}
       </p>
-      <p
-        className={`mt-0.5 break-words text-sm leading-snug ${
-          mono ? "font-mono text-xs" : ""
-        } ${mismatch ? "font-semibold text-amber-950" : ""}`}
-      >
-        {value || "-"}
-      </p>
+      {href ? (
+        <Link to={href} className={`${valueClass} text-blue-600 hover:underline`}>
+          {value || "-"}
+        </Link>
+      ) : (
+        <p className={valueClass}>{value || "-"}</p>
+      )}
       {mismatchHint && (
         <p className="mt-1 text-[10px] leading-snug text-amber-800" title={mismatchHint}>
           {mismatchHint}

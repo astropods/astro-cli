@@ -63,6 +63,7 @@ message AdminDeployment {
   string cluster_id = 13;           // deployments.cluster_id; empty = primary
   string account_cluster_id = 14;   // accounts.cluster_id; empty = primary
   bool placement_mismatch = 15;     // account vs deployment routing differ
+  string account_id = 16;           // owning account UUID
 }
 
 message AdminDeploymentEvent {
@@ -349,6 +350,29 @@ message ReapplyDeploymentRequest {
 
 message ReapplyDeploymentResponse {
   string status = 1;
+  bool cluster_placement_updated = 2; // true when routing was synced from account before enqueue
+  string message = 3;                 // optional operator-facing detail
+}
+
+message GetDeploymentJobsRequest {
+  string deployment_id = 1;
+}
+
+message DeploymentJob {
+  string kind = 1;
+  string state = 2;
+  int32 attempt = 3;
+  int32 max_attempt = 4;
+  string created_at = 5;
+  string attempted_at = 6;
+  string finalized_at = 7;
+  string errors = 8;
+  string cluster_id = 9; // river_job.args->>'cluster_id'; empty = primary
+}
+
+message GetDeploymentJobsResponse {
+  repeated DeploymentJob jobs = 1;
+  string last_reconcile_at = 2;
 }
 
 message ListFeedbackRequest {}

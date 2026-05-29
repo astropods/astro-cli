@@ -242,6 +242,7 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 			Status:          d.Status,
 			CreatedAt:       d.DeployedAt.Format(time.RFC3339),
 			AccountName:     d.AccountName,
+			AccountId:       d.AccountID,
 			Components:      components,
 			DeploymentID:    d.ID,
 			StatusChangedAt: d.StatusChangedAt.Format(time.RFC3339),
@@ -326,6 +327,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		Status:          dep.Status,
 		CreatedAt:       dep.DeployedAt.Format(time.RFC3339),
 		AccountName:     accountName,
+		AccountId:       dep.AccountID,
 		Components:      []string{},
 		DeploymentID:    dep.ID,
 		StatusChangedAt: dep.StatusChangedAt.Format(time.RFC3339),
@@ -1640,6 +1642,7 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 }
 
 // ReapplyDeployment re-applies the current revision by setting status to pending and enqueuing a deploy job.
+// When account placement differs from deployment routing, syncs cluster_id and spec target.cluster_id first.
 // Works for active, failed, or scaled_down deployments.
 func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploymentRequest) (*adminv1.ReapplyDeploymentResponse, error) {
 	if req.DeploymentId == "" {
@@ -1655,6 +1658,32 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	}
 	if dep.Status == deploymentstore.StatusUndeploying {
 		return nil, fmt.Errorf("deployment is being undeployed")
+	}
+
+	var accountClusterID string
+	if err := s.db.QueryRow(`SELECT COALESCE(cluster_id, '') FROM accounts WHERE id = $1`, dep.AccountID).
+		Scan(&accountClusterID); err != nil {
+		return nil, fmt.Errorf("load account cluster: %w", err)
+	}
+
+	routingClusterID := dep.EffectiveClusterID()
+	clusterPlacementUpdated := false
+	var placementMessage string
+
+	if placementMismatch(accountClusterID, routingClusterID) {
+		patchedSpec, err := patchDeploymentSpecClusterID(dep.DeploymentSpecJSON, accountClusterID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.deployStore.UpdateDeploymentClusterRouting(dep.ID, accountClusterID, patchedSpec); err != nil {
+			return nil, fmt.Errorf("update cluster routing: %w", err)
+		}
+		placementMessage = placementUpdateMessage(routingClusterID, accountClusterID)
+		if err := s.deployStore.RecordDeploymentEvent(dep.ID, dep.Status, placementMessage); err != nil {
+			s.log.Warn("Failed to record placement update event", "deployment_id", dep.ID, "error", err)
+		}
+		clusterPlacementUpdated = true
+		routingClusterID = accountClusterID
 	}
 
 	// Clear scaled-down tracking if applicable
@@ -1673,12 +1702,19 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 	// Enqueue deploy job
 	if s.queue != nil {
-		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
+		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, routingClusterID); err != nil {
 			return nil, fmt.Errorf("enqueue deploy job: %w", err)
 		}
 	}
 
-	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
+	resp := &adminv1.ReapplyDeploymentResponse{
+		Status:                  "reapplying",
+		ClusterPlacementUpdated: clusterPlacementUpdated,
+	}
+	if clusterPlacementUpdated {
+		resp.Message = placementMessage + ". Routing updated for future applies; existing pods may remain on the previous cluster until the deploy worker finishes."
+	}
+	return resp, nil
 }
 
 // RepairNormalizedSpec re-generates the deployment template from the original
@@ -1898,7 +1934,8 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 	// Query River job table for jobs related to this deployment.
 	// errors is jsonb[] (Postgres array) — cast to text for scanning.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors::text
+		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors::text,
+		       COALESCE(args->>'cluster_id', '')
 		FROM river.river_job
 		WHERE args->>'deployment_id' = $1
 		ORDER BY created_at DESC
@@ -1917,7 +1954,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		var createdAt time.Time
 		var attemptedAt, finalizedAt sql.NullTime
 		var errorsStr sql.NullString
-		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr); err != nil {
+		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr, &j.ClusterId); err != nil {
 			s.log.Warn("Failed to scan river job row", "error", err)
 			continue
 		}

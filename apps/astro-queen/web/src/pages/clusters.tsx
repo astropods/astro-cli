@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useClusters,
+  useDeployments,
   useRegisterCluster,
   useEnableCluster,
   useDisableCluster,
@@ -34,7 +35,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ChevronDown, CircleCheck, CircleX, Copy, Pencil, Plus, RefreshCw } from "lucide-react";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime, countDeploymentsByRoutedCluster } from "@/lib/utils";
 
 function mutationErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -106,6 +107,7 @@ function ingressComplete(f: IngressFields): boolean {
 export function ClustersPage() {
   const [enabledOnly, setEnabledOnly] = useState(false);
   const { data, isLoading, error } = useClusters(enabledOnly);
+  const { data: deploymentsData } = useDeployments();
   const registerMut = useRegisterCluster();
 
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -116,6 +118,7 @@ export function ClustersPage() {
   const [ingress, setIngress] = useState<IngressFields>(emptyIngress);
 
   const clusters = data?.clusters ?? [];
+  const deploymentCounts = countDeploymentsByRoutedCluster(deploymentsData?.deployments ?? []);
 
   const handleRegister = () => {
     registerMut.mutate(
@@ -217,6 +220,9 @@ export function ClustersPage() {
             <tr className="border-b border-glass-border-honey glass-subtle">
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">ID</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Region</th>
+              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Deploys</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Agent domain</th>
+              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Ingress</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">EKS name</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Endpoint</th>
               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Primary</th>
@@ -230,13 +236,21 @@ export function ClustersPage() {
           <tbody>
             {clusters.length === 0 && !isLoading && (
               <tr>
-                <td colSpan={10} className="px-2 py-4 text-center text-muted-foreground">
+                <td colSpan={13} className="px-2 py-4 text-center text-muted-foreground">
                   No clusters found.
                 </td>
               </tr>
             )}
             {clusters.map((cluster) => (
-              <ClusterRow key={cluster.id} cluster={cluster} />
+              <ClusterRow
+                key={cluster.id}
+                cluster={cluster}
+                deploymentCount={
+                  cluster.is_primary
+                    ? (deploymentCounts.get("primary") ?? 0)
+                    : (deploymentCounts.get(cluster.id) ?? 0)
+                }
+              />
             ))}
           </tbody>
         </table>
@@ -334,7 +348,13 @@ function Field({
   );
 }
 
-function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
+function ClusterRow({
+  cluster,
+  deploymentCount,
+}: {
+  cluster: RegisteredCluster;
+  deploymentCount: number;
+}) {
   const enableMut = useEnableCluster();
   const disableMut = useDisableCluster();
   const deregisterMut = useDeregisterCluster();
@@ -400,10 +420,35 @@ function ClusterRow({ cluster }: { cluster: RegisteredCluster }) {
     eksEndpoint.trim() !== "" &&
     ingressComplete(ingress);
 
+  const ingressFields = ingressFromCluster(cluster);
+  const ingressOk = cluster.is_primary || ingressComplete(ingressFields);
+  const agentDomain = ingressFields.agent_ingress_domain || "—";
+
   return (
     <tr className="border-b border-glass-border-honey/50 hover:glass-subtle">
       <td className="px-2 py-1.5 font-mono">{cluster.id}</td>
       <td className="px-2 py-1.5">{cluster.region || "—"}</td>
+      <td className="px-2 py-1.5 text-center tabular-nums">{deploymentCount}</td>
+      <td
+        className="max-w-[10rem] truncate px-2 py-1.5 font-mono text-[10px]"
+        title={agentDomain}
+      >
+        {agentDomain}
+      </td>
+      <td className="px-2 py-1.5 text-center">
+        {ingressOk ? (
+          <span className="text-green-600">OK</span>
+        ) : (
+          <button
+            type="button"
+            className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 hover:bg-amber-500/25"
+            title="Ingress / cert / knowledge fields incomplete — edit cluster to fix"
+            onClick={() => setEditOpen(true)}
+          >
+            Incomplete
+          </button>
+        )}
+      </td>
       <td className="px-2 py-1.5">{cluster.eks_cluster_name || "—"}</td>
       <td
         className="max-w-[12rem] truncate px-2 py-1.5 font-mono"

@@ -1,10 +1,12 @@
 package admingrpc
 
 import (
+	"encoding/json"
 	"fmt"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // normalizedClusterID maps empty and the primary sentinel to "" so placement
@@ -45,8 +47,30 @@ func placementHintMessage(accountClusterID, deploymentClusterID string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"Account is pinned to %q but this deployment routes to %q. Redeploy does not change cluster; run a new deploy from the client.",
+		"Account is pinned to %q but this deployment routes to %q. Queen Redeploy syncs routing to the account cluster before enqueueing; pods may stay on the old cluster until the deploy worker finishes.",
 		clusterIDLabel(accountClusterID),
 		clusterIDLabel(deploymentClusterID),
+	)
+}
+
+// patchDeploymentSpecClusterID updates target.cluster_id in stored deployment spec JSON.
+func patchDeploymentSpecClusterID(specJSON, clusterID string) (string, error) {
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(specJSON), &ds); err != nil {
+		return "", fmt.Errorf("parse deployment spec: %w", err)
+	}
+	ds.Target.ClusterID = clusterID
+	out, err := json.Marshal(&ds)
+	if err != nil {
+		return "", fmt.Errorf("marshal deployment spec: %w", err)
+	}
+	return string(out), nil
+}
+
+func placementUpdateMessage(fromClusterID, toClusterID string) string {
+	return fmt.Sprintf(
+		"Admin re-apply: cluster placement updated from %s to %s",
+		clusterIDLabel(fromClusterID),
+		clusterIDLabel(toClusterID),
 	)
 }

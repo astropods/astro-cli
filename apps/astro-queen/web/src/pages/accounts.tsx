@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   useAccounts,
   useClusters,
@@ -43,6 +44,8 @@ function filterAccounts(
 }
 
 export function AccountsPage() {
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
   const { data, isLoading, error } = useAccounts();
   const { data: clustersData } = useClusters(true);
   const renameMut = useRenameAccount();
@@ -55,7 +58,7 @@ export function AccountsPage() {
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQuery);
   const [status, setStatus] = useState<StatusFilter>("active");
   const [integration, setIntegration] = useState<IntegrationFilter>("all");
   const [page, setPage] = useState(0);

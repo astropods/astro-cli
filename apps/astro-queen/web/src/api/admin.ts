@@ -14,6 +14,7 @@ import type {
   SendCommandResponse,
   GetDeploymentEventsResponse,
   GetDeploymentJobsResponse,
+  ReapplyDeploymentResponse,
   RefreshDriftReportResponse,
   ListClustersResponse,
   RegisterClusterRequest,
@@ -403,7 +404,9 @@ export function useReapplyDeployment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/reapply`),
+      api.post<ReapplyDeploymentResponse>(
+        `/api/admin/deployments/${encodeURIComponent(id)}/reapply`,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },

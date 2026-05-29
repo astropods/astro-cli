@@ -52,6 +52,7 @@ type AdminDeployment struct {
 	ClusterID          string        `json:"cluster_id,omitempty"`
 	AccountClusterID   string        `json:"account_cluster_id,omitempty"`
 	PlacementMismatch  bool          `json:"placement_mismatch,omitempty"`
+	AccountId          string        `json:"account_id,omitempty"`
 }
 
 type AdminDeploymentEvent struct {
@@ -606,7 +607,9 @@ type ReapplyDeploymentRequest struct {
 }
 
 type ReapplyDeploymentResponse struct {
-	Status string `json:"status,omitempty"`
+	Status                  string `json:"status,omitempty"`
+	ClusterPlacementUpdated bool   `json:"cluster_placement_updated,omitempty"`
+	Message                 string `json:"message,omitempty"`
 }
 
 type GetDeploymentJobsRequest struct {
@@ -622,6 +625,7 @@ type DeploymentJob struct {
 	AttemptedAt string `json:"attempted_at,omitempty"`
 	FinalizedAt string `json:"finalized_at,omitempty"`
 	Errors      string `json:"errors,omitempty"`
+	ClusterId   string `json:"cluster_id,omitempty"`
 }
 
 type GetDeploymentJobsResponse struct {

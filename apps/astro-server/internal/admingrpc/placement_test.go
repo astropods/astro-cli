@@ -49,3 +49,28 @@ func TestPlacementHintMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchDeploymentSpecClusterID(t *testing.T) {
+	specJSON := `{"target":{"runtime":"kubernetes"},"workloads":[]}`
+	got, err := patchDeploymentSpecClusterID(specJSON, "eu")
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if !strings.Contains(got, `"cluster_id":"eu"`) {
+		t.Fatalf("expected eu cluster_id in spec: %s", got)
+	}
+	gotPrimary, err := patchDeploymentSpecClusterID(got, "")
+	if err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if strings.Contains(gotPrimary, "cluster_id") {
+		t.Fatalf("expected cleared cluster_id: %s", gotPrimary)
+	}
+}
+
+func TestPlacementUpdateMessage(t *testing.T) {
+	got := placementUpdateMessage("", "eu")
+	if !strings.Contains(got, "primary") || !strings.Contains(got, "eu") {
+		t.Fatalf("unexpected message: %q", got)
+	}
+}

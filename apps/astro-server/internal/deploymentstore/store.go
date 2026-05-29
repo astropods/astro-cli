@@ -696,6 +696,31 @@ func (s *Store) UpdateDeploymentSpecJSON(deploymentID, specJSON string) error {
 	return nil
 }
 
+// UpdateDeploymentClusterRouting updates deployment routing and stored spec target.cluster_id.
+func (s *Store) UpdateDeploymentClusterRouting(deploymentID, clusterID, specJSON string) error {
+	_, err := s.db.Exec(`
+		UPDATE deployments
+		SET cluster_id = $2, deployment_spec_json = $3, status_changed_at = NOW()
+		WHERE id = $1
+	`, deploymentID, nilIfEmpty(clusterID), specJSON)
+	if err != nil {
+		return fmt.Errorf("update deployment cluster routing: %w", err)
+	}
+	return nil
+}
+
+// RecordDeploymentEvent appends a timeline row without changing deployment status.
+func (s *Store) RecordDeploymentEvent(deploymentID, status, message string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO deployment_events (deployment_id, status, message)
+		VALUES ($1, $2, $3)
+	`, deploymentID, status, nilIfEmpty(message))
+	if err != nil {
+		return fmt.Errorf("record deployment event: %w", err)
+	}
+	return nil
+}
+
 // UpdateDeploymentPending updates an existing deployment for a redeploy, creating a new revision.
 // Sets status='pending'. The txFn callback runs in the same transaction.
 func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.Tx, deploymentID string) error) (*Deployment, error) {
