@@ -79,8 +79,19 @@ ast agent restart <name> --component agent [--id <deployment-id>]
 ### agent logs
 
 ```bash
-ast agent logs <name> --container app|messaging [--tail] [--id <deployment-id>]
+ast agent logs <name> [--workload <workload>[/<container>]] [--tail] [--id <deployment-id>]
 ```
+
+By default this reads logs from all containers in the agent workload. Use `--workload` to target a different workload (knowledge entry, ingestion sidecar, collector, etc.) or a specific container.
+
+`--workload` accepts any of:
+
+- A full workload name: `my-agent-knowledge-vectors`
+- An entry-name suffix: `vectors` (matches `my-agent-knowledge-vectors`)
+- A component label: `agent`, `messaging`, `knowledge`, `collector`
+- A `workload/container` pair to pick a specific container: `agent/messaging`
+
+Ambiguous identifiers (e.g. `knowledge` when several knowledge entries exist) return an error listing the candidates. Use `ast agent get <name>` to see each workload's K8s name.
 
 `--tail` streams logs continuously after fetching the last 15 minutes.
 

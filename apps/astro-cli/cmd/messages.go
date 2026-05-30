@@ -10,6 +10,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 )
@@ -61,4 +62,20 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 			"To push under the current account (%s), use --allow-account-override",
 		specAccount, currentAccount, specAccount, buildinfo.BinaryName, specAccount, currentAccount,
 	)
+}
+
+func errNoAgentWorkload(available []string) error {
+	return fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", strings.Join(available, ", "))
+}
+
+func errWorkloadNotFound(requested string, available []string) error {
+	return fmt.Errorf("no workload matches %q (available: %s)", requested, strings.Join(available, ", "))
+}
+
+func errWorkloadAmbiguous(requested string, matches []string) error {
+	return fmt.Errorf("%q is ambiguous; pass the full workload name (matches: %s)", requested, strings.Join(matches, ", "))
+}
+
+func errContainerNotInWorkload(container, workload string, available []string) error {
+	return fmt.Errorf("container %q not found in workload %q (available: %s)", container, workload, strings.Join(available, ", "))
 }

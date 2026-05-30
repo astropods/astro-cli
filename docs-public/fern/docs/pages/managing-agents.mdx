@@ -24,23 +24,32 @@ Agent names are the display names set at deploy time. If two deployments share a
 
 ## Observe
 
-Fetch recent logs from the agent container:
+Fetch recent logs from all containers in the agent workload:
 
 ```bash
-ast agent logs <name> --container app
+ast agent logs <name>
 ```
 
 Stream logs continuously as they arrive:
 
 ```bash
-ast agent logs <name> --container app --tail
+ast agent logs <name> --tail
 ```
 
 To fetch logs from the messaging sidecar instead:
 
 ```bash
-ast agent logs <name> --container messaging
+ast agent logs <name> --workload agent/messaging
 ```
+
+`--workload` also targets non-agent workloads — knowledge entries, ingestion sidecars, or the telemetry collector. Pass either a full workload name (`my-agent-knowledge-vectors`), an entry-name suffix (`vectors`), or a component label (`knowledge`, `collector`):
+
+```bash
+ast agent logs <name> --workload vectors
+ast agent logs <name> --workload collector
+```
+
+Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get <name>` to see each workload's K8s name.
 
 ## Control
 

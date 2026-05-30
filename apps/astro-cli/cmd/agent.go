@@ -114,9 +114,7 @@ func init() {
 	agentHistoryCmd.Flags().Bool("json", false, "Print raw JSON output")
 	agentRestartCmd.Flags().String("component", "", "Component to restart (agent)")
 	agentRestartCmd.MarkFlagRequired("component") //nolint:errcheck,gosec
-	agentLogsCmd.Flags().String("container", "", "Container name inside the pod (typically \"app\" or \"messaging\")")
-	agentLogsCmd.MarkFlagRequired("container") //nolint:errcheck,gosec
-	agentLogsCmd.Flags().String("workload", "", "Workload to read logs from. Accepts the workload name (e.g. my-agent-knowledge-vectors), a knowledge/model/ingestion entry name (e.g. vectors), or a component (agent, messaging, collector). Defaults to the agent workload.")
+	agentLogsCmd.Flags().String("workload", "", "Workload to read logs from, optionally with a container suffix (workload[/container]). Workload accepts the full name (e.g. my-agent-knowledge-vectors), an entry-name suffix (e.g. vectors), or a component (agent, messaging, collector). Container picks a specific container in the pod (e.g. agent/messaging); omitting it reads logs from all containers in the workload. Defaults to the agent workload.")
 	agentLogsCmd.Flags().BoolP("tail", "t", false, "Stream logs in real time")
 }
 
@@ -151,8 +149,9 @@ type deploymentDetail struct {
 	Workloads []workloadDetail `json:"workloads"`
 }
 
-// resolveWorkload picks a workload from the deployment detail based on a
-// user-supplied identifier. The identifier may be:
+// resolveWorkloadTarget picks a workload (and optional container) from the
+// deployment detail based on a user-supplied identifier of the form
+// "workload[/container]". The workload portion may be:
 //   - empty: defaults to the "agent" component
 //   - an exact workload name (e.g. "my-agent-knowledge-vectors")
 //   - an entry-name suffix (e.g. "vectors" — matches "*-knowledge-vectors",
@@ -160,49 +159,79 @@ type deploymentDetail struct {
 //   - a component label (e.g. "agent", "messaging", "knowledge", "collector")
 //
 // When the identifier could match multiple workloads (e.g. component "knowledge"
-// with several entries), the error message lists the candidates.
-func resolveWorkload(workloads []workloadDetail, requested string) (string, error) {
-	if requested == "" {
-		for _, wl := range workloads {
+// with several entries), the error message lists the candidates. The optional
+// container suffix is validated against the resolved workload's container list
+// when that list is known; otherwise it is passed through for the server to
+// validate.
+func resolveWorkloadTarget(workloads []workloadDetail, requested string) (string, string, error) {
+	workloadReq, container, _ := strings.Cut(requested, "/")
+	available := workloadNames(workloads)
+
+	var resolved *workloadDetail
+	if workloadReq == "" {
+		for i, wl := range workloads {
 			if wl.Component == "agent" {
-				return wl.Name, nil
+				resolved = &workloads[i]
+				break
 			}
 		}
-		return "", fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", workloadList(workloads))
-	}
-	// Exact name match.
-	for _, wl := range workloads {
-		if wl.Name == requested {
-			return wl.Name, nil
+		if resolved == nil {
+			return "", "", errNoAgentWorkload(available)
+		}
+	} else {
+		// Exact name match.
+		for i, wl := range workloads {
+			if wl.Name == workloadReq {
+				resolved = &workloads[i]
+				break
+			}
+		}
+		if resolved == nil {
+			// Match by component or by entry-name suffix.
+			matches := []workloadDetail{}
+			for _, wl := range workloads {
+				if wl.Component == workloadReq || strings.HasSuffix(wl.Name, "-"+workloadReq) {
+					matches = append(matches, wl)
+				}
+			}
+			switch len(matches) {
+			case 1:
+				resolved = &matches[0]
+			case 0:
+				return "", "", errWorkloadNotFound(workloadReq, available)
+			default:
+				names := make([]string, 0, len(matches))
+				for _, wl := range matches {
+					names = append(names, wl.Name)
+				}
+				return "", "", errWorkloadAmbiguous(workloadReq, names)
+			}
 		}
 	}
-	// Match by component or by entry-name suffix.
-	matches := []workloadDetail{}
-	for _, wl := range workloads {
-		if wl.Component == requested || strings.HasSuffix(wl.Name, "-"+requested) {
-			matches = append(matches, wl)
+
+	if container != "" && len(resolved.Containers) > 0 {
+		found := false
+		names := make([]string, 0, len(resolved.Containers))
+		for _, c := range resolved.Containers {
+			names = append(names, c.Name)
+			if c.Name == container {
+				found = true
+			}
+		}
+		if !found {
+			return "", "", errContainerNotInWorkload(container, resolved.Name, names)
 		}
 	}
-	switch len(matches) {
-	case 1:
-		return matches[0].Name, nil
-	case 0:
-		return "", fmt.Errorf("no workload matches %q (available: %s)", requested, workloadList(workloads))
-	default:
-		names := make([]string, 0, len(matches))
-		for _, wl := range matches {
-			names = append(names, wl.Name)
-		}
-		return "", fmt.Errorf("%q is ambiguous; pass the full workload name (matches: %s)", requested, strings.Join(names, ", "))
-	}
+
+	return resolved.Name, container, nil
 }
 
-func workloadList(workloads []workloadDetail) string {
+func workloadNames(workloads []workloadDetail) []string {
 	parts := make([]string, 0, len(workloads))
 	for _, wl := range workloads {
 		parts = append(parts, wl.Name)
 	}
-	return strings.Join(parts, ", ")
+	return parts
 }
 
 type deploymentDetailResponse struct {
@@ -602,14 +631,9 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("fetching deployment detail: %w", err)
 	}
 	requested, _ := cmd.Flags().GetString("workload")
-	workload, err := resolveWorkload(detail.Workloads, requested)
+	workload, container, err := resolveWorkloadTarget(detail.Workloads, requested)
 	if err != nil {
 		return err
-	}
-
-	container, _ := cmd.Flags().GetString("container")
-	if container == "" {
-		return fmt.Errorf("--container is required")
 	}
 
 	since := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339)

@@ -70,7 +70,7 @@ Target a deployment by display name (from `agent list`), blueprint name, or depl
 | `agent restart [name\|id]` | Rolling restart (`--id`, `--component`) |
 | `agent redeploy [name\|id]` | Redeploy with updated config or build (`--id`) |
 | `agent history [name\|id]` | List deployment history (`--id`) |
-| `agent logs [name\|id]` | Fetch deployment logs; `--tail` streams live (`--id`, `--container`) |
+| `agent logs [name\|id]` | Fetch deployment logs; `--tail` streams live (`--id`, `--workload` accepts `workload[/container]`) |
 
 ---
 

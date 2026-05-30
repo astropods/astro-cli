@@ -551,8 +551,6 @@ func TestAgentLogsWorkload(t *testing.T) {
 		}
 	})
 	setupAgentTest(t, handler)
-	require.NoError(t, agentLogsCmd.Flags().Set("container", "app"))
-	t.Cleanup(func() { agentLogsCmd.Flags().Set("container", "") }) //nolint:errcheck
 
 	buf := &bytes.Buffer{}
 	agentLogsCmd.SetOut(buf)
@@ -573,7 +571,13 @@ func TestAgentLogs(t *testing.T) {
 		"deployment": map[string]any{
 			"id": "dep-abc-123",
 			"workloads": []any{
-				map[string]any{"name": "my-agent-agent", "component": "agent", "pod_name": "my-agent-agent-abc-xyz"},
+				map[string]any{
+					"name": "my-agent-agent", "component": "agent", "pod_name": "my-agent-agent-abc-xyz",
+					"containers": []any{
+						map[string]any{"name": "app"},
+						map[string]any{"name": "messaging"},
+					},
+				},
 				map[string]any{"name": "my-agent-knowledge-chat-sandbox", "component": "knowledge", "pod_name": "my-agent-knowledge-chat-sandbox-0"},
 				map[string]any{"name": "my-agent-knowledge-vectors", "component": "knowledge", "pod_name": "my-agent-knowledge-vectors-0"},
 			},
@@ -583,38 +587,41 @@ func TestAgentLogs(t *testing.T) {
 	ssePayload := "data: {\"timestamp\":\"2026-01-01T10:00:00Z\",\"level\":\"\",\"message\":\"agent started\"}\n\n"
 
 	cases := []struct {
-		name         string
-		container    string
-		workload     string
-		tail         bool
-		useID        bool
-		listStatus   int
-		logsStatus   int
-		logsBody     string
-		wantErr      bool
-		wantOut      string
-		wantWorkload string
+		name          string
+		workload      string
+		tail          bool
+		useID         bool
+		listStatus    int
+		logsStatus    int
+		logsBody      string
+		wantErr       bool
+		wantOut       string
+		wantWorkload  string
+		wantContainer string
 	}{
-		{name: "app container", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
-		{name: "messaging container", container: "messaging", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
-		{name: "non-default container forwarded to server", container: "collector", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
-		{name: "with --id skips lookup", container: "app", useID: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
-		{name: "--tail streams SSE", container: "app", tail: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: ssePayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
-		{name: "empty logs", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: `[]`, wantOut: "No logs found", wantWorkload: "my-agent-agent"},
-		{name: "deployment not found", container: "app", listStatus: http.StatusOK, logsStatus: http.StatusNotFound, logsBody: `{}`, wantErr: true},
-		{name: "--workload by knowledge entry name", container: "app", workload: "chat-sandbox", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-chat-sandbox"},
-		{name: "--workload by full workload name", container: "app", workload: "my-agent-knowledge-vectors", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-vectors"},
-		{name: "--workload ambiguous component errors", container: "app", workload: "knowledge", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
-		{name: "--workload no match errors", container: "app", workload: "ghost", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
+		{name: "default agent workload, no container", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent", wantContainer: ""},
+		{name: "agent/messaging selects container", workload: "agent/messaging", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent", wantContainer: "messaging"},
+		{name: "agent/app selects container", workload: "agent/app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent", wantContainer: "app"},
+		{name: "unknown container rejected locally", workload: "agent/collector", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
+		{name: "with --id skips lookup", useID: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "--tail streams SSE", tail: true, listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: ssePayload, wantOut: "agent started", wantWorkload: "my-agent-agent"},
+		{name: "empty logs", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: `[]`, wantOut: "No logs found", wantWorkload: "my-agent-agent"},
+		{name: "deployment not found", listStatus: http.StatusOK, logsStatus: http.StatusNotFound, logsBody: `{}`, wantErr: true},
+		{name: "--workload by knowledge entry name", workload: "chat-sandbox", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-chat-sandbox"},
+		{name: "--workload by full workload name", workload: "my-agent-knowledge-vectors", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-vectors"},
+		{name: "--workload with container suffix on knowledge entry", workload: "vectors/app", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantOut: "agent started", wantWorkload: "my-agent-knowledge-vectors", wantContainer: "app"},
+		{name: "--workload ambiguous component errors", workload: "knowledge", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
+		{name: "--workload no match errors", workload: "ghost", listStatus: http.StatusOK, logsStatus: http.StatusOK, logsBody: logsPayload, wantErr: true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			lookupCalled := false
-			var capturedWorkload string
+			var capturedWorkload, capturedContainer string
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.Contains(r.URL.Path, "/logs/stream") {
 					capturedWorkload = r.URL.Query().Get("workload")
+					capturedContainer = r.URL.Query().Get("container")
 					if tc.tail {
 						assert.NotEmpty(t, r.URL.Query().Get("since"), "tail stream must pass since to skip backfill")
 					}
@@ -623,6 +630,7 @@ func TestAgentLogs(t *testing.T) {
 					fmt.Fprint(w, tc.logsBody)
 				} else if strings.Contains(r.URL.Path, "/logs") {
 					capturedWorkload = r.URL.Query().Get("workload")
+					capturedContainer = r.URL.Query().Get("container")
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(tc.logsStatus)
 					fmt.Fprint(w, tc.logsBody)
@@ -635,8 +643,6 @@ func TestAgentLogs(t *testing.T) {
 			})
 			setupAgentTest(t, handler)
 
-			require.NoError(t, agentLogsCmd.Flags().Set("container", tc.container))
-			t.Cleanup(func() { agentLogsCmd.Flags().Set("container", "") }) //nolint:errcheck
 			if tc.workload != "" {
 				require.NoError(t, agentLogsCmd.Flags().Set("workload", tc.workload))
 				t.Cleanup(func() { agentLogsCmd.Flags().Set("workload", "") }) //nolint:errcheck
@@ -671,6 +677,7 @@ func TestAgentLogs(t *testing.T) {
 				if tc.wantWorkload != "" {
 					assert.Equal(t, tc.wantWorkload, capturedWorkload, "server should receive resolved workload name")
 				}
+				assert.Equal(t, tc.wantContainer, capturedContainer, "server should receive resolved container")
 			}
 			if tc.useID {
 				assert.False(t, lookupCalled, "lookup should be skipped when --id is provided")
