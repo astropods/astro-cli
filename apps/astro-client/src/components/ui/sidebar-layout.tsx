@@ -127,7 +127,7 @@ function MobileNavDropdown({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           navItemBase,
-          "flex w-full items-center justify-between gap-2 bg-slate-200 text-foreground",
+          "flex w-full items-center justify-between gap-2 bg-secondary text-foreground",
         )}
       >
         <span className="truncate">{activeLabel ?? label ?? "Menu"}</span>

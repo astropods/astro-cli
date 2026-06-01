@@ -91,7 +91,7 @@ function DangerZone() {
 export default function AccountSettings() {
   return (
     <>
-      <SectionHeader title="Account" subtitle="Email, username, and authentication" />
+      <SectionHeader title="Account" subtitle="Manage your profile and account settings" />
       <AccountSection />
       <hr className="my-2 border-border" />
       <SectionHeader title="Preferences" subtitle="Display and localization" />

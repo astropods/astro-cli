@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Loader2, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAccountUsage, useQuotaIncreaseRequests } from "@/api/queries";
 import { SectionHeader } from "@/components/settings/SettingsShared";
 import type { UsageMeter } from "@/lib/api";
 import { formatNumber, RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
+import { StatusBadge, type StatusBadgeColor } from "@/components/StatusBadge";
+import { Tag } from "@/components/Tag";
 import {
   Table,
   TableBody,
@@ -25,38 +29,35 @@ const meterMeta: Record<string, { label: string; unit?: string; decimals?: numbe
   knowledge_endpoints: { label: "PrivateLink Endpoints" },
 };
 
-const statusStyles: Record<string, string> = {
-  pending: "bg-amber-500/10 text-amber-600",
-  approved: "bg-green-500/10 text-green-600",
-  denied: "bg-destructive/10 text-destructive",
-};
+const CU_UNITS = new Set(["CU-hours"]);
 
-function UsageBar({ usage, quota, onRequestIncrease }: { usage: number; quota: number; onRequestIncrease?: () => void }) {
-  const pct = Math.min((usage / quota) * 100, 100);
-  const isHigh = pct >= 90;
-  const isMedium = pct >= 75 && !isHigh;
+const CATEGORY_DEFS: { label: string; keys: string[] }[] = [
+  { label: "Agents",    keys: ["compute", "agent_builds", "agent_deployments", "agents"] },
+  { label: "Knowledge", keys: ["knowledge_stores", "knowledge_storage", "knowledge_compute", "knowledge_endpoints"] },
+  { label: "Account",   keys: ["members"] },
+];
+const KNOWN_KEYS = new Set(CATEGORY_DEFS.flatMap((c) => c.keys));
 
+function CuTooltip() {
   return (
-    <div className="mt-2.5 space-y-1">
-      <div className="h-1.5 w-full rounded-full bg-border">
-        <div
-          className={`h-full rounded-full transition-all ${
-            isHigh ? "bg-destructive" : isMedium ? "bg-amber-500" : "bg-primary"
-          }`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{formatNumber(usage, 1)} / {formatNumber(quota, 0)} used</span>
-        {onRequestIncrease && (
-          <button onClick={onRequestIncrease} className="cursor-pointer text-primary hover:underline">
-            Request increase
-          </button>
-        )}
-      </div>
-    </div>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Info size={12} className="text-faint-foreground cursor-default shrink-0" />
+        </TooltipTrigger>
+        <TooltipContent>
+          1 Compute Unit (CU) = 1 vCPU + 2 GB RAM per hour, per replica.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
+
+const statusBadgeColor: Record<string, StatusBadgeColor> = {
+  pending:  "warning",
+  approved: "success",
+  denied:   "error",
+};
 
 function StatCard({
   label,
@@ -76,22 +77,50 @@ function StatCard({
   canRequestIncrease: boolean;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const hasQuota = meter.quota != null;
+  const pct = hasQuota ? Math.min((meter.usage / meter.quota!) * 100, 100) : 0;
+  const isAtLimit = pct >= 100;
+  const isHigh = pct >= 90 && !isAtLimit;
+  const isMedium = pct >= 75 && !isHigh && !isAtLimit;
 
   return (
-    <div className="rounded-lg border border-border bg-surface px-5 py-4">
-      <div className="text-[12px] font-medium text-muted-foreground">{label}</div>
-      <div className="mt-1 flex items-baseline gap-1.5">
+    <div className="rounded-lg border border-border bg-surface px-5 py-3">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-mono-sm text-faint-foreground uppercase tracking-wide">{label}</span>
+        {hasQuota && canRequestIncrease && (
+          <Button variant="link" className="h-auto p-0 text-body-sm no-underline hover:underline shrink-0" onClick={() => setDialogOpen(true)}>
+            Request increase
+          </Button>
+        )}
+      </div>
+      <div className="mt-1 flex items-center gap-2">
         <span className="text-2xl font-semibold tabular-nums text-foreground">
           {formatNumber(meter.usage, decimals)}
         </span>
-        {unit && <span className="text-[12px] text-muted-foreground">{unit}</span>}
+        {hasQuota ? (
+          <span className="flex items-center gap-1 text-body-sm text-muted-foreground">
+            / {formatNumber(meter.quota!, 0)} {unit ?? "used"}
+            {unit && CU_UNITS.has(unit) && <CuTooltip />}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-body-sm text-muted-foreground">
+            {unit}
+            {unit && CU_UNITS.has(unit) && <CuTooltip />}
+          </span>
+        )}
+        {isAtLimit && <Tag color="coral">Full</Tag>}
       </div>
-      {meter.quota != null ? (
-        <UsageBar usage={meter.usage} quota={meter.quota} onRequestIncrease={canRequestIncrease ? () => setDialogOpen(true) : undefined} />
+      {hasQuota ? (
+        <div className="mt-2 h-1.5 w-full rounded-full bg-border">
+          <div
+            className={`h-full rounded-full transition-all ${isAtLimit || isHigh ? "bg-destructive" : isMedium ? "" : "bg-primary"}`}
+            style={{ width: `${pct}%`, ...(isMedium ? { background: "var(--warning)" } : {}) }}
+          />
+        </div>
       ) : (
-        <div className="mt-2.5 text-[11px] text-muted-foreground">Unlimited</div>
+        <div className="mt-2 text-body-sm text-muted-foreground">Unlimited</div>
       )}
-      {meter.quota != null && canRequestIncrease && (
+      {hasQuota && canRequestIncrease && (
         <RequestIncreaseDialog
           featureKey={featureKey}
           label={label}
@@ -119,7 +148,7 @@ function UsageMeters({ account, canRequestIncrease }: { account: string; canRequ
 
   if (error) {
     return (
-      <div className="rounded-lg border border-border bg-surface px-5 py-4">
+      <div className="rounded-lg border border-border bg-surface px-5 py-3">
         <p className="text-[13px] text-muted-foreground">
           Unable to load usage data. Usage metering may not be configured.
         </p>
@@ -133,41 +162,49 @@ function UsageMeters({ account, canRequestIncrease }: { account: string; canRequ
     month: "long",
     year: "numeric",
   });
-  const entries = Object.entries(data.meters);
-  const hasCompute = "compute" in data.meters;
+  const meters = data.meters;
+
+  const uncategorized = Object.keys(meters).filter((k) => !KNOWN_KEYS.has(k));
+  const categories = [
+    ...CATEGORY_DEFS,
+    ...(uncategorized.length ? [{ label: "Other", keys: uncategorized }] : []),
+  ];
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-8">
       <div className="text-[13px] text-muted-foreground">
         Current billing period:{" "}
         <span className="font-medium text-foreground">{periodLabel}</span>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {entries.map(([key, meter]) => {
-          const info = meterMeta[key];
-          return (
-            <StatCard
-              key={key}
-              label={info?.label ?? key}
-              featureKey={key}
-              meter={meter}
-              unit={info?.unit}
-              decimals={info?.decimals}
-              account={account}
-              canRequestIncrease={canRequestIncrease}
-            />
-          );
-        })}
-      </div>
-      {hasCompute && (
-        <div className="flex gap-2.5 rounded-lg border border-border bg-surface px-4 py-3">
-          <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
-          <p className="text-[12px] text-muted-foreground">
-            <span className="font-medium text-foreground">1 Compute Unit (CU)</span>{" "}
-            = 1 vCPU + 2 GB RAM per hour, per replica.
-          </p>
-        </div>
-      )}
+
+      {categories.map(({ label, keys }) => {
+        const visible = keys.filter((k) => k in meters);
+        if (!visible.length) return null;
+        return (
+          <div key={label} className="flex flex-col gap-3">
+            <h3 className="text-heading-4 text-foreground">{label}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {visible.map((key) => {
+                const meter = meters[key]!;
+                const info = meterMeta[key];
+                return (
+                  <StatCard
+                    key={key}
+                    label={info?.label ?? key}
+                    featureKey={key}
+                    meter={meter}
+                    unit={info?.unit}
+                    decimals={info?.decimals}
+                    account={account}
+                    canRequestIncrease={canRequestIncrease}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
     </div>
   );
 }
@@ -179,7 +216,7 @@ function QuotaRequestsTable({ account }: { account: string }) {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-[13px] font-medium text-foreground">Quota Increase Requests</h3>
+      <h3 className="text-heading-4 text-foreground">Quota increase requests</h3>
       <Table>
         <TableHeader>
           <TableRow>
@@ -203,9 +240,9 @@ function QuotaRequestsTable({ account }: { account: string }) {
                 {req.requested_amount != null ? formatNumber(req.requested_amount, 0) : "—"}
               </TableCell>
               <TableCell>
-                <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${statusStyles[req.status] ?? "bg-muted text-muted-foreground"}`}>
+                <StatusBadge color={statusBadgeColor[req.status] ?? "muted"}>
                   {req.status}
-                </span>
+                </StatusBadge>
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {new Date(req.created_at).toLocaleDateString()}
@@ -221,7 +258,10 @@ function QuotaRequestsTable({ account }: { account: string }) {
 export function UsageView({ account, canRequestIncrease = true }: { account: string; canRequestIncrease?: boolean }) {
   return (
     <>
-      <SectionHeader title="Usage" subtitle="Resource consumption for your account this billing period" />
+      <SectionHeader
+        title="Usage"
+        subtitle="Resource consumption for your account this billing period"
+      />
       <UsageMeters account={account} canRequestIncrease={canRequestIncrease} />
       <QuotaRequestsTable account={account} />
     </>

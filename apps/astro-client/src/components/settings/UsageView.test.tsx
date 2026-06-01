@@ -81,8 +81,98 @@ describe('UsageView', () => {
         )
       );
       renderUsageView({ account: 'testuser', canRequestIncrease: true });
-      expect(await screen.findByText('Agents')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
       expect(screen.queryByText('Request increase')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Full tag', () => {
+    it('shows Full tag when usage equals quota', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({ ...usageWithQuota, meters: { compute: { usage: 100, quota: 100 } } })
+        )
+      );
+      renderUsageView({ account: 'testuser' });
+      expect(await screen.findByText('Full')).toBeInTheDocument();
+    });
+
+    it('does not show Full tag when usage is below quota', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({ ...usageWithQuota, meters: { compute: { usage: 50, quota: 100 } } })
+        )
+      );
+      renderUsageView({ account: 'testuser' });
+      expect(await screen.findByText('Compute')).toBeInTheDocument();
+      expect(screen.queryByText('Full')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('CU tooltip', () => {
+    it('renders the info icon for CU-hours meters', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({ ...usageWithQuota, meters: { compute: { usage: 50, quota: 100 } } })
+        )
+      );
+      const { container } = render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <UsageView account="testuser" />
+        </QueryClientProvider>
+      );
+      await screen.findByText('Compute');
+      expect(container.querySelector('.lucide-info')).toBeInTheDocument();
+    });
+
+    it('does not render the info icon for non-CU-hours meters', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({ ...usageWithQuota, meters: { agents: { usage: 3, quota: 10 } } })
+        )
+      );
+      const { container } = render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <UsageView account="testuser" />
+        </QueryClientProvider>
+      );
+      await screen.findByRole('heading', { name: 'Agents' });
+      expect(container.querySelector('.lucide-info')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('category grouping', () => {
+    it('renders Knowledge and Account sections for their respective meters', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({
+            ...usageWithQuota,
+            meters: {
+              compute: { usage: 10, quota: 100 },
+              knowledge_stores: { usage: 2, quota: 5 },
+              members: { usage: 4, quota: 10 },
+            },
+          })
+        )
+      );
+      renderUsageView({ account: 'testuser' });
+      expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument();
+    });
+
+    it('buckets unknown meter keys into an Other section', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/usage', () =>
+          HttpResponse.json({
+            ...usageWithQuota,
+            meters: { storage_bandwidth: { usage: 7, quota: 50 } },
+          })
+        )
+      );
+      renderUsageView({ account: 'testuser' });
+      expect(await screen.findByRole('heading', { name: 'Other' })).toBeInTheDocument();
+      expect(screen.getByText('storage_bandwidth')).toBeInTheDocument();
     });
   });
 });
