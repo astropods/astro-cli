@@ -77,4 +77,38 @@ describe('OrgSettingsLayout', () => {
       expect(screen.getAllByText('Members').length).toBeGreaterThan(0);
     });
   });
+
+  it('shows EU badge when org cluster_id is eu', async () => {
+    const auth: AuthContextType = {
+      ...makeAuth('admin'),
+      accounts: [
+        { id: 'acct-1', name: 'testuser', type: 'personal' },
+        { ...orgAccount, cluster_id: 'eu' },
+      ],
+    };
+    renderRoute(
+      [
+        {
+          path: '/settings/org/:orgSlug',
+          Component: OrgSettingsLayout,
+          children: [{ path: 'general', Component: () => <div>General Page</div> }],
+        },
+      ],
+      {
+        initialEntries: [`/settings/org/${ORG_SLUG}/general`],
+        auth,
+      },
+    );
+    await waitFor(() => {
+      expect(screen.getByText('EU')).toBeInTheDocument();
+    });
+  });
+
+  it('does not show EU badge for primary-cluster orgs', async () => {
+    renderLayout('admin');
+    await waitFor(() => {
+      expect(screen.getByText('Test Org')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('EU')).not.toBeInTheDocument();
+  });
 });

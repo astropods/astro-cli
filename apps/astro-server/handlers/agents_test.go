@@ -956,8 +956,8 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
 	accountMock.ExpectQuery("SELECT.*WHERE am.user_id").
 		WithArgs("user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name"}).
-			AddRow("user-account-id", "janesmith", "personal", "", now, now, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name"}).
+			AddRow("user-account-id", "janesmith", "personal", "", "", now, now, ""))
 
 	// auditStore: returns "user-1" as the publisher of "test-agent"
 	auditDB, auditMock, _ := sqlmock.New()

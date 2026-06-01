@@ -678,6 +678,7 @@ func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.A
 					DisplayName:          a.DisplayName,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
 					Role:                 role,
+					ClusterID:            a.ClusterID,
 				})
 			}
 		}

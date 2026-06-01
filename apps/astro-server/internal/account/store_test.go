@@ -581,9 +581,9 @@ func TestGetAccountsForUser_IncludesWorkOSOrgID(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_members am .+ LEFT JOIN account_organizations ao").
 		WithArgs("user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name"}).
-			AddRow("acct-1", "personal", "personal", "", now, now, "").
-			AddRow("acct-2", "myorg", "organization", "org_123", now, now, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name"}).
+			AddRow("acct-1", "personal", "personal", "", "", now, now, "").
+			AddRow("acct-2", "myorg", "organization", "org_123", "eu", now, now, ""))
 
 	accounts, err := store.GetAccountsForUser("user-1")
 	if err != nil {
@@ -599,6 +599,9 @@ func TestGetAccountsForUser_IncludesWorkOSOrgID(t *testing.T) {
 	}
 	if accounts[1].WorkOSOrganizationID != "org_123" {
 		t.Errorf("org account should have workos_org_id 'org_123', got %q", accounts[1].WorkOSOrganizationID)
+	}
+	if accounts[1].ClusterID != "eu" {
+		t.Errorf("org account cluster_id = %q, want eu", accounts[1].ClusterID)
 	}
 }
 
