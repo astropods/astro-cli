@@ -5,7 +5,7 @@ import (
 )
 
 var agentRedeployCmd = &cobra.Command{
-	Use:   "redeploy [name|id]",
+	Use:   "redeploy",
 	Short: "Redeploy an existing agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentRedeploy,
@@ -37,7 +37,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
