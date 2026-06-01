@@ -28,10 +28,10 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// clusterIngressBody is the subset of fields every register / update payload
+// clusterDeployBody is the subset of fields every register / update payload
 // must carry. Empty values are rejected by astro-server (no env fallback for
 // non-primary clusters), so the UI must collect all of them.
-type clusterIngressBody struct {
+type clusterDeployBody struct {
 	AgentIngressDomain         string `json:"agent_ingress_domain"`
 	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn"`
 	AgentALBGroupName          string `json:"agent_alb_group_name"`
@@ -39,6 +39,9 @@ type clusterIngressBody struct {
 	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn"`
 	IngestionALBGroupName      string `json:"ingestion_alb_group_name"`
 	KnowledgeDomain            string `json:"knowledge_domain"`
+	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext"`
+	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips"`
+	PodSubnetCIDRs             string `json:"pod_subnet_cidrs"`
 }
 
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +51,7 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		EKSClusterName     string `json:"eks_cluster_name"`
 		EKSClusterEndpoint string `json:"eks_cluster_endpoint"`
 		Enabled            *bool  `json:"enabled"`
-		clusterIngressBody
+		clusterDeployBody
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -67,6 +70,9 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		IngestionACMCertificateARN: body.IngestionACMCertificateARN,
 		IngestionALBGroupName:      body.IngestionALBGroupName,
 		KnowledgeDomain:            body.KnowledgeDomain,
+		LangfuseBaseURLExt:         body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:            body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:             body.PodSubnetCIDRs,
 	}
 	if body.Enabled != nil {
 		req.Enabled = body.Enabled
@@ -86,7 +92,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		Region             string `json:"region"`
 		EKSClusterName     string `json:"eks_cluster_name"`
 		EKSClusterEndpoint string `json:"eks_cluster_endpoint"`
-		clusterIngressBody
+		clusterDeployBody
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -105,6 +111,9 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		IngestionACMCertificateARN: body.IngestionACMCertificateARN,
 		IngestionALBGroupName:      body.IngestionALBGroupName,
 		KnowledgeDomain:            body.KnowledgeDomain,
+		LangfuseBaseURLExt:         body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:            body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:             body.PodSubnetCIDRs,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

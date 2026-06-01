@@ -42,10 +42,10 @@ function mutationErrorMessage(err: unknown): string {
   return "Request failed";
 }
 
-// IngressFields is the per-cluster ingress / cert / knowledge config that
-// astro-server now requires on every additional cluster. Both the register
-// form and the edit dialog collect the same set, so it lives here.
-type IngressFields = {
+// ClusterDeployFields is the per-cluster deploy config astro-server requires
+// on every additional cluster (ingress, Langfuse collector URL, netpol inputs).
+// Both the register form and the edit dialog collect the same set.
+type ClusterDeployFields = {
   agent_ingress_domain: string;
   agent_acm_certificate_arn: string;
   agent_alb_group_name: string;
@@ -53,9 +53,12 @@ type IngressFields = {
   ingestion_acm_certificate_arn: string;
   ingestion_alb_group_name: string;
   knowledge_domain: string;
+  langfuse_base_url_ext: string;
+  langfuse_vpce_ips: string;
+  pod_subnet_cidrs: string;
 };
 
-const emptyIngress: IngressFields = {
+const emptyClusterDeploy: ClusterDeployFields = {
   agent_ingress_domain: "",
   agent_acm_certificate_arn: "",
   agent_alb_group_name: "",
@@ -63,10 +66,13 @@ const emptyIngress: IngressFields = {
   ingestion_acm_certificate_arn: "",
   ingestion_alb_group_name: "",
   knowledge_domain: "",
+  langfuse_base_url_ext: "",
+  langfuse_vpce_ips: "",
+  pod_subnet_cidrs: "",
 };
 
 /** Primary cluster omits ingress fields in API JSON (env-sourced); coalesce before use. */
-function ingressFromCluster(cluster: Pick<RegisteredCluster, keyof IngressFields>): IngressFields {
+function clusterDeployFromCluster(cluster: Pick<RegisteredCluster, keyof ClusterDeployFields>): ClusterDeployFields {
   return {
     agent_ingress_domain: cluster.agent_ingress_domain ?? "",
     agent_acm_certificate_arn: cluster.agent_acm_certificate_arn ?? "",
@@ -75,11 +81,14 @@ function ingressFromCluster(cluster: Pick<RegisteredCluster, keyof IngressFields
     ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn ?? "",
     ingestion_alb_group_name: cluster.ingestion_alb_group_name ?? "",
     knowledge_domain: cluster.knowledge_domain ?? "",
+    langfuse_base_url_ext: cluster.langfuse_base_url_ext ?? "",
+    langfuse_vpce_ips: cluster.langfuse_vpce_ips ?? "",
+    pod_subnet_cidrs: cluster.pod_subnet_cidrs ?? "",
   };
 }
 
-function trimIngress(f: IngressFields): IngressFields {
-  const normalized = ingressFromCluster(f);
+function trimClusterDeploy(f: ClusterDeployFields): ClusterDeployFields {
+  const normalized = clusterDeployFromCluster(f);
   return {
     agent_ingress_domain: normalized.agent_ingress_domain.trim(),
     agent_acm_certificate_arn: normalized.agent_acm_certificate_arn.trim(),
@@ -88,11 +97,14 @@ function trimIngress(f: IngressFields): IngressFields {
     ingestion_acm_certificate_arn: normalized.ingestion_acm_certificate_arn.trim(),
     ingestion_alb_group_name: normalized.ingestion_alb_group_name.trim(),
     knowledge_domain: normalized.knowledge_domain.trim(),
+    langfuse_base_url_ext: normalized.langfuse_base_url_ext.trim(),
+    langfuse_vpce_ips: normalized.langfuse_vpce_ips.trim(),
+    pod_subnet_cidrs: normalized.pod_subnet_cidrs.trim(),
   };
 }
 
-function ingressComplete(f: IngressFields): boolean {
-  const normalized = ingressFromCluster(f);
+function clusterDeployComplete(f: ClusterDeployFields): boolean {
+  const normalized = clusterDeployFromCluster(f);
   return (
     normalized.agent_ingress_domain.trim() !== "" &&
     normalized.agent_acm_certificate_arn.trim() !== "" &&
@@ -100,7 +112,10 @@ function ingressComplete(f: IngressFields): boolean {
     normalized.ingestion_ingress_domain.trim() !== "" &&
     normalized.ingestion_acm_certificate_arn.trim() !== "" &&
     normalized.ingestion_alb_group_name.trim() !== "" &&
-    normalized.knowledge_domain.trim() !== ""
+    normalized.knowledge_domain.trim() !== "" &&
+    normalized.langfuse_base_url_ext.trim() !== "" &&
+    normalized.langfuse_vpce_ips.trim() !== "" &&
+    normalized.pod_subnet_cidrs.trim() !== ""
   );
 }
 
@@ -115,7 +130,7 @@ export function ClustersPage() {
   const [region, setRegion] = useState("");
   const [eksName, setEksName] = useState("");
   const [eksEndpoint, setEksEndpoint] = useState("");
-  const [ingress, setIngress] = useState<IngressFields>(emptyIngress);
+  const [ingress, setIngress] = useState<ClusterDeployFields>(emptyClusterDeploy);
 
   const clusters = data?.clusters ?? [];
   const deploymentCounts = countDeploymentsByRoutedCluster(deploymentsData?.deployments ?? []);
@@ -128,7 +143,7 @@ export function ClustersPage() {
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
         enabled: true,
-        ...trimIngress(ingress),
+        ...trimClusterDeploy(ingress),
       },
       {
         onSuccess: () => {
@@ -136,7 +151,7 @@ export function ClustersPage() {
           setRegion("");
           setEksName("");
           setEksEndpoint("");
-          setIngress(emptyIngress);
+          setIngress(emptyClusterDeploy);
           setRegisterOpen(false);
         },
       },
@@ -190,7 +205,7 @@ export function ClustersPage() {
               placeholder="https://..."
             />
           </div>
-          <IngressFieldset value={ingress} onChange={setIngress} />
+          <ClusterDeployFieldset value={ingress} onChange={setIngress} />
           {registerMut.isError && (
             <p className="text-destructive text-xs">{mutationErrorMessage(registerMut.error)}</p>
           )}
@@ -203,7 +218,7 @@ export function ClustersPage() {
               !region.trim() ||
               !eksName.trim() ||
               !eksEndpoint.trim() ||
-              !ingressComplete(ingress)
+              !clusterDeployComplete(ingress)
             }
           >
             {registerMut.isPending ? "Registering…" : "Register"}
@@ -259,14 +274,14 @@ export function ClustersPage() {
   );
 }
 
-function IngressFieldset({
+function ClusterDeployFieldset({
   value,
   onChange,
 }: {
-  value: IngressFields;
-  onChange: (v: IngressFields) => void;
+  value: ClusterDeployFields;
+  onChange: (v: ClusterDeployFields) => void;
 }) {
-  const set = (patch: Partial<IngressFields>) => onChange({ ...value, ...patch });
+  const set = (patch: Partial<ClusterDeployFields>) => onChange({ ...value, ...patch });
   return (
     <div className="space-y-2 rounded-md border border-glass-border-honey/60 p-2">
       <div className="text-xs font-medium text-muted-foreground">
@@ -320,6 +335,34 @@ function IngressFieldset({
           placeholder="knowledge.example.com"
         />
       </div>
+      <div className="text-xs font-medium text-muted-foreground pt-1">
+        Langfuse / netpol (agent card sparklines)
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        From managed-cluster infra outputs after Langfuse PrivateLink apply. VPCE IPs are bare
+        addresses (no /32). Pod subnet CIDRs use standard notation (e.g. 10.0.0.0/24).
+        Comma-separated lists.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field
+          label="Langfuse base URL (collector)"
+          value={value.langfuse_base_url_ext}
+          onChange={(v) => set({ langfuse_base_url_ext: v })}
+          placeholder="http://langfuse.platform.astroids.ai:3000"
+        />
+        <Field
+          label="Langfuse VPCE IPs"
+          value={value.langfuse_vpce_ips}
+          onChange={(v) => set({ langfuse_vpce_ips: v })}
+          placeholder="10.0.1.10,10.0.2.10"
+        />
+        <Field
+          label="Pod subnet CIDRs"
+          value={value.pod_subnet_cidrs}
+          onChange={(v) => set({ pod_subnet_cidrs: v })}
+          placeholder="10.0.0.0/24,10.1.0.0/24"
+        />
+      </div>
     </div>
   );
 }
@@ -365,7 +408,7 @@ function ClusterRow({
   const [region, setRegion] = useState(cluster.region);
   const [eksName, setEksName] = useState(cluster.eks_cluster_name);
   const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
-  const [ingress, setIngress] = useState<IngressFields>(() => ingressFromCluster(cluster));
+  const [ingress, setIngress] = useState<ClusterDeployFields>(() => clusterDeployFromCluster(cluster));
 
   const busy =
     enableMut.isPending ||
@@ -389,7 +432,7 @@ function ClusterRow({
     setRegion(cluster.region);
     setEksName(cluster.eks_cluster_name);
     setEksEndpoint(cluster.eks_cluster_endpoint);
-    setIngress(ingressFromCluster(cluster));
+    setIngress(clusterDeployFromCluster(cluster));
   };
 
   const handleEditOpenChange = (open: boolean) => {
@@ -406,7 +449,7 @@ function ClusterRow({
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
-        ...trimIngress(ingress),
+        ...trimClusterDeploy(ingress),
       },
       {
         onSuccess: () => setEditOpen(false),
@@ -418,11 +461,11 @@ function ClusterRow({
     region.trim() !== "" &&
     eksName.trim() !== "" &&
     eksEndpoint.trim() !== "" &&
-    ingressComplete(ingress);
+    clusterDeployComplete(ingress);
 
-  const ingressFields = ingressFromCluster(cluster);
-  const ingressOk = cluster.is_primary || ingressComplete(ingressFields);
-  const agentDomain = ingressFields.agent_ingress_domain || "—";
+  const deployFields = clusterDeployFromCluster(cluster);
+  const ingressOk = cluster.is_primary || clusterDeployComplete(deployFields);
+  const agentDomain = deployFields.agent_ingress_domain || "—";
 
   return (
     <tr className="border-b border-glass-border-honey/50 hover:glass-subtle">
@@ -533,7 +576,7 @@ function ClusterRow({
                     placeholder="https://..."
                   />
                 </div>
-                <IngressFieldset value={ingress} onChange={setIngress} />
+                <ClusterDeployFieldset value={ingress} onChange={setIngress} />
                 {updateMut.isError && (
                   <p className="text-destructive text-xs">{mutationErrorMessage(updateMut.error)}</p>
                 )}

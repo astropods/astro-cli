@@ -87,6 +87,9 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 		IngestionACMCertificateARN: entry.IngestionACMCertARN,
 		IngestionALBGroupName:      entry.IngestionALBGroupName,
 		KnowledgeDomain:            entry.KnowledgeDomain,
+		LangfuseBaseURLExt:         entry.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:            entry.LangfuseVPCEIPs,
+		PodSubnetCIDRs:             entry.PodSubnetCIDRs,
 	}
 	if !entry.IsPrimary {
 		out.CreatedAt = entry.CreatedAt.UTC().Format(time.RFC3339)
@@ -110,6 +113,9 @@ func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
 		IngestionACMCertARN:    row.IngestionACMCertARN,
 		IngestionALBGroupName:  row.IngestionALBGroupName,
 		KnowledgeDomain:        row.KnowledgeDomain,
+		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         row.PodSubnetCIDRs,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
 	}
@@ -153,6 +159,9 @@ func (s *Server) RegisterCluster(ctx context.Context, req *adminv1.RegisterClust
 		IngestionACMCertARN:    req.IngestionACMCertificateARN,
 		IngestionALBGroupName:  req.IngestionALBGroupName,
 		KnowledgeDomain:        req.KnowledgeDomain,
+		LangfuseBaseURLExt:     req.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         req.PodSubnetCIDRs,
 	}
 	if err := s.clusterStore.Register(ctx, row); err != nil {
 		return nil, clusterStoreErr(err)
@@ -280,6 +289,9 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 		IngestionACMCertARN:    req.IngestionACMCertificateARN,
 		IngestionALBGroupName:  req.IngestionALBGroupName,
 		KnowledgeDomain:        req.KnowledgeDomain,
+		LangfuseBaseURLExt:     req.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         req.PodSubnetCIDRs,
 	}); err != nil {
 		return nil, clusterStoreErr(err)
 	}

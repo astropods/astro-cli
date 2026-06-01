@@ -630,6 +630,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		if !validateDeployTargetCluster(c, log, clusterStore, k8sReg, submittedSpec.Target.ClusterID) {
 			return
 		}
+		// validateDeployTargetCluster warms entryCache via GetEntry. Evict before
+		// clustercfg.Resolve so a SQL backfill or admin UpdateCluster on another
+		// replica is visible here (Queen Refresh is not called for station edits).
+		if submittedSpec.Target.ClusterID != "" && k8sReg != nil {
+			_ = k8sReg.Refresh(c.Request.Context(), submittedSpec.Target.ClusterID)
+		}
 
 		// Image preflight: HEAD the agent image's manifest before we write
 		// any deployment rows or enqueue any work. Catches the redeploy-

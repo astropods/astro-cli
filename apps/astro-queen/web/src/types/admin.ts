@@ -453,6 +453,9 @@ export interface RegisteredCluster {
   ingestion_acm_certificate_arn: string;
   ingestion_alb_group_name: string;
   knowledge_domain: string;
+  langfuse_base_url_ext: string;
+  langfuse_vpce_ips: string;
+  pod_subnet_cidrs: string;
 }
 
 export interface ListClustersResponse {
@@ -472,6 +475,9 @@ export interface RegisterClusterRequest {
   ingestion_acm_certificate_arn: string;
   ingestion_alb_group_name: string;
   knowledge_domain: string;
+  langfuse_base_url_ext: string;
+  langfuse_vpce_ips: string;
+  pod_subnet_cidrs: string;
 }
 
 export interface RegisterClusterResponse {
@@ -497,6 +503,9 @@ export interface UpdateClusterRequest {
   ingestion_acm_certificate_arn: string;
   ingestion_alb_group_name: string;
   knowledge_domain: string;
+  langfuse_base_url_ext: string;
+  langfuse_vpce_ips: string;
+  pod_subnet_cidrs: string;
 }
 
 export interface UpdateClusterResponse {

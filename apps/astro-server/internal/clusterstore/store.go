@@ -13,8 +13,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"regexp"
+	"strings"
 	"time"
+
+	"github.com/astropods/astro/apps/astro-server/internal/clusterfields"
+	"github.com/astropods/astro/apps/astro-server/internal/commalist"
 
 	"github.com/lib/pq"
 )
@@ -40,7 +46,7 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 // Cluster is a managed workload Kubernetes cluster known to astro-server.
 //
 // Every ingress/ALB/cert/knowledge field is required: Register and Update
-// reject empty values via validateRequiredFields, and clustercfg.Resolve
+// reject empty values via clusterfields validation, and clustercfg.Resolve
 // fails the deploy if a stored row carries an empty field. The primary
 // cluster has no row in this table — it reads env vars directly
 // (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) and is the only place those
@@ -58,6 +64,9 @@ type Cluster struct {
 	IngestionACMCertARN    string
 	IngestionALBGroupName  string
 	KnowledgeDomain        string
+	LangfuseBaseURLExt     string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
+	LangfuseVPCEIPs        string // comma-separated VPCE ENI /32 targets for netpol egress
+	PodSubnetCIDRs         string // comma-separated pod subnet CIDRs for netpol except list
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 }
@@ -70,29 +79,91 @@ func ValidateID(id string) error {
 	return nil
 }
 
+func deployConfigFromCluster(c *Cluster) clusterfields.DeployConfig {
+	return clusterfields.DeployConfig{
+		AgentIngressDomain:     c.AgentIngressDomain,
+		AgentACMCertARN:        c.AgentACMCertARN,
+		AgentALBGroupName:      c.AgentALBGroupName,
+		IngestionIngressDomain: c.IngestionIngressDomain,
+		IngestionACMCertARN:    c.IngestionACMCertARN,
+		IngestionALBGroupName:  c.IngestionALBGroupName,
+		KnowledgeDomain:        c.KnowledgeDomain,
+		LangfuseBaseURLExt:     c.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        c.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         c.PodSubnetCIDRs,
+	}
+}
+
 // validateRequiredFields enforces that every additional cluster carries the
 // full EKS / ingress / cert / knowledge configuration. Falling back to env
 // defaults is reserved for the primary cluster (which has no row); registered
 // clusters must declare these values explicitly.
 func validateRequiredFields(c *Cluster) error {
-	required := []struct {
-		name  string
-		value string
-	}{
-		{"region", c.Region},
-		{"eks_cluster_name", c.EKSClusterName},
-		{"eks_cluster_endpoint", c.EKSClusterEndpoint},
-		{"agent_ingress_domain", c.AgentIngressDomain},
-		{"agent_acm_certificate_arn", c.AgentACMCertARN},
-		{"agent_alb_group_name", c.AgentALBGroupName},
-		{"ingestion_ingress_domain", c.IngestionIngressDomain},
-		{"ingestion_acm_certificate_arn", c.IngestionACMCertARN},
-		{"ingestion_alb_group_name", c.IngestionALBGroupName},
-		{"knowledge_domain", c.KnowledgeDomain},
+	if err := clusterfields.ValidateRegistrationNonEmpty(clusterfields.Registration{
+		Region:             c.Region,
+		EKSClusterName:     c.EKSClusterName,
+		EKSClusterEndpoint: c.EKSClusterEndpoint,
+		Deploy:             deployConfigFromCluster(c),
+	}); err != nil {
+		return err
 	}
-	for _, f := range required {
-		if f.value == "" {
-			return fmt.Errorf("%s is required", f.name)
+	if err := validateLangfuseBaseURL(c.LangfuseBaseURLExt); err != nil {
+		return err
+	}
+	if err := validateLangfuseVPCEIPs(c.LangfuseVPCEIPs); err != nil {
+		return err
+	}
+	if err := validatePodSubnetCIDRs(c.PodSubnetCIDRs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateLangfuseBaseURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	u, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return fmt.Errorf("langfuse_base_url_ext must be a valid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("langfuse_base_url_ext must use http or https scheme")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("langfuse_base_url_ext must include a host")
+	}
+	return nil
+}
+
+// validateLangfuseVPCEIPs ensures each token is a bare IP. The deploy applier
+// appends /32 when building NetworkPolicy rules; CIDR notation here would
+// produce an invalid CIDR like 10.0.1.10/32/32.
+func validateLangfuseVPCEIPs(raw string) error {
+	ips := commalist.Parse(raw)
+	if len(ips) == 0 {
+		return fmt.Errorf("langfuse_vpce_ips must contain at least one bare IP address (comma-separated)")
+	}
+	for _, ip := range ips {
+		if strings.Contains(ip, "/") {
+			return fmt.Errorf(
+				"langfuse_vpce_ips values must be bare IP addresses without prefix length (e.g. 10.0.1.10), got %q",
+				ip,
+			)
+		}
+		if net.ParseIP(ip) == nil {
+			return fmt.Errorf("langfuse_vpce_ips value %q is not a valid IP address", ip)
+		}
+	}
+	return nil
+}
+
+func validatePodSubnetCIDRs(raw string) error {
+	cidrs := commalist.Parse(raw)
+	if len(cidrs) == 0 {
+		return fmt.Errorf("pod_subnet_cidrs must contain at least one CIDR (comma-separated)")
+	}
+	for _, cidr := range cidrs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("pod_subnet_cidrs value %q is not a valid CIDR: %w", cidr, err)
 		}
 	}
 	return nil
@@ -126,12 +197,14 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 			id, region, eks_cluster_name, eks_cluster_endpoint, enabled,
 			agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
 			ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
-			knowledge_domain
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			knowledge_domain,
+			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.Enabled,
 		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 		c.KnowledgeDomain,
+		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 	)
 	if err != nil {
 		if pgCode(err) == pgUniqueViolation {
@@ -181,9 +254,9 @@ func (s *Store) List(ctx context.Context, enabledOnly bool) ([]*Cluster, error) 
 	return clusters, rows.Err()
 }
 
-// Update changes mutable fields on an additional cluster row. The ingress /
-// cert / knowledge fields are written verbatim — pass empty strings to clear
-// them back to the env-default fallback.
+// Update changes mutable fields on an additional cluster row. All required
+// fields must be non-empty. Pass current values unchanged to leave them as-is.
+// The primary cluster has no row and reads env vars directly.
 func (s *Store) Update(ctx context.Context, c *Cluster) error {
 	if c == nil {
 		return fmt.Errorf("cluster is required")
@@ -204,12 +277,16 @@ func (s *Store) Update(ctx context.Context, c *Cluster) error {
 			ingestion_acm_certificate_arn = $8,
 			ingestion_alb_group_name = $9,
 			knowledge_domain = $10,
+			langfuse_base_url_ext = $11,
+			langfuse_vpce_ips = $12,
+			pod_subnet_cidrs = $13,
 			updated_at = now()
-		WHERE id = $11`,
+		WHERE id = $14`,
 		c.Region, c.EKSClusterName, c.EKSClusterEndpoint,
 		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 		c.KnowledgeDomain,
+		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 		c.ID,
 	)
 	if err != nil {
@@ -273,6 +350,7 @@ const baseSelect = `
 	       agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
 	       ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
 	       knowledge_domain,
+	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
 	       created_at, updated_at
 	FROM clusters`
 
@@ -288,6 +366,7 @@ func scanCluster(r rowScanner) (*Cluster, error) {
 		&c.AgentIngressDomain, &c.AgentACMCertARN, &c.AgentALBGroupName,
 		&c.IngestionIngressDomain, &c.IngestionACMCertARN, &c.IngestionALBGroupName,
 		&c.KnowledgeDomain,
+		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err

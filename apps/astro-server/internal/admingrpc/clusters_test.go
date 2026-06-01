@@ -35,6 +35,7 @@ var clusterColumns = []string{
 	"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 	"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 	"knowledge_domain",
+	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 	"created_at", "updated_at",
 }
 
@@ -46,6 +47,7 @@ func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.
 		"agents.example.com", "arn:acm:x", "astro",
 		"ingestion.example.com", "arn:acm:y", "astro-ingest",
 		"knowledge.example.com",
+		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		now, now,
 	}
 }
@@ -65,6 +67,9 @@ func fullRegisterRequest(id string) *adminv1.RegisterClusterRequest {
 		IngestionACMCertificateARN: "arn:acm:y",
 		IngestionALBGroupName:      "astro-ingest",
 		KnowledgeDomain:            "knowledge.example.com",
+		LangfuseBaseURLExt:         "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:            "10.0.1.10,10.0.2.10",
+		PodSubnetCIDRs:             "10.0.0.0/24,10.1.0.0/24",
 	}
 }
 
@@ -82,6 +87,9 @@ func fullUpdateRequest(id string) *adminv1.UpdateClusterRequest {
 		IngestionACMCertificateARN: "arn:acm:y",
 		IngestionALBGroupName:      "astro-ingest",
 		KnowledgeDomain:            "knowledge.example.com",
+		LangfuseBaseURLExt:         "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:            "10.0.1.10,10.0.2.10",
+		PodSubnetCIDRs:             "10.0.0.0/24,10.1.0.0/24",
 	}
 }
 

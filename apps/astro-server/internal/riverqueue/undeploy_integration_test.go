@@ -59,9 +59,21 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 	const clusterID = "e2e-worker-unreachable"
 	ctx := context.Background()
 	if err := clusterStore.Register(ctx, &clusterstore.Cluster{
-		ID: clusterID, Region: "us-east-1",
-		EKSClusterName: "e2e-no-access", EKSClusterEndpoint: "https://e2e-no-access.example",
-		Enabled: true,
+		ID:                     clusterID,
+		Region:                 "us-east-1",
+		EKSClusterName:         "e2e-no-access",
+		EKSClusterEndpoint:     "https://e2e-no-access.example",
+		Enabled:                true,
+		AgentIngressDomain:     "agents.e2e.example.com",
+		AgentACMCertARN:        "arn:aws:acm:us-east-1:000000000000:certificate/e2e-agent",
+		AgentALBGroupName:      "e2e-agents",
+		IngestionIngressDomain: "ingestion.e2e.example.com",
+		IngestionACMCertARN:    "arn:aws:acm:us-east-1:000000000000:certificate/e2e-ingestion",
+		IngestionALBGroupName:  "e2e-ingestion",
+		KnowledgeDomain:        "knowledge.e2e.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
+		LangfuseVPCEIPs:        "10.0.0.10",
+		PodSubnetCIDRs:         "10.0.0.0/24",
 	}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}

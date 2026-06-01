@@ -27,6 +27,11 @@ CREATE TABLE public.clusters (
     ingestion_acm_certificate_arn varchar  NOT NULL DEFAULT '',
     ingestion_alb_group_name      varchar(64) NOT NULL DEFAULT '',
     knowledge_domain          varchar(253) NOT NULL DEFAULT '',
+    -- Per-cluster Langfuse PrivateLink + netpol inputs (required for additional
+    -- clusters; primary reads LANGFUSE_* / POD_SUBNET_CIDRS env vars).
+    langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',
+    langfuse_vpce_ips         text         NOT NULL DEFAULT '',
+    pod_subnet_cidrs          text         NOT NULL DEFAULT '',
     created_at         timestamptz  NOT NULL DEFAULT now(),
     updated_at         timestamptz  NOT NULL DEFAULT now(),
     CONSTRAINT clusters_pkey PRIMARY KEY (id)

@@ -126,9 +126,9 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		return nil, fmt.Errorf("resolve k8s client: %w", err)
 	}
 
-	ingressCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
+	clusterCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
 	if err != nil {
-		return nil, fmt.Errorf("resolve cluster ingress config: %w", err)
+		return nil, fmt.Errorf("resolve cluster config: %w", err)
 	}
 
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
@@ -145,17 +145,17 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		ImagePullPolicy:        imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
 		ImagePreflighter:       d.ImagePreflighter,
 		TenantImageHosts:       tenantImageHostsFromConfig(d.Cfg),
-		IngressDomain:          ingressCfg.AgentIngressDomain,
-		ACMCertificateARN:      ingressCfg.AgentACMCertARN,
-		ALBGroupName:           ingressCfg.AgentALBGroupName,
-		IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
-		IngestionACMCertARN:    ingressCfg.IngestionACMCertARN,
-		IngestionALBGroupName:  ingressCfg.IngestionALBGroupName,
+		IngressDomain:          clusterCfg.AgentIngressDomain,
+		ACMCertificateARN:      clusterCfg.AgentACMCertARN,
+		ALBGroupName:           clusterCfg.AgentALBGroupName,
+		IngestionIngressDomain: clusterCfg.IngestionIngressDomain,
+		IngestionACMCertARN:    clusterCfg.IngestionACMCertARN,
+		IngestionALBGroupName:  clusterCfg.IngestionALBGroupName,
 		LangfuseAuthToken:      langfuseAuthToken,
-		LangfuseBaseURL:        langfuseBaseURLForCollector(d.Cfg),
+		LangfuseBaseURL:        clusterCfg.LangfuseBaseURL,
 		DeploymentID:           dep.ID,
-		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
-		LangfuseVPCEIPs:        d.Cfg.Deployment.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         clusterCfg.PodSubnetCIDRs,
+		LangfuseVPCEIPs:        clusterCfg.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
 		MessagingOIDCAuth:      oidcAuth,
@@ -483,16 +483,6 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 	}
 
 	return nil
-}
-
-// langfuseBaseURLForCollector returns the Langfuse URL that the collector
-// sidecar should use. In production the collector may need an external URL
-// (LANGFUSE_BASE_URL_EXT) different from the internal one the server uses.
-func langfuseBaseURLForCollector(cfg *config.Config) string {
-	if cfg.Deployment.LangfuseBaseURLExt != "" {
-		return cfg.Deployment.LangfuseBaseURLExt
-	}
-	return cfg.Deployment.LangfuseBaseURL
 }
 
 func imagePullPolicyForMode(mode string) corev1.PullPolicy {

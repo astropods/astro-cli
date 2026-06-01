@@ -439,6 +439,9 @@ message RegisteredCluster {
   string ingestion_acm_certificate_arn = 15;
   string ingestion_alb_group_name = 16;
   string knowledge_domain = 17;
+  string langfuse_base_url_ext = 18;
+  string langfuse_vpce_ips = 19; // comma-separated ENI IPs
+  string pod_subnet_cidrs = 20;  // comma-separated CIDRs
 }
 
 message RegisterClusterRequest {
@@ -454,6 +457,9 @@ message RegisterClusterRequest {
   string ingestion_acm_certificate_arn = 10;
   string ingestion_alb_group_name = 11;
   string knowledge_domain = 12;
+  string langfuse_base_url_ext = 13;
+  string langfuse_vpce_ips = 14;
+  string pod_subnet_cidrs = 15;
 }
 
 message RegisterClusterResponse {
@@ -542,6 +548,9 @@ message UpdateClusterRequest {
   string ingestion_acm_certificate_arn = 9;
   string ingestion_alb_group_name = 10;
   string knowledge_domain = 11;
+  string langfuse_base_url_ext = 12;
+  string langfuse_vpce_ips = 13;
+  string pod_subnet_cidrs = 14;
 }
 
 message UpdateClusterResponse {

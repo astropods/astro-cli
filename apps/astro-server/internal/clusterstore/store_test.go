@@ -51,6 +51,9 @@ func fullCluster() *Cluster {
 		IngestionACMCertARN:    "arn:acm:y",
 		IngestionALBGroupName:  "astro-ingest",
 		KnowledgeDomain:        "knowledge.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
+		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
 	}
 }
 
@@ -66,6 +69,7 @@ func TestRegister_Success(t *testing.T) {
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -115,6 +119,9 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 		"missing ingestion_acm_certificate":    func(c *Cluster) { c.IngestionACMCertARN = "" },
 		"missing ingestion_alb_group_name":     func(c *Cluster) { c.IngestionALBGroupName = "" },
 		"missing knowledge_domain":             func(c *Cluster) { c.KnowledgeDomain = "" },
+		"missing langfuse_base_url_ext":        func(c *Cluster) { c.LangfuseBaseURLExt = "" },
+		"missing langfuse_vpce_ips":            func(c *Cluster) { c.LangfuseVPCEIPs = "" },
+		"missing pod_subnet_cidrs":             func(c *Cluster) { c.PodSubnetCIDRs = "" },
 	}
 	for name, mut := range mutate {
 		c := fullCluster()
@@ -122,6 +129,83 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 		if err := store.Register(context.Background(), c); err == nil {
 			t.Errorf("%s: expected error, got nil", name)
 		}
+	}
+}
+
+func TestRegister_RejectsInvalidLangfuseBaseURL(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.LangfuseBaseURLExt = "not a url"
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for unparseable langfuse_base_url_ext")
+	}
+}
+
+func TestRegister_RejectsLangfuseBaseURLWrongScheme(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.LangfuseBaseURLExt = "ftp://langfuse.example:3000"
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for non-http langfuse_base_url_ext scheme")
+	}
+}
+
+func TestRegister_RejectsLangfuseVPCEWithPrefix(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.LangfuseVPCEIPs = "10.0.1.10/32,10.0.2.10"
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for CIDR notation in langfuse_vpce_ips")
+	}
+}
+
+func TestRegister_RejectsWhitespaceOnlyLangfuseVPCEIPs(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.LangfuseVPCEIPs = " , "
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for whitespace-only langfuse_vpce_ips")
+	}
+}
+
+func TestRegister_RejectsWhitespaceOnlyPodSubnetCIDRs(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.PodSubnetCIDRs = "  "
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for whitespace-only pod_subnet_cidrs")
+	}
+}
+
+func TestRegister_RejectsInvalidPodSubnetCIDR(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.PodSubnetCIDRs = "10.0.0.0-24"
+	if err := store.Register(context.Background(), c); err == nil {
+		t.Fatal("expected error for invalid pod_subnet_cidrs")
+	}
+}
+
+func TestUpdate_RejectsInvalidLangfuseBaseURL(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := New(db)
+
+	c := fullCluster()
+	c.LangfuseBaseURLExt = "not a url"
+	if err := store.Update(context.Background(), c); err == nil {
+		t.Fatal("expected error for unparseable langfuse_base_url_ext on update")
 	}
 }
 
@@ -233,6 +317,7 @@ func TestUpdate_Success(t *testing.T) {
 			c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 			c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 			c.KnowledgeDomain,
+			c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 			c.ID,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -271,6 +356,9 @@ func TestUpdate_RejectsMissingRequiredFields(t *testing.T) {
 		"missing ingestion_acm_certificate": func(c *Cluster) { c.IngestionACMCertARN = "" },
 		"missing ingestion_alb_group_name":  func(c *Cluster) { c.IngestionALBGroupName = "" },
 		"missing knowledge_domain":          func(c *Cluster) { c.KnowledgeDomain = "" },
+		"missing langfuse_base_url_ext":     func(c *Cluster) { c.LangfuseBaseURLExt = "" },
+		"missing langfuse_vpce_ips":         func(c *Cluster) { c.LangfuseVPCEIPs = "" },
+		"missing pod_subnet_cidrs":          func(c *Cluster) { c.PodSubnetCIDRs = "" },
 	}
 	for name, mut := range mutate {
 		c := fullCluster()
@@ -328,6 +416,7 @@ func clusterRows() *sqlmock.Rows {
 		"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 		"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 		"knowledge_domain",
+		"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 		"created_at", "updated_at",
 	})
 }
@@ -341,6 +430,7 @@ func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string,
 		"agents.example.com", "arn:acm:x", "astro",
 		"ingestion.example.com", "arn:acm:y", "astro-ingest",
 		"knowledge.example.com",
+		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		now, now,
 	)
 }

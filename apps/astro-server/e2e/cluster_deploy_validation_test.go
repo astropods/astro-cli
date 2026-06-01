@@ -62,6 +62,9 @@ func registerTestCluster(t *testing.T, db *sql.DB, store *clusterstore.Store, id
 		IngestionACMCertARN:    "arn:aws:acm:us-east-1:000000000000:certificate/e2e-ingestion",
 		IngestionALBGroupName:  "e2e-ingestion",
 		KnowledgeDomain:        "knowledge.e2e.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
+		LangfuseVPCEIPs:        "10.0.0.10",
+		PodSubnetCIDRs:         "10.0.0.0/24",
 	})
 	if err != nil {
 		t.Fatalf("Register(%q): %v", id, err)

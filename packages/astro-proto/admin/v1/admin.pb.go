@@ -718,6 +718,9 @@ type RegisteredCluster struct {
 	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
 	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
 	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type RegisterClusterRequest struct {
@@ -733,6 +736,9 @@ type RegisterClusterRequest struct {
 	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
 	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
 	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type RegisterClusterResponse struct {
@@ -791,6 +797,9 @@ type UpdateClusterRequest struct {
 	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
 	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
 	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type UpdateClusterResponse struct {

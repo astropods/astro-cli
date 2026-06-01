@@ -4531,11 +4531,13 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
+			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow(clusterID, "eu-west-1", "eks-name", "https://endpoint", false,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
 	accountStore := account.NewAccountStore(accountDB)
@@ -6120,11 +6122,13 @@ func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
+			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", false,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
 	body := deployableSpecWithClusterID("staging")
@@ -6163,11 +6167,13 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
+			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", true,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
 	body := deployableSpecWithClusterID(clusterID)
@@ -6198,19 +6204,25 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 	router, indexMock, accountMock, deployMock, clusterMock := setupDeployRouterWithClusterStore("user-1")
 
 	now := time.Now()
-	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
-		WithArgs("eu-west-1-managed").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
-			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
-			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
-			"knowledge_domain",
-			"created_at", "updated_at",
-		}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", true,
-			"agents.example.com", "arn:acm:x", "astro",
-			"ingestion.example.com", "arn:acm:y", "astro-ingest",
-			"knowledge.example.com",
-			now, now))
+	// Deploy validates the cluster (GetEntry), Refresh evicts cache, then
+	// clustercfg.Resolve loads the row again — two identical SELECTs.
+	for range 2 {
+		clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
+			WithArgs("eu-west-1-managed").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+				"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
+				"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+				"knowledge_domain",
+				"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+				"created_at", "updated_at",
+			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", true,
+				"agents.example.com", "arn:acm:x", "astro",
+				"ingestion.example.com", "arn:acm:y", "astro-ingest",
+				"knowledge.example.com",
+				"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
+				now, now))
+	}
 
 	expectDeployPrepWithCluster(accountMock, indexMock, "eu-west-1-managed")
 

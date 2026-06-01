@@ -69,6 +69,9 @@ type ClusterEntry struct {
 	IngestionACMCertARN    string
 	IngestionALBGroupName  string
 	KnowledgeDomain        string
+	LangfuseBaseURLExt     string
+	LangfuseVPCEIPs        string
+	PodSubnetCIDRs         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 }
@@ -261,6 +264,9 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		IngestionACMCertARN:    row.IngestionACMCertARN,
 		IngestionALBGroupName:  row.IngestionALBGroupName,
 		KnowledgeDomain:        row.KnowledgeDomain,
+		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         row.PodSubnetCIDRs,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
 	}
@@ -317,6 +323,9 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 			IngestionACMCertARN:    row.IngestionACMCertARN,
 			IngestionALBGroupName:  row.IngestionALBGroupName,
 			KnowledgeDomain:        row.KnowledgeDomain,
+			LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
+			LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
+			PodSubnetCIDRs:         row.PodSubnetCIDRs,
 			CreatedAt:              row.CreatedAt,
 			UpdatedAt:              row.UpdatedAt,
 		})
