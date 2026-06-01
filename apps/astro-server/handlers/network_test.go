@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/gin-gonic/gin"
 )
@@ -159,13 +161,16 @@ func TestParseNetworkWindow(t *testing.T) {
 type fakePromHandler struct {
 	t        *testing.T
 	expected map[string]string // PromQL → JSON body
+	mu       sync.Mutex
 	seen     map[string]bool
 }
 
 func (f *fakePromHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("query")
 	if body, ok := f.expected[q]; ok {
+		f.mu.Lock()
 		f.seen[q] = true
+		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(body))
 		return
