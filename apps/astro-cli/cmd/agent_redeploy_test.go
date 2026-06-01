@@ -103,7 +103,7 @@ func TestRunAgentRedeploy(t *testing.T) {
 			name:       "agent not found",
 			tmplStatus: http.StatusOK,
 			tmplResp:   validTmplResp,
-			wantErr:    `no deployment found for "unknown-agent"`,
+			wantErr:    errAgentDeploymentNotFound("unknown-agent").Error(),
 			wantNoDep:  true,
 		},
 		{
@@ -156,7 +156,8 @@ func TestRunAgentRedeploy(t *testing.T) {
 			if tc.name == "agent not found" {
 				name = "unknown-agent"
 			}
-			err := runAgentRedeploy(agentRedeployCmd, []string{name})
+			setAgentTargetName(t, agentRedeployCmd, name)
+			err := runAgentRedeploy(agentRedeployCmd, nil)
 
 			if tc.wantErr != "" {
 				require.Error(t, err)
@@ -208,7 +209,8 @@ func TestRunAgentRedeployPassesDeploymentID(t *testing.T) {
 	agentRedeployCmd.SetOut(buf)
 	agentRedeployCmd.SetContext(context.Background())
 
-	require.NoError(t, runAgentRedeploy(agentRedeployCmd, []string{"my-agent"}))
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
 	assert.Equal(t, "dep-xyz", captured.DeploymentID)
 }
 
@@ -223,7 +225,8 @@ func TestRunAgentRedeployDefaultsToWebOIDC(t *testing.T) {
 	agentRedeployCmd.SetOut(buf)
 	agentRedeployCmd.SetContext(context.Background())
 
-	require.NoError(t, runAgentRedeploy(agentRedeployCmd, []string{"my-agent"}))
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
 	require.NotNil(t, captured.Interfaces)
 	assert.Equal(t, []string{"web"}, captured.Interfaces.Adapters)
 	require.NotNil(t, captured.Interfaces.Auth)
@@ -244,7 +247,8 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	agentRedeployCmd.SetOut(buf)
 	agentRedeployCmd.SetContext(context.Background())
 
-	require.NoError(t, runAgentRedeploy(agentRedeployCmd, []string{"my-agent"}))
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
 	require.NotNil(t, captured.Interfaces)
 	assert.Equal(t, []string{"slack"}, captured.Interfaces.Adapters)
 	assert.Nil(t, captured.Interfaces.Auth, "slack adapter should have no auth")
@@ -263,7 +267,8 @@ func TestRunAgentRedeployInvalidAdapterBeforeAPICall(t *testing.T) {
 	agentRedeployCmd.SetOut(&bytes.Buffer{})
 	agentRedeployCmd.SetContext(context.Background())
 
-	err := runAgentRedeploy(agentRedeployCmd, []string{"weather-agent"})
+	setAgentTargetName(t, agentRedeployCmd, "weather-agent")
+	err := runAgentRedeploy(agentRedeployCmd, nil)
 	require.ErrorContains(t, err, "unknown adapter")
 	assert.False(t, apiCalled, "API should not be called when adapter is invalid")
 }

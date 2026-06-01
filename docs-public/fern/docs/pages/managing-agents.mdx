@@ -6,6 +6,8 @@ slug: managing-agents
 
 Once an agent is deployed it runs continuously until you pause or delete it. Use the `ast agent` commands to manage it over its lifetime.
 
+Commands that target a deployment require exactly one of `--name` (display name or blueprint name from `agent list`) or `--id` (deployment ID from `agent list`). Quote `--name` when it contains spaces or special characters.
+
 ## Inspect
 
 List all agents in the active account:
@@ -17,58 +19,59 @@ ast agent list
 Get full details for a specific agent:
 
 ```bash
-ast agent get <name>
+ast agent get --name "My Production Agent"
+ast agent get --id ze5-r2l-m16
 ```
 
-Agent names are the display names set at deploy time. If two deployments share a name, pass `--id <deployment-id>` on commands that support it to target one unambiguously.
+Display names are set at deploy time (`--name` on deploy). Use `--id` when you need an unambiguous target (e.g. duplicate display names).
 
 ## Observe
 
 Fetch recent logs from all containers in the agent workload:
 
 ```bash
-ast agent logs <name>
+ast agent logs --name "My Production Agent"
 ```
 
 Stream logs continuously as they arrive:
 
 ```bash
-ast agent logs <name> --tail
+ast agent logs --name "My Production Agent" --tail
 ```
 
 To fetch logs from the messaging sidecar instead:
 
 ```bash
-ast agent logs <name> --workload agent/messaging
+ast agent logs --name "My Production Agent" --workload agent/messaging
 ```
 
 `--workload` also targets non-agent workloads — knowledge entries, ingestion sidecars, or the telemetry collector. Pass either a full workload name (`my-agent-knowledge-vectors`), an entry-name suffix (`vectors`), or a component label (`knowledge`, `collector`):
 
 ```bash
-ast agent logs <name> --workload vectors
-ast agent logs <name> --workload collector
+ast agent logs --name "My Production Agent" --workload vectors
+ast agent logs --name "My Production Agent" --workload collector
 ```
 
-Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get <name>` to see each workload's K8s name.
+Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get --name "My Production Agent"` to see each workload's K8s name.
 
 ## Control
 
 Pause an agent to stop it from handling requests without deleting it:
 
 ```bash
-ast agent pause <name>
+ast agent pause --name "My Production Agent"
 ```
 
 Resume it when ready:
 
 ```bash
-ast agent resume <name>
+ast agent resume --name "My Production Agent"
 ```
 
 Restart the agent process in-place (useful after a transient failure):
 
 ```bash
-ast agent restart <name> --component agent
+ast agent restart --name "My Production Agent" --component agent
 ```
 
 ## Update
@@ -76,7 +79,7 @@ ast agent restart <name> --component agent
 Redeploy an existing agent in-place (without changing its deployment ID or URL) to pick up new variables or a different build:
 
 ```bash
-ast agent redeploy <name> --var ANTHROPIC_API_KEY=@ANTHROPIC_API_KEY
+ast agent redeploy --name "My Production Agent" --var ANTHROPIC_API_KEY=@ANTHROPIC_API_KEY
 ```
 
 This is the right command after rotating a secret or pushing a new blueprint build. It accepts the same `--var`, `--vars-file`, `--adapter`, and `--build` flags as `ast blueprint deploy`. If `--adapter` is omitted, the adapter defaults to `web`; pass it explicitly to preserve or change a non-web setup.
@@ -84,7 +87,7 @@ This is the right command after rotating a secret or pushing a new blueprint bui
 ## Delete
 
 ```bash
-ast agent delete <name>
+ast agent delete --name "My Production Agent"
 ```
 
-You will be prompted to confirm. Pass `--confirm <name>` to skip the prompt in scripts.
+You will be prompted to confirm. Pass `--confirm` with the display name or deployment ID to skip the prompt in scripts.

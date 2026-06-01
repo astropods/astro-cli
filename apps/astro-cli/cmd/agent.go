@@ -42,49 +42,49 @@ var agentListCmd = &cobra.Command{
 }
 
 var agentGetCmd = &cobra.Command{
-	Use:   "get [name|id]",
+	Use:   "get",
 	Short: "Get details for a deployed agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentGet,
 }
 
 var agentPauseCmd = &cobra.Command{
-	Use:   "pause [name|id]",
+	Use:   "pause",
 	Short: "Pause a running agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentPause,
 }
 
 var agentResumeCmd = &cobra.Command{
-	Use:   "resume [name|id]",
+	Use:   "resume",
 	Short: "Resume a paused agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentResume,
 }
 
 var agentDeleteCmd = &cobra.Command{
-	Use:   "delete [name|id]",
+	Use:   "delete",
 	Short: "Delete a deployed agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentDelete,
 }
 
 var agentHistoryCmd = &cobra.Command{
-	Use:   "history [name|id]",
+	Use:   "history",
 	Short: "List deployment history for an agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentHistory,
 }
 
 var agentRestartCmd = &cobra.Command{
-	Use:   "restart [name|id]",
+	Use:   "restart",
 	Short: "Restart a running agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentRestart,
 }
 
 var agentLogsCmd = &cobra.Command{
-	Use:   "logs [name|id]",
+	Use:   "logs",
 	Short: "Fetch logs for a deployed agent",
 	Args:  agentTargetArgs,
 	RunE:  runAgentLogs,
@@ -267,7 +267,7 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func runAgentPause(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func runAgentPause(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/stop", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for %q", label)
+		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
 		return err
@@ -439,7 +439,7 @@ func runAgentResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -451,7 +451,7 @@ func runAgentResume(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/wakeup", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for %q", label)
+		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
 		return err
@@ -467,7 +467,7 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -501,7 +501,7 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 	u := agentBaseURL() + "/api/v1/undeploy"
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{"deployment_id": dep.ID}, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for %q", label)
+		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
 		return err
@@ -517,7 +517,7 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -570,7 +570,7 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -596,7 +596,7 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if podName == "" {
-		return fmt.Errorf("no pod found for component %q — use 'agent get %s' to see available components", component, label)
+		return fmt.Errorf("no pod found for component %q — use 'agent get --name %s' to see available components", component, label)
 	}
 
 	fmt.Fprintf(w, "%s→%s Restarting %s%s%s component of %s%s%s\n", colorCyan, colorReset, colorBold, component, colorReset, colorBold, label, colorReset) //nolint:errcheck,gosec
@@ -604,7 +604,7 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
 	if status == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for %q", label)
+		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
 		return err
@@ -620,7 +620,7 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, args, at, verbose)
+	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
@@ -651,7 +651,7 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 		for {
 			httpStatus, body, err := apiStream(cmd.Context(), streamURL, at.Token, verbose)
 			if httpStatus == http.StatusNotFound {
-				return fmt.Errorf("no deployment found for %q", label)
+				return errAgentDeploymentNotFound(label)
 			}
 			if err != nil {
 				return err
@@ -707,7 +707,7 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 	var raw json.RawMessage
 	httpStatus, err := apiCall(cmd.Context(), http.MethodGet, batchURL, nil, at.Token, verbose, &raw)
 	if httpStatus == http.StatusNotFound {
-		return fmt.Errorf("no deployment found for %q", label)
+		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
 		return err

@@ -2,35 +2,17 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-var deploymentIDPattern = regexp.MustCompile(`(?i)^[a-z0-9]{3}-[a-z0-9]{3}-[a-z0-9]{3}$`)
-
-func agentTargetArgs(cmd *cobra.Command, args []string) error {
-	if len(args) >= 1 {
-		return nil
+func agentTargetArgs(_ *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return errAgentUnexpectedArgument(args[0])
 	}
-	if cmd != nil {
-		if id, _ := cmd.Flags().GetString("id"); id != "" {
-			return nil
-		}
-	}
-	return errAgentTargetRequired()
-}
-
-func joinAgentTargetArgs(args []string) string {
-	return strings.Join(args, " ")
-}
-
-func looksLikeDeploymentID(s string) bool {
-	return deploymentIDPattern.MatchString(strings.TrimSpace(s))
+	return nil
 }
 
 func deploymentLabel(dep *agentDeployment) string {
@@ -41,32 +23,29 @@ func deploymentLabel(dep *agentDeployment) string {
 }
 
 func registerAgentTargetFlags(cmd *cobra.Command) {
-	cmd.Flags().String("id", "", "Deployment ID (from agent list; skips name lookup)")
+	cmd.Flags().String("name", "", "Display name or blueprint name (from agent list; not a deployment ID)")
+	cmd.Flags().String("id", "", "Deployment ID (from agent list)")
+	cmd.MarkFlagsOneRequired("name", "id")       //nolint:errcheck,gosec
+	cmd.MarkFlagsMutuallyExclusive("name", "id") //nolint:errcheck,gosec
 }
 
-func resolveAgentTarget(cmd *cobra.Command, args []string, at AccountToken, verbose bool) (*agentDeployment, error) {
+func resolveAgentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*agentDeployment, error) {
 	if id, _ := cmd.Flags().GetString("id"); id != "" {
 		return fetchAgentDeploymentSummary(cmd.Context(), id, at, verbose)
 	}
 
-	target := joinAgentTargetArgs(args)
-	if target == "" {
+	name, _ := cmd.Flags().GetString("name")
+	if name == "" {
 		return nil, errAgentTargetRequired()
 	}
 
-	if looksLikeDeploymentID(target) {
-		if dep, err := fetchAgentDeploymentSummary(cmd.Context(), target, at, verbose); err == nil {
-			return dep, nil
-		}
-	}
-
-	return findDeploymentByTarget(cmd, target, at, verbose)
+	return findDeploymentByTarget(cmd, name, at, verbose)
 }
 
 func fetchAgentDeploymentSummary(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeployment, error) {
 	full, err := getAgentDeploymentFull(ctx, id, at, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("no deployment found for ID %q", id)
+		return nil, errAgentDeploymentNotFoundForID(id)
 	}
 	return &agentDeployment{
 		ID:          full.ID,
@@ -87,9 +66,9 @@ func findDeploymentByTarget(cmd *cobra.Command, target string, at AccountToken, 
 	}
 	for i := range result.Deployments {
 		d := &result.Deployments[i]
-		if d.DisplayName == target || d.ID == target || strings.EqualFold(d.ID, target) || d.Name == target {
+		if d.DisplayName == target || d.Name == target {
 			return d, nil
 		}
 	}
-	return nil, fmt.Errorf("no deployment found for %q", target)
+	return nil, errAgentDeploymentNotFound(target)
 }

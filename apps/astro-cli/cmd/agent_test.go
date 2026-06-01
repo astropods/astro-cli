@@ -91,8 +91,9 @@ func TestAgentGet(t *testing.T) {
 			buf := &bytes.Buffer{}
 			agentGetCmd.SetOut(buf)
 			agentGetCmd.SetContext(context.Background())
+			setAgentTargetName(t, agentGetCmd, "my-agent")
 
-			err := runAgentGet(agentGetCmd, []string{"my-agent"})
+			err := runAgentGet(agentGetCmd, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -279,20 +280,22 @@ func TestAgentPauseResume(t *testing.T) {
 			switch tc.action {
 			case "pause":
 				if tc.useID {
-					require.NoError(t, agentPauseCmd.Flags().Set("id", "dep-abc-123"))
-					t.Cleanup(func() { agentPauseCmd.Flags().Set("id", "") }) //nolint:errcheck
+					setAgentTargetID(t, agentPauseCmd, "dep-abc-123")
+				} else {
+					setAgentTargetName(t, agentPauseCmd, "my-agent")
 				}
 				agentPauseCmd.SetOut(&buf)
 				agentPauseCmd.SetContext(context.Background())
-				err = runAgentPause(agentPauseCmd, []string{"my-agent"})
+				err = runAgentPause(agentPauseCmd, nil)
 			case "resume":
 				if tc.useID {
-					require.NoError(t, agentResumeCmd.Flags().Set("id", "dep-abc-123"))
-					t.Cleanup(func() { agentResumeCmd.Flags().Set("id", "") }) //nolint:errcheck
+					setAgentTargetID(t, agentResumeCmd, "dep-abc-123")
+				} else {
+					setAgentTargetName(t, agentResumeCmd, "my-agent")
 				}
 				agentResumeCmd.SetOut(&buf)
 				agentResumeCmd.SetContext(context.Background())
-				err = runAgentResume(agentResumeCmd, []string{"my-agent"})
+				err = runAgentResume(agentResumeCmd, nil)
 			}
 
 			if tc.wantErr {
@@ -348,8 +351,9 @@ func TestAgentDelete(t *testing.T) {
 			buf := &bytes.Buffer{}
 			agentDeleteCmd.SetOut(buf)
 			agentDeleteCmd.SetContext(context.Background())
+			setAgentTargetName(t, agentDeleteCmd, "my-agent")
 
-			err := runAgentDelete(agentDeleteCmd, []string{"my-agent"})
+			err := runAgentDelete(agentDeleteCmd, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -423,8 +427,9 @@ func TestAgentHistory(t *testing.T) {
 			buf := &bytes.Buffer{}
 			agentHistoryCmd.SetOut(buf)
 			agentHistoryCmd.SetContext(context.Background())
+			setAgentTargetName(t, agentHistoryCmd, "my-agent")
 
-			err := runAgentHistory(agentHistoryCmd, []string{"my-agent"})
+			err := runAgentHistory(agentHistoryCmd, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -493,15 +498,16 @@ func TestAgentRestart(t *testing.T) {
 			require.NoError(t, agentRestartCmd.Flags().Set("component", tc.component))
 			t.Cleanup(func() { agentRestartCmd.Flags().Set("component", "") }) //nolint:errcheck
 			if tc.useID {
-				require.NoError(t, agentRestartCmd.Flags().Set("id", "dep-abc-123"))
-				t.Cleanup(func() { agentRestartCmd.Flags().Set("id", "") }) //nolint:errcheck
+				setAgentTargetID(t, agentRestartCmd, "dep-abc-123")
+			} else {
+				setAgentTargetName(t, agentRestartCmd, "my-agent")
 			}
 
 			buf := &bytes.Buffer{}
 			agentRestartCmd.SetOut(buf)
 			agentRestartCmd.SetContext(context.Background())
 
-			err := runAgentRestart(agentRestartCmd, []string{"my-agent"})
+			err := runAgentRestart(agentRestartCmd, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -555,8 +561,9 @@ func TestAgentLogsWorkload(t *testing.T) {
 	buf := &bytes.Buffer{}
 	agentLogsCmd.SetOut(buf)
 	agentLogsCmd.SetContext(context.Background())
+	setAgentTargetName(t, agentLogsCmd, "ABC !#@#")
 
-	require.NoError(t, runAgentLogs(agentLogsCmd, []string{"ABC !#@#"}))
+	require.NoError(t, runAgentLogs(agentLogsCmd, nil))
 	assert.Equal(t, "weather-poet-agent", capturedWorkload)
 }
 
@@ -648,8 +655,9 @@ func TestAgentLogs(t *testing.T) {
 				t.Cleanup(func() { agentLogsCmd.Flags().Set("workload", "") }) //nolint:errcheck
 			}
 			if tc.useID {
-				require.NoError(t, agentLogsCmd.Flags().Set("id", "dep-abc-123"))
-				t.Cleanup(func() { agentLogsCmd.Flags().Set("id", "") }) //nolint:errcheck
+				setAgentTargetID(t, agentLogsCmd, "dep-abc-123")
+			} else {
+				setAgentTargetName(t, agentLogsCmd, "my-agent")
 			}
 			if tc.tail {
 				require.NoError(t, agentLogsCmd.Flags().Set("tail", "true"))
@@ -668,7 +676,7 @@ func TestAgentLogs(t *testing.T) {
 			}
 			agentLogsCmd.SetContext(ctx)
 
-			err := runAgentLogs(agentLogsCmd, []string{"my-agent"})
+			err := runAgentLogs(agentLogsCmd, nil)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {

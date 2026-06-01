@@ -58,19 +58,19 @@ Top-level aliases: `ast build <name>`, `ast push <name>`, `ast deploy <name>`.
 
 Manages running deployments — instances of a blueprint deployed to the platform.
 
-Target a deployment by display name (from `agent list`), blueprint name, or deployment ID (`ze5-r2l-m16`). Multi-word display names can be passed unquoted: `ast agent get Pirate Parrot EU!`. Use `--id` to skip name lookup.
+Target a deployment with exactly one of `--name` (display name or blueprint name from `agent list`) or `--id` (deployment ID). IDs are not accepted on `--name`. Quote names that contain spaces or shell metacharacters: `ast agent get --name 'Pirate Parrot EU!'`.
 
 | Command | Description |
 |---|---|
 | `agent list` | List deployments in the active account |
-| `agent get [name\|id]` | Get deployment status and detail (`--id`) |
-| `agent delete [name\|id]` | Undeploy (`--id`, `--confirm`) |
-| `agent pause [name\|id]` | Scale to zero (`--id`) |
-| `agent resume [name\|id]` | Wake up a paused deployment (`--id`) |
-| `agent restart [name\|id]` | Rolling restart (`--id`, `--component`) |
-| `agent redeploy [name\|id]` | Redeploy with updated config or build (`--id`) |
-| `agent history [name\|id]` | List deployment history (`--id`) |
-| `agent logs [name\|id]` | Fetch deployment logs; `--tail` streams live (`--id`, `--workload` accepts `workload[/container]`) |
+| `agent get` | Get deployment status and detail (`--name` or `--id`) |
+| `agent delete` | Undeploy (`--name` or `--id`, `--confirm`) |
+| `agent pause` | Scale to zero (`--name` or `--id`) |
+| `agent resume` | Wake up a paused deployment (`--name` or `--id`) |
+| `agent restart` | Rolling restart (`--name` or `--id`, `--component`) |
+| `agent redeploy` | Redeploy with updated config or build (`--name` or `--id`) |
+| `agent history` | List deployment history (`--name` or `--id`) |
+| `agent logs` | Fetch deployment logs; `--tail` streams live (`--name` or `--id`, `--workload` accepts `workload[/container]`) |
 
 ---
 

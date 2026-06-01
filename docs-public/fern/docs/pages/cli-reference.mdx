@@ -43,6 +43,8 @@ Manage deployed agents in the active account.
 ast agent <subcommand>
 ```
 
+Commands that target a deployment require exactly one of `--name` (display name or blueprint name from `agent list`) or `--id` (deployment ID). Quote `--name` values that contain spaces or shell metacharacters, e.g. `ast agent get --name 'Pirate Parrot EU!'`.
+
 ### agent list
 
 ```bash
@@ -52,14 +54,17 @@ ast agent list [--json]
 ### agent get
 
 ```bash
-ast agent get <name> [--json]
+ast agent get --name <display-or-blueprint-name> [--json]
+ast agent get --id <deployment-id> [--json]
 ```
 
 ### agent pause / resume
 
 ```bash
-ast agent pause <name> [--id <deployment-id>]
-ast agent resume <name> [--id <deployment-id>]
+ast agent pause --name <display-or-blueprint-name>
+ast agent pause --id <deployment-id>
+ast agent resume --name <display-or-blueprint-name>
+ast agent resume --id <deployment-id>
 ```
 
 ### agent redeploy
@@ -67,19 +72,22 @@ ast agent resume <name> [--id <deployment-id>]
 Re-deploy an existing agent in-place. Accepts the same `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, and `--json` flags as `blueprint deploy`. If `--adapter` is omitted, the adapter defaults to `web`; pass `--adapter` explicitly to preserve or change a non-web setup.
 
 ```bash
-ast agent redeploy <name> [flags]
+ast agent redeploy --name <display-or-blueprint-name> [flags]
+ast agent redeploy --id <deployment-id> [flags]
 ```
 
 ### agent restart
 
 ```bash
-ast agent restart <name> --component agent [--id <deployment-id>]
+ast agent restart --name <display-or-blueprint-name> --component agent
+ast agent restart --id <deployment-id> --component agent
 ```
 
 ### agent logs
 
 ```bash
-ast agent logs <name> [--workload <workload>[/<container>]] [--tail] [--id <deployment-id>]
+ast agent logs --name <display-or-blueprint-name> [--workload <workload>[/<container>]] [--tail]
+ast agent logs --id <deployment-id> [--workload <workload>[/<container>]] [--tail]
 ```
 
 By default this reads logs from all containers in the agent workload. Use `--workload` to target a different workload (knowledge entry, ingestion sidecar, collector, etc.) or a specific container.
@@ -91,22 +99,24 @@ By default this reads logs from all containers in the agent workload. Use `--wor
 - A component label: `agent`, `messaging`, `knowledge`, `collector`
 - A `workload/container` pair to pick a specific container: `agent/messaging`
 
-Ambiguous identifiers (e.g. `knowledge` when several knowledge entries exist) return an error listing the candidates. Use `ast agent get <name>` to see each workload's K8s name.
+Ambiguous identifiers (e.g. `knowledge` when several knowledge entries exist) return an error listing the candidates. Use `ast agent get --name <display-or-blueprint-name>` to see each workload's K8s name.
 
 `--tail` streams logs continuously after fetching the last 15 minutes.
 
 ### agent delete
 
 ```bash
-ast agent delete <name> [--confirm <name>]
+ast agent delete --name <display-or-blueprint-name> [--confirm <name-or-id>]
+ast agent delete --id <deployment-id> [--confirm <name-or-id>]
 ```
 
-Prompts for confirmation. Pass `--confirm <name>` to skip the prompt.
+Prompts for confirmation. Pass `--confirm` with the display name or deployment ID to skip the prompt.
 
 ### agent history
 
 ```bash
-ast agent history <name> [--json]
+ast agent history --name <display-or-blueprint-name> [--json]
+ast agent history --id <deployment-id> [--json]
 ```
 
 ---

@@ -23,7 +23,22 @@ func errNoSpecFile() error {
 }
 
 func errAgentTargetRequired() error {
-	return fmt.Errorf("expected a deployment name or ID — multi-word names can be unquoted, e.g. ast agent get Pirate Parrot EU")
+	return fmt.Errorf(
+		"required: --name <display-or-blueprint-name> or --id <deployment-id> (from %s agent list; IDs only with --id)",
+		buildinfo.BinaryName,
+	)
+}
+
+func errAgentUnexpectedArgument(arg string) error {
+	return fmt.Errorf("unexpected argument %q — use --name or --id", arg)
+}
+
+func errAgentDeploymentNotFoundForID(id string) error {
+	return fmt.Errorf("no deployment found for ID %q", id)
+}
+
+func errAgentDeploymentNotFound(target string) error {
+	return fmt.Errorf("no deployment found for %q", target)
 }
 
 func errDeployNameConflict(displayName string) error {
