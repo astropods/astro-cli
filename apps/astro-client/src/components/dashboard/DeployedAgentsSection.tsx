@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
+import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
@@ -43,6 +45,7 @@ export function DeployedAgentsSection({
 
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
+  const [deleteTarget, setDeleteTarget] = useState<AgentDeploymentSummary | null>(null);
 
   if (isEmpty) {
     return <DashboardAgentsEmptyState />;
@@ -74,10 +77,23 @@ export function DeployedAgentsSection({
                 account={account}
                 requestSeries={requestSeries.get(deployment.id)}
                 tokenSeries={tokenSeries.get(deployment.id)}
+                onDeleteRequest={() => setDeleteTarget(deployment)}
               />
             );
           })}
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteDeploymentDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+          deploymentId={deleteTarget.id}
+          deploymentName={deleteTarget.name}
+          displayName={deleteTarget.display_name}
+          account={account}
+          onDeleted={() => setDeleteTarget(null)}
+        />
       )}
     </>
   );

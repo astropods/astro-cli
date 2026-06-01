@@ -13,11 +13,13 @@ export function DeploymentAgentCard({
   account,
   requestSeries,
   tokenSeries,
+  onDeleteRequest,
 }: {
   deployment: AgentDeploymentSummary;
   account: string;
   requestSeries?: number[];
   tokenSeries?: number[];
+  onDeleteRequest?: () => void;
 }) {
   const bust = useDeploymentAvatarBust(deployment.id);
   const avatarUrl = bust ?? getDeploymentAvatarUrl(deployment.id);
@@ -41,6 +43,7 @@ export function DeploymentAgentCard({
       hasError={hasError}
       hasUpdateAvailable={hasUpdateAvailable}
       latestBuildId={deployment.latest_build_id}
+      onDeleteRequest={onDeleteRequest}
     />
   );
 }

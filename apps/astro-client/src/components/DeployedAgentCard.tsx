@@ -15,7 +15,6 @@ import {
 import { cn } from "@/lib/utils";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Button } from "@/components/ui/button";
-import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,6 +73,10 @@ export interface DeployedAgentCardProps {
    *  configure form pre-loaded with that build — same flow as the
    *  detail page's update affordance. */
   latestBuildId?: string;
+  /** Called when the user chooses "Delete agent" from the card menu. The
+   *  parent owns the confirmation dialog so it isn't nested inside the
+   *  card's click target. */
+  onDeleteRequest?: () => void;
   className?: string;
 }
 
@@ -480,6 +483,7 @@ export function DeployedAgentCard({
   hasError,
   hasUpdateAvailable,
   latestBuildId,
+  onDeleteRequest,
   className,
 }: DeployedAgentCardProps) {
   // Vertical fade: avatar tint at the top of the card, fading to the bare
@@ -500,7 +504,6 @@ export function DeployedAgentCard({
   const starSeed = deploymentId ?? `${account}/${name}`;
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
   const navigate = useNavigate();
   // Card-level click goes to the deployment's Monitor tab — the card's headline
@@ -525,10 +528,10 @@ export function DeployedAgentCard({
       navigate(detailPath);
     }
   };
-  // Menu visibility: revealed on card hover OR while the menu (or its dialogs)
-  // are open — otherwise dismissing the menu by mouse-leaving the card while
-  // the dropdown was still open would yank the trigger out from under the user.
-  const menuVisible = hovered || menuOpen || deleteOpen;
+  // Menu visibility: revealed on card hover OR while the menu is open —
+  // otherwise dismissing the menu by mouse-leaving the card while the
+  // dropdown was still open would yank the trigger out from under the user.
+  const menuVisible = hovered || menuOpen;
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -601,14 +604,14 @@ export function DeployedAgentCard({
                 {copied ? "Copied!" : "Copy deploy ID"}
               </DropdownMenuItem>
             )}
-            {deploymentId && (
+            {deploymentId && onDeleteRequest && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => {
                     setMenuOpen(false);
-                    setDeleteOpen(true);
+                    onDeleteRequest();
                   }}
                   className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
                 >
@@ -721,16 +724,6 @@ export function DeployedAgentCard({
           </Button>
         )}
       </div>
-      {deploymentId && (
-        <DeleteDeploymentDialog
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-          deploymentId={deploymentId}
-          deploymentName={name}
-          displayName={displayName}
-          account={account}
-        />
-      )}
     </div>
   );
 }
