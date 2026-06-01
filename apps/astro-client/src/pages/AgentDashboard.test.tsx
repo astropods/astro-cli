@@ -193,7 +193,10 @@ describe('reveal overlay after deploy', () => {
           }),
         },
         {
-          path: '/:account/agents/:deploymentId',
+          // `deploymentPath(account, id)` with no tab now resolves directly
+          // to the `/deployments` segment (previously bare, routed through
+          // `AgentDetailRedirect`). Match that target here.
+          path: '/:account/agents/:deploymentId/deployments',
           Component: () => <div data-testid="deployment-detail">Deployment Detail</div>,
         },
       ],

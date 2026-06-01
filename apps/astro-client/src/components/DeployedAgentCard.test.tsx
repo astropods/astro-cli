@@ -22,7 +22,11 @@ function renderDeployedAgentCard() {
         ),
       },
       {
-        path: "/postman/agents/dep-prism",
+        // Card-level click on `/agents` routes to the Monitor tab; the
+        // "Manage agent" button is the one that still hits the deployments
+        // tab. Tests here cover the card-shell click, so this fixture
+        // mirrors the Monitor destination.
+        path: "/postman/agents/dep-prism/monitor",
         Component: () => <div data-testid="agent-detail">Agent detail</div>,
       },
       {

@@ -1,11 +1,12 @@
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { motion } from "motion/react";
 import { Activity, ChevronDown, Layers, Settings, type LucideIcon } from "lucide-react";
+import { DeploymentTab } from "@/lib/routes";
 
-const TABS: { label: string; path: string; icon: LucideIcon }[] = [
-  { label: "Monitor", path: "monitor", icon: Activity },
-  { label: "Deployments", path: "deployments", icon: Layers },
-  { label: "Configure", path: "configure", icon: Settings },
+const TABS: { label: string; path: DeploymentTab; icon: LucideIcon }[] = [
+  { label: "Monitor", path: DeploymentTab.Monitor, icon: Activity },
+  { label: "Deployments", path: DeploymentTab.Deployment, icon: Layers },
+  { label: "Configure", path: DeploymentTab.Configure, icon: Settings },
 ];
 
 export function AgentTabBar() {
