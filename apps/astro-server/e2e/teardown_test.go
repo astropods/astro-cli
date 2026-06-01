@@ -227,7 +227,7 @@ func TestTeardown_StatusTransition(t *testing.T) {
 	}
 
 	// Mark as undeployed (what the UndeployWorker does after teardown)
-	if err := env.store.UpdateStatus(dep.ID, ds.StatusUndeployed, "", nil); err != nil {
+	if err := env.store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 
@@ -267,7 +267,7 @@ func TestTeardown_NamespaceNotInReconcile(t *testing.T) {
 		t.Fatalf("Teardown: %v", err)
 	}
 
-	if err := env.store.UpdateStatus(dep.ID, ds.StatusUndeployed, "", nil); err != nil {
+	if err := env.store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 
@@ -312,7 +312,7 @@ func TestTeardown_ClearsScaledDown(t *testing.T) {
 	}
 
 	// Transition to undeploying
-	if err := env.store.UpdateStatus(dep.ID, ds.StatusUndeploying, "", nil); err != nil {
+	if err := env.store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeploying}); err != nil {
 		t.Fatalf("UpdateStatus to undeploying: %v", err)
 	}
 

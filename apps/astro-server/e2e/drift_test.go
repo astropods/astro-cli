@@ -164,7 +164,7 @@ func setupDriftEnv(t *testing.T) *driftTestEnv {
 		t.Fatalf("SaveDeploymentPending: %v", err)
 	}
 
-	if err := store.UpdateStatus(dep.ID, ds.StatusActive, "", nil); err != nil {
+	if err := store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusActive}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 

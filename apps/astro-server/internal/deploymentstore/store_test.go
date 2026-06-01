@@ -380,9 +380,9 @@ func TestUpdateStatus(t *testing.T) {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
 
-	// Update to active with an error message and details
+	// Update to active with an event message and details
 	details := json.RawMessage(`{"reason":"test"}`)
-	if err := store.UpdateStatus(d.ID, StatusActive, "all good", details); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusActive, EventMsg: "all good", ErrorDetails: details}); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
@@ -394,8 +394,8 @@ func TestUpdateStatus(t *testing.T) {
 	if dep.Status != StatusActive {
 		t.Errorf("expected status 'active', got %q", dep.Status)
 	}
-	if dep.ErrorMessage == nil || *dep.ErrorMessage != "all good" {
-		t.Errorf("expected error_message 'all good', got %v", dep.ErrorMessage)
+	if dep.ErrorMessage != nil {
+		t.Errorf("expected error_message nil, got %v", *dep.ErrorMessage)
 	}
 
 	// Verify event row was created
@@ -436,7 +436,7 @@ func TestUpdateStatus_StampsUndeployedAt(t *testing.T) {
 	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d.ID)
 
 	// First transition to 'undeployed' should stamp undeployed_at.
-	if err := store.UpdateStatus(d.ID, StatusUndeployed, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus(undeployed) failed: %v", err)
 	}
 	dep, err := store.GetDeploymentByID(d.ID)
@@ -452,7 +452,7 @@ func TestUpdateStatus_StampsUndeployedAt(t *testing.T) {
 	// The CASE guard `undeployed_at IS NULL THEN NOW() ELSE undeployed_at` keeps
 	// the first stamp; we'd lose the original delete time otherwise.
 	time.Sleep(10 * time.Millisecond) // ensure a clock tick so a buggy implementation would visibly shift
-	if err := store.UpdateStatus(d.ID, StatusUndeployed, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus(undeployed) second call failed: %v", err)
 	}
 	dep, err = store.GetDeploymentByID(d.ID)
@@ -699,7 +699,7 @@ func TestScanDeployment_NullErrorDetails(t *testing.T) {
 	}
 
 	// Now set error_details to a non-null value and verify it scans correctly
-	if err := store.UpdateStatus(d.ID, StatusFailed, "boom", json.RawMessage(`{"code":"ERR_1"}`)); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusFailed, ErrorMsg: "boom", ErrorDetails: json.RawMessage(`{"code":"ERR_1"}`)}); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 	dep, err = store.GetDeploymentByID(d.ID)

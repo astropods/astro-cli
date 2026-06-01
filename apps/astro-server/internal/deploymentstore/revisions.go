@@ -196,7 +196,7 @@ func (s *Store) SetCurrentRevision(deploymentID string, revision int, txFn func(
 	}
 
 	// Update status + record event
-	if err := updateStatusTx(tx, deploymentID, StatusPending, fmt.Sprintf("Rollback to revision %d", revision), nil); err != nil {
+	if err := updateStatusTx(tx, deploymentID, StatusUpdate{Status: StatusPending, EventMsg: fmt.Sprintf("Rollback to revision %d", revision)}); err != nil {
 		return err
 	}
 

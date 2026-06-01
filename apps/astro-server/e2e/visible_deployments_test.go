@@ -26,7 +26,7 @@ func createDeploymentInStatus(t *testing.T, store *ds.Store, accountID, name, st
 		t.Fatalf("SaveDeploymentPending(%s/%s): %v", name, status, err)
 	}
 	if status != ds.StatusPending {
-		if err := store.UpdateStatus(dep.ID, status, "", nil); err != nil {
+		if err := store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: status}); err != nil {
 			t.Fatalf("UpdateStatus(%s → %s): %v", name, status, err)
 		}
 	}
@@ -101,7 +101,7 @@ func TestGetVisibleDeploymentsByAccount_FailedHasError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if err := store.UpdateStatus(dep.ID, ds.StatusFailed, "partial failure", errDetails); err != nil {
+	if err := store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusFailed, ErrorMsg: "partial failure", ErrorDetails: errDetails}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 
@@ -181,7 +181,7 @@ func TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim(t *testi
 			if err != nil {
 				t.Fatalf("SaveDeploymentPending: %v", err)
 			}
-			if err := store.UpdateStatus(dep.ID, ds.StatusActive, "", nil); err != nil {
+			if err := store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusActive}); err != nil {
 				t.Fatalf("UpdateStatus: %v", err)
 			}
 

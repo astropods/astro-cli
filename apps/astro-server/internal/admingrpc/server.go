@@ -888,7 +888,7 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 	}
 
 	// Set status to undeploying
-	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
 	}
 
@@ -1514,7 +1514,7 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 	}
 
 	// Update status to pending
-	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin wakeup requested", nil); err != nil {
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending, EventMsg: "Admin wakeup requested"}); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
 	}
 
@@ -1579,7 +1579,7 @@ func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeployment
 		return nil, fmt.Errorf("stop workloads: %w", err)
 	}
 
-	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "Admin stop requested", nil); err != nil {
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusStopped, EventMsg: "Admin stop requested"}); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
 	}
 
@@ -1695,7 +1695,7 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 	// Set status to pending (skip if already pending — just re-enqueue the job)
 	if dep.Status != deploymentstore.StatusPending {
-		if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin re-apply requested", nil); err != nil {
+		if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending, EventMsg: "Admin re-apply requested"}); err != nil {
 			return nil, fmt.Errorf("update status: %w", err)
 		}
 	}

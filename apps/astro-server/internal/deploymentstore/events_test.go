@@ -21,10 +21,10 @@ func TestGetDeploymentEvents_AfterStatusUpdates(t *testing.T) {
 
 	// SaveDeploymentPending creates an initial "pending" event.
 	// Add more status transitions.
-	if err := store.UpdateStatus(d.ID, StatusProvisioning, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusProvisioning}); err != nil {
 		t.Fatalf("UpdateStatus to provisioning: %v", err)
 	}
-	if err := store.UpdateStatus(d.ID, StatusActive, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusActive}); err != nil {
 		t.Fatalf("UpdateStatus to active: %v", err)
 	}
 
@@ -72,13 +72,13 @@ func TestGetDeploymentEvents_Limit(t *testing.T) {
 	}
 
 	// Add several status transitions
-	if err := store.UpdateStatus(d.ID, StatusProvisioning, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusProvisioning}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
-	if err := store.UpdateStatus(d.ID, StatusActive, "", nil); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusActive}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
-	if err := store.UpdateStatus(d.ID, StatusFailed, "something broke", json.RawMessage(`{"code":"ERR"}`)); err != nil {
+	if err := store.UpdateStatus(d.ID, StatusUpdate{Status: StatusFailed, ErrorMsg: "something broke", ErrorDetails: json.RawMessage(`{"code":"ERR"}`)}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 

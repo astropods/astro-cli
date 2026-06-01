@@ -588,7 +588,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 		return fmt.Errorf("nil deployment")
 	}
 	cid := dep.EffectiveClusterID()
-	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}
 	if err := queue.InsertUndeployJob(ctx, dep.ID, cid); err != nil {
@@ -1699,7 +1699,7 @@ func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.Deployment) 
 	// status=failed is the canonical truth-from-DB signal (preflight,
 	// pod-failure escalation, stale-job sweep). Surface it as "error" so
 	// the UI's error badge fires even on the lightweight DB-only path.
-	if dep.Status == deploymentstore.StatusFailed || (dep.ErrorMessage != nil && *dep.ErrorMessage != "") {
+	if dep.Status == deploymentstore.StatusFailed {
 		ad.Status = "error"
 	}
 
@@ -4208,7 +4208,7 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 		}
 		k8scache.InvalidateNamespace(c.Request.Context(), cache, dep.Namespace)
 
-		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "", nil); err != nil {
+		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusStopped}); err != nil {
 			log.Error("Failed to mark deployment stopped", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
 			return
@@ -4257,7 +4257,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			return
 		}
 
-		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "", nil); err != nil {
+		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
 			return
 		}

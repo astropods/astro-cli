@@ -160,7 +160,7 @@ func (w *ReconcileWorker) escalatePodFailures(ctx context.Context) {
 				continue
 			}
 			msg := formatPodFailureMessage(reason, image, podName)
-			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, msg, nil); err != nil {
+			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: msg}); err != nil {
 				w.log.Warn("Reconcile: failed to escalate deployment to failed",
 					"error", err, "deployment_id", dep.ID)
 				continue
@@ -328,7 +328,7 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 					"deployment_id", dep.ID,
 					"since", dep.StatusChangedAt,
 				)
-				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
+				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: staleMsg}); err != nil {
 					w.log.Warn("Failed to mark stale deployment as failed", "error", err, "deployment_id", dep.ID)
 				} else {
 					_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -351,7 +351,7 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 					"deployment_id", dep.ID,
 					"since", dep.StatusChangedAt,
 				)
-				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
+				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: staleMsg}); err != nil {
 					w.log.Warn("Failed to mark stale pending deployment as failed", "error", err, "deployment_id", dep.ID)
 				} else {
 					_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -449,7 +449,7 @@ func (w *ReconcileWorker) reconcileOIDCIssuer(ctx context.Context) {
 				continue
 			}
 
-			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "OIDC config changed — reapplying", nil); err != nil {
+			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending, EventMsg: "OIDC config changed — reapplying"}); err != nil {
 				w.log.Error("Reconcile OIDC: failed to set pending", "deployment_id", dep.ID, "error", err)
 				continue
 			}

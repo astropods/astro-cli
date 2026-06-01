@@ -116,7 +116,7 @@ func TestUndeployUnreachableAdditionalClusterMarksUndeployed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
 	}
-	if err := deployStore.UpdateStatus(dep.ID, ds.StatusUndeploying, "", nil); err != nil {
+	if err := deployStore.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeploying}); err != nil {
 		t.Fatalf("UpdateStatus undeploying: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestUndeployUnreachableAdditionalClusterMarksUndeployed(t *testing.T) {
 	if err := deployStore.ClearScaledDown(dep.Namespace); err != nil {
 		t.Fatalf("ClearScaledDown: %v", err)
 	}
-	if err := deployStore.UpdateStatus(dep.ID, ds.StatusUndeployed, "", nil); err != nil {
+	if err := deployStore.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus undeployed: %v", err)
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -104,7 +105,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if purgeWorker != nil {
 		purgeWorker.enqueueUndeploy = func(ctx context.Context, deploymentID string) error {
 			store := purgeWorker.deployStore
-			if err := store.UpdateStatus(deploymentID, "undeploying", "", nil); err != nil {
+			if err := store.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: "undeploying"}); err != nil {
 				return fmt.Errorf("update status: %w", err)
 			}
 			dep, derr := store.GetDeploymentByID(deploymentID)

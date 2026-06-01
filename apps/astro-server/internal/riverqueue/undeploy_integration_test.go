@@ -81,7 +81,7 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
 	}
-	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 

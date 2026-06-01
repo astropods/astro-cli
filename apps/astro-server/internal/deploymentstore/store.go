@@ -589,13 +589,24 @@ func nilIfEmptyJSON(j json.RawMessage) interface{} {
 	return j
 }
 
+// StatusUpdate carries the parameters for a deployment status change.
+// ErrorMsg is stored in deployments.error_message and should only be non-empty for StatusFailed.
+// EventMsg is stored in deployment_events.message; if empty it falls back to ErrorMsg so error
+// callers don't need to repeat themselves. It may carry context for any transition.
+type StatusUpdate struct {
+	Status       string
+	ErrorMsg     string
+	EventMsg     string
+	ErrorDetails json.RawMessage
+}
+
 // updateStatusTx updates a deployment's status and records an event within an existing transaction.
 // When the new status is 'undeployed' the undeployed_at column is populated
 // (unless already set) — this is the single entry point for status changes, so
 // stamping the timestamp here avoids the previous bug where the undeploy
 // worker tried to set it via a separate call with a stale WHERE-status guard.
-func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.RawMessage) error {
-	details := nilIfEmptyJSON(errorDetails)
+func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
+	details := nilIfEmptyJSON(u.ErrorDetails)
 	// $2 is cast to text explicitly: pq's parameter-type deduction fails
 	// with "inconsistent types deduced for parameter $2" when the same
 	// placeholder appears as both a varchar column value (status = $2)
@@ -612,15 +623,19 @@ func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.R
 		      ELSE undeployed_at
 		    END
 		WHERE id = $1
-	`, id, status, nilIfEmpty(errorMsg), details)
+	`, id, u.Status, nilIfEmpty(u.ErrorMsg), details)
 	if err != nil {
 		return fmt.Errorf("failed to update deployment status: %w", err)
 	}
 
+	msg := u.EventMsg
+	if msg == "" {
+		msg = u.ErrorMsg
+	}
 	_, err = tx.Exec(`
 		INSERT INTO deployment_events (deployment_id, status, message, details)
 		VALUES ($1, $2, $3, $4)
-	`, id, status, nilIfEmpty(errorMsg), details)
+	`, id, u.Status, nilIfEmpty(msg), details)
 	if err != nil {
 		return fmt.Errorf("failed to insert deployment event: %w", err)
 	}
@@ -630,14 +645,14 @@ func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.R
 
 // UpdateStatus is the single entry point for all deployment status changes.
 // It updates the deployment row and inserts a deployment_events row in one transaction.
-func (s *Store) UpdateStatus(id, status, errorMsg string, errorDetails json.RawMessage) error {
+func (s *Store) UpdateStatus(id string, u StatusUpdate) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	if err := updateStatusTx(tx, id, status, errorMsg, errorDetails); err != nil {
+	if err := updateStatusTx(tx, id, u); err != nil {
 		return err
 	}
 
@@ -941,7 +956,7 @@ func (s *Store) MarkScaledDown(deploymentID, namespace string) error {
 		return fmt.Errorf("failed to insert scaled namespace: %w", err)
 	}
 
-	if err := updateStatusTx(tx, deploymentID, StatusScaledDown, "KEDA scaled namespace to zero", nil); err != nil {
+	if err := updateStatusTx(tx, deploymentID, StatusUpdate{Status: StatusScaledDown, EventMsg: "KEDA scaled namespace to zero"}); err != nil {
 		return err
 	}
 

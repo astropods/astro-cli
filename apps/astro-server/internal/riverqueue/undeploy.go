@@ -74,7 +74,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 				"error", err,
 			)
 		} else {
-			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "undeploy failed: "+err.Error(), nil); sErr != nil {
+			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "undeploy failed: " + err.Error()}); sErr != nil {
 				w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
 			}
 			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -87,9 +87,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)
 	}
 
-	// UpdateStatus stamps undeployed_at as part of the same SQL UPDATE when
-	// transitioning to 'undeployed' — no separate call needed.
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUndeployed, "", nil); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}); err != nil {
 		return fmt.Errorf("set undeployed: %w", err)
 	}
 	// Undeploy → the deployment drops out of the visible list for this account.

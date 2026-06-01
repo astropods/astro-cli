@@ -54,12 +54,12 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 		return nil
 	}
 
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusProvisioning, "", nil); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusProvisioning}); err != nil {
 		return fmt.Errorf("set provisioning: %w", err)
 	}
 
 	if _, err := w.deployer.Apply(ctx, dep); err != nil {
-		if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, err.Error(), nil); sErr != nil {
+		if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: err.Error()}); sErr != nil {
 			w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
 		}
 		return fmt.Errorf("wakeup apply failed: %w", err)
@@ -70,7 +70,7 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)
 	}
 
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive}); err != nil {
 		return fmt.Errorf("set active: %w", err)
 	}
 

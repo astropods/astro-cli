@@ -73,7 +73,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		return nil
 	}
 
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusProvisioning, "", nil); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusProvisioning}); err != nil {
 		return fmt.Errorf("set provisioning: %w", err)
 	}
 
@@ -85,7 +85,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		if jsonErr != nil {
 			errDetails = nil
 		}
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, applyErr.Error(), errDetails); err != nil {
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: applyErr.Error(), ErrorDetails: errDetails}); err != nil {
 			w.log.Warn("Failed to mark deployment as failed", "error", err, "deployment_id", dep.ID)
 		}
 		// Status change → deploy cache for the account is stale.
@@ -100,7 +100,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		if jsonErr != nil {
 			w.log.Warn("Failed to marshal error details", "error", jsonErr, "deployment_id", dep.ID)
 		}
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "partial failure", errJSON); err != nil {
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "partial failure", ErrorDetails: errJSON}); err != nil {
 			w.log.Warn("Failed to mark deployment as partially failed", "error", err, "deployment_id", dep.ID)
 		}
 		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -119,7 +119,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		)
 		return nil
 	}
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusActive, "", nil); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive}); err != nil {
 		return fmt.Errorf("set active: %w", err)
 	}
 	// Active → external_urls / messaging_available are now populated;
