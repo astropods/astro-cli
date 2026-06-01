@@ -158,6 +158,7 @@ export function TraceDetailPanel({
                   <div className="min-w-0 flex-[1.4] overflow-y-auto border-l border-border/40 pl-4">
                     {selectedObservation ? (
                       <ObservationDetail
+                        deploymentId={deploymentId}
                         observation={selectedObservation}
                         onBack={() => setSelectedObsId(null)}
                       />
@@ -170,6 +171,7 @@ export function TraceDetailPanel({
                 </div>
               ) : selectedObservation ? (
                 <ObservationDetail
+                  deploymentId={deploymentId}
                   observation={selectedObservation}
                   onBack={() => setSelectedObsId(null)}
                 />

@@ -1996,10 +1996,8 @@ func GetLangfuseTraceDetail(
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse trace"})
 			return
 		}
-
-		// Verify the trace actually belongs to this deployment via tag (defense
-		// in depth: the URL is account-scoped through resolveLangfuseContext,
-		// but a malicious caller could pass a traceId from another project).
+		// Verify the trace belongs to this deployment (defense in depth: the URL
+		// is account-scoped but a caller could pass a traceId from another project).
 		if !traceHasDeploymentTag(detail.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 			return
@@ -2038,42 +2036,110 @@ func projectTrace(t *langfuse.TraceDetail) gin.H {
 	}
 }
 
-// projectObservations normalizes observations to a flat client-friendly shape.
+// projectObservation normalizes a single observation to its client-facing shape.
+// I/O fields (input, output, metadata, model_parameters) are intentionally absent
+// from this base projection — Langfuse skips them at the ClickHouse level when the
+// tree skeleton is fetched, and the frontend loads them on demand via the observation
+// detail endpoint.
+func projectObservation(o langfuse.Observation) gin.H {
+	row := gin.H{
+		"id":             o.ID,
+		"parent_id":      o.ParentObservationID,
+		"type":           strings.ToLower(o.Type),
+		"name":           o.Name,
+		"start_time":     o.StartTime,
+		"end_time":       o.EndTime,
+		"latency_ms":     o.Latency * 1000, // langfuse observation latency is seconds
+		"level":          strings.ToLower(o.Level),
+		"status_message": o.StatusMessage,
+		"cost":           o.CalculatedTotalCost,
+	}
+	if o.Model != "" {
+		row["model"] = o.Model
+	}
+	if o.Usage != nil {
+		row["usage"] = gin.H{
+			"input":  o.Usage.Input,
+			"output": o.Usage.Output,
+			"total":  o.Usage.Total,
+			"unit":   o.Usage.Unit,
+		}
+	}
+	return row
+}
+
 func projectObservations(obs []langfuse.Observation) []gin.H {
 	out := make([]gin.H, 0, len(obs))
 	for _, o := range obs {
-		row := gin.H{
-			"id":             o.ID,
-			"parent_id":      o.ParentObservationID,
-			"type":           strings.ToLower(o.Type),
-			"name":           o.Name,
-			"start_time":     o.StartTime,
-			"end_time":       o.EndTime,
-			"latency_ms":     o.Latency * 1000, // langfuse observation latency is seconds
-			"level":          strings.ToLower(o.Level),
-			"status_message": o.StatusMessage,
-			"input":          o.Input,
-			"output":         o.Output,
-			"metadata":       o.Metadata,
-			"cost":           o.CalculatedTotalCost,
-		}
-		if o.Model != "" {
-			row["model"] = o.Model
-		}
-		if len(o.ModelParameters) > 0 {
-			row["model_parameters"] = o.ModelParameters
-		}
-		if o.Usage != nil {
-			row["usage"] = gin.H{
-				"input":  o.Usage.Input,
-				"output": o.Usage.Output,
-				"total":  o.Usage.Total,
-				"unit":   o.Usage.Unit,
-			}
-		}
-		out = append(out, row)
+		out = append(out, projectObservation(o))
 	}
 	return out
+}
+
+// GetLangfuseObservationDetail returns a single observation with full input/output/metadata.
+// The tree endpoint omits I/O to keep the initial load fast; this endpoint is called
+// on demand when a node is selected in the trace tree.
+// GET /api/v1/deployments/:id/observability/observations/:observationId
+func GetLangfuseObservationDetail(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		observationID := c.Param("observationId")
+		if observationID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing observationId"})
+			return
+		}
+
+		obs, err := lctx.Client.GetObservation(c.Request.Context(), observationID)
+		if err != nil {
+			if errors.Is(err, langfuse.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
+				return
+			}
+			log.Error("Failed to get Langfuse observation detail", "error", err, "observation_id", observationID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse observation"})
+			return
+		}
+
+		parent, err := lctx.Client.GetTraceCore(c.Request.Context(), obs.TraceID)
+		if err != nil {
+			if errors.Is(err, langfuse.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
+				return
+			}
+			log.Error("Failed to verify observation ownership", "error", err, "trace_id", obs.TraceID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse observation"})
+			return
+		}
+		if !traceHasDeploymentTag(parent.Tags, lctx.DeploymentID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
+			return
+		}
+
+		row := projectObservation(*obs)
+		if obs.Input != nil {
+			row["input"] = obs.Input
+		}
+		if obs.Output != nil {
+			row["output"] = obs.Output
+		}
+		if len(obs.Metadata) > 0 {
+			row["metadata"] = obs.Metadata
+		}
+		if len(obs.ModelParameters) > 0 {
+			row["model_parameters"] = obs.ModelParameters
+		}
+		c.JSON(http.StatusOK, row)
+	}
 }
 
 // projectScores normalizes scores to a flat client-friendly shape.

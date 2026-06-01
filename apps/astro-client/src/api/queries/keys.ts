@@ -60,6 +60,8 @@ export const observabilityKeys = {
     ['observability', 'traces', deploymentId, window] as const,
   traceDetail: (deploymentId: string, traceId: string) =>
     ['observability', 'trace-detail', deploymentId, traceId] as const,
+  observationDetail: (deploymentId: string, observationId: string) =>
+    ['observability', 'observation-detail', deploymentId, observationId] as const,
   accountSummary: (account: string, window?: string) =>
     ['observability', 'account-summary', account, window] as const,
   deploymentSummaries: (account: string) =>

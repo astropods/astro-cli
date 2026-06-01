@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -325,6 +327,162 @@ func TestGetDailyMetrics_SinglePage(t *testing.T) {
 	}
 	if len(metrics) != 1 {
 		t.Fatalf("expected 1 metric, got %d", len(metrics))
+	}
+}
+
+func TestGetTrace_TwoParallelRequests(t *testing.T) {
+	type call struct{ fields string }
+	var mu sync.Mutex
+	var calls []call
+
+	traceIO := TraceDetail{}
+	traceIO.Input = "hello"
+	traceIO.Output = "world"
+	traceIO.Scores = []Score{{ID: "s1", Name: "quality", Value: 1}}
+
+	treeSkeleton := TraceDetail{}
+	treeSkeleton.Observations = []Observation{{ID: "obs-1", Name: "span"}}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fields := r.URL.Query().Get("fields")
+		mu.Lock()
+		calls = append(calls, call{fields: fields})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if fields == "core,io,scores,metrics" {
+			json.NewEncoder(w).Encode(traceIO)
+		} else {
+			json.NewEncoder(w).Encode(treeSkeleton)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	got, err := c.GetTrace(context.Background(), "trace-abc")
+	if err != nil {
+		t.Fatalf("GetTrace returned error: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(calls))
+	}
+	fieldsSent := map[string]bool{}
+	for _, call := range calls {
+		fieldsSent[call.fields] = true
+	}
+	if !fieldsSent["core,io,scores,metrics"] {
+		t.Error("expected a request with fields=core,io,scores,metrics")
+	}
+	if !fieldsSent["core,observations"] {
+		t.Error("expected a request with fields=core,observations")
+	}
+	if got.Input != "hello" {
+		t.Errorf("Input = %v, want hello", got.Input)
+	}
+	if len(got.Scores) != 1 || got.Scores[0].ID != "s1" {
+		t.Errorf("Scores not merged correctly: %+v", got.Scores)
+	}
+	if len(got.Observations) != 1 || got.Observations[0].ID != "obs-1" {
+		t.Errorf("Observations not merged correctly: %+v", got.Observations)
+	}
+}
+
+func TestGetTrace_ErrNotFoundPreferredOverContextCanceled(t *testing.T) {
+	// One branch returns 404 (ErrNotFound); the other is slow and gets cancelled
+	// by errgroup when the first fails. GetTrace must surface ErrNotFound so the
+	// handler can return 404 rather than 502.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fields := r.URL.Query().Get("fields")
+		if fields == "core,io,scores,metrics" {
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		} else {
+			// Simulate a slow response; the context will be cancelled before this
+			// goroutine finishes, so it returns context.Canceled instead of a real error.
+			<-r.Context().Done()
+			http.Error(w, "cancelled", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	_, err := c.GetTrace(context.Background(), "trace-abc")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetTraceCore_SendsFieldsCore(t *testing.T) {
+	var gotQuery map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TraceDetail{
+			Trace: Trace{Tags: []string{"deployment:dep-1"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	got, err := c.GetTraceCore(context.Background(), "trace-abc")
+	if err != nil {
+		t.Fatalf("GetTraceCore returned error: %v", err)
+	}
+
+	assertParam(t, gotQuery, "fields", "core")
+	if len(got.Tags) != 1 || got.Tags[0] != "deployment:dep-1" {
+		t.Errorf("Tags = %v, want [deployment:dep-1]", got.Tags)
+	}
+}
+
+func TestGetObservation_PathAndResponse(t *testing.T) {
+	want := Observation{
+		ID:                  "obs-1",
+		Type:                "GENERATION",
+		Name:                "llm-call",
+		Latency:             1.5,
+		CalculatedTotalCost: 0.002,
+		Input:               map[string]any{"prompt": "hello"},
+		Output:              map[string]any{"completion": "world"},
+	}
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(want)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	got, err := c.GetObservation(context.Background(), "obs-1")
+	if err != nil {
+		t.Fatalf("GetObservation returned error: %v", err)
+	}
+
+	if gotPath != "/api/public/observations/obs-1" {
+		t.Errorf("path = %q, want /api/public/observations/obs-1", gotPath)
+	}
+	if got.ID != want.ID {
+		t.Errorf("ID = %q, want %q", got.ID, want.ID)
+	}
+	if got.CalculatedTotalCost != want.CalculatedTotalCost {
+		t.Errorf("CalculatedTotalCost = %v, want %v", got.CalculatedTotalCost, want.CalculatedTotalCost)
+	}
+}
+
+func TestGetObservation_404IsErrNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	_, err := c.GetObservation(context.Background(), "missing")
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error %q should mention not found", err)
 	}
 }
 

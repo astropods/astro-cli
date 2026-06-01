@@ -1,16 +1,24 @@
 import { ArrowLeft } from "lucide-react";
 import type { TraceObservation } from "@/lib/api";
+import { useObservabilityObservationDetail } from "@/api/queries/observability";
+import { Spinner } from "@/components/ui/spinner";
 import { formatCost, formatLatency } from "../trace-utils";
 import { observationTypeLabel } from "./observation-utils";
 import { ContentSection } from "./ContentSection";
 import { MetadataList } from "./MetadataList";
 
 export interface ObservationDetailProps {
+  deploymentId: string;
   observation: TraceObservation;
   onBack: () => void;
 }
 
-export function ObservationDetail({ observation, onBack }: ObservationDetailProps) {
+export function ObservationDetail({ deploymentId, observation, onBack }: ObservationDetailProps) {
+  const { data: detail, isLoading, isError } = useObservabilityObservationDetail(
+    deploymentId,
+    observation.id,
+  );
+
   type MetaEntry = { label: string; value: React.ReactNode };
   const meta = (
     [
@@ -59,23 +67,38 @@ export function ObservationDetail({ observation, onBack }: ObservationDetailProp
 
       <MetadataList entries={meta} />
 
-      {observation.model_parameters && (
-        <ContentSection
-          label="Model parameters"
-          content={observation.model_parameters}
-          defaultOpen={false}
-        />
+      {isLoading && (
+        <div className="flex items-center gap-2 py-2 text-body-sm text-muted-foreground">
+          <Spinner size={14} delay={150} />
+          Loading details…
+        </div>
       )}
 
-      <ContentSection label="Input" content={observation.input} />
-      <ContentSection label="Output" content={observation.output} />
+      {isError && (
+        <p className="text-body-sm text-muted-foreground">
+          Failed to load observation details.
+        </p>
+      )}
 
-      {observation.metadata && Object.keys(observation.metadata).length > 0 && (
-        <ContentSection
-          label="Metadata"
-          content={observation.metadata}
-          defaultOpen={false}
-        />
+      {!isLoading && !isError && (
+        <>
+          {detail?.model_parameters && Object.keys(detail.model_parameters).length > 0 && (
+            <ContentSection
+              label="Model parameters"
+              content={detail.model_parameters}
+              defaultOpen={false}
+            />
+          )}
+          <ContentSection label="Input" content={detail?.input} />
+          <ContentSection label="Output" content={detail?.output} />
+          {detail?.metadata && Object.keys(detail.metadata).length > 0 && (
+            <ContentSection
+              label="Metadata"
+              content={detail.metadata}
+              defaultOpen={false}
+            />
+          )}
+        </>
       )}
     </div>
   );

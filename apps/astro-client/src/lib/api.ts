@@ -710,6 +710,15 @@ class ApiClient {
     );
   }
 
+  async getObservabilityObservationDetail(
+    deploymentId: string,
+    observationId: string,
+  ): Promise<TraceObservation> {
+    return this.request<TraceObservation>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/observations/${encodeURIComponent(observationId)}`
+    );
+  }
+
   async getNetworkSummary(
     deploymentId: string,
     params?: Record<string, string>,

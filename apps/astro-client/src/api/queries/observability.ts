@@ -150,6 +150,21 @@ export function useObservabilityTraces(
   });
 }
 
+export function useObservabilityObservationDetail(
+  deploymentId: string,
+  observationId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: observabilityKeys.observationDetail(deploymentId, observationId ?? ''),
+    queryFn: () => api.getObservabilityObservationDetail(deploymentId, observationId!),
+    enabled: !!deploymentId && !!observationId,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 30,
+    retry: false,
+  });
+}
+
 export function useObservabilityTraceDetail(
   deploymentId: string,
   traceId: string | null | undefined,

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // ErrNotFound is returned when Langfuse responds with 404 — i.e. the
@@ -188,10 +190,78 @@ func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime
 	return &result, nil
 }
 
-// GetTrace returns a single trace with its full observations and scores.
+// GetTrace returns a single trace with its observations and scores.
+//
+// Two parallel Langfuse requests are made to avoid the slow ClickHouse query
+// that fetches all observation I/O in a single scan:
+//   - fields=core,io,scores,metrics  → trace-level input/output/metadata; no observation join
+//   - fields=core,observations        → observation tree skeleton; no I/O columns
+//
+// The results are merged before returning.
 func (c *Client) GetTrace(ctx context.Context, traceID string) (*TraceDetail, error) {
+	escaped := url.PathEscape(traceID)
+
+	var traceIO TraceDetail
+	var treeSkeleton TraceDetail
+
+	// Capture errors independently so we can prefer ErrNotFound over
+	// context.Canceled when choosing which error to surface. WithContext
+	// cancels the sibling goroutine on first failure; without independent
+	// capture that cancellation error could mask the original ErrNotFound
+	// and flip the caller's HTTP response from 404 to 502.
+	var errs [2]error
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		params := url.Values{}
+		params.Set("fields", "core,io,scores,metrics")
+		errs[0] = c.doGet(gctx, "/api/public/traces/"+escaped, params, &traceIO)
+		return errs[0]
+	})
+
+	g.Go(func() error {
+		params := url.Values{}
+		params.Set("fields", "core,observations")
+		errs[1] = c.doGet(gctx, "/api/public/traces/"+escaped, params, &treeSkeleton)
+		return errs[1]
+	})
+
+	_ = g.Wait()
+
+	// Prefer ErrNotFound over context cancellation so callers get the right
+	// HTTP status regardless of which goroutine the errgroup cancelled.
+	for _, err := range errs {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+	}
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	traceIO.Observations = treeSkeleton.Observations
+	return &traceIO, nil
+}
+
+// GetTraceCore fetches only the core trace metadata (tags, name, timestamps, cost)
+// in a single lightweight ClickHouse lookup — no observations or I/O columns.
+// Use this when only the tags are needed, e.g. for ownership verification.
+func (c *Client) GetTraceCore(ctx context.Context, traceID string) (*TraceDetail, error) {
+	params := url.Values{}
+	params.Set("fields", "core")
 	var result TraceDetail
-	if err := c.doGet(ctx, "/api/public/traces/"+url.PathEscape(traceID), nil, &result); err != nil {
+	if err := c.doGet(ctx, "/api/public/traces/"+url.PathEscape(traceID), params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetObservation returns a single observation by ID with full input/output/metadata.
+func (c *Client) GetObservation(ctx context.Context, observationID string) (*Observation, error) {
+	var result Observation
+	if err := c.doGet(ctx, "/api/public/observations/"+url.PathEscape(observationID), nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
