@@ -22,7 +22,7 @@ export function DeploymentAgentCard({
   const bust = useDeploymentAvatarBust(deployment.id);
   const avatarUrl = bust ?? getDeploymentAvatarUrl(deployment.id);
   const messaging = getMessagingEndpoint(deployment);
-  const launchUrl = messaging?.url;
+  const launchUrl = deployment.status === "Running" ? messaging?.url : undefined;
   const hasUpdateAvailable =
     !!deployment.latest_build_id && deployment.latest_build_id !== deployment.build_id;
   const hasError = deployment.status === "error";

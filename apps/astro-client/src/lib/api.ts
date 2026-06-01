@@ -1513,6 +1513,8 @@ export interface UndeployResponse {
   errors?: DeploymentError[];
 }
 
+export type DeploymentSummaryStatus = "Running" | "pending" | "Stopped" | "undeploying" | "error";
+
 export interface ServiceEndpointInfo {
   name: string;
   url: string;
@@ -1621,7 +1623,7 @@ export interface AgentDeploymentSummary {
   avatar_colors?: AvatarColors;
   build_id: string;
   latest_build_id?: string;
-  status?: string;
+  status?: DeploymentSummaryStatus;
   namespace?: string;
   external_urls?: ServiceEndpointInfo[];
   created_at: string;
