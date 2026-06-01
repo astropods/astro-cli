@@ -175,6 +175,16 @@ func apiStream(ctx context.Context, reqURL string, token string, verbose bool) (
 	return resp.StatusCode, resp.Body, nil
 }
 
+// indentJSON pretty-prints a JSON blob with a caller-supplied line prefix;
+// falls back to the raw bytes (as a string) if the input is not valid JSON.
+func indentJSON(raw json.RawMessage, prefix string) string {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, raw, prefix, "  "); err != nil {
+		return prefix + string(raw)
+	}
+	return prefix + pretty.String()
+}
+
 // writeJSON encodes v as indented JSON to w.
 func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)

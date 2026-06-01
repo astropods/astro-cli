@@ -94,3 +94,27 @@ func errWorkloadAmbiguous(requested string, matches []string) error {
 func errContainerNotInWorkload(container, workload string, available []string) error {
 	return fmt.Errorf("container %q not found in workload %q (available: %s)", container, workload, strings.Join(available, ", "))
 }
+
+func errNonNegativeIntFlag(name string) error {
+	return fmt.Errorf("--%s must be zero or greater", name)
+}
+
+func errPositiveIntFlag(name string) error {
+	return fmt.Errorf("--%s must be greater than zero", name)
+}
+
+func errRFC3339TimeFlag(name, value string) error {
+	return fmt.Errorf("--%s %q is not a valid RFC3339 timestamp", name, value)
+}
+
+func errTraceStartAfterEnd() error {
+	return fmt.Errorf("--start must be before --end")
+}
+
+func errAgentTraceNotFound(traceID, target string) error {
+	return fmt.Errorf("no trace %q found for %q", traceID, target)
+}
+
+func msgNoTracesForAgent(target string) string {
+	return fmt.Sprintf("No traces found for %s", target)
+}
