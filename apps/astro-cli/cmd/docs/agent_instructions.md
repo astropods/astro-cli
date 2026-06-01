@@ -64,6 +64,90 @@ Variables you need to run your agent, such as your API keys:
 
 Run `ast project configure` to set them. `ast project start` injects them into the agent container.
 
+The platform also auto-injects three variables into the agent container that you don't configure yourself:
+
+| Variable                      | Purpose                                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP endpoint for agent telemetry (see below). Present in deployed environments only.    |
+| `ASTRO_AGENT_NAME`            | Agent name; use as OpenTelemetry `service.name`                                                |
+| `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version`                                             |
+
+> `ast project start` does not run a collector locally, so `OTEL_EXPORTER_OTLP_ENDPOINT` is absent during local dev. Guard your instrumentation setup on the env var so your agent boots cleanly in both environments.
+
+## Instrumentation
+
+Astropods agents send OpenTelemetry traces to `OTEL_EXPORTER_OTLP_ENDPOINT`, which the platform routes to a per-account observability backend. Tracing the LLM calls, tools, and agent steps lets you see token usage, costs, and tool behavior in one place.
+
+Prefer an off-the-shelf instrumentation library for your stack — they emit richer spans (tool calls, agent steps, cost) than hand-written code and stay in sync with upstream SDK changes. When no library exists for your stack, emit manual spans using the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) or [OpenInference conventions](https://github.com/Arize-ai/openinference).
+
+### Mastra
+
+The `template-ts-mastra` scaffold wires this up with `@mastra/observability` + `@mastra/otel-exporter`. Newly-scaffolded agents work out of the box.
+
+### LangChain / LangGraph (Python)
+
+Use Traceloop / OpenLLMetry and point it at the platform endpoint at startup:
+
+```python
+import os
+from traceloop.sdk import Traceloop
+
+endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+if endpoint:
+    Traceloop.init(
+        app_name=os.environ.get("ASTRO_AGENT_NAME", "agent"),
+        api_endpoint=endpoint,
+    )
+```
+
+### Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+
+The Agent SDK talks to the `claude` binary over IPC, so HTTP-level interceptors miss it. Use the dedicated OpenInference instrumentation, which patches `query()` and emits AGENT + TOOL spans with token counts and cost:
+
+```bash
+bun add @arizeai/openinference-instrumentation-claude-agent-sdk \
+        @opentelemetry/sdk-trace-node @opentelemetry/exporter-trace-otlp-http \
+        @opentelemetry/resources
+```
+
+```typescript
+import { Resource } from '@opentelemetry/resources';
+import { NodeTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { ClaudeAgentSDKInstrumentation } from '@arizeai/openinference-instrumentation-claude-agent-sdk';
+import * as ClaudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
+
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+if (endpoint) {
+  const provider = new NodeTracerProvider({
+    resource: new Resource({
+      'service.name': process.env.ASTRO_AGENT_NAME ?? 'agent',
+      'service.version': process.env.ASTRO_AGENT_BUILD ?? 'dev',
+    }),
+  });
+  provider.addSpanProcessor(new BatchSpanProcessor(
+    new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
+  ));
+  provider.register();
+  new ClaudeAgentSDKInstrumentation().manuallyInstrument(ClaudeAgentSDK);
+
+  // Flush buffered spans on shutdown. Adding any listener replaces Node's
+  // default terminate behavior, so we must call process.exit ourselves.
+  const shutdown = async () => {
+    try { await provider.shutdown(); } catch {}
+    process.exit(0);
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+}
+```
+
+The SDK is ESM-only, so `manuallyInstrument` is required (the auto-registration path won't apply). See the [OpenInference docs](https://github.com/Arize-ai/openinference/tree/main/js/packages/openinference-instrumentation-claude-agent-sdk) for the full setup including how to re-export the instrumented `query`.
+
+### Raw Anthropic / OpenAI SDKs
+
+The standard `@anthropic-ai/sdk` and `openai` packages make direct HTTP calls and work with HTTP-level auto-instrumentation. Use OpenInference (`@arizeai/openinference-instrumentation-{anthropic,openai}`) or Traceloop (`@traceloop/instrumentation-{anthropic,openai}`).
+
 ## Project Structure
 
 ```
