@@ -1,7 +1,8 @@
 //go:build integration
 
 // Integration coverage for deploymentstore.Store's optional LineageValidator
-// gate. Exercises the wired path that production runs:
+// gate. CI job: `Integration tests (astro-server + Postgres)` in test.yml.
+// Exercises the wired path that production runs:
 //
 //	store := ds.NewStore(db).WithLineageValidator(agentindex.NewIndexWithDB(db))
 //

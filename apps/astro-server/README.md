@@ -77,6 +77,18 @@ moon run astro-server:lint     # Run golangci-lint
 moon run astro-server:deps     # Download and tidy dependencies
 ```
 
+### CI test jobs
+
+Path filters in `.github/workflows/test.yml` only fan out when application paths change — workflow-only edits do not run these jobs. The astro-server jobs and their local equivalents:
+
+| CI job | Build tags | Local command |
+| ------ | ---------- | ------------- |
+| `Test Go applications (astro-server)` | (default) | `moon run astro-server:test` |
+| `Integration tests (astro-server + Postgres)` | `integration` | `moon run astro-server:test-integration` |
+| `K8s integration tests (vcluster + Postgres)` | `k8s` | `moon run astro-server:e2e` (full stack) |
+
+Unit and integration suites use `gotestsum`; lint uses `golangci-lint-action` with the shared config at repo root (10m timeout on CI for cold-cache runs).
+
 ## Endpoints
 
 ### Health Probes

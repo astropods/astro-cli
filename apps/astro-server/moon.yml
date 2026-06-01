@@ -20,6 +20,10 @@ tasks:
     outputs:
       - "bin/astro-server"
 
+  # Unit tests (default build tags). CI runs the same suite in the
+  # `Test Go applications (astro-server)` matrix leg via gotestsum; PRs skip
+  # -race, main pushes enable it. Lint runs through golangci-lint-action with
+  # the repo-root .golangci.yaml (govet is covered there — no separate vet step).
   test:
     command: "gotestsum --format testdox --hide-summary skipped -- -v ./..."
     inputs:
@@ -34,6 +38,7 @@ tasks:
       - "**/*.go"
 
   vet:
+    # Local-only sanity check; CI relies on golangci-lint's govet linter instead.
     command: "go vet ./..."
     inputs:
       - "**/*.go"
@@ -41,6 +46,8 @@ tasks:
       - "go.sum"
 
   lint:
+    # Local equivalent of CI's golangci-lint-action step (.github/workflows/test.yml).
+    # CI uses a 10m analysis timeout to tolerate cold-cache runs on astro-server.
     command: "golangci-lint run"
     inputs:
       - "**/*.go"
