@@ -32,6 +32,7 @@ func New(baseURL string) *Client {
 // QueryParams defines parameters for a log query.
 type QueryParams struct {
 	Namespace   string
+	Cluster     string // optional — Alloy `cluster` label (EKS cluster name)
 	Pod         string // optional — exact pod name (used by K8s fallback)
 	Workload    string // optional — k8s workload name (Deployment, StatefulSet, etc.); matches all pods with this prefix
 	Container   string // optional
@@ -70,7 +71,7 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	}
 
 	params := url.Values{}
-	query := buildSelector(p.Namespace, p.Pod, p.Workload, p.Container)
+	query := buildSelector(p.Namespace, p.Cluster, p.Pod, p.Workload, p.Container)
 	if p.LevelFilter != "" {
 		query += ` | level = "` + p.LevelFilter + `"`
 	}
@@ -144,8 +145,11 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 // buildSelector constructs a LogQL stream selector from the given labels.
 // When workload is set (and pod is empty), it uses a regex match to capture
 // all pods belonging to that k8s workload (pod=~"<workload>-.+").
-func buildSelector(namespace, pod, workload, container string) string {
+func buildSelector(namespace, cluster, pod, workload, container string) string {
 	parts := []string{`namespace="` + namespace + `"`}
+	if cluster != "" {
+		parts = append(parts, `cluster="`+cluster+`"`)
+	}
 	if pod != "" {
 		parts = append(parts, `pod="`+pod+`"`)
 	} else if workload != "" {
@@ -230,7 +234,7 @@ func (c *Client) TailLogs(ctx context.Context, p QueryParams) (<-chan LogLine, e
 	// The tail endpoint does not automatically promote structured metadata
 	// (like detected_level) into stream labels. Use "| keep detected_level"
 	// to surface it so we can extract log levels from tailed entries.
-	query := buildSelector(p.Namespace, p.Pod, p.Workload, p.Container) + " | keep detected_level"
+	query := buildSelector(p.Namespace, p.Cluster, p.Pod, p.Workload, p.Container) + " | keep detected_level"
 
 	params := url.Values{}
 	params.Set("query", query)

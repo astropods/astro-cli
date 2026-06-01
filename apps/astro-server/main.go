@@ -1530,7 +1530,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 
 			// Network endpoints (deployment-scoped, backed by Beyla eBPF metrics in Prometheus)
-			api.GET(protected, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, promClient),
+			api.GET(protected, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1538,7 +1538,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339); defaults to now", false),
 				oapispec.Response(200, &handlers.NetworkSummaryResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/network/flows", "Get top network peers for a deployment", handlers.GetNetworkFlows(log, accountStore, deploymentStore, promClient),
+			api.GET(protected, "/deployments/:id/network/flows", "Get top network peers for a deployment", handlers.GetNetworkFlows(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1549,7 +1549,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("sort", "requests | latency_p95 | errors (default requests)", false),
 				oapispec.Response(200, &handlers.NetworkFlowsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/network/timeseries", "Get bucketed network metrics for a deployment", handlers.GetNetworkTimeseries(log, accountStore, deploymentStore, promClient),
+			api.GET(protected, "/deployments/:id/network/timeseries", "Get bucketed network metrics for a deployment", handlers.GetNetworkTimeseries(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

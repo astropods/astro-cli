@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
@@ -46,6 +47,7 @@ func resolveDeploymentContext(
 	c *gin.Context,
 	deploymentStore *deploymentstore.Store,
 	accountStore *account.AccountStore,
+	k8sReg *k8s.Registry,
 	promClient *promquery.Client,
 ) (*deploymentContext, bool) {
 	user, exists := middleware.GetUser(c)
@@ -67,8 +69,8 @@ func resolveDeploymentContext(
 	}
 
 	clusterFilter := ""
-	if promClient != nil && promClient.Cluster() != "" {
-		clusterFilter = fmt.Sprintf(`,cluster="%s"`, promClient.Cluster())
+	if promClient != nil {
+		clusterFilter = k8sReg.PrometheusClusterFilter(c.Request.Context(), dep.EffectiveClusterID())
 	}
 
 	return &deploymentContext{
@@ -189,10 +191,11 @@ func GetNetworkSummary(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
+	k8sReg *k8s.Registry,
 	promClient *promquery.Client,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, promClient)
+		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, promClient)
 		if !ok {
 			return
 		}
@@ -341,6 +344,7 @@ func GetNetworkFlows(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
+	k8sReg *k8s.Registry,
 	promClient *promquery.Client,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -372,7 +376,7 @@ func GetNetworkFlows(
 			}
 		}
 
-		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, promClient)
+		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, promClient)
 		if !ok {
 			return
 		}
@@ -571,6 +575,7 @@ func GetNetworkTimeseries(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
+	k8sReg *k8s.Registry,
 	promClient *promquery.Client,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -621,7 +626,7 @@ func GetNetworkTimeseries(
 			step = parsed
 		}
 
-		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, promClient)
+		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, promClient)
 		if !ok {
 			return
 		}

@@ -2719,6 +2719,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		// Build Loki params (includes optional time range from query string).
 		lokiParams := loki.QueryParams{
 			Namespace: dep.Namespace,
+			Cluster:   k8sReg.LokiClusterName(c.Request.Context(), dep.EffectiveClusterID()),
 			Pod:       podName,
 			Workload:  workloadName,
 			Container: containerName,
@@ -2956,6 +2957,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
 					Namespace: dep.Namespace,
+					Cluster:   k8sReg.LokiClusterName(c.Request.Context(), dep.EffectiveClusterID()),
 					Pod:       podName,
 					Workload:  workloadName,
 					Container: containerName,

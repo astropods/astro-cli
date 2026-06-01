@@ -974,6 +974,7 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 	if s.lokiClient != nil {
 		p := loki.QueryParams{
 			Namespace: dep.Namespace,
+			Cluster:   s.k8sRegistry.LokiClusterName(ctx, dep.EffectiveClusterID()),
 			Pod:       req.Pod,
 			Container: req.Container,
 			Limit:     tailLines,

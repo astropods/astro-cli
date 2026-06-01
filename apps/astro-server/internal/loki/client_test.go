@@ -16,6 +16,7 @@ func TestBuildSelector(t *testing.T) {
 	tests := []struct {
 		name       string
 		namespace  string
+		cluster    string
 		pod        string
 		deployment string
 		container  string
@@ -59,11 +60,17 @@ func TestBuildSelector(t *testing.T) {
 			deployment: "my-agent",
 			want:       `{namespace="astro-abc123-0", pod="my-agent-xyz"}`,
 		},
+		{
+			name:      "namespace and cluster",
+			namespace: "astro-abc123-0",
+			cluster:   "preview-eu-eks",
+			want:      `{namespace="astro-abc123-0", cluster="preview-eu-eks"}`,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildSelector(tt.namespace, tt.pod, tt.deployment, tt.container)
+			got := buildSelector(tt.namespace, tt.cluster, tt.pod, tt.deployment, tt.container)
 			if got != tt.want {
 				t.Errorf("buildSelector() = %q, want %q", got, tt.want)
 			}

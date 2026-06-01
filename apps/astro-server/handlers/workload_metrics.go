@@ -99,7 +99,7 @@ func GetWorkloadMetrics(
 			return
 		}
 
-		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, promClient)
+		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, promClient)
 		if !ok {
 			return
 		}
