@@ -1406,6 +1406,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
 			)
+			// Messaging proxy — same-origin chat on astropod.ai without a second WorkOS login.
+			// Validates Astro session, forwards to the deployment messaging sidecar, and
+			// injects x-amzn-oidc-identity for upstream auth.
+			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
+			protected.Any("/deployments/:id/messaging/*proxyPath", messagingProxy)
 			// Authorization is configured exclusively through `interfaces.auth`
 			// in the deployment spec — no imperative endpoints here. The only
 			// authorization endpoint is the messaging-facing
