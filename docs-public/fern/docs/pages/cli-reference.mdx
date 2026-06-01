@@ -119,6 +119,23 @@ ast agent history --name <display-or-blueprint-name> [--json]
 ast agent history --id <deployment-id> [--json]
 ```
 
+### agent trace
+
+List recent traces for a deployed agent (same data as the Monitor tab in the web UI; default `--limit` is 50):
+
+```bash
+ast agent trace --name <display-or-blueprint-name> [--limit <n>] [--offset <n>] [--start <RFC3339>] [--end <RFC3339>] [--json]
+ast agent trace --id <deployment-id> [--limit <n>] [--offset <n>] [--start <RFC3339>] [--end <RFC3339>] [--json]
+```
+
+Show a single trace Overview (input, output, metadata, observations, scores):
+
+```bash
+ast agent trace --name <display-or-blueprint-name> --trace-id <trace-id> [--json]
+ast agent trace --name <display-or-blueprint-name> -t <trace-id> [--json]
+ast agent trace --id <deployment-id> --trace-id <trace-id> [--json]
+```
+
 ---
 
 ## blueprint

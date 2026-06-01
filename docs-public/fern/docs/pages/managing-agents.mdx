@@ -54,6 +54,26 @@ ast agent logs --name "My Production Agent" --workload collector
 
 Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get --name "My Production Agent"` to see each workload's K8s name.
 
+List recent traces (the same Monitor data as the web UI):
+
+```bash
+ast agent trace --name "My Production Agent"
+```
+
+Show a single trace Overview — input, output, observations, and scores:
+
+```bash
+ast agent trace --name "My Production Agent" --trace-id 2dc10d31ac3ebec7dd9d27263dd7531d
+```
+
+Filter by time window or paginate (defaults match the server: `--limit 50`):
+
+```bash
+ast agent trace --name "My Production Agent" --start 2026-05-28T00:00:00Z --end 2026-05-28T23:59:59Z --limit 10 --offset 0
+```
+
+Pass `--json` to emit the raw API response for scripting.
+
 ## Control
 
 Pause an agent to stop it from handling requests without deleting it:
