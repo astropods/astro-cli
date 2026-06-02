@@ -10,6 +10,7 @@ import {
   Cog6ToothIcon,
   DocumentDuplicateIcon,
   EllipsisHorizontalIcon,
+  ShareIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
+import { formatDate } from "@/lib/deployment-utils";
+import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { DeploymentTab, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
 import type { AvatarColors } from "@/lib/api";
@@ -66,6 +72,8 @@ export interface DeployedAgentCardProps {
   launchUrl?: string;
   /** Surfaces an error pill under the subline. */
   hasError?: boolean;
+  /** Deployment creation timestamp; surfaced in the badge modal's stats row. */
+  installedAt?: string;
   /** Surfaces an "Update available" pill under the subline. */
   hasUpdateAvailable?: boolean;
   /** Latest published build id for this agent's lineage. When provided
@@ -481,6 +489,7 @@ export function DeployedAgentCard({
   tokenSeries,
   launchUrl,
   hasError,
+  installedAt,
   hasUpdateAvailable,
   latestBuildId,
   onDeleteRequest,
@@ -504,8 +513,30 @@ export function DeployedAgentCard({
   const starSeed = deploymentId ?? `${account}/${name}`;
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
   const navigate = useNavigate();
+  // Fetch blueprint only when the badge modal is opened — keeps the dashboard
+  // grid from paying for N blueprint queries on first paint.
+  const { data: blueprint } = useBlueprint(account, name, { enabled: shareOpen });
+  const integrations = blueprint ? getBlueprintIntegrations(blueprint) : [];
+  const cardData = useMemo<CardData>(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return {
+      name,
+      displayName,
+      account,
+      avatar: avatarUrl ? { url: avatarUrl } : undefined,
+      stats: [
+        ...(installedAt
+          ? [{ label: "Deployed", value: formatDate(installedAt) }]
+          : []),
+        { label: "From", value: `${account}/${name}` },
+      ],
+      barcodeId: deploymentId,
+      qrUrl: `${origin}/${account}/${name}`,
+    };
+  }, [name, displayName, account, avatarUrl, installedAt, deploymentId]);
   // Card-level click goes to the deployment's Monitor tab — the card's headline
   // visual is the requests sparkline, so Monitor is the natural expanded view.
   // The "Manage agent" button below the card stays pointed at
@@ -528,10 +559,11 @@ export function DeployedAgentCard({
       navigate(detailPath);
     }
   };
-  // Menu visibility: revealed on card hover OR while the menu is open —
-  // otherwise dismissing the menu by mouse-leaving the card while the
-  // dropdown was still open would yank the trigger out from under the user.
-  const menuVisible = hovered || menuOpen;
+  // Menu visibility: revealed on card hover OR while the menu (or the share
+  // modal) is open — otherwise dismissing the menu by mouse-leaving the card
+  // while the dropdown was still open would yank the trigger out from under
+  // the user.
+  const menuVisible = hovered || menuOpen || shareOpen;
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -594,6 +626,16 @@ export function DeployedAgentCard({
                 <BookOpenIcon className="h-4 w-4" />
                 View blueprint
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setMenuOpen(false);
+                setShareOpen(true);
+              }}
+              className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
+            >
+              <ShareIcon className="h-4 w-4" />
+              Share agent badge
             </DropdownMenuItem>
             {deploymentId && (
               <DropdownMenuItem
@@ -724,6 +766,13 @@ export function DeployedAgentCard({
           </Button>
         )}
       </div>
+      <TradingCardModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        data={cardData}
+        avatarColors={avatarColors}
+        integrations={integrations}
+      />
     </div>
   );
 }

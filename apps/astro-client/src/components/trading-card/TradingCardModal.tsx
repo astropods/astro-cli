@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Download, X } from "lucide-react";
+import { Share2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HoloCard } from "./HoloCard";
+import { ShareBadgeDropdown } from "./ShareBadgeDropdown";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
 import type { AvatarColors, ResolvedIntegration } from "@/lib/api";
@@ -56,15 +57,15 @@ export function TradingCardModal({
     setShowActions(false);
   }, [open]);
 
-  const handleDownload = async (format: "svg" | "png") => {
-    const mod = await import("astro-trading-card/browser");
-    const opts = { name: data.name, id: data.barcodeId ?? "card" };
-    if (format === "svg") {
-      await mod.downloadSvg(svg, opts);
-    } else {
-      await mod.downloadPng(svg, opts);
-    }
-  };
+  // Callers set qrUrl to the same `${origin}/${account}/${name}` shape we'd
+  // build for the share intent, so reuse it (keeps share URL in lockstep with
+  // the QR rendered on the card). Fallback only covers callers that pass a
+  // CardData without qrUrl.
+  const blueprintUrl = useMemo(() => {
+    if (data.qrUrl) return data.qrUrl;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}/${data.account}/${data.name}`;
+  }, [data.qrUrl, data.account, data.name]);
 
   if (!open) return null;
 
@@ -109,31 +110,28 @@ export function TradingCardModal({
 
           <div
             className={cn(
-              "mt-8 flex gap-3 transition-all duration-300 ease-out",
+              "mt-5 flex w-[min(82vw,330px)] flex-col items-stretch transition-all duration-300 ease-out",
               showActions
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 translate-y-4",
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDownload("svg")}
-              className="gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white dark:border-white/20 dark:hover:bg-white/10"
+            <ShareBadgeDropdown
+              launchName={data.displayName ?? data.name}
+              blueprintUrl={blueprintUrl}
+              svg={svg}
+              downloadName={data.name}
+              downloadId={data.barcodeId ?? "card"}
+              side="top"
             >
-              <Download className="size-3.5" />
-              SVG
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDownload("png")}
-              className="gap-2 border-white/20 text-white hover:bg-white/10 hover:text-white dark:border-white/20 dark:hover:bg-white/10"
-            >
-              <Download className="size-3.5" />
-              PNG
-            </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              >
+                <Share2 className="size-4" /> Share badge
+              </Button>
+            </ShareBadgeDropdown>
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

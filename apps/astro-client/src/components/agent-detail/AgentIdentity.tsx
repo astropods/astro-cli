@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router";
-import { ChevronDown, BookOpen, RotateCw, Trash2 } from "lucide-react";
+import { ChevronDown, BookOpen, RotateCw, Share2, Trash2 } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
+import type { CardData } from "astro-trading-card";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { useRestartDeployment, useDeploymentsSummary } from "@/api/queries/deployments";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
+import { formatDate } from "@/lib/deployment-utils";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
+import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -30,11 +35,32 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
   const displayName = deployment.display_name || deployment.name;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const restartMutation = useRestartDeployment(account);
   const navigate = useNavigate();
   const { deploymentId } = useParams<{ deploymentId: string }>();
   const location = useLocation();
   const activeTab = location.pathname.split("/").pop() ?? "monitor";
+
+  // Fetch the blueprint only when the badge modal is opened — keeps the
+  // detail page from paying for the query on every mount.
+  const { data: blueprint } = useBlueprint(account, deployment.name, { enabled: shareOpen });
+  const integrations = blueprint ? getBlueprintIntegrations(blueprint) : [];
+  const cardData = useMemo<CardData>(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return {
+      name: deployment.name,
+      displayName: deployment.display_name,
+      account,
+      avatar: { url: avatarUrl },
+      stats: [
+        { label: "Deployed", value: formatDate(deployment.created_at) },
+        { label: "From", value: `${account}/${deployment.name}` },
+      ],
+      barcodeId: deployment.id,
+      qrUrl: `${origin}/${account}/${deployment.name}`,
+    };
+  }, [account, avatarUrl, deployment.id, deployment.name, deployment.display_name, deployment.created_at]);
 
   const { data: summaryData } = useDeploymentsSummary();
   const accounts = (summaryData?.accounts ?? [])
@@ -72,6 +98,10 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
               <BookOpen className="size-4" />
               View blueprint
             </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setShareOpen(true)}>
+            <Share2 className="size-4" />
+            Share agent badge
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setRestartOpen(true)}>
@@ -139,6 +169,14 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
         displayName={deployment.display_name}
         account={account}
         onDeleted={() => navigate("/agents")}
+      />
+
+      <TradingCardModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        data={cardData}
+        avatarColors={deployment.avatar_colors}
+        integrations={integrations}
       />
     </div>
   );

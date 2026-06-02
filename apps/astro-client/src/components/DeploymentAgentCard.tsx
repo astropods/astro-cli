@@ -41,6 +41,7 @@ export function DeploymentAgentCard({
       tokenSeries={tokenSeries}
       launchUrl={launchUrl}
       hasError={hasError}
+      installedAt={deployment.created_at}
       hasUpdateAvailable={hasUpdateAvailable}
       latestBuildId={deployment.latest_build_id}
       onDeleteRequest={onDeleteRequest}

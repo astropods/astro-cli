@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Download, Share2, X } from "lucide-react";
+import { ArrowRight, Share2, X } from "lucide-react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { HoloCard } from "@/components/trading-card/HoloCard";
+import { ShareBadgeDropdown } from "@/components/trading-card/ShareBadgeDropdown";
 import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
@@ -81,26 +76,6 @@ export function LiveRevealOverlay({
     return `${origin}/${account}/${deployment.name}`;
   }, [account, deployment.name]);
 
-  const handleShareToNetwork = (network: "x" | "linkedin") => {
-    const launchName = deployment.display_name ?? deployment.name;
-    const shareText = `Just launched ${launchName} on Astro AI!\n\nCheck out the blueprint:\n\n${blueprintUrl}`;
-    const url = network === "x"
-      ? `https://x.com/intent/post?text=${encodeURIComponent(shareText)}`
-      : `https://www.linkedin.com/feed/?shareActive=true&mini=true&text=${encodeURIComponent(shareText)}`;
-
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
-  const handleDownload = async (format: "svg" | "png") => {
-    const mod = await import("astro-trading-card/browser");
-    const opts = { name: deployment.name, id: deployment.id };
-    if (format === "svg") {
-      await mod.downloadSvg(revealCardSvg, opts);
-    } else {
-      await mod.downloadPng(revealCardSvg, opts);
-    }
-  };
-
   return (
     <div
       className={cn(
@@ -168,38 +143,20 @@ export function LiveRevealOverlay({
           >
             View deployment <ArrowRight className="size-4" />
           </Button>
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
-              >
-                <Share2 className="size-4" /> Share badge
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" sideOffset={6} className="w-fit min-w-0">
-              <DropdownMenuItem onSelect={() => void handleShareToNetwork("x")} className="gap-2">
-                <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[10px] font-semibold">
-                  X
-                </span>
-                Share on X
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleShareToNetwork("linkedin")} className="gap-2">
-                <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[8px] font-bold leading-none">
-                  in
-                </span>
-                Share on LinkedIn
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
-                <Download className="size-4 text-current" />
-                Download PNG
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleDownload("svg")} className="gap-2">
-                <Download className="size-4 text-current" />
-                Download SVG
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ShareBadgeDropdown
+            launchName={deployment.display_name ?? deployment.name}
+            blueprintUrl={blueprintUrl}
+            svg={revealCardSvg}
+            downloadName={deployment.name}
+            downloadId={deployment.id}
+          >
+            <Button
+              variant="outline"
+              className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+            >
+              <Share2 className="size-4" /> Share badge
+            </Button>
+          </ShareBadgeDropdown>
         </div>
       </div>
     </div>
