@@ -1,4 +1,8 @@
-// API client for communicating with the astro-server backend
+// API client for communicating with the astro-server backend.
+//
+// File layout: types are declared top-down in the same domain order as the
+// methods on `ApiClient` below. Each section is fronted by a banner so the
+// types and methods for a domain are easy to navigate together.
 
 import type { LogEntry } from "./log-utils";
 import {
@@ -10,6 +14,68 @@ import {
 function buildQS(params?: Record<string, string>): string {
   return params ? `?${new URLSearchParams(params)}` : '';
 }
+
+// ============================================================================
+// Core: errors
+// ============================================================================
+
+export interface ValidationError {
+  field: string;
+  message: string;
+}
+
+export interface ApiError {
+  error?: string;
+  error_description?: string;
+  code?: string;
+  details?: string;
+  status?: number;
+  validation_errors?: ValidationError[];
+  missing_variables?: string[];
+}
+
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  details?: string;
+  validation_errors?: ValidationError[];
+  missing_variables?: string[];
+
+  constructor(apiError: ApiError, status: number) {
+    super(apiError.error_description || apiError.details || apiError.error || `Request failed with status ${status}`);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.code = apiError.error ?? apiError.code;
+    this.details = apiError.details;
+    this.validation_errors = apiError.validation_errors;
+    this.missing_variables = apiError.missing_variables;
+  }
+}
+
+// ============================================================================
+// Avatars (cross-domain primitives — shared by accounts, blueprints, deployments)
+// ============================================================================
+
+export interface AvatarColors {
+  version?: number;
+  base: string;
+  vibrant: string;
+  vibrant_light: string;
+  accent: string;
+  accent_light: string;
+  background: string;
+  foreground: string;
+  glow: string;
+}
+
+export interface AvatarResponse {
+  avatar_url: string;
+  avatar_colors?: AvatarColors;
+}
+
+// ============================================================================
+// Auth & profile
+// ============================================================================
 
 export interface User {
   id: string;
@@ -23,11 +89,24 @@ export interface User {
   updated_at: string;
 }
 
-export interface BlueprintSummary {
-  name: string;
-  registry: string;
-  build_count: number;
+export interface AuthResponse {
+  user: User;
+  session_id: string;
+  organization_id?: string;
+  role?: string;
+  permissions: string[];
+  expires_at: string;
+  accounts: Account[];
 }
+
+export interface ProfileResponse {
+  user: User;
+  accounts: Account[];
+}
+
+// ============================================================================
+// Accounts
+// ============================================================================
 
 export interface AccountOwner {
   first_name?: string;
@@ -92,6 +171,10 @@ export interface AccountSearchResult {
   type: string;
 }
 
+export interface AccountSearchResponse {
+  results: AccountSearchResult[];
+}
+
 export interface AccountMember {
   account_id: string;
   user_id: string;
@@ -116,59 +199,6 @@ export interface AccountMemberSlackWorkspace {
 export interface AccountMembersResponse {
   members: AccountMember[];
 }
-
-export interface AccountSearchResponse {
-  results: AccountSearchResult[];
-}
-
-export interface ProfileResponse {
-  user: User;
-  accounts: Account[];
-}
-
-export interface AuthResponse {
-  user: User;
-  session_id: string;
-  organization_id?: string;
-  role?: string;
-  permissions: string[];
-  expires_at: string;
-  accounts: Account[];
-}
-
-export interface ValidationError {
-  field: string;
-  message: string;
-}
-
-export interface ApiError {
-  error?: string;
-  error_description?: string;
-  code?: string;
-  details?: string;
-  status?: number;
-  validation_errors?: ValidationError[];
-  missing_variables?: string[];
-}
-
-export class ApiRequestError extends Error {
-  status: number;
-  code?: string;
-  details?: string;
-  validation_errors?: ValidationError[];
-  missing_variables?: string[];
-
-  constructor(apiError: ApiError, status: number) {
-    super(apiError.error_description || apiError.details || apiError.error || `Request failed with status ${status}`);
-    this.name = 'ApiRequestError';
-    this.status = status;
-    this.code = apiError.error ?? apiError.code;
-    this.details = apiError.details;
-    this.validation_errors = apiError.validation_errors;
-    this.missing_variables = apiError.missing_variables;
-  }
-}
-
 
 export interface InviteEntry {
   value: string;
@@ -201,961 +231,16 @@ export interface CreateAccountResponse {
   updated_at: string;
 }
 
-class ApiClient {
-  private baseUrl: string;
-  private authUrl: string;
-  private defaultHeaders: Record<string, string>;
-
-  constructor(baseUrl: string = '', authUrl: string = '', defaultHeaders: Record<string, string> = {}) {
-    this.baseUrl = baseUrl;
-    this.authUrl = authUrl;
-    this.defaultHeaders = defaultHeaders;
-  }
-
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-
-    const response = await fetch(url, {
-      ...options,
-      credentials: 'include', // Include cookies for session auth
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.defaultHeaders,
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        error_description: `Request failed with status ${response.status}`,
-      }));
-      throw new ApiRequestError(body, response.status);
-    }
-
-    // Handle empty responses (204 No Content, etc.)
-    const text = await response.text();
-    if (!text) {
-      return {} as T;
-    }
-
-    return JSON.parse(text);
-  }
-
-  // Auth endpoints - use authUrl for direct backend communication
-  private async authRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.authUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders, ...options.headers },
-    });
-    if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        error_description: `Request failed with status ${response.status}`,
-      }));
-      throw new ApiRequestError(body, response.status);
-    }
-    return response.json();
-  }
-
-  async getCurrentUser(): Promise<AuthResponse> {
-    return this.authRequest<AuthResponse>('/auth/me');
-  }
-
-  async refreshSession(): Promise<AuthResponse> {
-    return this.authRequest<AuthResponse>('/auth/refresh', { method: 'POST' });
-  }
-
-  async switchOrg(organizationId: string): Promise<AuthResponse> {
-    return this.authRequest<AuthResponse>('/auth/switch-org', {
-      method: 'POST',
-      body: JSON.stringify({ organization_id: organizationId }),
-    });
-  }
-
-  getLoginUrl(redirect?: string, screenHint?: string): string {
-    const params = new URLSearchParams();
-    if (redirect) params.set("redirect", redirect);
-    if (screenHint) params.set("screen_hint", screenHint);
-    const qs = params.toString();
-    return `${this.authUrl}/auth/login${qs ? `?${qs}` : ""}`;
-  }
-
-  getLogoutUrl(): string {
-    // Pass current origin as redirect parameter for reliable post-logout redirect
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const redirectUrl = encodeURIComponent(origin);
-    return `${this.authUrl}/auth/logout?redirect=${redirectUrl}`;
-  }
-
-  // Profile endpoints
-  async getProfile(): Promise<ProfileResponse> {
-    return this.request<ProfileResponse>('/api/v1/me');
-  }
-
-  async updateProfile(data: { display_name: string }): Promise<{ user: User }> {
-    return this.request<{ user: User }>('/api/v1/me', {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Account endpoints
-  async createAccount(data: CreateAccountData): Promise<CreateAccountResponse> {
-    return this.request<CreateAccountResponse>('/api/v1/accounts', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteAccount(account: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}`,
-      { method: 'DELETE' }
-    );
-  }
-
-  async renameAccount(account: string, newName: string): Promise<{ message: string; name: string }> {
-    return this.request<{ message: string; name: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ name: newName }),
-      }
-    );
-  }
-
-  async updateAccountDisplayName(account: string, displayName: string): Promise<{ message: string; display_name: string }> {
-    return this.request<{ message: string; display_name: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ display_name: displayName }),
-      }
-    );
-  }
-
-  async updateAccountProfile(
-    account: string,
-    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] },
-  ): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}`,
-      { method: 'PATCH', body: JSON.stringify(data) },
-    );
-  }
-
-  async getAccountOrgs(account: string): Promise<AccountOrgsResponse> {
-    return this.request<AccountOrgsResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/orgs`,
-    );
-  }
-
-  async updateMemberRole(account: string, userId: string, role: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      }
-    );
-  }
-
-  async removeAccountMember(account: string, userId: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' }
-    );
-  }
-
-  async createInvitations(account: string, invitations: InviteEntry[]): Promise<{ results: InviteResultResponse[] }> {
-    return this.request<{ results: InviteResultResponse[] }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ invitations }),
-      }
-    );
-  }
-
-
-  async getAccount(name: string): Promise<AccountPublic> {
-    return this.request<AccountPublic>(
-      `/api/v1/accounts/${encodeURIComponent(name)}`
-    );
-  }
-
-  async getAccountMembers(account: string, opts?: { includePending?: boolean }): Promise<AccountMembersResponse> {
-    const params = opts?.includePending ? '?include_pending=true' : '';
-    return this.request<AccountMembersResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/members${params}`
-    );
-  }
-
-  async checkAccountName(name: string): Promise<{ available: boolean; reason?: string }> {
-    return this.request<{ available: boolean; reason?: string }>(
-      `/api/v1/accounts/check/${encodeURIComponent(name)}`
-    );
-  }
-
-  async searchAccounts(
-    q: string,
-    opts?: { type?: 'personal' | 'organization'; limit?: number }
-  ): Promise<AccountSearchResponse> {
-    const params = new URLSearchParams({ q });
-    if (opts?.type) params.set('type', opts.type);
-    if (opts?.limit) params.set('limit', String(opts.limit));
-    return this.request<AccountSearchResponse>(
-      `/api/v1/accounts/search?${params}`
-    );
-  }
-
-  // Blueprint endpoints
-  async listBlueprints(params?: BlueprintListParams): Promise<BlueprintsListResponse> {
-    const qs = buildBlueprintListQuery({
-      limit: BLUEPRINT_LIST_MAX_LIMIT,
-      offset: 0,
-      ...params,
-    });
-    return this.request<BlueprintsListResponse>(`/api/v1/agents?${qs}`);
-  }
-
-  /** Defaults to limit=100 for callers that need a full list in one request (no pagination). */
-  async listAccountBlueprints(
-    account: string,
-    params?: BlueprintListParams,
-  ): Promise<BlueprintsListResponse> {
-    const qs = buildBlueprintListQuery({
-      limit: BLUEPRINT_LIST_MAX_LIMIT,
-      offset: 0,
-      ...params,
-    });
-    const base = `/api/v1/agents/${encodeURIComponent(account)}`;
-    return this.request<BlueprintsListResponse>(`${base}?${qs}`);
-  }
-
-  async getBlueprint(account: string, name: string): Promise<Blueprint> {
-    return this.request<Blueprint>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`
-    );
-  }
-
-  async deployAgent(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<DeployResponse> {
-    const headers: Record<string, string> = {};
-    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
-    return this.request<DeployResponse>('/api/v1/deploy', {
-      method: 'POST',
-      body: JSON.stringify(deploySpec),
-      headers,
-    });
-  }
-
-  async validateDeployment(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<ValidateDeploymentResponse> {
-    const headers: Record<string, string> = {};
-    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
-    return this.request<ValidateDeploymentResponse>('/api/v1/deploy/validate', {
-      method: 'POST',
-      body: JSON.stringify(deploySpec),
-      headers,
-    });
-  }
-
-  async undeployAgent(data: {
-    deployment_id: string;
-  }): Promise<UndeployResponse> {
-    return this.request<UndeployResponse>('/api/v1/undeploy', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async stopDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/stop`, {
-      method: "POST",
-    });
-  }
-
-  async restartDeployment(data: { deploymentId: string }): Promise<{ status: string; pods: string[] }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/restart`, {
-      method: "POST",
-    });
-  }
-
-  async restartPod(data: { deploymentId: string; podName: string }): Promise<{ status: string; pod: string }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pods/${encodeURIComponent(data.podName)}/restart`, {
-      method: "POST",
-    });
-  }
-
-  async wakeupDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/wakeup`, {
-      method: "POST",
-    });
-  }
-
-  // Interactive POST deployment template: accepts deploy-time inputs, shapes template, returns validation.
-  async postDeploymentTemplate(account: string, name: string, body: TemplateRequest = {}): Promise<TemplateResponse> {
-    return this.request<TemplateResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template`,
-      { method: "POST", body: JSON.stringify(body) },
-    );
-  }
-
-
-
-  // List current deployments for an account
-  async countDeployments(account: string): Promise<{ count: number }> {
-    return this.request<{ count: number }>(
-      `/api/v1/deployments/count?account=${encodeURIComponent(account)}`
-    );
-  }
-
-  async getDeploymentsSummary(): Promise<DeploymentsSummaryResponse> {
-    return this.request<DeploymentsSummaryResponse>('/api/v1/deployments/summary');
-  }
-
-  async listDeployments(account: string): Promise<DeploymentsListResponse> {
-    return this.request<DeploymentsListResponse>(
-      `/api/v1/deployments?account=${encodeURIComponent(account)}`
-    );
-  }
-
-  async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
-    return this.request<{ deployment: AgentDeployment }>(
-      `/api/v1/deployments/${encodeURIComponent(id)}`
-    );
-  }
-
-  async updateDeploymentDisplayName(id: string, displayName: string): Promise<{ display_name: string }> {
-    return this.request<{ display_name: string }>(
-      `/api/v1/deployments/${encodeURIComponent(id)}`,
-      { method: "PATCH", body: JSON.stringify({ display_name: displayName }) },
-    );
-  }
-
-  // Get active deployment spec for an agent
-  async getActiveDeploymentSpec(account: string, name: string): Promise<ActiveDeploymentSpecResponse> {
-    return this.request<ActiveDeploymentSpecResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment`
-    );
-  }
-
-  // Get deployment history for an agent
-  async getDeploymentHistory(account: string, name: string, deploymentId?: string): Promise<DeploymentHistoryResponse> {
-    const params = new URLSearchParams();
-    if (deploymentId) params.set("deployment_id", deploymentId);
-    const qs = params.toString();
-    return this.request<DeploymentHistoryResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment/history${qs ? `?${qs}` : ""}`
-    );
-  }
-
-
-  // Fetch logs for a workload's containers
-  async getDeploymentLogs(
-    deploymentId: string,
-    workloadName: string,
-    container: string,
-    since?: string,
-    timezone?: string,
-    options?: { level?: string; direction?: string; tailLines?: number },
-  ): Promise<LogEntry[]> {
-    const params = new URLSearchParams({ workload: workloadName, container });
-    if (since) params.set('since', since);
-    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
-    if (options?.level) params.set('level', options.level);
-    if (options?.direction) params.set('direction', options.direction);
-    if (options?.tailLines !== undefined) params.set('tailLines', String(options.tailLines));
-    const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
-    const response = await fetch(url, {
-      credentials: 'include',
-      headers: { ...this.defaultHeaders },
-    });
-    if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        details: `Request failed with status ${response.status}`,
-      }));
-      throw new ApiRequestError(body, response.status);
-    }
-    return response.json();
-  }
-
-  getDeploymentLogsStreamUrl(deploymentId: string, workloadName: string, container: string, timezone?: string): string {
-    const params = new URLSearchParams({ workload: workloadName, container });
-    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
-    return `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs/stream?${params}`;
-  }
-
-  async getDeploymentEvents(deploymentId: string): Promise<DeploymentEventsResponse> {
-    return this.request<DeploymentEventsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/events`
-    );
-  }
-
-  async getPodMetrics(
-    deploymentId: string,
-    pod: string,
-    range: PodMetricsRange,
-  ): Promise<PodMetricsResponse> {
-    return this.request<PodMetricsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/pods/${encodeURIComponent(pod)}/metrics?range=${range}`
-    );
-  }
-
-  // Fetch ConfigMap data for a deployment
-  async getConfigMapData(
-    deploymentId: string,
-    cmname: string,
-  ): Promise<ConfigMapResponse> {
-    return this.request<ConfigMapResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/configmap/${encodeURIComponent(cmname)}`
-    );
-  }
-
-  // Fetch Secret key names (no values) for a deployment
-  async getSecretKeys(
-    deploymentId: string,
-    secretName: string,
-  ): Promise<SecretKeysResponse> {
-    return this.request<SecretKeysResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/secret/${encodeURIComponent(secretName)}/keys`
-    );
-  }
-
-  // Observability endpoints (deployment-scoped, backed by Langfuse)
-  async getObservabilityMetrics(
-    deploymentId: string,
-    params?: Record<string, string>,
-  ): Promise<ObservabilityMetricsResponse> {
-    return this.request<ObservabilityMetricsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/metrics${buildQS(params)}`
-    );
-  }
-
-  async getDeploymentObservabilitySummaries(
-    account: string,
-  ): Promise<DeploymentSummariesResponse> {
-    return this.request<DeploymentSummariesResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployment-summaries`
-    );
-  }
-
-  async getObservabilitySummary(
-    deploymentId: string,
-    params?: Record<string, string>,
-  ): Promise<ObservabilitySummaryResponse> {
-    return this.request<ObservabilitySummaryResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${buildQS(params)}`
-    );
-  }
-
-  async getAccountObservabilitySummary(
-    account: string,
-    params?: Record<string, string>,
-  ): Promise<AccountObservabilitySummaryResponse> {
-    return this.request<AccountObservabilitySummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/summary${buildQS(params)}`
-    );
-  }
-
-  async getAccountDeploymentsSummary(
-    account: string,
-    params?: Record<string, string>,
-  ): Promise<AccountDeploymentsSummaryResponse> {
-    return this.request<AccountDeploymentsSummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployments-summary${buildQS(params)}`
-    );
-  }
-
-  async getAccountUsersSummary(
-    account: string,
-    params?: Record<string, string>,
-  ): Promise<AccountUsersSummaryResponse> {
-    return this.request<AccountUsersSummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/users-summary${buildQS(params)}`
-    );
-  }
-
-  async triggerIngestion(data: {
-    deploymentId: string;
-    ingestion: string;
-  }): Promise<TriggerIngestionResponse> {
-    return this.request<TriggerIngestionResponse>(
-      `/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/ingestion/${encodeURIComponent(data.ingestion)}/trigger`,
-      { method: 'POST' }
-    );
-  }
-
-  async getObservabilityTraces(
-    deploymentId: string,
-    params?: Record<string, string>,
-  ): Promise<ObservabilityTracesResponse> {
-    return this.request<ObservabilityTracesResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${buildQS(params)}`
-    );
-  }
-
-  async getObservabilityTraceDetail(
-    deploymentId: string,
-    traceId: string,
-  ): Promise<TraceDetailResponse> {
-    return this.request<TraceDetailResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces/${encodeURIComponent(traceId)}`
-    );
-  }
-
-  async getObservabilityObservationDetail(
-    deploymentId: string,
-    observationId: string,
-  ): Promise<TraceObservation> {
-    return this.request<TraceObservation>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/observations/${encodeURIComponent(observationId)}`
-    );
-  }
-
-  async getNetworkSummary(
-    deploymentId: string,
-    params?: Record<string, string>,
-  ): Promise<NetworkSummaryResponse> {
-    return this.request<NetworkSummaryResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/summary${buildQS(params)}`
-    );
-  }
-
-  async getNetworkFlows(
-    deploymentId: string,
-    params: Record<string, string>,
-  ): Promise<NetworkFlowsResponse> {
-    return this.request<NetworkFlowsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/flows${buildQS(params)}`
-    );
-  }
-
-  async getNetworkTimeseries(
-    deploymentId: string,
-    params: Record<string, string>,
-  ): Promise<NetworkTimeseriesResponse> {
-    return this.request<NetworkTimeseriesResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/timeseries${buildQS(params)}`
-    );
-  }
-
-  async archiveBlueprint(account: string, name: string): Promise<void> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
-      { method: 'POST' }
-    );
-  }
-
-  async toggleHeart(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
-      { method: 'POST' }
-    );
-  }
-
-  async listHearted(account: string, cursor?: string): Promise<HeartedListResponse> {
-    const params = new URLSearchParams({ limit: '20' });
-    if (cursor) params.set('cursor', cursor);
-    return this.request(`/api/v1/accounts/${encodeURIComponent(account)}/hearts?${params}`);
-  }
-
-  async getAccountUsage(
-    account: string,
-    params?: { from?: string; to?: string },
-  ): Promise<AccountUsageResponse> {
-    const qs = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}` : '';
-    return this.request<AccountUsageResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/usage${qs}`
-    );
-  }
-
-  async listQuotaIncreaseRequests(
-    account: string,
-  ): Promise<QuotaIncreaseListResponse> {
-    return this.request<QuotaIncreaseListResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`
-    );
-  }
-
-  async requestQuotaIncrease(
-    account: string,
-    body: QuotaIncreaseInput,
-  ): Promise<{ id: string; status: string }> {
-    return this.request(
-      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`,
-      { method: 'POST', body: JSON.stringify(body) }
-    );
-  }
-
-  async submitFeedback(body: FeedbackInput): Promise<{ id: string }> {
-    return this.request('/api/v1/feedback', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-  }
-
-  // Audit log
-  async listAuditLog(
-    account: string,
-    params?: AuditLogQueryParams,
-  ): Promise<AuditLogListResponse> {
-    const qs = params
-      ? `?${new URLSearchParams(
-          Object.entries(params)
-            .filter(([, v]) => v != null && v !== '')
-            .map(([k, v]) => [k, String(v)])
-        )}`
-      : '';
-    return this.request<AuditLogListResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log${qs}`
-    );
-  }
-
-  async listAuditLogFilters(
-    account: string,
-  ): Promise<AuditLogFilterOptions> {
-    return this.request<AuditLogFilterOptions>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log/filters`
-    );
-  }
-
-  // Account variables / secrets vault
-  async listAccountVariables(account: string): Promise<AccountVariablesListResponse> {
-    return this.request<AccountVariablesListResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/variables`
-    );
-  }
-
-  async createAccountVariables(
-    account: string,
-    variables: CreateAccountVariableInput[],
-  ): Promise<CreateAccountVariablesResponse> {
-    return this.request(
-      `/api/v1/accounts/${encodeURIComponent(account)}/variables`,
-      { method: 'POST', body: JSON.stringify({ variables }) }
-    );
-  }
-
-  async updateAccountVariable(
-    account: string,
-    varName: string,
-    data: UpdateAccountVariableInput,
-  ): Promise<{ name: string; message: string }> {
-    return this.request(
-      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
-      { method: 'PUT', body: JSON.stringify(data) }
-    );
-  }
-
-  async deleteAccountVariable(
-    account: string,
-    varName: string,
-  ): Promise<{ message: string }> {
-    return this.request(
-      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
-      { method: 'DELETE' }
-    );
-  }
-
-  // Avatar endpoints
-  private async uploadFormData<T>(
-    endpoint: string,
-    formData: FormData,
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { ...this.defaultHeaders },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        error_description: `Request failed with status ${response.status}`,
-      }));
-      throw new ApiRequestError(body, response.status);
-    }
-
-    const text = await response.text();
-    if (!text) {
-      return {} as T;
-    }
-
-    return JSON.parse(text);
-  }
-
-  async uploadAvatar(account: string, file: Blob): Promise<AvatarResponse> {
-    const formData = new FormData();
-    formData.append('avatar', file, 'avatar.jpg');
-    return this.uploadFormData<AvatarResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
-      formData,
-    );
-  }
-
-  async setAvatarPreset(account: string, index: number): Promise<AvatarResponse> {
-    return this.request<AvatarResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/avatar/preset/${index}`,
-      { method: 'PUT' },
-    );
-  }
-
-  async resetAvatar(account: string): Promise<AvatarResponse> {
-    return this.request<AvatarResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
-      { method: 'DELETE' },
-    );
-  }
-
-  // Blueprint avatar endpoints
-  async uploadBlueprintAvatar(account: string, name: string, file: Blob): Promise<AvatarResponse> {
-    const formData = new FormData();
-    formData.append('avatar', file, 'avatar.jpg');
-    return this.uploadFormData<AvatarResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
-      formData,
-    );
-  }
-
-  async deleteBlueprintAvatar(account: string, name: string): Promise<AvatarResponse> {
-    return this.request<AvatarResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
-      { method: 'DELETE' },
-    );
-  }
-
-  // Deployment avatar endpoints
-  async uploadDeploymentAvatar(id: string, file: Blob): Promise<AvatarResponse> {
-    const formData = new FormData();
-    formData.append('avatar', file, 'avatar.jpg');
-    return this.uploadFormData<AvatarResponse>(
-      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
-      formData,
-    );
-  }
-
-  async deleteDeploymentAvatar(id: string): Promise<AvatarResponse> {
-    return this.request<AvatarResponse>(
-      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
-      { method: 'DELETE' },
-    );
-  }
-
-  async createBlueprint(account: string, body: { name: string; visibility?: string }): Promise<{ account: string; name: string }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}`,
-      { method: 'POST', body: JSON.stringify(body) }
-    );
-  }
-
-  // Knowledge Store endpoints
-  async listKnowledgeStores(account: string): Promise<KnowledgeStoreListResponse> {
-    return this.request<KnowledgeStoreListResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`
-    );
-  }
-
-  async getKnowledgeStore(account: string, name: string): Promise<KnowledgeStore> {
-    return this.request<KnowledgeStore>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`
-    );
-  }
-
-  async createKnowledgeStore(account: string, data: CreateKnowledgeStoreInput): Promise<KnowledgeStore> {
-    return this.request<KnowledgeStore>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`,
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async connectKnowledgeStore(account: string, data: ConnectKnowledgeStoreInput): Promise<KnowledgeStore> {
-    return this.request<KnowledgeStore>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/connect`,
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
-  async deleteKnowledgeStore(account: string, name: string): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`,
-      { method: 'DELETE' }
-    );
-  }
-
-  async getKnowledgeCredentials(account: string, name: string): Promise<KnowledgeCredentials> {
-    return this.request<KnowledgeCredentials>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`
-    );
-  }
-
-  async getKnowledgeLogs(
-    account: string,
-    name: string,
-    since?: string,
-  ): Promise<LogEntry[]> {
-    const params = new URLSearchParams();
-    if (since) params.set('since', since);
-    const qs = params.toString();
-    const url = `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs${qs ? `?${qs}` : ''}`;
-    const response = await fetch(url, {
-      credentials: 'include',
-      headers: { ...this.defaultHeaders },
-    });
-    if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        details: `Request failed with status ${response.status}`,
-      }));
-      throw new ApiRequestError(body, response.status);
-    }
-    return response.json();
-  }
-
-  getKnowledgeLogsStreamUrl(account: string, name: string): string {
-    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs/stream`;
-  }
-
-  async getKnowledgeMetrics(account: string, name: string): Promise<KnowledgeMetrics> {
-    return this.request<KnowledgeMetrics>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/metrics`
-    );
-  }
-
-  getKnowledgeEventsStreamUrl(account: string, name: string): string {
-    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
-  }
-
-  // GitHub connection
-  async gitHubRebuild(account: string, name: string): Promise<{ build_id: string; commit_sha: string }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/rebuild`,
-      { method: 'POST' }
-    );
-  }
-
-  async getGitHubBuildLogs(account: string, name: string, buildId: string): Promise<{ components?: Array<{ name: string; status: string; logs: string }>; job: string; pod: string; logs: string }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/builds/${encodeURIComponent(buildId)}/logs`
-    );
-  }
-
-  async getGitHubStatus(account: string, name: string): Promise<GitHubStatusResponse> {
-    return this.request<GitHubStatusResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`
-    );
-  }
-
-  async gitHubLink(account: string, name: string, body: GitHubLinkInput): Promise<void> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/link`,
-      { method: 'POST', body: JSON.stringify(body) }
-    );
-  }
-
-  async gitHubDisconnect(account: string, name: string): Promise<void> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`,
-      { method: 'DELETE' }
-    );
-  }
-
-  // Account-level GitHub connection (blueprint-agnostic)
-  async gitHubAccountStatus(account: string): Promise<{ connected: boolean; github_login?: string }> {
-    return this.request<{ connected: boolean; github_login?: string }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github`
-    );
-  }
-
-  async gitHubAccountDisconnect(account: string): Promise<void> {
-    return this.request(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github`,
-      { method: 'DELETE' }
-    );
-  }
-
-  async gitHubConnectAccount(account: string, redirectTo: string, force?: boolean): Promise<GitHubConnectResponse> {
-    return this.request<GitHubConnectResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/connect`,
-      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo, force: force ?? false }) }
-    );
-  }
-
-  // Account-level Slack identity link via WorkOS Pipes. The mapping that
-  // backs per-user grants on slack lives in slack_identity_mappings and
-  // is populated by the callback handler.
-
-  async slackAccountStatus(account: string): Promise<SlackStatusResponse> {
-    return this.request<SlackStatusResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/slack`
-    );
-  }
-
-  /** Disconnect: omit teamID to revoke every workspace mapping; pass a
-   *  team_id to revoke just that one (multi-workspace per-row disconnect). */
-  async slackAccountDisconnect(account: string, teamID?: string): Promise<void> {
-    const url = `/api/v1/accounts/${encodeURIComponent(account)}/slack`;
-    const qs = teamID ? `?team_id=${encodeURIComponent(teamID)}` : '';
-    return this.request(url + qs, { method: 'DELETE' });
-  }
-
-  async slackConnectAccount(account: string, redirectTo: string): Promise<SlackConnectResponse> {
-    return this.request<SlackConnectResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/slack/connect`,
-      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
-    );
-  }
-
-  async gitHubListAccountRepos(account: string, q: string, login?: string): Promise<{ repos: GitHubRepo[]; has_more: boolean }> {
-    const params = new URLSearchParams({ q });
-    if (login) params.set("login", login);
-    return this.request<{ repos: GitHubRepo[]; has_more: boolean }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/repos?${params}`
-    );
-  }
-
-  async gitHubAccountScan(account: string, repo: string, branch: string, agentName?: string): Promise<{ found: boolean }> {
-    const params = new URLSearchParams({ repo, branch });
-    if (agentName) params.set("agent_name", agentName);
-    return this.request<{ found: boolean }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
-    );
-  }
-
-  async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }> {
-    return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`
-    );
-  }
-
-  async gitHubListAccountOrgs(account: string): Promise<{ orgs: Array<{ login: string; avatar_url: string }> }> {
-    return this.request<{ orgs: Array<{ login: string; avatar_url: string }> }>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/github/orgs`
-    );
-  }
-}
-
-export interface ConfigMapResponse {
+// ============================================================================
+// Blueprints (incl. hearts / archive)
+// ============================================================================
+
+export interface BlueprintSummary {
   name: string;
-  namespace: string;
-  data: Record<string, string>;
+  registry: string;
+  build_count: number;
 }
 
-export interface SecretKeysResponse {
-  name: string;
-  namespace: string;
-  keys: string[];
-}
-
-// Response types
 export interface BlueprintSpec {
   meta?: { visibility?: string };
   integrations?: Record<string, { provider: string; type?: string }>;
@@ -1204,18 +289,6 @@ export interface BlueprintMetrics {
   deploy_count?: number;
 }
 
-export interface AvatarColors {
-  version?: number;
-  base: string;
-  vibrant: string;
-  vibrant_light: string;
-  accent: string;
-  accent_light: string;
-  background: string;
-  foreground: string;
-  glow: string;
-}
-
 export interface Blueprint {
   name: string;
   account: string;
@@ -1257,6 +330,12 @@ export interface HeartedListResponse {
   next_cursor?: string;
 }
 
+// ============================================================================
+// Deployments
+// ============================================================================
+
+// --- Deployment / template spec ---
+
 export interface DeploymentVariable {
   value?: string;
   ref?: string; // reference to an account variable by name, resolved server-side
@@ -1290,42 +369,6 @@ export interface VariableField {
   // Non-empty when the sub-field is deprecated; same semantics as
   // DeploymentVariable.deprecated.
   deprecated?: string;
-}
-
-export interface AccountVariable {
-  name: string;
-  secret: boolean;
-  description: string;
-  created_at: string;
-  updated_at: string;
-  value?: string; // only present for non-secret variables
-}
-
-export interface AccountVariablesListResponse {
-  variables: AccountVariable[];
-}
-
-export interface CreateAccountVariableInput {
-  name: string;
-  value: string;
-  secret: boolean;
-  description?: string;
-}
-
-export interface CreateVariableResult {
-  name: string;
-  status: 'created' | 'error';
-  error?: string;
-}
-
-export interface CreateAccountVariablesResponse {
-  results: CreateVariableResult[];
-}
-
-export interface UpdateAccountVariableInput {
-  value?: string;
-  secret?: boolean;
-  description?: string;
 }
 
 export interface DeploymentEndpoint {
@@ -1366,7 +409,7 @@ export type DeploymentSpec = Omit<DeploymentTemplate, 'spec'> & {
   spec: 'deployment/v1';
 };
 
-// --- Interactive POST template types ---
+// --- Interactive POST template ---
 
 export interface TemplateRequest {
   build?: string;
@@ -1452,16 +495,12 @@ export interface TemplateInterfaces {
   };
 }
 
-
 export interface TemplateValidation {
   valid: boolean;
   errors: ValidationError[];
 }
 
-export interface ValidationError {
-  field: string;
-  message: string;
-}
+// --- Deploy / undeploy responses ---
 
 export interface ResourceStatus {
   kind: string;
@@ -1512,6 +551,8 @@ export interface UndeployResponse {
   resources: ResourceStatus[];
   errors?: DeploymentError[];
 }
+
+// --- Deployment state / inspection ---
 
 export type DeploymentSummaryStatus = "Running" | "pending" | "Stopped" | "undeploying" | "error";
 
@@ -1752,7 +793,24 @@ export interface PodMetricsResponse {
   memory_limit: number;
 }
 
-// Observability types
+// --- ConfigMap / Secret inspection ---
+
+export interface ConfigMapResponse {
+  name: string;
+  namespace: string;
+  data: Record<string, string>;
+}
+
+export interface SecretKeysResponse {
+  name: string;
+  namespace: string;
+  keys: string[];
+}
+
+// ============================================================================
+// Observability (deployment- and account-scoped, backed by Langfuse)
+// ============================================================================
+
 export interface MetricsBucket {
   timestamp: string;
   trace_count: number;
@@ -1795,19 +853,6 @@ export interface ObservabilitySummaryResponse {
     error_rate: number;
     traces_per_hour: number;
   };
-}
-
-export interface TraceEntry {
-  trace_id: string;
-  name: string;
-  status: string;
-  latency_ms: number;
-  total_tokens?: number;
-  total_cost?: number;
-  input: string;
-  output: string;
-  timestamp: string;
-  user_id?: string;
 }
 
 export interface AccountObservabilitySummaryResponse {
@@ -1905,6 +950,19 @@ export interface AccountDeploymentsSummaryResponse {
   period: { start: string; end: string; days: number };
 }
 
+export interface TraceEntry {
+  trace_id: string;
+  name: string;
+  status: string;
+  latency_ms: number;
+  total_tokens?: number;
+  total_cost?: number;
+  input: string;
+  output: string;
+  timestamp: string;
+  user_id?: string;
+}
+
 export interface ObservabilityTracesResponse {
   traces: TraceEntry[];
   total: number;
@@ -1977,7 +1035,15 @@ export interface TraceDetailResponse {
   scores: TraceScore[];
 }
 
-// --- Network (Beyla eBPF) ---
+export interface TriggerIngestionResponse {
+  status: string;
+  job_name: string;
+  namespace: string;
+}
+
+// ============================================================================
+// Network (Beyla eBPF)
+// ============================================================================
 
 export type NetworkDirection = 'inbound' | 'outbound' | 'database';
 export type NetworkMetric = 'rate' | 'errors' | 'latency_p95' | 'bytes';
@@ -2037,99 +1103,10 @@ export interface NetworkTimeseriesResponse {
   series: NetworkSeries[];
 }
 
-export interface TriggerIngestionResponse {
-  status: string;
-  job_name: string;
-  namespace: string;
-}
+// ============================================================================
+// Knowledge
+// ============================================================================
 
-export interface UsageMeter {
-  usage: number;
-  quota?: number;
-}
-
-export interface AvatarResponse {
-  avatar_url: string;
-  avatar_colors?: AvatarColors;
-}
-
-export interface FeedbackInput {
-  message: string;
-  page_url?: string;
-}
-
-export interface QuotaIncreaseInput {
-  feature_key: string;
-  current_usage: number;
-  current_quota?: number;
-  requested_amount?: number;
-  reason: string;
-}
-
-export interface QuotaIncreaseListItem {
-  id: string;
-  feature_key: string;
-  current_usage: number;
-  current_quota?: number;
-  requested_amount?: number;
-  reason: string;
-  status: string;
-  created_at: string;
-}
-
-export interface QuotaIncreaseListResponse {
-  requests: QuotaIncreaseListItem[];
-}
-
-export interface AccountUsageResponse {
-  account_id: string;
-  period_start: string;
-  period_end: string;
-  meters: Record<string, UsageMeter>;
-}
-
-// Audit Log types
-export interface AuditLogActor {
-  id: string;
-  type: string;
-}
-
-export interface AuditLogResource {
-  type: string;
-  id: string;
-  name?: string;
-}
-
-export interface AuditLogEntry {
-  id: number;
-  actor: AuditLogActor;
-  action: string;
-  resource: AuditLogResource;
-  description?: string;
-  metadata?: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface AuditLogListResponse {
-  entries: AuditLogEntry[];
-  has_more: boolean;
-  next_before?: string;
-}
-
-export interface AuditLogQueryParams {
-  limit?: number;
-  before?: string;
-  actor_id?: string;
-  resource_type?: string;
-  action?: string;
-}
-
-export interface AuditLogFilterOptions {
-  resource_types: string[];
-  actions: string[];
-}
-
-// Knowledge Store types
 export type KnowledgeProvider = 'postgres' | 'qdrant' | 'redis' | 'neo4j' | 'pinecone' | 'mysql';
 export type KnowledgeMode = 'managed' | 'external';
 export type KnowledgeStatus = 'provisioning' | 'connecting' | 'pending-acceptance' | 'ready' | 'error';
@@ -2152,6 +1129,13 @@ export interface KnowledgeEvent {
   timestamp?: string;
 }
 
+export interface BoundAgent {
+  deployment_id: string;
+  agent_name: string;
+  display_name?: string;
+  knowledge_name: string;
+}
+
 export interface KnowledgeStore {
   id: string;
   arn: string;
@@ -2168,13 +1152,6 @@ export interface KnowledgeStore {
   updated_at: string;
   events?: KnowledgeEvent[];
   bound_agents?: BoundAgent[];
-}
-
-export interface BoundAgent {
-  deployment_id: string;
-  agent_name: string;
-  display_name?: string;
-  knowledge_name: string;
 }
 
 export type KnowledgeStoreListResponse = KnowledgeStore[];
@@ -2207,9 +1184,11 @@ export interface ConnectKnowledgeStoreInput {
   skip_health_check?: boolean;
 }
 
-export interface KnowledgeCredentials {
-  [key: string]: string;
-}
+export type KnowledgeCredentials = Record<string, string>;
+
+// ============================================================================
+// GitHub
+// ============================================================================
 
 export interface GitHubRepo {
   full_name: string;
@@ -2255,6 +1234,19 @@ export interface GitHubConnectResponse {
   github_login?: string;
 }
 
+export interface GitHubLinkInput {
+  repo_full_name: string;
+  branch: string;
+}
+
+// ============================================================================
+// Slack
+//
+// Account-level Slack identity link via WorkOS Pipes. The mapping that backs
+// per-user grants on slack lives in slack_identity_mappings and is populated
+// by the callback handler.
+// ============================================================================
+
 /** One Slack workspace linked to the current user. The pair (team_id,
  *  slack_user_id) is the unique key; the rest are display fields captured
  *  from oauth.v2.access + team.info at link time. `icon` is the
@@ -2281,12 +1273,1085 @@ export interface SlackConnectResponse {
   redirect_url: string;
 }
 
-export interface GitHubLinkInput {
-  repo_full_name: string;
-  branch: string;
+// ============================================================================
+// Variables (account-level vault — separate from per-deployment DeploymentVariable)
+// ============================================================================
+
+export interface AccountVariable {
+  name: string;
+  secret: boolean;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  value?: string; // only present for non-secret variables
 }
 
-// Export singleton instance
+export interface AccountVariablesListResponse {
+  variables: AccountVariable[];
+}
+
+export interface CreateAccountVariableInput {
+  name: string;
+  value: string;
+  secret: boolean;
+  description?: string;
+}
+
+export interface CreateVariableResult {
+  name: string;
+  status: 'created' | 'error';
+  error?: string;
+}
+
+export interface CreateAccountVariablesResponse {
+  results: CreateVariableResult[];
+}
+
+export interface UpdateAccountVariableInput {
+  value?: string;
+  secret?: boolean;
+  description?: string;
+}
+
+// ============================================================================
+// Audit log
+// ============================================================================
+
+export interface AuditLogActor {
+  id: string;
+  type: string;
+}
+
+export interface AuditLogResource {
+  type: string;
+  id: string;
+  name?: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  actor: AuditLogActor;
+  action: string;
+  resource: AuditLogResource;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  entries: AuditLogEntry[];
+  has_more: boolean;
+  next_before?: string;
+}
+
+export interface AuditLogQueryParams {
+  limit?: number;
+  before?: string;
+  actor_id?: string;
+  resource_type?: string;
+  action?: string;
+}
+
+export interface AuditLogFilterOptions {
+  resource_types: string[];
+  actions: string[];
+}
+
+// ============================================================================
+// Usage / quota / feedback
+// ============================================================================
+
+export interface UsageMeter {
+  usage: number;
+  quota?: number;
+}
+
+export interface AccountUsageResponse {
+  account_id: string;
+  period_start: string;
+  period_end: string;
+  meters: Record<string, UsageMeter>;
+}
+
+export interface FeedbackInput {
+  message: string;
+  page_url?: string;
+}
+
+export interface QuotaIncreaseInput {
+  feature_key: string;
+  current_usage: number;
+  current_quota?: number;
+  requested_amount?: number;
+  reason: string;
+}
+
+export interface QuotaIncreaseListItem {
+  id: string;
+  feature_key: string;
+  current_usage: number;
+  current_quota?: number;
+  requested_amount?: number;
+  reason: string;
+  status: string;
+  created_at: string;
+}
+
+export interface QuotaIncreaseListResponse {
+  requests: QuotaIncreaseListItem[];
+}
+
+// ============================================================================
+// ApiClient
+// ============================================================================
+
+class ApiClient {
+  private baseUrl: string;
+  private authUrl: string;
+  private defaultHeaders: Record<string, string>;
+
+  constructor(baseUrl: string = '', authUrl: string = '', defaultHeaders: Record<string, string> = {}) {
+    this.baseUrl = baseUrl;
+    this.authUrl = authUrl;
+    this.defaultHeaders = defaultHeaders;
+  }
+
+  // --------------------------------------------------------------------------
+  // Fetch infrastructure
+  // --------------------------------------------------------------------------
+
+  /** Single entry point for all HTTP traffic. Handles credential cookies,
+   *  header merging, error mapping to ApiRequestError, and empty-body
+   *  responses. Callers shouldn't reach for `fetch` directly. */
+  private async _fetch<T>(
+    url: string,
+    init: RequestInit = {},
+    opts: { isFormData?: boolean } = {},
+  ): Promise<T> {
+    const headers: Record<string, string> = {
+      ...this.defaultHeaders,
+      ...(init.headers as Record<string, string> | undefined),
+    };
+    // FormData uploads must let the browser set the multipart Content-Type
+    // (including the boundary). For JSON traffic, default Content-Type unless
+    // the caller already provided one.
+    if (!opts.isFormData && headers['Content-Type'] === undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+      ...init,
+      credentials: 'include',
+      headers,
+    });
+
+    if (!response.ok) {
+      const body: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        error_description: `Request failed with status ${response.status}`,
+      }));
+      throw new ApiRequestError(body, response.status);
+    }
+
+    const text = await response.text();
+    if (!text) return {} as T;
+    return JSON.parse(text);
+  }
+
+  private request<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    return this._fetch<T>(`${this.baseUrl}${endpoint}`, init);
+  }
+
+  // Auth endpoints go directly to the backend (bypassing the Vite proxy) so
+  // session cookies are written on the correct origin.
+  private authRequest<T>(endpoint: string, init: RequestInit = {}): Promise<T> {
+    return this._fetch<T>(`${this.authUrl}${endpoint}`, init);
+  }
+
+  private uploadFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+    return this._fetch<T>(
+      `${this.baseUrl}${endpoint}`,
+      { method: 'POST', body: formData },
+      { isFormData: true },
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Auth
+  // --------------------------------------------------------------------------
+
+  async getCurrentUser(): Promise<AuthResponse> {
+    return this.authRequest<AuthResponse>('/auth/me');
+  }
+
+  async refreshSession(): Promise<AuthResponse> {
+    return this.authRequest<AuthResponse>('/auth/refresh', { method: 'POST' });
+  }
+
+  async switchOrg(organizationId: string): Promise<AuthResponse> {
+    return this.authRequest<AuthResponse>('/auth/switch-org', {
+      method: 'POST',
+      body: JSON.stringify({ organization_id: organizationId }),
+    });
+  }
+
+  getLoginUrl(redirect?: string, screenHint?: string): string {
+    const params = new URLSearchParams();
+    if (redirect) params.set("redirect", redirect);
+    if (screenHint) params.set("screen_hint", screenHint);
+    const qs = params.toString();
+    return `${this.authUrl}/auth/login${qs ? `?${qs}` : ""}`;
+  }
+
+  getLogoutUrl(): string {
+    // Pass current origin as redirect parameter for reliable post-logout redirect
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const redirectUrl = encodeURIComponent(origin);
+    return `${this.authUrl}/auth/logout?redirect=${redirectUrl}`;
+  }
+
+  // --------------------------------------------------------------------------
+  // Profile
+  // --------------------------------------------------------------------------
+
+  async getProfile(): Promise<ProfileResponse> {
+    return this.request<ProfileResponse>('/api/v1/me');
+  }
+
+  async updateProfile(data: { display_name: string }): Promise<{ user: User }> {
+    return this.request<{ user: User }>('/api/v1/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Accounts
+  // --------------------------------------------------------------------------
+
+  async createAccount(data: CreateAccountData): Promise<CreateAccountResponse> {
+    return this.request<CreateAccountResponse>('/api/v1/accounts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAccount(account: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async renameAccount(account: string, newName: string): Promise<{ message: string; name: string }> {
+    return this.request<{ message: string; name: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ name: newName }),
+      }
+    );
+  }
+
+  async updateAccountDisplayName(account: string, displayName: string): Promise<{ message: string; display_name: string }> {
+    return this.request<{ message: string; display_name: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ display_name: displayName }),
+      }
+    );
+  }
+
+  async updateAccountProfile(
+    account: string,
+    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] },
+  ): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    );
+  }
+
+  async getAccount(name: string): Promise<AccountPublic> {
+    return this.request<AccountPublic>(
+      `/api/v1/accounts/${encodeURIComponent(name)}`
+    );
+  }
+
+  async getAccountOrgs(account: string): Promise<AccountOrgsResponse> {
+    return this.request<AccountOrgsResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/orgs`,
+    );
+  }
+
+  async getAccountMembers(account: string, opts?: { includePending?: boolean }): Promise<AccountMembersResponse> {
+    const params = opts?.includePending ? '?include_pending=true' : '';
+    return this.request<AccountMembersResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members${params}`
+    );
+  }
+
+  async updateMemberRole(account: string, userId: string, role: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      }
+    );
+  }
+
+  async removeAccountMember(account: string, userId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async createInvitations(account: string, invitations: InviteEntry[]): Promise<{ results: InviteResultResponse[] }> {
+    return this.request<{ results: InviteResultResponse[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ invitations }),
+      }
+    );
+  }
+
+  async checkAccountName(name: string): Promise<{ available: boolean; reason?: string }> {
+    return this.request<{ available: boolean; reason?: string }>(
+      `/api/v1/accounts/check/${encodeURIComponent(name)}`
+    );
+  }
+
+  async searchAccounts(
+    q: string,
+    opts?: { type?: 'personal' | 'organization'; limit?: number }
+  ): Promise<AccountSearchResponse> {
+    const params = new URLSearchParams({ q });
+    if (opts?.type) params.set('type', opts.type);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return this.request<AccountSearchResponse>(
+      `/api/v1/accounts/search?${params}`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Blueprints (incl. hearts / archive)
+  // --------------------------------------------------------------------------
+
+  async listBlueprints(params?: BlueprintListParams): Promise<BlueprintsListResponse> {
+    const qs = buildBlueprintListQuery({
+      limit: BLUEPRINT_LIST_MAX_LIMIT,
+      offset: 0,
+      ...params,
+    });
+    return this.request<BlueprintsListResponse>(`/api/v1/agents?${qs}`);
+  }
+
+  /** Defaults to limit=100 for callers that need a full list in one request (no pagination). */
+  async listAccountBlueprints(
+    account: string,
+    params?: BlueprintListParams,
+  ): Promise<BlueprintsListResponse> {
+    const qs = buildBlueprintListQuery({
+      limit: BLUEPRINT_LIST_MAX_LIMIT,
+      offset: 0,
+      ...params,
+    });
+    const base = `/api/v1/agents/${encodeURIComponent(account)}`;
+    return this.request<BlueprintsListResponse>(`${base}?${qs}`);
+  }
+
+  async getBlueprint(account: string, name: string): Promise<Blueprint> {
+    return this.request<Blueprint>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`
+    );
+  }
+
+  async createBlueprint(account: string, body: { name: string; visibility?: string }): Promise<{ account: string; name: string }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
+
+  async archiveBlueprint(account: string, name: string): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
+      { method: 'POST' }
+    );
+  }
+
+  async toggleHeart(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
+      { method: 'POST' }
+    );
+  }
+
+  async listHearted(account: string, cursor?: string): Promise<HeartedListResponse> {
+    const params = new URLSearchParams({ limit: '20' });
+    if (cursor) params.set('cursor', cursor);
+    return this.request(`/api/v1/accounts/${encodeURIComponent(account)}/hearts?${params}`);
+  }
+
+  // --------------------------------------------------------------------------
+  // Deployments: lifecycle
+  // --------------------------------------------------------------------------
+
+  async deployAgent(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<DeployResponse> {
+    const headers: Record<string, string> = {};
+    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
+    return this.request<DeployResponse>('/api/v1/deploy', {
+      method: 'POST',
+      body: JSON.stringify(deploySpec),
+      headers,
+    });
+  }
+
+  async validateDeployment(deploySpec: DeploymentSpec, opts?: { signature?: string }): Promise<ValidateDeploymentResponse> {
+    const headers: Record<string, string> = {};
+    if (opts?.signature) headers['X-Template-Signature'] = opts.signature;
+    return this.request<ValidateDeploymentResponse>('/api/v1/deploy/validate', {
+      method: 'POST',
+      body: JSON.stringify(deploySpec),
+      headers,
+    });
+  }
+
+  async undeployAgent(data: {
+    deployment_id: string;
+  }): Promise<UndeployResponse> {
+    return this.request<UndeployResponse>('/api/v1/undeploy', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async stopDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/stop`, {
+      method: "POST",
+    });
+  }
+
+  async restartDeployment(data: { deploymentId: string }): Promise<{ status: string; pods: string[] }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/restart`, {
+      method: "POST",
+    });
+  }
+
+  async restartPod(data: { deploymentId: string; podName: string }): Promise<{ status: string; pod: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pods/${encodeURIComponent(data.podName)}/restart`, {
+      method: "POST",
+    });
+  }
+
+  async wakeupDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/wakeup`, {
+      method: "POST",
+    });
+  }
+
+  // Interactive POST deployment template: accepts deploy-time inputs, shapes template, returns validation.
+  async postDeploymentTemplate(account: string, name: string, body: TemplateRequest = {}): Promise<TemplateResponse> {
+    return this.request<TemplateResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Deployments: inspection (status, history, logs, events, pods, configmaps)
+  // --------------------------------------------------------------------------
+
+  async countDeployments(account: string): Promise<{ count: number }> {
+    return this.request<{ count: number }>(
+      `/api/v1/deployments/count?account=${encodeURIComponent(account)}`
+    );
+  }
+
+  async getDeploymentsSummary(): Promise<DeploymentsSummaryResponse> {
+    return this.request<DeploymentsSummaryResponse>('/api/v1/deployments/summary');
+  }
+
+  async listDeployments(account: string): Promise<DeploymentsListResponse> {
+    return this.request<DeploymentsListResponse>(
+      `/api/v1/deployments?account=${encodeURIComponent(account)}`
+    );
+  }
+
+  async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
+    return this.request<{ deployment: AgentDeployment }>(
+      `/api/v1/deployments/${encodeURIComponent(id)}`
+    );
+  }
+
+  async updateDeploymentDisplayName(id: string, displayName: string): Promise<{ display_name: string }> {
+    return this.request<{ display_name: string }>(
+      `/api/v1/deployments/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify({ display_name: displayName }) },
+    );
+  }
+
+  // Get active deployment spec for an agent
+  async getActiveDeploymentSpec(account: string, name: string): Promise<ActiveDeploymentSpecResponse> {
+    return this.request<ActiveDeploymentSpecResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment`
+    );
+  }
+
+  // Get deployment history for an agent
+  async getDeploymentHistory(account: string, name: string, deploymentId?: string): Promise<DeploymentHistoryResponse> {
+    const params = new URLSearchParams();
+    if (deploymentId) params.set("deployment_id", deploymentId);
+    const qs = params.toString();
+    return this.request<DeploymentHistoryResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment/history${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  // Fetch logs for a workload's containers
+  async getDeploymentLogs(
+    deploymentId: string,
+    workloadName: string,
+    container: string,
+    since?: string,
+    timezone?: string,
+    options?: { level?: string; direction?: string; tailLines?: number },
+  ): Promise<LogEntry[]> {
+    const params = new URLSearchParams({ workload: workloadName, container });
+    if (since) params.set('since', since);
+    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
+    if (options?.level) params.set('level', options.level);
+    if (options?.direction) params.set('direction', options.direction);
+    if (options?.tailLines !== undefined) params.set('tailLines', String(options.tailLines));
+    return this.request<LogEntry[]>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`
+    );
+  }
+
+  getDeploymentLogsStreamUrl(deploymentId: string, workloadName: string, container: string, timezone?: string): string {
+    const params = new URLSearchParams({ workload: workloadName, container });
+    if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
+    return `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs/stream?${params}`;
+  }
+
+  async getDeploymentEvents(deploymentId: string): Promise<DeploymentEventsResponse> {
+    return this.request<DeploymentEventsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/events`
+    );
+  }
+
+  async getPodMetrics(
+    deploymentId: string,
+    pod: string,
+    range: PodMetricsRange,
+  ): Promise<PodMetricsResponse> {
+    return this.request<PodMetricsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/pods/${encodeURIComponent(pod)}/metrics?range=${range}`
+    );
+  }
+
+  // Fetch ConfigMap data for a deployment
+  async getConfigMapData(
+    deploymentId: string,
+    cmname: string,
+  ): Promise<ConfigMapResponse> {
+    return this.request<ConfigMapResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/configmap/${encodeURIComponent(cmname)}`
+    );
+  }
+
+  // Fetch Secret key names (no values) for a deployment
+  async getSecretKeys(
+    deploymentId: string,
+    secretName: string,
+  ): Promise<SecretKeysResponse> {
+    return this.request<SecretKeysResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/secret/${encodeURIComponent(secretName)}/keys`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Observability (deployment- and account-scoped, backed by Langfuse)
+  // --------------------------------------------------------------------------
+
+  async getObservabilityMetrics(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilityMetricsResponse> {
+    return this.request<ObservabilityMetricsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/metrics${buildQS(params)}`
+    );
+  }
+
+  async getDeploymentObservabilitySummaries(
+    account: string,
+  ): Promise<DeploymentSummariesResponse> {
+    return this.request<DeploymentSummariesResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployment-summaries`
+    );
+  }
+
+  async getObservabilitySummary(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilitySummaryResponse> {
+    return this.request<ObservabilitySummaryResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${buildQS(params)}`
+    );
+  }
+
+  async getAccountObservabilitySummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountObservabilitySummaryResponse> {
+    return this.request<AccountObservabilitySummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/summary${buildQS(params)}`
+    );
+  }
+
+  async getAccountDeploymentsSummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountDeploymentsSummaryResponse> {
+    return this.request<AccountDeploymentsSummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployments-summary${buildQS(params)}`
+    );
+  }
+
+  async getAccountUsersSummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountUsersSummaryResponse> {
+    return this.request<AccountUsersSummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/users-summary${buildQS(params)}`
+    );
+  }
+
+  async getObservabilityTraces(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilityTracesResponse> {
+    return this.request<ObservabilityTracesResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${buildQS(params)}`
+    );
+  }
+
+  async getObservabilityTraceDetail(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<TraceDetailResponse> {
+    return this.request<TraceDetailResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces/${encodeURIComponent(traceId)}`
+    );
+  }
+
+  async getObservabilityObservationDetail(
+    deploymentId: string,
+    observationId: string,
+  ): Promise<TraceObservation> {
+    return this.request<TraceObservation>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/observations/${encodeURIComponent(observationId)}`
+    );
+  }
+
+  async triggerIngestion(data: {
+    deploymentId: string;
+    ingestion: string;
+  }): Promise<TriggerIngestionResponse> {
+    return this.request<TriggerIngestionResponse>(
+      `/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/ingestion/${encodeURIComponent(data.ingestion)}/trigger`,
+      { method: 'POST' }
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Network (Beyla eBPF)
+  // --------------------------------------------------------------------------
+
+  async getNetworkSummary(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<NetworkSummaryResponse> {
+    return this.request<NetworkSummaryResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/summary${buildQS(params)}`
+    );
+  }
+
+  async getNetworkFlows(
+    deploymentId: string,
+    params: Record<string, string>,
+  ): Promise<NetworkFlowsResponse> {
+    return this.request<NetworkFlowsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/flows${buildQS(params)}`
+    );
+  }
+
+  async getNetworkTimeseries(
+    deploymentId: string,
+    params: Record<string, string>,
+  ): Promise<NetworkTimeseriesResponse> {
+    return this.request<NetworkTimeseriesResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/network/timeseries${buildQS(params)}`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Avatars (accounts, blueprints, deployments)
+  // --------------------------------------------------------------------------
+
+  async uploadAvatar(account: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
+      formData,
+    );
+  }
+
+  async setAvatarPreset(account: string, index: number): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar/preset/${index}`,
+      { method: 'PUT' },
+    );
+  }
+
+  async resetAvatar(account: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
+
+  async uploadBlueprintAvatar(account: string, name: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
+      formData,
+    );
+  }
+
+  async deleteBlueprintAvatar(account: string, name: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
+
+  async uploadDeploymentAvatar(id: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
+      formData,
+    );
+  }
+
+  async deleteDeploymentAvatar(id: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Knowledge
+  // --------------------------------------------------------------------------
+
+  async listKnowledgeStores(account: string): Promise<KnowledgeStoreListResponse> {
+    return this.request<KnowledgeStoreListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`
+    );
+  }
+
+  async getKnowledgeStore(account: string, name: string): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`
+    );
+  }
+
+  async createKnowledgeStore(account: string, data: CreateKnowledgeStoreInput): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async connectKnowledgeStore(account: string, data: ConnectKnowledgeStoreInput): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/connect`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteKnowledgeStore(account: string, name: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async getKnowledgeCredentials(account: string, name: string): Promise<KnowledgeCredentials> {
+    return this.request<KnowledgeCredentials>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`
+    );
+  }
+
+  async getKnowledgeLogs(
+    account: string,
+    name: string,
+    since?: string,
+  ): Promise<LogEntry[]> {
+    const params = new URLSearchParams();
+    if (since) params.set('since', since);
+    const qs = params.toString();
+    return this.request<LogEntry[]>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs${qs ? `?${qs}` : ''}`
+    );
+  }
+
+  getKnowledgeLogsStreamUrl(account: string, name: string): string {
+    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs/stream`;
+  }
+
+  async getKnowledgeMetrics(account: string, name: string): Promise<KnowledgeMetrics> {
+    return this.request<KnowledgeMetrics>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/metrics`
+    );
+  }
+
+  getKnowledgeEventsStreamUrl(account: string, name: string): string {
+    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
+  }
+
+  // --------------------------------------------------------------------------
+  // GitHub (per-blueprint connection + per-account connection)
+  // --------------------------------------------------------------------------
+
+  async gitHubRebuild(account: string, name: string): Promise<{ build_id: string; commit_sha: string }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/rebuild`,
+      { method: 'POST' }
+    );
+  }
+
+  async getGitHubBuildLogs(account: string, name: string, buildId: string): Promise<{ components?: Array<{ name: string; status: string; logs: string }>; job: string; pod: string; logs: string }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/builds/${encodeURIComponent(buildId)}/logs`
+    );
+  }
+
+  async getGitHubStatus(account: string, name: string): Promise<GitHubStatusResponse> {
+    return this.request<GitHubStatusResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`
+    );
+  }
+
+  async gitHubLink(account: string, name: string, body: GitHubLinkInput): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/link`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
+
+  async gitHubDisconnect(account: string, name: string): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // Account-level GitHub connection (blueprint-agnostic)
+  async gitHubAccountStatus(account: string): Promise<{ connected: boolean; github_login?: string }> {
+    return this.request<{ connected: boolean; github_login?: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github`
+    );
+  }
+
+  async gitHubAccountDisconnect(account: string): Promise<void> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async gitHubConnectAccount(account: string, redirectTo: string, force?: boolean): Promise<GitHubConnectResponse> {
+    return this.request<GitHubConnectResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/connect`,
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo, force: force ?? false }) }
+    );
+  }
+
+  async gitHubListAccountRepos(account: string, q: string, login?: string): Promise<{ repos: GitHubRepo[]; has_more: boolean }> {
+    const params = new URLSearchParams({ q });
+    if (login) params.set("login", login);
+    return this.request<{ repos: GitHubRepo[]; has_more: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/repos?${params}`
+    );
+  }
+
+  async gitHubAccountScan(account: string, repo: string, branch: string, agentName?: string): Promise<{ found: boolean }> {
+    const params = new URLSearchParams({ repo, branch });
+    if (agentName) params.set("agent_name", agentName);
+    return this.request<{ found: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/scan?${params}`
+    );
+  }
+
+  async gitHubListAccountConnections(account: string): Promise<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }> {
+    return this.request<{ connections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/connections`
+    );
+  }
+
+  async gitHubListAccountOrgs(account: string): Promise<{ orgs: Array<{ login: string; avatar_url: string }> }> {
+    return this.request<{ orgs: Array<{ login: string; avatar_url: string }> }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/orgs`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Slack
+  // --------------------------------------------------------------------------
+
+  async slackAccountStatus(account: string): Promise<SlackStatusResponse> {
+    return this.request<SlackStatusResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/slack`
+    );
+  }
+
+  /** Disconnect: omit teamID to revoke every workspace mapping; pass a
+   *  team_id to revoke just that one (multi-workspace per-row disconnect). */
+  async slackAccountDisconnect(account: string, teamID?: string): Promise<void> {
+    const url = `/api/v1/accounts/${encodeURIComponent(account)}/slack`;
+    const qs = teamID ? `?team_id=${encodeURIComponent(teamID)}` : '';
+    return this.request(url + qs, { method: 'DELETE' });
+  }
+
+  async slackConnectAccount(account: string, redirectTo: string): Promise<SlackConnectResponse> {
+    return this.request<SlackConnectResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/slack/connect`,
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Variables (account-level vault)
+  // --------------------------------------------------------------------------
+
+  async listAccountVariables(account: string): Promise<AccountVariablesListResponse> {
+    return this.request<AccountVariablesListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables`
+    );
+  }
+
+  async createAccountVariables(
+    account: string,
+    variables: CreateAccountVariableInput[],
+  ): Promise<CreateAccountVariablesResponse> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables`,
+      { method: 'POST', body: JSON.stringify({ variables }) }
+    );
+  }
+
+  async updateAccountVariable(
+    account: string,
+    varName: string,
+    data: UpdateAccountVariableInput,
+  ): Promise<{ name: string; message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteAccountVariable(
+    account: string,
+    varName: string,
+  ): Promise<{ message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Audit log
+  // --------------------------------------------------------------------------
+
+  async listAuditLog(
+    account: string,
+    params?: AuditLogQueryParams,
+  ): Promise<AuditLogListResponse> {
+    const qs = params
+      ? `?${new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v != null && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        )}`
+      : '';
+    return this.request<AuditLogListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log${qs}`
+    );
+  }
+
+  async listAuditLogFilters(
+    account: string,
+  ): Promise<AuditLogFilterOptions> {
+    return this.request<AuditLogFilterOptions>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/audit-log/filters`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Usage / quota / feedback
+  // --------------------------------------------------------------------------
+
+  async getAccountUsage(
+    account: string,
+    params?: { from?: string; to?: string },
+  ): Promise<AccountUsageResponse> {
+    const qs = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}` : '';
+    return this.request<AccountUsageResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/usage${qs}`
+    );
+  }
+
+  async listQuotaIncreaseRequests(
+    account: string,
+  ): Promise<QuotaIncreaseListResponse> {
+    return this.request<QuotaIncreaseListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`
+    );
+  }
+
+  async requestQuotaIncrease(
+    account: string,
+    body: QuotaIncreaseInput,
+  ): Promise<{ id: string; status: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
+
+  async submitFeedback(body: FeedbackInput): Promise<{ id: string }> {
+    return this.request('/api/v1/feedback', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+}
+
+// ============================================================================
+// Singleton export
+// ============================================================================
+
 // Auth endpoints go directly to the backend (for cookies), API endpoints use proxy
 const authUrl = typeof import.meta !== 'undefined' && import.meta.env
   ? (import.meta.env.VITE_API_URL || '')
