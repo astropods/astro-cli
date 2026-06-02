@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Job control: backgrounded children (air, fakeopenmeter) get their own
-# process group, so cleanup can kill the entire subtree via `kill -- -$PID`
-# instead of leaving grandchildren (astro-server, the compiled fakeopenmeter
-# binary) orphaned to launchd when air doesn't propagate the signal.
-set -m
 
 cd "$(dirname "$0")/.."
 
@@ -35,23 +30,6 @@ if ! command -v atlas &>/dev/null; then
   echo "==> Installing atlas..."
   curl -sSf https://atlasgo.sh | sh
 fi
-
-# trap fires once per signal type (EXIT, INT, TERM); the guard keeps the
-# shutdown message from printing repeatedly when Ctrl+C is followed by the
-# script's natural EXIT.
-_cleanup_ran=0
-cleanup() {
-  [ "$_cleanup_ran" = 1 ] && return
-  _cleanup_ran=1
-  echo ""
-  echo "==> Shutting down..."
-  if [ -n "${SERVER_PID:-}" ]; then
-    kill -- "-$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
-  echo "==> Done."
-}
-trap cleanup EXIT INT TERM
 
 # Apply schema via Atlas (idempotent — safe to re-run)
 echo "==> Applying schema..."
@@ -103,8 +81,8 @@ if [ -n "$OPENMETER_URL_VALUE" ]; then
   bash ../../scripts/backfill-openmeter-subscriptions.sh
 fi
 
-# Start the server with hot reload
+# exec so air replaces bash and receives parent signals directly — no trap
+# hop, so air has time to kill its astro-server child (which lives in its
+# own process group via Setpgid:true) before we exit.
 echo "==> Starting astro-server (hot reload via air)..."
-air &
-SERVER_PID=$!
-wait "$SERVER_PID"
+exec air

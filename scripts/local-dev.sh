@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Job control: each backgrounded subshell becomes its own process group
+# so cleanup can kill the entire subtree via `kill -- -$PID`. Without
+# this, signaling the subshell PID leaves grandchildren (bash dev.sh,
+# sed, bun run dev) orphaned to launchd.
+set -m
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -42,7 +47,7 @@ cleanup() {
   echo ""
   log "Shutting down..."
   for pid in ${PIDS[@]+"${PIDS[@]}"}; do
-    kill "$pid" 2>/dev/null || true
+    kill -- "-$pid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
   docker compose -f docker-compose.local.yml down --timeout 5

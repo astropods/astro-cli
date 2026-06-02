@@ -18,7 +18,7 @@ test("archive hello-astro and clean up sandbox", () => {
     expect(cleanArchive).toContain("Archiving blueprint hello-astro");
     expect(cleanArchive).toContain("✓ hello-astro archived");
 
-    const deleteResult = exec(`${astBin} agent delete 'Hello Astro' --confirm 'Hello Astro'`, {
+    const deleteResult = exec(`${astBin} agent delete --name 'Hello Astro' --confirm 'Hello Astro'`, {
       env: { ...process.env, HOME: fakeHome },
       encoding: "utf-8",
       timeout: 30000,
