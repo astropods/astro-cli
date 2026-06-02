@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -179,8 +180,10 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		// The deploy token's iss claim carries this URL; the messaging
 		// container reads it to know where to call back for authorize. We
 		// reuse the public-facing frontend URL — the API surface is co-
-		// located there, no separate authz endpoint.
-		AuthzCallbackURL: d.Cfg.Auth.FrontendURL,
+		// located there, no separate authz endpoint. In local mode the
+		// frontend URL is a host-side localhost address that pods can't
+		// reach via their own loopback, so rewrite to host.docker.internal.
+		AuthzCallbackURL: podReachableURL(d.Cfg.Auth.FrontendURL, d.Cfg.Deployment.K8sClientMode == "local"),
 		AuthTestUserID:   authTestUserID,
 		NamespaceLabels:  buildNamespaceLabels(dep, acct.Name),
 		NamespaceAnnotations: map[string]string{
@@ -531,6 +534,32 @@ func tenantImageHostsFromConfig(cfg *config.Config) []string {
 		hosts = append(hosts, "registry.localhost")
 	}
 	return hosts
+}
+
+// podReachableURL rewrites a host-side localhost URL so it's reachable from
+// a pod's network namespace on Docker Desktop's k8s. From inside a pod,
+// `localhost` is the pod's own loopback, not the host running astro-server;
+// `host.docker.internal` is the Docker Desktop alias for the macOS host.
+// Only rewrites in local mode and only when the host is loopback — other
+// hosts (e.g. a Service DNS name or a real ingress) are left alone.
+func podReachableURL(raw string, localMode bool) string {
+	if !localMode || raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	host := u.Hostname()
+	if host != "localhost" && host != "127.0.0.1" {
+		return raw
+	}
+	if p := u.Port(); p != "" {
+		u.Host = "host.docker.internal:" + p
+	} else {
+		u.Host = "host.docker.internal"
+	}
+	return u.String()
 }
 
 // stripScheme returns the host portion of "scheme://host[/path]" inputs;

@@ -43,6 +43,32 @@ func TestImagePullPolicyForMode_Empty(t *testing.T) {
 	}
 }
 
+func TestPodReachableURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		localMode bool
+		want      string
+	}{
+		{"local mode rewrites localhost with port", "http://localhost:5173", true, "http://host.docker.internal:5173"},
+		{"local mode rewrites 127.0.0.1 with port", "http://127.0.0.1:5173", true, "http://host.docker.internal:5173"},
+		{"local mode rewrites localhost without port", "http://localhost", true, "http://host.docker.internal"},
+		{"local mode preserves non-loopback host", "https://astro.example.com", true, "https://astro.example.com"},
+		{"local mode preserves path and query", "http://localhost:5173/api?x=1", true, "http://host.docker.internal:5173/api?x=1"},
+		{"non-local mode leaves localhost alone", "http://localhost:5173", false, "http://localhost:5173"},
+		{"empty input passes through", "", true, ""},
+		{"unparseable input passes through", "://bad", true, "://bad"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := podReachableURL(tc.raw, tc.localMode)
+			if got != tc.want {
+				t.Errorf("podReachableURL(%q, %v) = %q, want %q", tc.raw, tc.localMode, got, tc.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // fakeClusterClient implements k8s.ClusterClient backed by a test HTTP server.
 // ---------------------------------------------------------------------------
