@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, RotateCcw } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { ChevronRight, Lock, RotateCcw } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -125,102 +124,89 @@ export function AdvancedProvisioningFields({
   const totalMonthly = cpuMonthly + ramMonthly + storageMonthly;
 
   return (
-    <Card className="overflow-hidden p-0">
+    <div className="overflow-hidden rounded-[10px] border border-border">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           className={cn(
-            "flex w-full items-center justify-between gap-3 px-5 py-4 text-left",
-            "transition-colors hover:bg-popover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex w-full items-center gap-3 bg-muted px-5 py-3 text-left",
+            "transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
-          <div className="flex items-center gap-3">
-            <ChevronRight
-              className={cn(
-                "size-4 text-muted-foreground transition-transform",
-                open && "rotate-90",
-              )}
-            />
-            <div>
-              <div className="text-heading-4 text-foreground">Advanced</div>
-              <div className="text-body-sm text-muted-foreground">
-                Compute and storage allocations
-              </div>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-heading-4 tabular-nums text-foreground">
-              ~{formatUSD(totalMonthly)}
-            </span>
-            <span className="text-body-sm text-muted-foreground">/mo</span>
-          </div>
+          <ChevronRight
+            className={cn(
+              "size-4 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
+          />
+          <span className="text-heading-4 text-foreground">Advanced sizing</span>
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <div className="border-t border-border">
-            <div className="space-y-6 px-5 py-5">
-              <TierSlider
-                label="CPU"
-                description="Cores allocated to the agent container."
-                tiers={CPU_TIERS}
-                displayLabels={CPU_TIERS}
-                value={cpu}
-                index={cpuIndex}
-                isOverridden={!!cpu}
-                onChange={onCpuChange}
-              />
+          <div className="space-y-6 border-t border-border bg-muted px-5 py-5">
+            <TierSlider
+              label="CPU"
+              description="Cores allocated to the agent container."
+              tiers={CPU_TIERS}
+              displayLabels={CPU_TIERS}
+              value={cpu}
+              index={cpuIndex}
+              isOverridden={!!cpu}
+              onChange={onCpuChange}
+            />
 
-              <TierSlider
-                label="Memory"
-                description="RAM allocated to the agent container."
-                tiers={MEMORY_TIERS}
-                displayLabels={MEMORY_TIERS}
-                value={memory}
-                index={memoryIndex}
-                isOverridden={!!memory}
-                onChange={onMemoryChange}
-              />
+            <TierSlider
+              label="Memory"
+              description="RAM allocated to the agent container."
+              tiers={MEMORY_TIERS}
+              displayLabels={MEMORY_TIERS}
+              value={memory}
+              index={memoryIndex}
+              isOverridden={!!memory}
+              onChange={onMemoryChange}
+            />
 
-              {volumeEnabled && (
-                <div className="border-t border-border pt-5">
-                  <TierSlider
-                    label="Storage"
-                    description="Persistent volume size. Cannot shrink after deploy."
-                    tiers={STORAGE_TIERS}
-                    displayLabels={STORAGE_TIERS}
-                    value={storageSize}
-                    index={storageIndex}
-                    isOverridden={!!storageSize}
-                    disabled={storageLocked}
-                    disabledHint={
-                      storageLocked
-                        ? "Storage size is fixed once the volume is provisioned."
-                        : undefined
-                    }
-                    onChange={onStorageSizeChange}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-baseline justify-between gap-3 border-t border-border bg-surface px-5 py-3">
-              <div>
-                <div className="text-mono-sm text-faint-foreground">Estimated cost</div>
-                <div className="text-body-sm text-muted-foreground tabular-nums">
-                  {formatUSD(cpuMonthly)}/mo CPU · {formatUSD(ramMonthly)}/mo RAM
-                  {storageMonthly > 0 && ` · ${formatUSD(storageMonthly)}/mo storage`}
-                </div>
+            {volumeEnabled && (
+              <div className="border-t border-border pt-5">
+                <TierSlider
+                  label="Storage"
+                  description="Persistent disk for the agent. Can grow later, but never shrink."
+                  tiers={STORAGE_TIERS}
+                  displayLabels={STORAGE_TIERS}
+                  value={storageSize}
+                  index={storageIndex}
+                  isOverridden={!!storageSize}
+                  disabled={storageLocked}
+                  disabledHint={
+                    storageLocked
+                      ? "Disk size is locked after first deploy."
+                      : undefined
+                  }
+                  onChange={onStorageSizeChange}
+                />
               </div>
-              <div className="text-right">
-                <div className="text-heading-4 tabular-nums text-foreground">
-                  ~{formatUSD(totalMonthly)}
-                  <span className="text-body-sm font-normal text-muted-foreground"> /mo</span>
-                </div>
+            )}
+          </div>
+        </CollapsibleContent>
+
+        <div className="flex flex-col gap-3 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:gap-6">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <CostItem label="CPU" value={cpuMonthly} />
+            <CostItem label="Memory" value={ramMonthly} />
+            {storageMonthly > 0 && <CostItem label="Storage" value={storageMonthly} />}
+          </div>
+          <div className="flex items-center gap-4 sm:ml-auto">
+            <div className="hidden h-9 w-px bg-border sm:block" />
+            <div className="sm:text-right">
+              <div className="text-mono-sm text-faint-foreground">Estimated total</div>
+              <div className="mt-1 text-heading-3 tabular-nums text-foreground">
+                ~{formatUSD(totalMonthly)}
+                <span className="text-body-sm font-normal text-muted-foreground"> /mo</span>
               </div>
             </div>
           </div>
-        </CollapsibleContent>
+        </div>
       </Collapsible>
-    </Card>
+    </div>
   );
 }
 
@@ -259,14 +245,18 @@ function TierSlider({
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <div>
-          <Label size="md" className="mb-0">{label}</Label>
-          <p className="text-body-sm text-muted-foreground">{description}</p>
-          {disabled && disabledHint && (
-            <p className="text-body-sm text-muted-foreground">{disabledHint}</p>
-          )}
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Label size="md" className="mb-0">{label}</Label>
+            {disabled && (
+              <Lock className="size-3.5 text-muted-foreground" aria-label="Locked" />
+            )}
+          </div>
+          <p className="text-body-sm text-muted-foreground">
+            {disabled && disabledHint ? disabledHint : description}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span className={cn(
             "text-heading-4 tabular-nums",
             isOverridden ? "text-foreground" : "text-muted-foreground",
@@ -299,11 +289,20 @@ function TierSlider({
         }}
         aria-label={label}
       />
-      <div className="mt-1 flex justify-between text-mono-sm text-faint-foreground">
+      <div className="mt-3 flex justify-between text-mono-sm text-faint-foreground">
         {displayLabels.map((l) => (
           <span key={l}>{l}</span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function CostItem({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="text-mono-sm text-faint-foreground">{label}</div>
+      <div className="text-body tabular-nums text-foreground">{formatUSD(value)}</div>
     </div>
   );
 }

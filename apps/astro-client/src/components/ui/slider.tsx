@@ -12,7 +12,7 @@ function Slider({
       data-slot="slider"
       className={cn(
         "relative flex w-full touch-none select-none items-center",
-        "data-[disabled]:opacity-50",
+        "data-[disabled]:opacity-40",
         className,
       )}
       {...props}
@@ -23,15 +23,17 @@ function Slider({
       >
         <SliderPrimitive.Range
           data-slot="slider-range"
-          className="absolute h-full bg-foreground"
+          className="absolute h-full bg-foreground transition-[left,right] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
         />
       </SliderPrimitive.Track>
       <SliderPrimitive.Thumb
         data-slot="slider-thumb"
         className={cn(
-          "block size-4 rounded-full border border-foreground bg-card shadow-sm transition-colors",
+          "block size-4 rounded-full border border-foreground bg-card shadow-sm",
+          "transition-[left,right,background-color,transform] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          "hover:bg-popover",
+          "hover:bg-popover active:scale-110",
+          "data-[disabled]:hover:bg-card data-[disabled]:active:scale-100",
         )}
       />
     </SliderPrimitive.Root>
