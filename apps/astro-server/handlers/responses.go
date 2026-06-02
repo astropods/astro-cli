@@ -343,6 +343,11 @@ type AccountCostOverTimeByUserEntry struct {
 }
 
 // AccountObservabilitySummaryResponse is returned by the account-level summary endpoint.
+//
+// MetricsUnavailable is set when the upstream Langfuse query failed (e.g.
+// ClickHouse unreachable). The response carries zero-valued metrics so the
+// page can render gracefully instead of erroring; the frontend uses the flag
+// to surface a "metrics temporarily unavailable" banner.
 type AccountObservabilitySummaryResponse struct {
 	Period             AccountSummaryPeriod             `json:"period"`
 	Totals             AccountSummaryTotals             `json:"totals"`
@@ -352,6 +357,7 @@ type AccountObservabilitySummaryResponse struct {
 	CostByModel        []AccountCostByModelEntry        `json:"cost_by_model"`
 	Sparklines         AccountSparklines                `json:"sparklines"`
 	CostOverTimeByUser []AccountCostOverTimeByUserEntry `json:"cost_over_time_by_user,omitempty"`
+	MetricsUnavailable bool                             `json:"metrics_unavailable,omitempty"`
 }
 
 // UserAgentRef is one entry in UserSummaryEntry.AgentsUsed. The Account is the
@@ -378,9 +384,11 @@ type UserSummaryEntry struct {
 }
 
 // AccountUsersSummaryResponse is returned by the users-summary endpoint.
+// See MetricsUnavailable on AccountObservabilitySummaryResponse for semantics.
 type AccountUsersSummaryResponse struct {
-	Users  []UserSummaryEntry   `json:"users"`
-	Period AccountSummaryPeriod `json:"period"`
+	Users              []UserSummaryEntry   `json:"users"`
+	Period             AccountSummaryPeriod `json:"period"`
+	MetricsUnavailable bool                 `json:"metrics_unavailable,omitempty"`
 }
 
 // DeploymentDailyCost is one day's total cost for a single deployment.
@@ -453,9 +461,11 @@ type DeploymentSummaryEntry struct {
 }
 
 // AccountDeploymentsSummaryResponse is returned by the deployments-summary endpoint.
+// See MetricsUnavailable on AccountObservabilitySummaryResponse for semantics.
 type AccountDeploymentsSummaryResponse struct {
-	Deployments []DeploymentSummaryEntry `json:"deployments"`
-	Period      AccountSummaryPeriod     `json:"period"`
+	Deployments        []DeploymentSummaryEntry `json:"deployments"`
+	Period             AccountSummaryPeriod     `json:"period"`
+	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
 }
 
 // TraceEntry represents a single trace in the traces list.

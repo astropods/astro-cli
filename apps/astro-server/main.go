@@ -589,24 +589,30 @@ func runWorker(
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 	ghStore := githubconnection.New(db)
 
+	// Stores the InsightsRefreshWorker's summary computer needs. Cheap to
+	// construct here (Store wrappers just hold the *sql.DB).
+	workerDeploymentStore := deploymentstore.NewStore(db)
+	workerLangfuseStore := langfuse.NewStore(db)
+
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:               db,
-		OMClient:         omClient,
-		AccountStore:     accountStore,
-		AgentIndex:       agentIndex,
-		AvatarStore:      avatarStore,
-		K8sRegistry:      k8sReg,
-		K8sCache:         k8sCache,
-		ServerConfig:     cfg,
-		WorkOSAPIKey:     cfg.Auth.WorkOSAPIKey,
-		WorkOSClient:     workosClient,
-		OrgClient:        orgClient,
-		PromClient:       promClient,
-		Logger:           log,
-		PipesClient:      pipesClient,
-		GitHubStore:      ghStore,
-		ImagePreflighter: imagePreflighter,
+		DB:                      db,
+		OMClient:                omClient,
+		AccountStore:            accountStore,
+		AgentIndex:              agentIndex,
+		AvatarStore:             avatarStore,
+		K8sRegistry:             k8sReg,
+		K8sCache:                k8sCache,
+		ServerConfig:            cfg,
+		WorkOSAPIKey:            cfg.Auth.WorkOSAPIKey,
+		WorkOSClient:            workosClient,
+		OrgClient:               orgClient,
+		PromClient:              promClient,
+		Logger:                  log,
+		PipesClient:             pipesClient,
+		GitHubStore:             ghStore,
+		ImagePreflighter:        imagePreflighter,
+		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore),
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -1503,7 +1509,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.Observation{}),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
-			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1512,7 +1518,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "Set to 'user' to include cost_over_time_by_user", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1520,7 +1526,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountDeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

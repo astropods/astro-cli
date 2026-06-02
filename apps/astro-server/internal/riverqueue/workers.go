@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
@@ -15,9 +16,9 @@ import (
 )
 
 // addWorkers registers all River workers into the registry.
-// Returns the ReconcileWorker and AccountPurgeWorker so the caller can set
-// their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker) {
+// Returns the ReconcileWorker, AccountPurgeWorker and InsightsRefreshWorker
+// so the caller can set their queue references after client creation.
+func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker) {
 	log := cfg.Logger
 
 	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
@@ -100,6 +101,23 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log:             log,
 	})
 	log.Info("river: registered worker", "worker", "ObsSummaryRefreshWorker", "period", obssummary.RefreshInterval.String())
+
+	// Discovery worker — enumerates accounts and enqueues per-account fan-out
+	// jobs. Queue reference is wired post-construction in New() below, same
+	// pattern as ReconcileWorker.
+	insightsDiscovery := &InsightsRefreshWorker{
+		langfuseStore: langfuse.NewStore(cfg.DB),
+		log:           log,
+	}
+	river.AddWorker(workers, insightsDiscovery)
+	log.Info("river: registered worker", "worker", "InsightsRefreshWorker", "period", insightscache.RefreshInterval.String())
+
+	river.AddWorker(workers, &InsightsRefreshAccountWorker{
+		cache:    cfg.K8sCache,
+		computer: cfg.InsightsSummaryComputer,
+		log:      log,
+	})
+	log.Info("river: registered worker", "worker", "InsightsRefreshAccountWorker")
 
 	river.AddWorker(workers, &AvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
@@ -188,5 +206,5 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return rw, pw
+	return rw, pw, insightsDiscovery
 }

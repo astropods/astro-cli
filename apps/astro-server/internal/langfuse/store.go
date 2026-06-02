@@ -61,3 +61,29 @@ func (s *Store) Save(al *AccountLangfuse) error {
 	}
 	return nil
 }
+
+// ListAccountIDs returns every account that has Langfuse provisioned. Used
+// by the Insights refresh worker as the canonical "accounts to refresh"
+// set: enumerating through this table (vs through active deployments)
+// means an account that *used to* have deployments still gets its cache
+// surfaced/cleared once the inner compute returns a zero response.
+func (s *Store) ListAccountIDs() ([]string, error) {
+	rows, err := s.db.Query(`SELECT account_id FROM account_langfuse ORDER BY account_id`)
+	if err != nil {
+		return nil, fmt.Errorf("langfuse store list account ids: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	out := make([]string, 0, 16)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("langfuse store list scan: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("langfuse store list rows: %w", err)
+	}
+	return out, nil
+}

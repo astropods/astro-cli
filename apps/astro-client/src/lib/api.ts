@@ -887,6 +887,9 @@ export interface AccountObservabilitySummaryResponse {
     date: string;
     users: Array<{ user_id: string; cost_usd: number; requests: number; tokens: number }>;
   }>;
+  /** True when the upstream Langfuse query failed (e.g. ClickHouse outage).
+   *  Payload is zero-valued; render a "metrics temporarily unavailable" banner. */
+  metrics_unavailable?: boolean;
 }
 
 export interface AccountUsersSummaryResponse {
@@ -905,6 +908,8 @@ export interface AccountUsersSummaryResponse {
     agents_used: Array<{ name: string; account: string }>;
   }>;
   period: { start: string; end: string; days: number };
+  /** See note on AccountObservabilitySummaryResponse.metrics_unavailable. */
+  metrics_unavailable?: boolean;
 }
 
 export interface AccountDeploymentsSummaryResponse {
@@ -948,6 +953,8 @@ export interface AccountDeploymentsSummaryResponse {
     is_archived?: boolean;
   }>;
   period: { start: string; end: string; days: number };
+  /** See note on AccountObservabilitySummaryResponse.metrics_unavailable. */
+  metrics_unavailable?: boolean;
 }
 
 export interface TraceEntry {

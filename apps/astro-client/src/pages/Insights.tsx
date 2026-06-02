@@ -23,6 +23,7 @@ import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Switch } from "@/components/ui/switch";
+import { WarningPanel } from "@/components/ui/status-panel";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { accountKeys, deploymentKeys, observabilityKeys } from "@/api/queries/keys";
@@ -234,11 +235,28 @@ interface InsightsBodyProps {
   // Toggle + search live inside the table's bordered container via the
   // Table primitive's `header` slot — see TopSpendersTable's panelHeader.
   table: ReactNode;
+  // True when the upstream metrics backend is unreachable; the page still
+  // renders the zero-state KPIs and charts under a banner instead of erroring.
+  metricsUnavailable?: boolean;
 }
 
-function InsightsBody({ range, displaySummary, chartLeft, chartRight, table }: InsightsBodyProps) {
+function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, metricsUnavailable }: InsightsBodyProps) {
   return (
     <>
+      {/* Banner deliberately surfaces upstream-metric unavailability instead
+          of silently rendering zeros. Reasoning: zero-cost / zero-traces is
+          a valid steady-state for accounts with little activity, so without
+          the banner users can't tell "we have no data" from "we couldn't
+          fetch your data right now." We keep the copy free of internal
+          system names — users don't need to know about Langfuse to act on
+          this (retry later, or contact support if persistent). */}
+      {metricsUnavailable && (
+        <div className="mb-4">
+          <WarningPanel title="Metrics temporarily unavailable">
+            We couldn&apos;t load up-to-date usage metrics. Try refreshing in a few minutes.
+          </WarningPanel>
+        </div>
+      )}
       <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
         <StatCards data={displaySummary} showChange={range !== "all"} range={range} />
       </motion.div>
@@ -390,10 +408,17 @@ function InsightsView({
     </div>
   );
 
+  const metricsUnavailable =
+    chartsData.metricsUnavailable ||
+    activeSpendSeries.metricsUnavailable ||
+    deploymentsSummaryQ.data?.metrics_unavailable === true ||
+    usersTableQ.data?.metrics_unavailable === true;
+
   return (
     <InsightsBody
         range={range}
         displaySummary={chartsData.displaySummary}
+        metricsUnavailable={metricsUnavailable}
         chartLeft={
           <CostOverTimeChart
             data={chartsData.deploymentCostOverTime}

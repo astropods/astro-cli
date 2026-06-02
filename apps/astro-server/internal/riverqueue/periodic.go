@@ -5,6 +5,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -144,6 +145,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			return ObsSummaryRefreshArgs{}, &river.InsertOpts{
 				UniqueOpts: river.UniqueOpts{
 					ByPeriod: obssummary.RefreshInterval,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
+	// Pre-warm the Insights endpoint cache. The handler reads from the
+	// same cache on every request, so a server-cold start blocks the first
+	// page-load on a live Langfuse fan-out until this finishes — RunOnStart
+	// gets us into the steady-state path sooner.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(insightscache.RefreshInterval),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return InsightsRefreshArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: insightscache.RefreshInterval,
 				},
 			}
 		},

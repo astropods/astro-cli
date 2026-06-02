@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
+	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -23,6 +24,11 @@ func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.Inval
 	// Bust the per-account agents-page payload. Safe to call even when the
 	// underlying cache is nil (NoopCache when REDIS_URL is unset).
 	_ = deploycache.Invalidate(ctx, s.cache, req.AccountID)
+
+	// Bust the Insights endpoint cache for this account. Forces the next
+	// page-load to fall through to a live Langfuse fetch (which then
+	// repopulates the cache on success) instead of waiting on the 6h cron.
+	insightscache.InvalidateAccount(ctx, s.cache, req.AccountID)
 
 	// Bust each active deployment's obs summary. We only know about active
 	// rows here; undeployed entries are already cleared by the undeploy
@@ -71,6 +77,7 @@ func (s *Server) InvalidateAllCaches(ctx context.Context, _ *adminv1.InvalidateA
 	}
 	for _, a := range accountsResp.Accounts {
 		_ = deploycache.Invalidate(ctx, s.cache, a.ID)
+		insightscache.InvalidateAccount(ctx, s.cache, a.ID)
 	}
 
 	// Iterate every active deployment for obs summary. ListAllActive is what

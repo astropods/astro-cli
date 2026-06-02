@@ -389,6 +389,7 @@ export function useInsightsData({
     deploymentsLoading,
     isLoading: deploymentsLoading,
     hasData: (deploymentsData?.deployments ?? []).some((b) => b.requests > 0),
+    metricsUnavailable: deploymentsAll?.metrics_unavailable === true,
   };
 }
 
@@ -508,7 +509,7 @@ export function useActiveSpendSeries(
   account: string,
   range: ActivityRange,
   opts?: { enabled?: boolean; includeArchived?: boolean },
-): { data: ActiveSpendPoint[]; isLoading: boolean } {
+): { data: ActiveSpendPoint[]; isLoading: boolean; metricsUnavailable: boolean } {
   // All-time fetch — no from/to.
   const summaryQ = useAccountActivitySummary(account, undefined, undefined, {
     groupBy: "user",
@@ -538,5 +539,9 @@ export function useActiveSpendSeries(
     return points;
   }, [summaryQ.data, range]);
 
-  return { data, isLoading: summaryQ.isLoading };
+  return {
+    data,
+    isLoading: summaryQ.isLoading,
+    metricsUnavailable: summaryQ.data?.metrics_unavailable === true,
+  };
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -11,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -92,6 +95,7 @@ func GetAccountLangfuseSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -144,145 +148,272 @@ func GetAccountLangfuseSummary(
 			}
 		}
 
-		creds, err := langfuseStore.Get(acct.ID)
-		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, zeroAccountSummary(from, to, hasPeriod))
-			return
-		}
-
-		// Scope all Langfuse queries to currently-live deployments. Deleted
-		// (undeployed) deployments' historical traces are NOT surfaced — same
-		// contract as the deployment-detail page.
-		var deps []*deploymentstore.Deployment
-		if deploymentStore != nil {
-			deps, err = deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
-			if err != nil {
-				log.Error("Failed to list visible deployments for account summary", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+		// Cache fast-path: canonical params (no bounded period) are pre-warmed
+		// every RefreshInterval by the InsightsRefreshWorker. Bounded periods
+		// still flow through live — they're rarely requested by Insights and
+		// caching the cartesian product of from/to is not worth the storage.
+		if !hasPeriod {
+			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointSummary, insightscache.Params{
+				GroupBy:         groupBy,
+				IncludeArchived: includeArchived,
+			}); ok {
+				c.Data(http.StatusOK, "application/json", bytes)
 				return
 			}
 		}
-		if len(deps) == 0 {
-			c.JSON(http.StatusOK, zeroAccountSummary(from, to, hasPeriod))
+
+		resp, err := ComputeAccountSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, acct, from, to, groupBy, includeArchived)
+		if errors.Is(err, ErrAllLangfuseCallsFailed) {
+			log.Warn("Langfuse account metrics unavailable; returning empty summary", "error", err)
+			degraded := zeroAccountSummary(from, to, hasPeriod)
+			degraded.MetricsUnavailable = true
+			c.JSON(http.StatusOK, degraded)
 			return
 		}
-
-		// Cap fan-out to bound worst-case Langfuse load — same threshold the
-		// blueprints-summary handler enforces.
-		const maxDeployments = 100
-		if len(deps) > maxDeployments {
-			log.Warn("Truncating deployments for account summary",
-				"account", acct.Name, "total", len(deps), "cap", maxDeployments)
-			deps = deps[:maxDeployments]
-		}
-
-		visibleTagValues := make([]string, len(deps))
-		for i, d := range deps {
-			visibleTagValues[i] = "deployment:" + d.ID
-		}
-
-		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
-
-		// Bound the per-request Langfuse work so a slow upstream can't pin a
-		// gin worker indefinitely — matches the blueprints-summary handler.
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
-		// Parallel fetch: current period + prior period (only when bounded) + optional user-grouped breakdown.
-		var currentMetrics, priorMetrics []langfuse.DailyMetric
-		var activeDepIDs map[string]bool
-		var userCostRows []map[string]any
-		g, gCtx := errgroup.WithContext(ctx)
-
-		applyTagFilter := !includeArchived
-		g.Go(func() error {
-			var err error
-			currentMetrics, activeDepIDs, err = accountDailyMetrics(gCtx, client, visibleTagValues, from, to, applyTagFilter)
-			return err
-		})
-
-		if hasPeriod {
-			priorFrom, priorTo := shiftPrior(from, to)
-			g.Go(func() error {
-				// Prior-period failures degrade the % change tile to "—" but
-				// shouldn't fail the whole response — fail-open.
-				priorMetrics, _, _ = accountDailyMetrics(gCtx, client, visibleTagValues, priorFrom, priorTo, applyTagFilter)
-				return nil
-			})
-		}
-
-		if groupBy == "user" {
-			g.Go(func() error {
-				// View: "traces" mirrors the users-summary Q_main query so the
-				// chart's per-user cost matches the table's per-user cost. The
-				// observations view double-counts spans within a trace and
-				// produced a chart that didn't reconcile with the row totals.
-				//
-				// We pull cost + count + totalTokens so the client can slice
-				// the per-(day, user) data into a range and recompute per-user
-				// totals without an extra round-trip on every range toggle.
-				qFrom, qTo := metricsTimeRange(from, to)
-				q := langfuse.MetricsQuery{
-					View: "traces",
-					Metrics: []langfuse.MetricsQueryField{
-						{Measure: "totalCost", Aggregation: "sum"},
-						{Measure: "count", Aggregation: "count"},
-						{Measure: "totalTokens", Aggregation: "sum"},
-					},
-					Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
-					TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
-					FromTimestamp: qFrom,
-					ToTimestamp:   qTo,
-				}
-				if !includeArchived {
-					q.Filters = []langfuse.MetricsFilter{
-						{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
-					}
-				}
-				resp, ferr := client.GetMetrics(gCtx, q)
-				if ferr != nil {
-					return ferr
-				}
-				userCostRows = resp.Data
-				return nil
-			})
-		}
-
-		if err := g.Wait(); err != nil {
-			log.Error("Failed to get Langfuse account metrics", "error", err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
+		if err != nil {
+			// Non-Langfuse error (e.g. deployment store DB failure). 500 so the
+			// failure is visible rather than masked as a metrics outage.
+			log.Error("Failed to compute account summary", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute account summary"})
 			return
-		}
-
-		// Active agents = currently-live agents that drove ≥1 trace in the
-		// period. When no window is bounded, falls back to live-agent count.
-		activeAgents := 0
-		if hasPeriod {
-			seen := make(map[string]bool)
-			for _, d := range deps {
-				if activeDepIDs[d.ID] {
-					seen[d.AgentName] = true
-				}
-			}
-			activeAgents = len(seen)
-		} else {
-			names := make(map[string]bool, len(deps))
-			for _, d := range deps {
-				names[d.AgentName] = true
-			}
-			activeAgents = len(names)
-		}
-
-		resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
-		if groupBy == "user" {
-			resp.CostOverTimeByUser = buildCostOverTimeByUser(userCostRows)
-			// Model-mode chart data isn't shown in user view; keep cost_over_time
-			// populated for sparklines/totals consumers but blank cost_by_model
-			// since the donut isn't rendered.
-			resp.CostByModel = []AccountCostByModelEntry{}
 		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// InsightsSummaryComputer adapts ComputeAccountSummary for the riverqueue
+// InsightsRefreshWorker via dependency injection, breaking what would
+// otherwise be a handlers⇄riverqueue import cycle.
+type InsightsSummaryComputer struct {
+	log             *logger.Logger
+	cfg             *config.Config
+	langfuseStore   *langfuse.Store
+	deploymentStore *deploymentstore.Store
+	accountStore    *account.AccountStore
+}
+
+// NewInsightsSummaryComputer wires the dependencies the worker needs.
+func NewInsightsSummaryComputer(
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	deploymentStore *deploymentstore.Store,
+	accountStore *account.AccountStore,
+) *InsightsSummaryComputer {
+	return &InsightsSummaryComputer{
+		log:             log,
+		cfg:             cfg,
+		langfuseStore:   langfuseStore,
+		deploymentStore: deploymentStore,
+		accountStore:    accountStore,
+	}
+}
+
+// ComputeSummary satisfies the riverqueue.InsightsSummaryComputer contract.
+// Returns JSON-marshaled response bytes the worker writes into Redis verbatim.
+func (c *InsightsSummaryComputer) ComputeSummary(ctx context.Context, accountID, groupBy string, includeArchived bool) ([]byte, error) {
+	acct, err := c.lookupAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := ComputeAccountSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, acct, "" /*from*/, "" /*to*/, groupBy, includeArchived)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
+// ComputeDeploymentsSummary satisfies the riverqueue contract.
+func (c *InsightsSummaryComputer) ComputeDeploymentsSummary(ctx context.Context, accountID string, includeArchived bool) ([]byte, error) {
+	acct, err := c.lookupAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := ComputeDeploymentsSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, acct, "" /*from*/, "" /*to*/, includeArchived)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
+// ComputeUsersSummary satisfies the riverqueue contract.
+func (c *InsightsSummaryComputer) ComputeUsersSummary(ctx context.Context, accountID string) ([]byte, error) {
+	acct, err := c.lookupAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := ComputeUsersSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.accountStore, acct, "" /*from*/, "" /*to*/)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
+func (c *InsightsSummaryComputer) lookupAccount(accountID string) (*account.Account, error) {
+	acct, err := c.accountStore.GetByID(accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	if acct == nil {
+		return nil, fmt.Errorf("account %s not found", accountID)
+	}
+	return acct, nil
+}
+
+// ComputeAccountSummary runs the Langfuse fan-out and assembles the
+// account-summary response. Both the request handler and the periodic
+// refresh worker call this; the cache layer lives in their callers.
+//
+// A returned error means the upstream Langfuse query failed — callers
+// degrade differently (handler returns metrics_unavailable=true; worker
+// preserves the previously cached value by skipping the write).
+func ComputeAccountSummary(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	deploymentStore *deploymentstore.Store,
+	acct *account.Account,
+	from, to, groupBy string,
+	includeArchived bool,
+) (AccountObservabilitySummaryResponse, error) {
+	hasPeriod := from != "" && to != ""
+
+	creds, err := langfuseStore.Get(acct.ID)
+	if err != nil || creds == nil {
+		return zeroAccountSummary(from, to, hasPeriod), nil
+	}
+
+	// Scope all Langfuse queries to currently-live deployments. Deleted
+	// (undeployed) deployments' historical traces are NOT surfaced — same
+	// contract as the deployment-detail page.
+	var deps []*deploymentstore.Deployment
+	if deploymentStore != nil {
+		deps, err = deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+		if err != nil {
+			return AccountObservabilitySummaryResponse{}, fmt.Errorf("list deployments: %w", err)
+		}
+	}
+	if len(deps) == 0 {
+		return zeroAccountSummary(from, to, hasPeriod), nil
+	}
+
+	const maxDeployments = 100
+	if len(deps) > maxDeployments {
+		log.Warn("Truncating deployments for account summary",
+			"account", acct.Name, "total", len(deps), "cap", maxDeployments)
+		deps = deps[:maxDeployments]
+	}
+
+	visibleTagValues := make([]string, len(deps))
+	for i, d := range deps {
+		visibleTagValues[i] = "deployment:" + d.ID
+	}
+
+	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var currentMetrics, priorMetrics []langfuse.DailyMetric
+	var activeDepIDs map[string]bool
+	var userCostRows []map[string]any
+	g, gCtx := errgroup.WithContext(ctx)
+
+	// Tally Langfuse call outcomes so we surface ErrAllLangfuseCallsFailed
+	// only when *every* sub-query failed. Partial failures keep rendering
+	// with whatever data did come back — same shape as ComputeDeployments-
+	// Summary and ComputeUsersSummary. The prior-period goroutine is
+	// already fail-open by design and is excluded from the tally.
+	var lfAttempts, lfFailures atomic.Int32
+
+	applyTagFilter := !includeArchived
+	g.Go(func() error {
+		var err error
+		currentMetrics, activeDepIDs, err = accountDailyMetrics(gCtx, client, visibleTagValues, from, to, applyTagFilter)
+		lfAttempts.Add(1)
+		if err != nil {
+			lfFailures.Add(1)
+			log.Warn("Account daily metrics query failed", "error", err)
+		}
+		return nil
+	})
+
+	if hasPeriod {
+		priorFrom, priorTo := shiftPrior(from, to)
+		g.Go(func() error {
+			// Prior-period failures degrade the % change tile to "—" but
+			// shouldn't fail the whole response — fail-open. Not tallied.
+			priorMetrics, _, _ = accountDailyMetrics(gCtx, client, visibleTagValues, priorFrom, priorTo, applyTagFilter)
+			return nil
+		})
+	}
+
+	if groupBy == "user" {
+		g.Go(func() error {
+			// View: "traces" mirrors the users-summary Q_main query so the
+			// chart's per-user cost matches the table's per-user cost. The
+			// observations view double-counts spans within a trace and
+			// produced a chart that didn't reconcile with the row totals.
+			qFrom, qTo := metricsTimeRange(from, to)
+			q := langfuse.MetricsQuery{
+				View: "traces",
+				Metrics: []langfuse.MetricsQueryField{
+					{Measure: "totalCost", Aggregation: "sum"},
+					{Measure: "count", Aggregation: "count"},
+					{Measure: "totalTokens", Aggregation: "sum"},
+				},
+				Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
+				TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
+				FromTimestamp: qFrom,
+				ToTimestamp:   qTo,
+			}
+			if !includeArchived {
+				q.Filters = []langfuse.MetricsFilter{
+					{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+				}
+			}
+			resp, ferr := client.GetMetrics(gCtx, q)
+			lfAttempts.Add(1)
+			if ferr != nil {
+				lfFailures.Add(1)
+				log.Warn("UserId-grouped cost query failed; active-users chart will be empty", "error", ferr)
+				return nil
+			}
+			userCostRows = resp.Data
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	attempts := lfAttempts.Load()
+	if attempts > 0 && attempts == lfFailures.Load() {
+		return AccountObservabilitySummaryResponse{}, ErrAllLangfuseCallsFailed
+	}
+
+	activeAgents := 0
+	if hasPeriod {
+		seen := make(map[string]bool)
+		for _, d := range deps {
+			if activeDepIDs[d.ID] {
+				seen[d.AgentName] = true
+			}
+		}
+		activeAgents = len(seen)
+	} else {
+		names := make(map[string]bool, len(deps))
+		for _, d := range deps {
+			names[d.AgentName] = true
+		}
+		activeAgents = len(names)
+	}
+
+	resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
+	if groupBy == "user" {
+		resp.CostOverTimeByUser = buildCostOverTimeByUser(userCostRows)
+		resp.CostByModel = []AccountCostByModelEntry{}
+	}
+	return resp, nil
 }
 
 // buildCostOverTimeByUser groups the per-(user, day) Langfuse rows into per-day
@@ -773,32 +904,35 @@ type deploymentMetrics struct {
 // /metrics/daily endpoint is the only path to the per-(deployment, model)
 // breakdown that powers TopModel — Langfuse's /metrics endpoint can't group
 // observations by tags, so it can't produce per-(deployment, model) rows.
-// Errors are swallowed — missing data is treated as zero so the deployment
-// row still appears in the response.
-func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) deploymentMetrics {
+//
+// On error the returned deploymentMetrics still has DeploymentID + AgentName
+// populated so the row renders with zeros (per-row fail-open). The error is
+// also returned so the compute path can tally whether every Langfuse call
+// failed and surface MetricsUnavailable.
+func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) (deploymentMetrics, error) {
 	result := deploymentMetrics{DeploymentID: dep.ID, AgentName: dep.AgentName}
 	daily, err := client.GetDailyMetrics(ctx, dep.ID, from, to)
-	if err == nil {
-		result.DailyMetrics = daily
+	if err != nil {
+		return result, err
 	}
-	return result
+	result.DailyMetrics = daily
+	return result, nil
 }
 
 // batchedP95Latencies fetches per-deployment P95 latency in a single batched
 // /metrics call (traces view grouped by tags) instead of N separate ones.
-// Returns map[deploymentID]p95Ms. Failures fail-open: returns empty map; the
-// per-blueprint P95 column then renders as "—" but the rest of the row is
-// untouched.
+// Returns map[deploymentID]p95Ms. On error returns an empty map AND the error
+// — caller decides whether to log + fail-open (column renders as zero) or
+// roll the failure into an all-failed tally to surface MetricsUnavailable.
 func batchedP95Latencies(
 	ctx context.Context,
 	client *langfuse.Client,
-	log *logger.Logger,
 	tagValues []string,
 	from, to string,
-) map[string]float64 {
+) (map[string]float64, error) {
 	out := make(map[string]float64)
 	if len(tagValues) == 0 {
-		return out
+		return out, nil
 	}
 	qFrom, qTo := metricsTimeRange(from, to)
 	q := langfuse.MetricsQuery{
@@ -813,8 +947,7 @@ func batchedP95Latencies(
 	}
 	resp, err := client.GetMetrics(ctx, q)
 	if err != nil {
-		log.Warn("Batched P95 query failed — per-blueprint latency will render as zero", "error", err)
-		return out
+		return out, err
 	}
 	for _, row := range resp.Data {
 		p95 := toFloat(row["p95_latency"])
@@ -832,7 +965,7 @@ func batchedP95Latencies(
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // buildDeploymentSummary turns the per-deployment metrics into one
@@ -1057,6 +1190,7 @@ func GetAccountDeploymentsSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -1086,13 +1220,6 @@ func GetAccountDeploymentsSummary(
 		}
 
 		hasPeriod := from != "" && to != ""
-
-		// `?include_archived=true` opts the response into surfacing tombstoned
-		// deployments (soft-deleted, but had Langfuse traces in the window).
-		// Default-off: most Insights views care about live state and the
-		// per-deployment fan-out is the page's hot path; only pay the
-		// tombstone-discovery cost when the user explicitly asks for it via
-		// the table's "Show archived agents" toggle.
 		includeArchived := c.Query("include_archived") == "true"
 
 		if hasPeriod {
@@ -1106,205 +1233,235 @@ func GetAccountDeploymentsSummary(
 			}
 		}
 
-		creds, err := langfuseStore.Get(acct.ID)
-		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, zeroDeploymentEntries(from, to))
-			return
+		if !hasPeriod {
+			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointDeploymentsSummary, insightscache.Params{
+				IncludeArchived: includeArchived,
+			}); ok {
+				c.Data(http.StatusOK, "application/json", bytes)
+				return
+			}
 		}
 
-		if deploymentStore == nil {
-			c.JSON(http.StatusOK, zeroDeploymentEntries(from, to))
+		resp, err := ComputeDeploymentsSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, acct, from, to, includeArchived)
+		if errors.Is(err, ErrAllLangfuseCallsFailed) {
+			log.Warn("Langfuse deployments metrics unavailable; returning empty list", "error", err)
+			degraded := zeroDeploymentEntries(from, to)
+			degraded.MetricsUnavailable = true
+			c.JSON(http.StatusOK, degraded)
 			return
 		}
-
-		// Start with currently-visible deployments only. Tombstoned (soft-
-		// deleted) deployments are surfaced separately below, but only the
-		// ones that actually had Langfuse traces in the window — fetching
-		// every archived deployment up-front would balloon the per-deployment
-		// fan-out for accounts with churn history.
-		deployments, err := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list deployments for deployments summary", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+			log.Error("Failed to compute deployments summary", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute deployments summary"})
 			return
 		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
 
-		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+// ErrAllLangfuseCallsFailed is re-exported from insightscache so existing
+// callers in this package (handlers + ComputeAccountSummary tests) keep
+// working without an import flip. Canonical definition lives in
+// insightscache so the periodic refresh worker can errors.Is on it without
+// pulling the handlers package into riverqueue (which would close the
+// handlers→riverqueue→handlers cycle).
+var ErrAllLangfuseCallsFailed = insightscache.ErrAllLangfuseCallsFailed
 
-		const maxDeployments = 100
-		if len(deployments) > maxDeployments {
-			log.Warn("Truncating deployments for deployments summary",
-				"account", acct.Name, "total", len(deployments), "cap", maxDeployments)
-			deployments = deployments[:maxDeployments]
+// ComputeDeploymentsSummary runs the per-deployment Langfuse fan-out and
+// assembles the deployments-summary response. Returns ErrAllLangfuseCallsFailed
+// when every Langfuse sub-query failed (banner-worthy); partial failures
+// continue to render with missing per-field data and nil error (existing
+// fail-open behavior).
+func ComputeDeploymentsSummary(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	deploymentStore *deploymentstore.Store,
+	acct *account.Account,
+	from, to string,
+	includeArchived bool,
+) (AccountDeploymentsSummaryResponse, error) {
+	creds, err := langfuseStore.Get(acct.ID)
+	if err != nil || creds == nil {
+		return zeroDeploymentEntries(from, to), nil
+	}
+
+	if deploymentStore == nil {
+		return zeroDeploymentEntries(from, to), nil
+	}
+
+	deployments, err := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+	if err != nil {
+		return AccountDeploymentsSummaryResponse{}, fmt.Errorf("list deployments: %w", err)
+	}
+
+	// Fast-path: no live deployments AND caller didn't ask for tombstones
+	// → there's nothing to surface. Skip the Langfuse fan-out entirely
+	// rather than burning request budget assembling an empty response.
+	// When includeArchived=true we still proceed because the Q_tags probe
+	// is also our tombstone-discovery channel.
+	if len(deployments) == 0 && !includeArchived {
+		return zeroDeploymentEntries(from, to), nil
+	}
+
+	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+	const maxDeployments = 100
+	if len(deployments) > maxDeployments {
+		log.Warn("Truncating deployments for deployments summary",
+			"account", acct.Name, "total", len(deployments), "cap", maxDeployments)
+		deployments = deployments[:maxDeployments]
+	}
+
+	tagValues := make([]string, len(deployments))
+	for i, d := range deployments {
+		tagValues[i] = "deployment:" + d.ID
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Tally Langfuse call outcomes across the live fan-out + the batched
+	// queries. After g.Wait, if attempts > 0 && failures == attempts we
+	// surface ErrAllLangfuseCallsFailed; partial failures keep rendering
+	// with per-field zeros.
+	var lfAttempts, lfFailures atomic.Int32
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+
+	var p95ByDep map[string]float64
+	g.Go(func() error {
+		m, perr := batchedP95Latencies(gCtx, client, tagValues, from, to)
+		lfAttempts.Add(1)
+		if perr != nil {
+			lfFailures.Add(1)
+			log.Warn("Batched P95 query failed — per-blueprint latency will render as zero", "error", perr)
 		}
+		p95ByDep = m
+		return nil
+	})
 
-		// Tag list for batched filters (P95 + Q_tags inversion).
-		tagValues := make([]string, len(deployments))
-		for i, d := range deployments {
-			tagValues[i] = "deployment:" + d.ID
-		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
-		// Per-deployment daily metrics fan-out + TWO batched /metrics queries
-		// (P95 latency + users-per-deployment inversion) run in parallel. The
-		// daily fan-out is unavoidable today (per-(deployment, model)
-		// breakdown isn't expressible in a batched /metrics query because
-		// Langfuse's observations view can't group by trace tags); the P95 +
-		// users batches save 2N calls.
-		g, gCtx := errgroup.WithContext(ctx)
-		g.SetLimit(10)
-
-		var p95ByDep map[string]float64
+	results := make([]deploymentMetrics, len(deployments))
+	for i, dep := range deployments {
 		g.Go(func() error {
-			p95ByDep = batchedP95Latencies(gCtx, client, log, tagValues, from, to)
-			return nil
-		})
-
-		results := make([]deploymentMetrics, len(deployments))
-		for i, dep := range deployments {
-			g.Go(func() error {
-				results[i] = fetchDeploymentDaily(gCtx, client, dep, from, to)
-				return nil
-			})
-		}
-
-		// Single account-level Q_tags query (per-(userId, tag) trace count) runs
-		// in parallel with the per-deployment fan-out so wall time is unchanged.
-		// Powers the users_used field on each deployment — mirror of
-		// agents_used on users-summary. When include_archived is requested
-		// the filter is dropped so the response also doubles as the
-		// tombstone-discovery probe; the default keeps the live-only filter
-		// so the response stays bounded to deployments the page already
-		// knows about.
-		var tagsRows []map[string]any
-		g.Go(func() error {
-			qFrom, qTo := metricsTimeRange(from, to)
-			q := langfuse.MetricsQuery{
-				View:    "traces",
-				Metrics: []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
-				Dimensions: []langfuse.MetricsDimension{
-					{Field: "userId"},
-					{Field: "tags"},
-				},
-				FromTimestamp: qFrom,
-				ToTimestamp:   qTo,
-			}
-			if !includeArchived {
-				q.Filters = []langfuse.MetricsFilter{
-					{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
-				}
-			}
-			// When includeArchived is true the filter is dropped entirely
-			// instead of being narrowed. Langfuse's arrayOptions filter on
-			// the tags column is set-membership only (`any of`, `none of`,
-			// `all of`) — there's no prefix / starts-with operator that
-			// would let us scope to just `deployment:*` tags without
-			// enumerating the full set up-front. Enumerating tombstones
-			// is what we're trying to AVOID (that was the perf regression);
-			// taking the broader response and post-filtering by
-			// `strings.HasPrefix(tag, "deployment:")` in discoverTombstoneIDs
-			// is the practical tradeoff. User-added free-form tags inflate
-			// the response slightly but are dropped during tag-string
-			// inspection — they don't bleed into users_used or the
-			// tombstone discovery set.
-			resp, ferr := client.GetMetrics(gCtx, q)
+			m, ferr := fetchDeploymentDaily(gCtx, client, dep, from, to)
+			lfAttempts.Add(1)
 			if ferr != nil {
-				// Fail-open: a missing users_used surface is preferable to a
-				// 502 on the whole deployments view, which is the headline page.
-				log.Warn("Failed to fetch users-per-deployment for deployments summary", "error", ferr)
-				return nil
+				lfFailures.Add(1)
 			}
-			tagsRows = resp.Data
-			if includeArchived {
-				// Observability hook for monitoring runaway response sizes
-				// on the unfiltered path. The filtered path is bounded by
-				// the visible-deployment tag set; the unfiltered path is
-				// bounded only by the account's distinct (userId, tag)
-				// combinations — accounts with lots of churn history can
-				// produce surprisingly large responses.
-				log.Debug("Q_tags unfiltered response", "account", acct.Name, "rows", len(resp.Data))
-			}
+			results[i] = m
 			return nil
-		})
-		_ = g.Wait()
-
-		// Stitch the batched P95 into per-deployment results.
-		for i, dep := range deployments {
-			results[i].P95LatencyMs = p95ByDep[dep.ID]
-		}
-
-		// Tombstone discovery only runs when the caller opted in via
-		// include_archived. Q_tags returned every deployment tag that had
-		// traces in the window; subtract the live set and anything left is
-		// a soft-deleted deployment with spend worth surfacing.
-		// `archivedIDs` is the source of truth for the frontend's tombstone
-		// styling (frontend can't rely on undeployed_at alone — a deployment
-		// in status='undeploying' is archived for Insights purposes but
-		// hasn't had undeployed_at populated yet).
-		archivedIDs := make(map[string]struct{})
-		var tombstoneIDs []string
-		if includeArchived {
-			tombstoneIDs = discoverTombstoneIDs(tagsRows, deployments)
-			// Same fan-out bound as the live list (mirrors the maxDeployments
-			// cap above). Surfacing every dormant tombstone for an account
-			// with thousands of historical deletes would balloon both the
-			// second-phase Langfuse round-trip count and the response size.
-			const maxTombstones = 50
-			if len(tombstoneIDs) > maxTombstones {
-				log.Warn("Truncating tombstoned deployments for deployments summary",
-					"account", acct.Name, "total", len(tombstoneIDs), "cap", maxTombstones)
-				tombstoneIDs = tombstoneIDs[:maxTombstones]
-			}
-			for _, id := range tombstoneIDs {
-				archivedIDs[id] = struct{}{}
-			}
-		}
-		if len(tombstoneIDs) > 0 {
-			tombstones, terr := deploymentStore.GetDeploymentsByIDsForAccount(acct.ID, tombstoneIDs)
-			if terr != nil {
-				log.Warn("Failed to load tombstoned deployments for deployments summary", "error", terr)
-			} else if len(tombstones) > 0 {
-				// Fan out P95 + daily for tombstones in a second errgroup. We
-				// could batch these into the first errgroup if Q_tags ran on
-				// its own ahead of the fan-out, but that would regress wall
-				// time for the common (no-tombstones) case.
-				tombstoneTags := make([]string, len(tombstones))
-				for i, d := range tombstones {
-					tombstoneTags[i] = "deployment:" + d.ID
-				}
-				tombstoneResults := make([]deploymentMetrics, len(tombstones))
-				var tombstoneP95 map[string]float64
-				g2, g2Ctx := errgroup.WithContext(ctx)
-				g2.SetLimit(10)
-				g2.Go(func() error {
-					tombstoneP95 = batchedP95Latencies(g2Ctx, client, log, tombstoneTags, from, to)
-					return nil
-				})
-				for i, dep := range tombstones {
-					g2.Go(func() error {
-						tombstoneResults[i] = fetchDeploymentDaily(g2Ctx, client, dep, from, to)
-						return nil
-					})
-				}
-				_ = g2.Wait()
-				for i, dep := range tombstones {
-					tombstoneResults[i].P95LatencyMs = tombstoneP95[dep.ID]
-				}
-				deployments = append(deployments, tombstones...)
-				// makezero: deliberate. results was pre-sized for the live
-				// fan-out (parallel index writes); we're concatenating the
-				// tombstone fan-out's pre-sized slice after, not zero-padding.
-				results = append(results, tombstoneResults...) //nolint:makezero
-			}
-		}
-
-		c.JSON(http.StatusOK, AccountDeploymentsSummaryResponse{
-			Deployments: buildDeploymentSummary(results, tagsRows, deployments, archivedIDs),
-			Period:      buildPeriod(from, to),
 		})
 	}
+
+	var tagsRows []map[string]any
+	g.Go(func() error {
+		qFrom, qTo := metricsTimeRange(from, to)
+		q := langfuse.MetricsQuery{
+			View:    "traces",
+			Metrics: []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
+			Dimensions: []langfuse.MetricsDimension{
+				{Field: "userId"},
+				{Field: "tags"},
+			},
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		if !includeArchived {
+			q.Filters = []langfuse.MetricsFilter{
+				{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: tagValues},
+			}
+		}
+		resp, ferr := client.GetMetrics(gCtx, q)
+		lfAttempts.Add(1)
+		if ferr != nil {
+			lfFailures.Add(1)
+			log.Warn("Failed to fetch users-per-deployment for deployments summary", "error", ferr)
+			return nil
+		}
+		tagsRows = resp.Data
+		if includeArchived {
+			log.Debug("Q_tags unfiltered response", "account", acct.Name, "rows", len(resp.Data))
+		}
+		return nil
+	})
+	_ = g.Wait()
+
+	for i, dep := range deployments {
+		results[i].P95LatencyMs = p95ByDep[dep.ID]
+	}
+
+	archivedIDs := make(map[string]struct{})
+	var tombstoneIDs []string
+	if includeArchived {
+		tombstoneIDs = discoverTombstoneIDs(tagsRows, deployments)
+		const maxTombstones = 50
+		if len(tombstoneIDs) > maxTombstones {
+			log.Warn("Truncating tombstoned deployments for deployments summary",
+				"account", acct.Name, "total", len(tombstoneIDs), "cap", maxTombstones)
+			tombstoneIDs = tombstoneIDs[:maxTombstones]
+		}
+		for _, id := range tombstoneIDs {
+			archivedIDs[id] = struct{}{}
+		}
+	}
+	if len(tombstoneIDs) > 0 {
+		tombstones, terr := deploymentStore.GetDeploymentsByIDsForAccount(acct.ID, tombstoneIDs)
+		if terr != nil {
+			log.Warn("Failed to load tombstoned deployments for deployments summary", "error", terr)
+		} else if len(tombstones) > 0 {
+			tombstoneTags := make([]string, len(tombstones))
+			for i, d := range tombstones {
+				tombstoneTags[i] = "deployment:" + d.ID
+			}
+			tombstoneResults := make([]deploymentMetrics, len(tombstones))
+			var tombstoneP95 map[string]float64
+			g2, g2Ctx := errgroup.WithContext(ctx)
+			g2.SetLimit(10)
+			g2.Go(func() error {
+				m, perr := batchedP95Latencies(g2Ctx, client, tombstoneTags, from, to)
+				lfAttempts.Add(1)
+				if perr != nil {
+					lfFailures.Add(1)
+					log.Warn("Tombstone P95 query failed", "error", perr)
+				}
+				tombstoneP95 = m
+				return nil
+			})
+			for i, dep := range tombstones {
+				g2.Go(func() error {
+					m, ferr := fetchDeploymentDaily(g2Ctx, client, dep, from, to)
+					lfAttempts.Add(1)
+					if ferr != nil {
+						lfFailures.Add(1)
+					}
+					tombstoneResults[i] = m
+					return nil
+				})
+			}
+			_ = g2.Wait()
+			for i, dep := range tombstones {
+				tombstoneResults[i].P95LatencyMs = tombstoneP95[dep.ID]
+			}
+			deployments = append(deployments, tombstones...)
+			// makezero: deliberate. results was pre-sized for the live
+			// fan-out (parallel index writes); we're concatenating the
+			// tombstone fan-out's pre-sized slice after, not zero-padding.
+			results = append(results, tombstoneResults...) //nolint:makezero
+		}
+	}
+
+	attempts := lfAttempts.Load()
+	if attempts > 0 && attempts == lfFailures.Load() {
+		return AccountDeploymentsSummaryResponse{}, ErrAllLangfuseCallsFailed
+	}
+
+	return AccountDeploymentsSummaryResponse{
+		Deployments: buildDeploymentSummary(results, tagsRows, deployments, archivedIDs),
+		Period:      buildPeriod(from, to),
+	}, nil
 }
 
 // ── users-summary ─────────────────────────────────────────────────────────────
@@ -1349,6 +1506,7 @@ func GetAccountUsersSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -1371,6 +1529,7 @@ func GetAccountUsersSummary(
 
 		from := c.Query("from")
 		to := c.Query("to")
+		hasPeriod := from != "" && to != ""
 
 		if (from == "") != (to == "") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
@@ -1390,167 +1549,191 @@ func GetAccountUsersSummary(
 			}
 		}
 
-		creds, err := langfuseStore.Get(acct.ID)
-		if err != nil || creds == nil {
-			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
-				Users:  []UserSummaryEntry{},
-				Period: buildPeriod(from, to),
-			})
-			return
-		}
-
-		// Deployment ID → agent ref (name + publishing account). Only currently-live
-		// (non-undeployed) deployments are included — deleted deployments' traces
-		// are excluded from totals via the tag filter below (deployment-detail-page
-		// contract). The publishing account is the SourceAccountID when set (cross-
-		// account / public-blueprint deploys), otherwise the deploying account —
-		// the client needs this to construct avatar URLs that actually resolve.
-		depToAgent := make(map[string]UserAgentRef)
-		if deploymentStore != nil {
-			deployments, derr := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
-			if derr != nil {
-				// Failing this silently would surface as an empty users view —
-				// indistinguishable from "no deployments" to the user. Mirror
-				// the summary endpoint and 500 so the failure is visible.
-				log.Error("Failed to list deployments for users summary", "error", derr)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+		if !hasPeriod {
+			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointUsersSummary, insightscache.Params{}); ok {
+				c.Data(http.StatusOK, "application/json", bytes)
 				return
 			}
-			srcAccountIDs := make(map[string]struct{})
-			for _, d := range deployments {
-				if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
-					srcAccountIDs[*d.SourceAccountID] = struct{}{}
-				}
-			}
-			// Lookup failures fall back to the deploying account name below —
-			// the avatar will 404 to the placeholder rather than break the page.
-			srcAccountName := make(map[string]string, len(srcAccountIDs))
-			var srcMu sync.Mutex
-			lookupGroup, lookupCtx := errgroup.WithContext(c.Request.Context())
-			lookupGroup.SetLimit(10)
-			for id := range srcAccountIDs {
-				lookupGroup.Go(func() error {
-					if lookupCtx.Err() != nil {
-						return nil
-					}
-					if a, lookupErr := accountStore.GetByID(id); lookupErr == nil && a != nil {
-						srcMu.Lock()
-						srcAccountName[id] = a.Name
-						srcMu.Unlock()
-					}
-					return nil
-				})
-			}
-			_ = lookupGroup.Wait()
-			for _, d := range deployments {
-				avatarAccount := acct.Name
-				if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
-					if name, ok := srcAccountName[*d.SourceAccountID]; ok && name != "" {
-						avatarAccount = name
-					}
-				}
-				depToAgent[d.ID] = UserAgentRef{Name: d.AgentName, Account: avatarAccount}
-			}
 		}
 
-		if len(depToAgent) == 0 {
+		resp, err := ComputeUsersSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, accountStore, acct, from, to)
+		if errors.Is(err, ErrAllLangfuseCallsFailed) {
+			log.Warn("Langfuse users metrics unavailable; returning empty users list", "error", err)
 			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
-				Users:  []UserSummaryEntry{},
-				Period: buildPeriod(from, to),
+				Users:              []UserSummaryEntry{},
+				Period:             buildPeriod(from, to),
+				MetricsUnavailable: true,
 			})
 			return
 		}
-
-		visibleTagValues := make([]string, 0, len(depToAgent))
-		for id := range depToAgent {
-			visibleTagValues = append(visibleTagValues, "deployment:"+id)
-		}
-		if len(visibleTagValues) > maxTagFilterValues {
-			log.Warn("Truncating deployment-tag filter for users-summary",
-				"total", len(visibleTagValues), "cap", maxTagFilterValues)
-			// Stable order so the same accounts get truncated reproducibly across
-			// requests, making partial-data symptoms easier to diagnose.
-			sort.Strings(visibleTagValues)
-			visibleTagValues = visibleTagValues[:maxTagFilterValues]
-		}
-		tagFilter := []langfuse.MetricsFilter{
-			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
-		}
-
-		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
-		g, gCtx := errgroup.WithContext(ctx)
-
-		// Backfill empty all-time timestamps so /api/public/metrics doesn't 400.
-		qFrom, qTo := metricsTimeRange(from, to)
-
-		var mainRows, tagsRows []map[string]any
-
-		// Q_main: per-(user, hour) trace count / total cost / total tokens.
-		// Uses the *traces* view so "requests" counts user-facing requests
-		// (1 trace = 1 request), matching the agent-view denominator.
-		// totalTokens is combined; traces view does not expose input/output split.
-		g.Go(func() error {
-			q := langfuse.MetricsQuery{
-				View: "traces",
-				Metrics: []langfuse.MetricsQueryField{
-					{Measure: "totalCost", Aggregation: "sum"},
-					{Measure: "totalTokens", Aggregation: "sum"},
-					{Measure: "count", Aggregation: "count"},
-				},
-				Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
-				TimeDimension: &langfuse.TimeDimension{Granularity: "hour"},
-				Filters:       tagFilter,
-				FromTimestamp: qFrom,
-				ToTimestamp:   qTo,
-			}
-			resp, ferr := client.GetMetrics(gCtx, q)
-			if ferr != nil {
-				return ferr
-			}
-			mainRows = resp.Data
-			return nil
-		})
-
-		// Q_tags: per-(user, tag) — value ignored, only the tag dim matters.
-		g.Go(func() error {
-			q := langfuse.MetricsQuery{
-				View: "traces",
-				Metrics: []langfuse.MetricsQueryField{
-					{Measure: "count", Aggregation: "count"},
-				},
-				Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}, {Field: "tags"}},
-				Filters:       tagFilter,
-				FromTimestamp: qFrom,
-				ToTimestamp:   qTo,
-			}
-			resp, ferr := client.GetMetrics(gCtx, q)
-			if ferr != nil {
-				return ferr
-			}
-			tagsRows = resp.Data
-			return nil
-		})
-
-		if err := g.Wait(); err != nil {
-			log.Error("Failed to get Langfuse users metrics", "error", err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
+		if err != nil {
+			log.Error("Failed to compute users summary", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute users summary"})
 			return
 		}
-
-		users := buildUsersSummary(mainRows, tagsRows, depToAgent)
-		if len(users) > maxUsersInResponse {
-			log.Warn("Truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
-			users = users[:maxUsersInResponse]
-		}
-		c.JSON(http.StatusOK, AccountUsersSummaryResponse{
-			Users:  users,
-			Period: buildPeriod(from, to),
-		})
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// ComputeUsersSummary runs the per-user Langfuse fan-out and assembles the
+// users-summary response. Returns ErrAllLangfuseCallsFailed when every
+// Langfuse sub-query failed; partial successes render normally.
+func ComputeUsersSummary(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	deploymentStore *deploymentstore.Store,
+	accountStore *account.AccountStore,
+	acct *account.Account,
+	from, to string,
+) (AccountUsersSummaryResponse, error) {
+	creds, err := langfuseStore.Get(acct.ID)
+	if err != nil || creds == nil {
+		return AccountUsersSummaryResponse{
+			Users:  []UserSummaryEntry{},
+			Period: buildPeriod(from, to),
+		}, nil
+	}
+
+	depToAgent := make(map[string]UserAgentRef)
+	if deploymentStore != nil {
+		deployments, derr := deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
+		if derr != nil {
+			return AccountUsersSummaryResponse{}, fmt.Errorf("list deployments: %w", derr)
+		}
+		srcAccountIDs := make(map[string]struct{})
+		for _, d := range deployments {
+			if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
+				srcAccountIDs[*d.SourceAccountID] = struct{}{}
+			}
+		}
+		srcAccountName := make(map[string]string, len(srcAccountIDs))
+		var srcMu sync.Mutex
+		lookupGroup, lookupCtx := errgroup.WithContext(ctx)
+		lookupGroup.SetLimit(10)
+		for id := range srcAccountIDs {
+			lookupGroup.Go(func() error {
+				if lookupCtx.Err() != nil {
+					return nil
+				}
+				if a, lookupErr := accountStore.GetByID(id); lookupErr == nil && a != nil {
+					srcMu.Lock()
+					srcAccountName[id] = a.Name
+					srcMu.Unlock()
+				}
+				return nil
+			})
+		}
+		_ = lookupGroup.Wait()
+		for _, d := range deployments {
+			avatarAccount := acct.Name
+			if d.SourceAccountID != nil && *d.SourceAccountID != "" && *d.SourceAccountID != acct.ID {
+				if name, ok := srcAccountName[*d.SourceAccountID]; ok && name != "" {
+					avatarAccount = name
+				}
+			}
+			depToAgent[d.ID] = UserAgentRef{Name: d.AgentName, Account: avatarAccount}
+		}
+	}
+
+	if len(depToAgent) == 0 {
+		return AccountUsersSummaryResponse{
+			Users:  []UserSummaryEntry{},
+			Period: buildPeriod(from, to),
+		}, nil
+	}
+
+	visibleTagValues := make([]string, 0, len(depToAgent))
+	for id := range depToAgent {
+		visibleTagValues = append(visibleTagValues, "deployment:"+id)
+	}
+	if len(visibleTagValues) > maxTagFilterValues {
+		log.Warn("Truncating deployment-tag filter for users-summary",
+			"total", len(visibleTagValues), "cap", maxTagFilterValues)
+		sort.Strings(visibleTagValues)
+		visibleTagValues = visibleTagValues[:maxTagFilterValues]
+	}
+	tagFilter := []langfuse.MetricsFilter{
+		{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+	}
+
+	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Tally Langfuse outcomes; emit ErrAllLangfuseCallsFailed only when every
+	// sub-query failed. Partial success (one of two queries returns) falls
+	// through to buildUsersSummary, which handles missing rows gracefully.
+	var lfAttempts, lfFailures atomic.Int32
+
+	g, gCtx := errgroup.WithContext(ctx)
+	qFrom, qTo := metricsTimeRange(from, to)
+	var mainRows, tagsRows []map[string]any
+
+	g.Go(func() error {
+		q := langfuse.MetricsQuery{
+			View: "traces",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "totalCost", Aggregation: "sum"},
+				{Measure: "totalTokens", Aggregation: "sum"},
+				{Measure: "count", Aggregation: "count"},
+			},
+			Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
+			TimeDimension: &langfuse.TimeDimension{Granularity: "hour"},
+			Filters:       tagFilter,
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		resp, ferr := client.GetMetrics(gCtx, q)
+		lfAttempts.Add(1)
+		if ferr != nil {
+			lfFailures.Add(1)
+			log.Warn("Users Q_main query failed", "error", ferr)
+			return nil
+		}
+		mainRows = resp.Data
+		return nil
+	})
+
+	g.Go(func() error {
+		q := langfuse.MetricsQuery{
+			View: "traces",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "count", Aggregation: "count"},
+			},
+			Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}, {Field: "tags"}},
+			Filters:       tagFilter,
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		resp, ferr := client.GetMetrics(gCtx, q)
+		lfAttempts.Add(1)
+		if ferr != nil {
+			lfFailures.Add(1)
+			log.Warn("Users Q_tags query failed", "error", ferr)
+			return nil
+		}
+		tagsRows = resp.Data
+		return nil
+	})
+	_ = g.Wait()
+
+	attempts := lfAttempts.Load()
+	if attempts > 0 && attempts == lfFailures.Load() {
+		return AccountUsersSummaryResponse{}, ErrAllLangfuseCallsFailed
+	}
+
+	users := buildUsersSummary(mainRows, tagsRows, depToAgent)
+	if len(users) > maxUsersInResponse {
+		log.Warn("Truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
+		users = users[:maxUsersInResponse]
+	}
+	return AccountUsersSummaryResponse{
+		Users:  users,
+		Period: buildPeriod(from, to),
+	}, nil
 }
 
 // buildUsersSummary aggregates the two Langfuse query responses into per-user

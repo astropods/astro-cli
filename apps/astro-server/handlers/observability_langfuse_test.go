@@ -50,7 +50,7 @@ func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
 	})
 	// deploymentStore is nil — not reached in the "not configured" early-return path.
 	router.GET("/api/v1/accounts/:account/observability/summary",
-		GetAccountLangfuseSummary(log, cfg, accountStore, nil, langfuseStore))
+		GetAccountLangfuseSummary(log, cfg, accountStore, nil, langfuseStore, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/summary", nil)
 	rec := httptest.NewRecorder()
