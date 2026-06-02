@@ -709,16 +709,27 @@ CREATE INDEX idx_knowledge_billing_state_active ON public.knowledge_billing_stat
 --
 -- revoked_at is a soft delete: the row is kept for audit / eventual restore
 -- when the user disconnects Slack. Lookups filter on revoked_at IS NULL.
+-- This table doubles as the "Slack user directory" used by the Insights
+-- People view: rows with workos_user_id IS NOT NULL are linked users
+-- (source='oauth'), rows with NULL are unlinked Slack identities we've
+-- observed via /authorize (source='observed'). Insights joins on
+-- (team_id, slack_user_id) to attach team_id to historical bare-form
+-- userIds so the Slack deep link works for every Slack row regardless
+-- of link state.
 CREATE TABLE public.slack_identity_mappings (
     id                    uuid        NOT NULL DEFAULT gen_random_uuid(),
     team_id               varchar     NOT NULL,
     slack_user_id         varchar     NOT NULL,
-    workos_user_id        varchar     NOT NULL,
+    -- Nullable: observed-but-unlinked Slack users land here too so the
+    -- directory join in Insights can find them. Set on the oauth link
+    -- flow; stays NULL for observed-only rows.
+    workos_user_id        varchar,
     organization_id       varchar,
     source                varchar     NOT NULL DEFAULT 'oauth',
     -- Display fields captured at link time so the settings UI (and audit
     -- logs) can render workspace + handle without re-querying Slack on
-    -- every status load. Refreshed on each Upsert.
+    -- every status load. Refreshed on each Upsert. Empty for observed-only
+    -- rows.
     team_name             varchar     NOT NULL DEFAULT '',
     team_domain           varchar     NOT NULL DEFAULT '',
     team_icon_url         varchar     NOT NULL DEFAULT '',
@@ -728,8 +739,26 @@ CREATE TABLE public.slack_identity_mappings (
     revoked_at            timestamptz,
     CONSTRAINT slack_identity_mappings_pkey PRIMARY KEY (id),
     CONSTRAINT slack_identity_mappings_unique UNIQUE (team_id, slack_user_id),
-    CONSTRAINT slack_identity_mappings_source_check CHECK (source IN ('oauth'))
+    CONSTRAINT slack_identity_mappings_source_check CHECK (source IN ('oauth', 'observed')),
+    -- oauth rows must carry a workos_user_id (that's the whole point of the
+    -- link); observed rows must not (workos_user_id is what oauth provides).
+    CONSTRAINT slack_identity_mappings_workos_required_for_oauth
+        CHECK ((source = 'oauth' AND workos_user_id IS NOT NULL)
+            OR (source = 'observed' AND workos_user_id IS NULL))
 );
 
 CREATE INDEX idx_slack_identity_mappings_workos_user ON public.slack_identity_mappings(workos_user_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_slack_identity_mappings_lookup ON public.slack_identity_mappings(team_id, slack_user_id) WHERE revoked_at IS NULL;
+
+-- Singleton marker for the one-shot Slack directory backfill. SlackDirectoryBackfillWorker
+-- checks this row on entry; if present, the work has already run and the worker
+-- exits without touching anything. Written exactly once per environment after
+-- the first successful backfill. To re-run the backfill (e.g. after onboarding
+-- a new account with pre-existing Slack history), DELETE FROM
+-- slack_directory_backfill_marker and the next pod restart picks it back up.
+CREATE TABLE public.slack_directory_backfill_marker (
+    id           integer     NOT NULL DEFAULT 1,
+    completed_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT slack_directory_backfill_marker_pkey PRIMARY KEY (id),
+    CONSTRAINT slack_directory_backfill_marker_singleton CHECK (id = 1)
+);

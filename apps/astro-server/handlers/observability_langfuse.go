@@ -24,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
@@ -190,6 +191,7 @@ type InsightsSummaryComputer struct {
 	langfuseStore   *langfuse.Store
 	deploymentStore *deploymentstore.Store
 	accountStore    *account.AccountStore
+	slackStore      *slackidentity.Store
 }
 
 // NewInsightsSummaryComputer wires the dependencies the worker needs.
@@ -199,6 +201,7 @@ func NewInsightsSummaryComputer(
 	langfuseStore *langfuse.Store,
 	deploymentStore *deploymentstore.Store,
 	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
 ) *InsightsSummaryComputer {
 	return &InsightsSummaryComputer{
 		log:             log,
@@ -206,6 +209,7 @@ func NewInsightsSummaryComputer(
 		langfuseStore:   langfuseStore,
 		deploymentStore: deploymentStore,
 		accountStore:    accountStore,
+		slackStore:      slackStore,
 	}
 }
 
@@ -242,7 +246,7 @@ func (c *InsightsSummaryComputer) ComputeUsersSummary(ctx context.Context, accou
 	if err != nil {
 		return nil, err
 	}
-	resp, err := ComputeUsersSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.accountStore, acct, "" /*from*/, "" /*to*/)
+	resp, err := ComputeUsersSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.accountStore, c.slackStore, acct, "" /*from*/, "" /*to*/)
 	if err != nil {
 		return nil, err
 	}
@@ -687,6 +691,105 @@ func normalizeUserID(s string) string {
 		return ""
 	}
 	return s
+}
+
+// mergeLinkedSlackRows resolves each bare-Slack row through the directory
+// and either:
+//   - rolls the row's metrics into the linked WorkOS user's row (creating
+//     it if absent), dropping the bare row entirely; or
+//   - stamps slack_team_id on the bare row for the deep link (observed-only
+//     directory hit).
+//
+// Number accuracy is the bar here — when Bob's pre-link bare row merges
+// into his post-link "Bob Smith" row, the cost/requests/tokens must sum
+// exactly, last_seen must take the max, and agents_used must union without
+// duplicates (keyed on account/name so two different orgs publishing the
+// same agent name don't collapse).
+func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackidentity.DirectoryEntry) []UserSummaryEntry {
+	if len(entries) == 0 {
+		return rows
+	}
+
+	// Two-pass: place every non-linked row into out first (recording its
+	// out-index in byID), THEN merge each linked-Slack row into its
+	// target. Tracking indices into out (not rows) avoids the bug where
+	// the merge writes to a rows entry that's already been copied into
+	// out — the copy in out would keep the pre-merge metrics. The
+	// two-pass shape also handles the case where the target WorkOS row
+	// appears LATER in rows than the bare-Slack row: pass 1 ensures the
+	// target is in out before pass 2 looks it up.
+	out := make([]UserSummaryEntry, 0, len(rows))
+	byID := make(map[string]int, len(rows))
+
+	type linkedSlackRow struct {
+		src    UserSummaryEntry
+		target string
+	}
+	var linked []linkedSlackRow
+
+	for i := range rows {
+		u := rows[i]
+		entry, ok := entries[u.UserID]
+		if !ok {
+			// Not a bare-Slack row we know about — pass through unchanged.
+			byID[u.UserID] = len(out)
+			out = append(out, u)
+			continue
+		}
+		if entry.WorkOSUserID == "" {
+			// Observed-only directory hit: keep the row, attach team_id.
+			u.SlackTeamID = entry.TeamID
+			byID[u.UserID] = len(out)
+			out = append(out, u)
+			continue
+		}
+		// Linked: defer to pass 2 so a WorkOS row appearing later in rows
+		// still gets its metrics into out before we try to merge into it.
+		linked = append(linked, linkedSlackRow{src: u, target: entry.WorkOSUserID})
+	}
+
+	for _, ls := range linked {
+		if targetIdx, exists := byID[ls.target]; exists {
+			mergeInto(&out[targetIdx], ls.src)
+			continue
+		}
+		// Synthesize a WorkOS row carrying the bare-Slack metrics — the
+		// user has linked but has no post-link activity yet, so Insights
+		// shows them under their Astro name with their historical spend.
+		merged := ls.src
+		merged.UserID = ls.target
+		merged.SlackTeamID = "" // synthesized as a WorkOS row, not a Slack row
+		byID[ls.target] = len(out)
+		out = append(out, merged)
+	}
+	return out
+}
+
+// mergeInto sums src's metrics into target, takes the max last_seen, and
+// unions agents_used keyed on (account, name) so duplicates collapse.
+func mergeInto(target *UserSummaryEntry, src UserSummaryEntry) {
+	target.CostUSD += src.CostUSD
+	target.Requests += src.Requests
+	target.Tokens += src.Tokens
+	if src.LastSeen > target.LastSeen {
+		// RFC3339 strings compare lexicographically correctly.
+		target.LastSeen = src.LastSeen
+	}
+	if len(src.AgentsUsed) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(target.AgentsUsed))
+	for _, a := range target.AgentsUsed {
+		seen[a.Account+"/"+a.Name] = struct{}{}
+	}
+	for _, a := range src.AgentsUsed {
+		key := a.Account + "/" + a.Name
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		target.AgentsUsed = append(target.AgentsUsed, a)
+	}
 }
 
 // tagStrings flattens a Langfuse `tags` group-by value, which can come back
@@ -1506,6 +1609,7 @@ func GetAccountUsersSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1556,7 +1660,7 @@ func GetAccountUsersSummary(
 			}
 		}
 
-		resp, err := ComputeUsersSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, accountStore, acct, from, to)
+		resp, err := ComputeUsersSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, acct, from, to)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
 			log.Warn("Langfuse users metrics unavailable; returning empty users list", "error", err)
 			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
@@ -1585,6 +1689,7 @@ func ComputeUsersSummary(
 	langfuseStore *langfuse.Store,
 	deploymentStore *deploymentstore.Store,
 	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
 	acct *account.Account,
 	from, to string,
 ) (AccountUsersSummaryResponse, error) {
@@ -1726,6 +1831,40 @@ func ComputeUsersSummary(
 	}
 
 	users := buildUsersSummary(mainRows, tagsRows, depToAgent)
+
+	// Resolve bare-form Slack rows through the directory. Two cases:
+	//   - Linked (workos_user_id present): the Slack user has since
+	//     created an Astro account and linked their Slack identity.
+	//     Their historical bare-Slack metrics need to roll up into
+	//     their WorkOS row so Insights shows one row per human, not
+	//     a split between "Slack user - U07…" and "Bob Smith".
+	//   - Observed-only (workos_user_id empty): attach team_id so
+	//     the frontend can build the `slack://` deep link.
+	// Lookup failure is non-fatal — rows still render, just without
+	// the merge or deep link.
+	if slackStore != nil {
+		bareSlackIDs := make([]string, 0, len(users))
+		for _, u := range users {
+			if slackidentity.IsBareSlackUserID(u.UserID) {
+				bareSlackIDs = append(bareSlackIDs, u.UserID)
+			}
+		}
+		if len(bareSlackIDs) > 0 {
+			entries, derr := slackStore.DirectoryEntriesForSlackUsers(bareSlackIDs)
+			if derr != nil {
+				log.Warn("users-summary: slack directory lookup failed; deep links unavailable", "error", derr)
+			} else {
+				users = mergeLinkedSlackRows(users, entries)
+			}
+		}
+	}
+
+	// Cap AFTER the merge — truncating first could drop a bare-Slack row
+	// that should have rolled into a top-N WorkOS row. Re-sort by cost
+	// desc since a merged row's cost can move it up the list.
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].CostUSD > users[j].CostUSD
+	})
 	if len(users) > maxUsersInResponse {
 		log.Warn("Truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
 		users = users[:maxUsersInResponse]

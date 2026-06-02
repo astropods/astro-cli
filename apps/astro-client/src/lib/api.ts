@@ -906,6 +906,12 @@ export interface AccountUsersSummaryResponse {
      *  the correct avatar URL — public-blueprint deploys resolve under the
      *  original publisher's account, not the deploying org. */
     agents_used: Array<{ name: string; account: string }>;
+    /** Workspace team_id for bare-form Slack `user_id`s, populated server-side
+     *  via the slack_identity_mappings directory join. Empty when the
+     *  directory doesn't know this Slack user (e.g. tombstoned user before
+     *  the backfill ran). Used by SlackUserIdentity to build the
+     *  `slack://user?team=…&id=…` deep link without parsing user_id. */
+    slack_team_id?: string;
   }>;
   period: { start: string; end: string; days: number };
   /** See note on AccountObservabilitySummaryResponse.metrics_unavailable. */

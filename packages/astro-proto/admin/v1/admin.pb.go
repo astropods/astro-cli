@@ -35,24 +35,24 @@ type ListDeploymentsRequest struct {
 }
 
 type AdminDeployment struct {
-	Name            string              `json:"name,omitempty"`
-	BuildID         string              `json:"build_id,omitempty"`
-	Namespace       string              `json:"namespace,omitempty"`
-	Status          string              `json:"status,omitempty"`
-	CreatedAt       string              `json:"created_at,omitempty"`
-	AccountName     string              `json:"account_name,omitempty"`
-	Components      []string            `json:"components,omitempty"`
-	DeploymentID    string              `json:"deployment_id,omitempty"`
-	ErrorMessage    string              `json:"error_message,omitempty"`
-	ErrorDetails    []map[string]string `json:"error_details,omitempty"`
-	StatusChangedAt string              `json:"status_changed_at,omitempty"`
-	CurrentRevision int32               `json:"current_revision,omitempty"`
-	DriftSummary       *DriftSummary `json:"drift_summary,omitempty"`
-	OwnerEmail         string        `json:"owner_email,omitempty"`
-	ClusterID          string        `json:"cluster_id,omitempty"`
-	AccountClusterID   string        `json:"account_cluster_id,omitempty"`
-	PlacementMismatch  bool          `json:"placement_mismatch,omitempty"`
-	AccountId          string        `json:"account_id,omitempty"`
+	Name              string              `json:"name,omitempty"`
+	BuildID           string              `json:"build_id,omitempty"`
+	Namespace         string              `json:"namespace,omitempty"`
+	Status            string              `json:"status,omitempty"`
+	CreatedAt         string              `json:"created_at,omitempty"`
+	AccountName       string              `json:"account_name,omitempty"`
+	Components        []string            `json:"components,omitempty"`
+	DeploymentID      string              `json:"deployment_id,omitempty"`
+	ErrorMessage      string              `json:"error_message,omitempty"`
+	ErrorDetails      []map[string]string `json:"error_details,omitempty"`
+	StatusChangedAt   string              `json:"status_changed_at,omitempty"`
+	CurrentRevision   int32               `json:"current_revision,omitempty"`
+	DriftSummary      *DriftSummary       `json:"drift_summary,omitempty"`
+	OwnerEmail        string              `json:"owner_email,omitempty"`
+	ClusterID         string              `json:"cluster_id,omitempty"`
+	AccountClusterID  string              `json:"account_cluster_id,omitempty"`
+	PlacementMismatch bool                `json:"placement_mismatch,omitempty"`
+	AccountId         string              `json:"account_id,omitempty"`
 }
 
 type AdminDeploymentEvent struct {
@@ -236,17 +236,17 @@ type ClusterSummary struct {
 }
 
 type GetClusterStatusResponse struct {
-	Timestamp       string                  `json:"timestamp,omitempty"`
-	Namespace       string                  `json:"namespace,omitempty"`
-	Deployments     []*K8sDeploymentInfo    `json:"deployments,omitempty"`
-	StatefulSets    []*K8sDeploymentInfo    `json:"statefulsets,omitempty"`
-	Pods            []*K8sPodInfo           `json:"pods,omitempty"`
-	Services        []*K8sServiceInfo       `json:"services,omitempty"`
-	Ingresses       []*K8sIngressInfo       `json:"ingresses,omitempty"`
-	NetworkPolicies []*K8sNetworkPolicyInfo `json:"network_policies,omitempty"`
-	Events             []*K8sEventInfo `json:"events,omitempty"`
-	Summary            *ClusterSummary `json:"summary,omitempty"`
-	ResolvedClusterID  string          `json:"resolved_cluster_id,omitempty"`
+	Timestamp         string                  `json:"timestamp,omitempty"`
+	Namespace         string                  `json:"namespace,omitempty"`
+	Deployments       []*K8sDeploymentInfo    `json:"deployments,omitempty"`
+	StatefulSets      []*K8sDeploymentInfo    `json:"statefulsets,omitempty"`
+	Pods              []*K8sPodInfo           `json:"pods,omitempty"`
+	Services          []*K8sServiceInfo       `json:"services,omitempty"`
+	Ingresses         []*K8sIngressInfo       `json:"ingresses,omitempty"`
+	NetworkPolicies   []*K8sNetworkPolicyInfo `json:"network_policies,omitempty"`
+	Events            []*K8sEventInfo         `json:"events,omitempty"`
+	Summary           *ClusterSummary         `json:"summary,omitempty"`
+	ResolvedClusterID string                  `json:"resolved_cluster_id,omitempty"`
 }
 
 type DeleteDeploymentRequest struct {
@@ -701,44 +701,44 @@ type ListFeedbackResponse struct {
 }
 
 type RegisteredCluster struct {
-	ID                          string `json:"id,omitempty"`
-	Region                      string `json:"region,omitempty"`
-	EKSClusterName              string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint          string `json:"eks_cluster_endpoint,omitempty"`
-	Enabled                     bool   `json:"enabled,omitempty"`
-	IsPrimary                   bool   `json:"is_primary,omitempty"`
-	CreatedAt                   string `json:"created_at,omitempty"`
-	UpdatedAt                   string `json:"updated_at,omitempty"`
-	Healthy                     bool   `json:"healthy,omitempty"`
-	HealthError                 string `json:"health_error,omitempty"`
-	AgentIngressDomain          string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN      string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName           string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain      string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
+	ID                         string `json:"id,omitempty"`
+	Region                     string `json:"region,omitempty"`
+	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled                    bool   `json:"enabled,omitempty"`
+	IsPrimary                  bool   `json:"is_primary,omitempty"`
+	CreatedAt                  string `json:"created_at,omitempty"`
+	UpdatedAt                  string `json:"updated_at,omitempty"`
+	Healthy                    bool   `json:"healthy,omitempty"`
+	HealthError                string `json:"health_error,omitempty"`
+	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
+	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
+	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
+	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
+	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
+	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
+	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type RegisterClusterRequest struct {
-	ID                          string `json:"id,omitempty"`
-	Region                      string `json:"region,omitempty"`
-	EKSClusterName              string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint          string `json:"eks_cluster_endpoint,omitempty"`
-	Enabled                     *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
-	AgentIngressDomain          string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN      string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName           string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain      string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
+	ID                         string `json:"id,omitempty"`
+	Region                     string `json:"region,omitempty"`
+	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled                    *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
+	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
+	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
+	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
+	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
+	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
+	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
+	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type RegisterClusterResponse struct {
@@ -786,20 +786,20 @@ type SetAccountClusterResponse struct {
 }
 
 type UpdateClusterRequest struct {
-	ID                          string `json:"id,omitempty"`
-	Region                      string `json:"region,omitempty"`
-	EKSClusterName              string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint          string `json:"eks_cluster_endpoint,omitempty"`
-	AgentIngressDomain          string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN      string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName           string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain      string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN  string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName       string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain             string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt          string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs             string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs              string `json:"pod_subnet_cidrs,omitempty"`
+	ID                         string `json:"id,omitempty"`
+	Region                     string `json:"region,omitempty"`
+	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
+	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
+	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
+	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
+	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
+	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
+	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
+	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
 }
 
 type UpdateClusterResponse struct {

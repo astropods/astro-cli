@@ -5,7 +5,7 @@ import {
 } from "@/api/queries/observability";
 import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
-import { classifyUserId } from "./user-classification";
+import { UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY, isSlackUserId } from "./user-classification";
 import type {
   AccountDeploymentsSummaryResponse,
   AccountObservabilitySummaryResponse,
@@ -405,6 +405,16 @@ function rangeWindow(range: ActivityRange): { fromDate: string; toDate: string }
   return { fromDate: (from ?? "").slice(0, 10), toDate: (to ?? "").slice(0, 10) };
 }
 
+// visibilityKey maps a trace user_id to the same string the Top Spenders
+// table uses as its row key for `visibleUserIds`. Named members and Slack
+// users get their raw user_id (each clickable independently); everything
+// else collapses to the matching sentinel bucket key.
+function visibilityKey(uid: string | null | undefined, memberIds: Set<string>): string {
+  if (!uid) return UNATTRIBUTED_USER_KEY;
+  if (memberIds.has(uid) || isSlackUserId(uid)) return uid;
+  return UNIDENTIFIED_USER_KEY;
+}
+
 // sliceUsersByRange walks the per-(day, user) data from the all-time summary
 // response ONCE and returns both shapes the users view needs:
 //   - users: per-user totals scoped to the URL range (drives the Top Spenders
@@ -429,6 +439,11 @@ export function sliceUsersByRange(
 } {
   const rows = summary?.cost_over_time_by_user ?? [];
   const agentsByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.agents_used]));
+  // Same shape as agentsByUser — source slack_team_id from the all-time
+  // response so the bounded-window rows carry the deep-link team_id
+  // without re-running the directory join. The server attached team_id
+  // there once via slack_identity_mappings; we just hand it through.
+  const slackTeamByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.slack_team_id]));
   const { fromDate, toDate } = rangeWindow(range);
   const bounded = !!fromDate && !!toDate;
 
@@ -460,9 +475,14 @@ export function sliceUsersByRange(
         perUser.set(u.user_id, existing);
       }
 
-      // Per-day sparkline aggregation. Filter by visibleUserIds when one is
-      // active so an applied user chip narrows the headline cards' bars.
-      if (visibleUserIds && !visibleUserIds.has(classifyUserId(u.user_id, memberIds))) continue;
+      // Per-day sparkline aggregation. Filter by visibleUserIds when one
+      // is active so an applied user chip narrows the headline cards' bars.
+      // The set is keyed exactly like the rows the user can click in the
+      // table: named members and Slack users carry their raw user_id,
+      // anything else collapses to the unidentified/unattributed sentinel.
+      // Collapsing Slack ids all the way to UNIDENTIFIED_USER_KEY would
+      // break the per-Slack-user filter — see visibilityKey above.
+      if (visibleUserIds && !visibleUserIds.has(visibilityKey(u.user_id, memberIds))) continue;
       const dayAcc = dailyTotals.get(date) ?? { cost: 0, requests: 0, tokens: 0 };
       dayAcc.cost += u.cost_usd;
       dayAcc.requests += u.requests;
@@ -479,6 +499,7 @@ export function sliceUsersByRange(
         tokens: agg.tokens,
         last_seen: agg.lastSeen ? `${agg.lastSeen}T00:00:00Z` : undefined,
         agents_used: agentsByUser.get(user_id) ?? [],
+        slack_team_id: slackTeamByUser.get(user_id),
       }))
     : (usersData?.users ?? []);
 

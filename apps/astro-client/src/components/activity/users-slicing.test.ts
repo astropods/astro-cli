@@ -155,6 +155,34 @@ describe("sliceUsersByRange — sparklines output", () => {
     expect(onlyAlice.cost[1]).toBeCloseTo(4, 5);
   });
 
+  // Slack users carry their raw user_id as the table-row key (no member
+  // entry exists). The sparkline filter must keep the same per-id key
+  // shape — collapsing every Slack id to a single sentinel would make
+  // the filter either match nothing or sum every Slack user together.
+  // Pins the four-bucket model end-to-end.
+  it("filters Slack users individually by their raw user_id", () => {
+    const memberIds = new Set(["u_alice"]); // alice is the only member; slack ids are unmapped
+    const s = summary([
+      { date: "2026-01-05", users: [
+        { user_id: "u_alice",     cost_usd: 1, requests: 1, tokens: 1 },
+        { user_id: "U07AAAAAA",   cost_usd: 4, requests: 4, tokens: 4 },
+        { user_id: "U07BBBBBB",   cost_usd: 9, requests: 9, tokens: 9 },
+      ]},
+    ]);
+
+    // Filtering to just one Slack user's raw id must pick up only that
+    // user's cost — the other Slack user must NOT contribute even though
+    // both are non-members.
+    const { sparklines } = sliceUsersByRange(
+      s,
+      usersData([]),
+      "7d",
+      new Set(["U07AAAAAA"]),
+      memberIds,
+    );
+    expect(sparklines.cost[1]).toBeCloseTo(4, 5);
+  });
+
   it("returns empty arrays when cost_over_time_by_user is missing", () => {
     const s = summary(undefined);
     const { sparklines } = sliceUsersByRange(s, usersData([]), "7d", null, new Set());

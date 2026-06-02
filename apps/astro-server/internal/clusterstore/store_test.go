@@ -109,19 +109,19 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 	store := New(db)
 
 	mutate := map[string]func(*Cluster){
-		"missing region":                       func(c *Cluster) { c.Region = "" },
-		"missing eks name":                     func(c *Cluster) { c.EKSClusterName = "" },
-		"missing endpoint":                     func(c *Cluster) { c.EKSClusterEndpoint = "" },
-		"missing agent_ingress_domain":         func(c *Cluster) { c.AgentIngressDomain = "" },
-		"missing agent_acm_certificate_arn":    func(c *Cluster) { c.AgentACMCertARN = "" },
-		"missing agent_alb_group_name":         func(c *Cluster) { c.AgentALBGroupName = "" },
-		"missing ingestion_ingress_domain":     func(c *Cluster) { c.IngestionIngressDomain = "" },
-		"missing ingestion_acm_certificate":    func(c *Cluster) { c.IngestionACMCertARN = "" },
-		"missing ingestion_alb_group_name":     func(c *Cluster) { c.IngestionALBGroupName = "" },
-		"missing knowledge_domain":             func(c *Cluster) { c.KnowledgeDomain = "" },
-		"missing langfuse_base_url_ext":        func(c *Cluster) { c.LangfuseBaseURLExt = "" },
-		"missing langfuse_vpce_ips":            func(c *Cluster) { c.LangfuseVPCEIPs = "" },
-		"missing pod_subnet_cidrs":             func(c *Cluster) { c.PodSubnetCIDRs = "" },
+		"missing region":                    func(c *Cluster) { c.Region = "" },
+		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
+		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing agent_ingress_domain":      func(c *Cluster) { c.AgentIngressDomain = "" },
+		"missing agent_acm_certificate_arn": func(c *Cluster) { c.AgentACMCertARN = "" },
+		"missing agent_alb_group_name":      func(c *Cluster) { c.AgentALBGroupName = "" },
+		"missing ingestion_ingress_domain":  func(c *Cluster) { c.IngestionIngressDomain = "" },
+		"missing ingestion_acm_certificate": func(c *Cluster) { c.IngestionACMCertARN = "" },
+		"missing ingestion_alb_group_name":  func(c *Cluster) { c.IngestionALBGroupName = "" },
+		"missing knowledge_domain":          func(c *Cluster) { c.KnowledgeDomain = "" },
+		"missing langfuse_base_url_ext":     func(c *Cluster) { c.LangfuseBaseURLExt = "" },
+		"missing langfuse_vpce_ips":         func(c *Cluster) { c.LangfuseVPCEIPs = "" },
+		"missing pod_subnet_cidrs":          func(c *Cluster) { c.PodSubnetCIDRs = "" },
 	}
 	for name, mut := range mutate {
 		c := fullCluster()

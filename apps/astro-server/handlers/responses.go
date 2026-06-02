@@ -374,13 +374,20 @@ type UserAgentRef struct {
 // Counts traces (one per user-facing request) to match the agent-view "requests"
 // unit; tokens are combined (input + output) since the traces view only exposes
 // the sum, not the split.
+//
+// SlackTeamID is populated for rows whose user_id is a bare Slack identity
+// (`U07ABCDEF`) that the directory knows about (via the live-ingest path on
+// /authorize, or a historical backfill). Empty otherwise. The frontend uses
+// it to build the `slack://user?team=…&id=…` deep link without parsing
+// anything out of user_id itself.
 type UserSummaryEntry struct {
-	UserID     string         `json:"user_id"`
-	Requests   int            `json:"requests"`
-	CostUSD    float64        `json:"cost_usd"`
-	Tokens     int            `json:"tokens"`
-	LastSeen   string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
-	AgentsUsed []UserAgentRef `json:"agents_used"`
+	UserID      string         `json:"user_id"`
+	Requests    int            `json:"requests"`
+	CostUSD     float64        `json:"cost_usd"`
+	Tokens      int            `json:"tokens"`
+	LastSeen    string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
+	AgentsUsed  []UserAgentRef `json:"agents_used"`
+	SlackTeamID string         `json:"slack_team_id,omitempty"`
 }
 
 // AccountUsersSummaryResponse is returned by the users-summary endpoint.

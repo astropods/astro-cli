@@ -16,7 +16,7 @@ import { useDeploymentsSummary, useUsersSummary } from "@/api/queries/observabil
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
 import { useMemo } from "react";
-import { classifyUserId } from "@/components/activity/user-classification";
+import { isSlackUserId } from "@/components/activity/user-classification";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
@@ -336,10 +336,23 @@ function InsightsView({
     () => new Set(members.map((m) => m.user_id)),
     [members],
   );
+  // Mirrors UsersTopSpenders' bucketing exactly: each named member and
+  // each Slack user counts as one row; the unidentified and unattributed
+  // buckets each count as one row only when non-empty. Collapsing all
+  // Slack ids to a single sentinel would undercount the pill in
+  // Slack-heavy workspaces — keep the per-id count explicit.
   const allUserBuckets = useMemo(() => {
-    const set = new Set<string>();
-    for (const u of allTimeUsers) set.add(classifyUserId(u.user_id, memberIds));
-    return set.size;
+    const namedIds = new Set<string>();
+    const slackIds = new Set<string>();
+    let hasUnidentified = false;
+    let hasUnattributed = false;
+    for (const u of allTimeUsers) {
+      if (!u.user_id) hasUnattributed = true;
+      else if (memberIds.has(u.user_id)) namedIds.add(u.user_id);
+      else if (isSlackUserId(u.user_id)) slackIds.add(u.user_id);
+      else hasUnidentified = true;
+    }
+    return namedIds.size + slackIds.size + (hasUnidentified ? 1 : 0) + (hasUnattributed ? 1 : 0);
   }, [allTimeUsers, memberIds]);
 
   // ── Search filter ─────────────────────────────────────────────────────────

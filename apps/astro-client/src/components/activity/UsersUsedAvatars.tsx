@@ -1,12 +1,12 @@
 import { useId, useMemo } from "react";
 import { Link } from "react-router";
-import { CircleUserRound, Server } from "lucide-react";
+import { CircleUserRound, Server, Slack } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
 import type { AccountMember } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY, classifyUserId } from "./user-classification";
+import { isSlackUserId } from "./user-classification";
 import { OverflowPopover } from "./OverflowPopover";
 
 interface UsersUsedAvatarsProps {
@@ -20,34 +20,33 @@ interface UsersUsedAvatarsProps {
 }
 
 /** Per-uid classification result — derived once from members, consumed by
- *  both the visible-avatars row and the +N overflow popover. */
+ *  both the visible-avatars row and the +N overflow popover. The `kind`
+ *  drives avatar selection (member chip / Slack icon / generic / system),
+ *  the row label, and whether the chip links to a profile. */
+type UserKind = "member" | "slack" | "unidentified" | "unattributed";
+
 interface ClassifiedUser {
   uid: string;
-  classification: ReturnType<typeof classifyUserId>;
+  kind: UserKind;
   member: AccountMember | undefined;
   /** Display string for the row label, popover line, and avatar tooltip. */
   primary: string;
-  /** True when the row should link to `/{username}`. Buckets stay text. */
-  isMember: boolean;
 }
 
-function classify(
-  uid: string,
-  memberById: Map<string, AccountMember>,
-  memberIds: Set<string>,
-): ClassifiedUser {
-  const member = memberById.get(uid);
-  const classification = classifyUserId(uid, memberIds);
-  const primary =
-    classification === UNATTRIBUTED_USER_KEY ? "System spend"
-      : classification === UNIDENTIFIED_USER_KEY ? `Slack ID: ${uid}`
-      : member ? (member.display_name || member.username)
-      : uid;
-  const isMember =
-    classification !== UNIDENTIFIED_USER_KEY &&
-    classification !== UNATTRIBUTED_USER_KEY &&
-    !!member;
-  return { uid, classification, member, primary, isMember };
+function classify(uid: string, member: AccountMember | undefined): ClassifiedUser {
+  if (!uid) {
+    return { uid, kind: "unattributed", member: undefined, primary: "System spend" };
+  }
+  if (member) {
+    return { uid, kind: "member", member, primary: member.display_name || member.username };
+  }
+  if (isSlackUserId(uid)) {
+    // Matches the per-row label rendered by SlackUserIdentity in
+    // TopSpendersTable so the People column on the agents view reads the
+    // same way as the People table on Insights.
+    return { uid, kind: "slack", member: undefined, primary: `Slack user - ${uid}` };
+  }
+  return { uid, kind: "unidentified", member: undefined, primary: uid };
 }
 
 export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }: UsersUsedAvatarsProps) {
@@ -61,11 +60,9 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
 
   // Single pass over the userIds — both the visible chips and the +N
   // popover read from this list so the classification + name derivation
-  // logic lives in one place. The member-id Set is built once per render
-  // (not once per uid) since classifyUserId needs Set lookup.
+  // logic lives in one place.
   const classified = useMemo<ClassifiedUser[]>(() => {
-    const memberIds = new Set(memberById.keys());
-    return userIds.map((uid) => classify(uid, memberById, memberIds));
+    return userIds.map((uid) => classify(uid, memberById.get(uid)));
   }, [userIds, memberById]);
 
   if (userIds.length === 0) {
@@ -83,9 +80,11 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
       <TooltipProvider delayDuration={200}>
         {visible.map((c) => {
           const avatarNode =
-            c.classification === UNIDENTIFIED_USER_KEY ? (
+            c.kind === "slack" ? (
+              <Slack className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+            ) : c.kind === "unidentified" ? (
               <CircleUserRound className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-            ) : c.classification === UNATTRIBUTED_USER_KEY ? (
+            ) : c.kind === "unattributed" ? (
               <Server className="size-5 shrink-0 text-muted-foreground" aria-hidden />
             ) : (
               <UserAvatar
@@ -97,7 +96,7 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
           return (
             <Tooltip key={c.uid}>
               <TooltipTrigger asChild>
-                {c.isMember && c.member ? (
+                {c.kind === "member" && c.member ? (
                   <Link to={`/${c.member.username}`} className="inline-flex rounded-full">
                     {avatarNode}
                   </Link>
@@ -120,9 +119,11 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
             {classified.map((c) => {
               const rowBody = (
                 <>
-                  {c.classification === UNIDENTIFIED_USER_KEY ? (
+                  {c.kind === "slack" ? (
+                    <Slack className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  ) : c.kind === "unidentified" ? (
                     <CircleUserRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : c.classification === UNATTRIBUTED_USER_KEY ? (
+                  ) : c.kind === "unattributed" ? (
                     <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   ) : (
                     <UserAvatar
@@ -136,7 +137,7 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
               );
               return (
                 <li key={c.uid}>
-                  {c.isMember && c.member ? (
+                  {c.kind === "member" && c.member ? (
                     <Link
                       to={`/${c.member.username}`}
                       className="flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground hover:bg-muted"

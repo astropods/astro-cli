@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -27,17 +29,29 @@ import (
 //   - adapter:        "web" | "slack"
 //
 // Flow:
-//  1. Anyone short-circuit — handled inside store.IsAllowed.
-//  2. Principal resolution — user → {user_id, account_ids}; slack → look up
+//  1. Principal resolution — user → {user_id, account_ids}; slack → look up
 //     the linked WorkOS user via slack_identity_mappings (when scope is
 //     supplied), else fall back to the deployment's owning account.
-//  3. store.IsAllowed runs the grant lookup and returns the boolean.
+//     Resolution runs before the anyone-grant short-circuit so the response
+//     can always carry the resolved identity downstream for trace
+//     attribution, not just on grant-matched paths.
+//  2. Anyone short-circuit — when an `anyone` grant exists, allow without
+//     running MatchesGrant; the resolved identity from step 1 still flows
+//     through to the response.
+//  3. MatchesGrant against the resolved candidates, plus the transitional
+//     no-grants → owner-account fallback (per-adapter).
 //
-// Returns 200 {allowed: bool, user_id: string} on every authoritative answer.
-// `user_id` carries the canonical WorkOS user_id when one is known: for
-// identity_type=user that's the input echoed back, for identity_type=slack
-// it's the linked WorkOS user resolved via slack_identity_mappings (empty if
-// the slack user isn't linked). It is only populated when allowed=true.
+// Returns 200 {allowed, user_id, slack_user_id, slack_team_id} on every
+// authoritative answer.
+//   - `user_id`       — canonical WorkOS user_id when one is known. For
+//     identity_type=user it's the input echoed back; for identity_type=slack
+//     it's the linked WorkOS user (empty when no mapping exists). Only
+//     populated when allowed=true (denials don't leak mapping state).
+//   - `slack_user_id` / `slack_team_id` — echoed for identity_type=slack so
+//     the messaging container can attribute unlinked Slack users to a
+//     namespaced trace userId instead of dropping them onto Unattributed.
+//     Only populated when allowed=true.
+//
 // Returns 4xx for malformed inputs and 5xx for server-side failures.
 func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationstore.Store, slackStore *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -58,29 +72,31 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		}
 
 		// An empty identity is only valid when an `anyone` grant exists for
-		// the adapter; the store's anyone short-circuit handles that.
-		// Otherwise reject malformed inputs (one of identity_type/identity_id
-		// supplied without the other).
+		// the adapter. Otherwise reject malformed inputs (one of
+		// identity_type/identity_id supplied without the other).
 		if (identityType == "") != (identityID == "") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "identity_type and identity_id must be supplied together"})
 			return
 		}
 
-		// Step 1 (per spec): anyone short-circuit, before resolving the
-		// principal. An anyone grant lets us skip the account_members /
-		// deployments lookup entirely — and lets anonymous traffic pass
-		// without any identity at all.
-		if anyone, err := authStore.HasAnyoneGrant(deploymentID, adapter); err != nil {
-			log.Error("authorize: anyone-grant lookup failed",
-				"deployment_id", deploymentID, "adapter", adapter, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
-			return
-		} else if anyone {
-			c.JSON(http.StatusOK, gin.H{"allowed": true})
-			return
-		}
-
-		// Step 2: principal resolution.
+		// Step 1: principal resolution. Runs before the anyone-grant check
+		// because the resolved identity flows into the response regardless of
+		// the path that ultimately decides `allowed`. Anonymous callers (no
+		// identity supplied) short-circuit inside resolveCandidates with
+		// zero queries.
+		//
+		// Trade-off: this is intentional even though it costs the common
+		// `slack: anyone-grant` path an extra indexed lookup on
+		// slack_identity_mappings (and, on hit, an account_members lookup) —
+		// 3-4 queries vs the pre-change 1. The cost is small (sub-ms,
+		// covered by idx_slack_identity_mappings_lookup) and bought once per
+		// 60s cache window in the messaging container; the alternative
+		// (resolve after anyone short-circuit) would force a second
+		// request to attribute the trace, doubling round-trips on the very
+		// path that benefits most from attribution. If this becomes hot
+		// enough to matter, the lookup can move behind a fast path that
+		// skips resolution when identityType=="" (already handled inside
+		// resolveCandidates as a zero-query short-circuit).
 		candidates, resolvedUserID, err := resolveCandidates(authStore, slackStore, deploymentID, identityType, identityID, identityScope)
 		if err != nil {
 			log.Error("authorize: failed to resolve identity",
@@ -92,16 +108,30 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 			return
 		}
 
-		// Step 3: grant lookup against resolved candidates.
-		allowed, err := authStore.MatchesGrant(deploymentID, candidates, adapter)
+		// Step 2: anyone short-circuit. Skips MatchesGrant + fallback when an
+		// open grant exists, but the resolved identity from step 1 still
+		// rides along in the response.
+		anyone, err := authStore.HasAnyoneGrant(deploymentID, adapter)
 		if err != nil {
-			log.Error("authorize: grant lookup failed",
-				"deployment_id", deploymentID,
-				"adapter", adapter,
-				"error", err,
-			)
+			log.Error("authorize: anyone-grant lookup failed",
+				"deployment_id", deploymentID, "adapter", adapter, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
 			return
+		}
+
+		allowed := anyone
+		if !allowed {
+			// Step 3: grant lookup against resolved candidates.
+			allowed, err = authStore.MatchesGrant(deploymentID, candidates, adapter)
+			if err != nil {
+				log.Error("authorize: grant lookup failed",
+					"deployment_id", deploymentID,
+					"adapter", adapter,
+					"error", err,
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization check failed"})
+				return
+			}
 		}
 
 		// Step 4: transitional fallback for deployments that pre-date this
@@ -121,6 +151,32 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 			allowed = ownerAllowed
 		}
 
+		// Live-ingest into the Slack user directory so Insights can join
+		// historical bare-form Langfuse userIds to a team_id for the
+		// `slack://` deep link. Only fires when allowed=true — a denied
+		// principal isn't a member of this deployment's universe and
+		// shouldn't pollute the directory used for click-through.
+		//
+		// Fire-and-forget: errors don't fail authz, and the in-process
+		// dedupe (UpsertObserved) means a chatty workspace only touches
+		// Postgres once per (team, user) per pod. The goroutine is
+		// intentionally detached from c.Request.Context() — using the
+		// request context would cancel the write when a slow client
+		// disconnects, leaving the directory stale. A fresh background
+		// context with a tight 5s timeout caps the goroutine's lifetime
+		// so a hung DB doesn't leak forever. Safe to outlive the
+		// request: the UPSERT is idempotent.
+		if allowed && slackStore != nil && identityType == authorizationstore.IdentityTypeSlack && identityScope != "" && identityID != "" {
+			go func(teamID, slackUserID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := slackStore.UpsertObserved(ctx, teamID, slackUserID); err != nil {
+					log.Warn("authorize: upsert observed slack identity failed",
+						"team_id", teamID, "error", err)
+				}
+			}(identityScope, identityID)
+		}
+
 		// Test case J2: log denials with enough context to debug.
 		if !allowed {
 			log.Info("authorize: denied",
@@ -132,12 +188,16 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		}
 
 		resp := gin.H{"allowed": allowed}
-		// Only surface the resolved WorkOS user_id on allowed responses — there
-		// is no caller value in identifying a principal that was denied, and
-		// keeping it off the deny path avoids accidentally leaking mapping
-		// state for unrelated identities.
-		if allowed && resolvedUserID != "" {
-			resp["user_id"] = resolvedUserID
+		// Identity fields are only surfaced on allowed responses to avoid
+		// leaking mapping state for principals the deployment denies.
+		if allowed {
+			if resolvedUserID != "" {
+				resp["user_id"] = resolvedUserID
+			}
+			if identityType == authorizationstore.IdentityTypeSlack {
+				resp["slack_user_id"] = identityID
+				resp["slack_team_id"] = identityScope
+			}
 		}
 		c.JSON(http.StatusOK, resp)
 	}

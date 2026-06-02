@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/riverqueue/river"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -593,6 +594,7 @@ func runWorker(
 	// construct here (Store wrappers just hold the *sql.DB).
 	workerDeploymentStore := deploymentstore.NewStore(db)
 	workerLangfuseStore := langfuse.NewStore(db)
+	workerSlackStore := slackidentity.NewStore(db)
 
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
@@ -612,7 +614,7 @@ func runWorker(
 		PipesClient:             pipesClient,
 		GitHubStore:             ghStore,
 		ImagePreflighter:        imagePreflighter,
-		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore),
+		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore, workerSlackStore),
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -627,10 +629,42 @@ func runWorker(
 				defer stopCancel()
 				_ = rq.Stop(stopCtx)
 			}()
+
+			// One-shot Slack directory backfill: enqueue exactly once per
+			// environment. The slack_directory_backfill_marker row is the
+			// authoritative "has it run" signal — checking it here avoids
+			// even enqueuing the job after the first successful run.
+			// UniqueOpts collapses concurrent enqueues across replicas
+			// into a single queued job. The worker re-checks the marker
+			// on entry as a belt-and-suspenders guarantee against the
+			// (marker-just-written) race.
+			enqueueSlackDirectoryBackfillIfNeeded(workerCtx, db, rq, log)
 		}
 	}
 
 	return cancel
+}
+
+// enqueueSlackDirectoryBackfillIfNeeded enqueues the one-shot Slack
+// directory backfill iff the marker row is absent. Safe to call on every
+// pod start: after the marker exists this is a single fast SELECT.
+func enqueueSlackDirectoryBackfillIfNeeded(ctx context.Context, db *sql.DB, rq *riverqueue.Queue, log *logger.Logger) {
+	slackStore := slackidentity.NewStore(db)
+	done, err := slackStore.IsDirectoryBackfillComplete(ctx)
+	if err != nil {
+		log.Warn("slack directory backfill: marker check failed; not enqueuing", "error", err)
+		return
+	}
+	if done {
+		return
+	}
+	if _, err := rq.Insert(ctx, riverqueue.SlackDirectoryBackfillArgs{}, &river.InsertOpts{
+		UniqueOpts: river.UniqueOpts{ByArgs: true},
+	}); err != nil {
+		log.Warn("slack directory backfill: enqueue failed", "error", err)
+		return
+	}
+	log.Info("slack directory backfill: enqueued one-shot job")
 }
 
 func setupRoutes(router *gin.Engine, deps *Deps) {
@@ -1526,7 +1560,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountDeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

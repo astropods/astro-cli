@@ -1,34 +1,39 @@
 import { describe, expect, it } from "vitest";
-import {
-  classifyUserId,
-  UNATTRIBUTED_USER_KEY,
-  UNIDENTIFIED_USER_KEY,
-} from "./user-classification";
+import { isSlackUserId } from "./user-classification";
 
-describe("classifyUserId", () => {
-  const members = new Set(["u_alice", "u_bob"]);
-
-  it("returns UNATTRIBUTED_USER_KEY for null", () => {
-    expect(classifyUserId(null, members)).toBe(UNATTRIBUTED_USER_KEY);
+describe("isSlackUserId", () => {
+  it("matches Slack user ids — bare form is the only format on disk", () => {
+    expect(isSlackUserId("U07ABCDEF")).toBe(true);     // 9 chars (lower bound)
+    expect(isSlackUserId("U01234567890")).toBe(true); // 12 chars (upper bound)
   });
 
-  it("returns UNATTRIBUTED_USER_KEY for undefined", () => {
-    expect(classifyUserId(undefined, members)).toBe(UNATTRIBUTED_USER_KEY);
+  it("rejects WorkOS user ids", () => {
+    expect(isSlackUserId("user_01HXX")).toBe(false);
   });
 
-  it("returns UNATTRIBUTED_USER_KEY for empty string", () => {
-    expect(classifyUserId("", members)).toBe(UNATTRIBUTED_USER_KEY);
+  it("rejects empty / lowercase / wrong-prefix strings", () => {
+    expect(isSlackUserId("")).toBe(false);
+    expect(isSlackUserId("u01abcdef")).toBe(false);
   });
 
-  it("returns the original id when the user is a member", () => {
-    expect(classifyUserId("u_alice", members)).toBe("u_alice");
+  // The {8,11} bound on the user-id portion is deliberate: looser would
+  // false-positive on any arbitrary `U…` string that happens to start
+  // with U + alphanumerics; tighter would drop real Slack ids. Pin both
+  // boundaries so future regex tweaks have to stay inside the window.
+  it("rejects user ids shorter than the {8,11} bound", () => {
+    expect(isSlackUserId("U07ABC")).toBe(false);       // 6 chars — too short
+    expect(isSlackUserId("U07ABCD")).toBe(false);      // 7 chars — still too short
   });
 
-  it("returns UNIDENTIFIED_USER_KEY when the user is not a member", () => {
-    expect(classifyUserId("u_outside", members)).toBe(UNIDENTIFIED_USER_KEY);
+  it("rejects user ids longer than the {8,11} bound", () => {
+    expect(isSlackUserId("U0123456789012")).toBe(false); // 14 chars — too long
   });
 
-  it("treats every id as unidentified when there are no members", () => {
-    expect(classifyUserId("u_anyone", new Set())).toBe(UNIDENTIFIED_USER_KEY);
+  // The previously-supported `slack:<team>:<user>` form is gone — messaging
+  // now writes only the bare slack id. A stray namespaced string in the
+  // pipeline should fall through to "Unidentified" rather than silently
+  // double-classify as a Slack row alongside a bare row for the same human.
+  it("rejects the legacy namespaced form (no longer emitted)", () => {
+    expect(isSlackUserId("slack:T07XYZ:U07ABCDEF")).toBe(false);
   });
 });

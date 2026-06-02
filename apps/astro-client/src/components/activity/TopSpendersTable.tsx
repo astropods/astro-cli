@@ -22,9 +22,9 @@ import { UsersUsedAvatars } from "./UsersUsedAvatars";
 import { UserBadge } from "@/components/UserBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
+import { Info, CircleUserRound, Server, TriangleAlert, Slack } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
-import { classifyUserId, UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY } from "./user-classification";
+import { isSlackUserId } from "./user-classification";
 
 // motion.create wraps TableRow so the agents-mode rows keep the shared
 // row chrome (data-slot, border, interactive hover state) while
@@ -401,35 +401,44 @@ function UsersTopSpenders({
   );
   const isLoading = loading || membersLoading;
 
-  const { named, unidentified, unattributed } = useMemo(() => {
-    const namedRows: UserRow[] = [];
+  // Three "real" buckets land in the table:
+  //   - rows: per-id rows for named members (WorkOS user → account member)
+  //     and unlinked Slack users (bare `U07ABCDEF` — the only format the
+  //     messaging adapter writes for unlinked senders). They're merged
+  //     into one sorted list so a Slack user who's out-spending a named
+  //     member sorts above them — the row label differentiates them
+  //     visually (UserBadge vs SlackUserIdentity).
+  //   - unidentified: everything else that isn't empty (rare; arbitrary
+  //     trace user_ids agents may emit). Stays aggregated.
+  //   - unattributed: empty user_id. Stays aggregated (system spend).
+  const { rows, unidentified, unattributed } = useMemo(() => {
+    const realRows: UserRow[] = [];
     const unidentifiedRows: UserRow[] = [];
     const unattributedRows: UserRow[] = [];
     for (const u of users) {
-      const bucket = classifyUserId(u.user_id, memberIds);
-      if (bucket === UNATTRIBUTED_USER_KEY) unattributedRows.push(u);
-      else if (bucket === UNIDENTIFIED_USER_KEY) unidentifiedRows.push(u);
-      else namedRows.push(u);
+      if (!u.user_id) unattributedRows.push(u);
+      else if (memberIds.has(u.user_id) || isSlackUserId(u.user_id)) realRows.push(u);
+      else unidentifiedRows.push(u);
     }
-    namedRows.sort((a, b) => {
+    realRows.sort((a, b) => {
       const diff = userSortValue(a, sortKey) - userSortValue(b, sortKey);
       return asc ? diff : -diff;
     });
     return {
-      named: namedRows,
+      rows: realRows,
       unidentified: aggregateUsers(unidentifiedRows),
       unattributed: aggregateUsers(unattributedRows),
     };
   }, [users, memberIds, sortKey, asc]);
 
   const dir = (col: UserSortKey) => sortDirFor(sortKey, asc, col);
-  const totalRows = named.length + (unidentified ? 1 : 0) + (unattributed ? 1 : 0);
+  const totalRows = rows.length + (unidentified ? 1 : 0) + (unattributed ? 1 : 0);
   // Fall back to a self-computed sum when the caller hasn't wired a stable
   // denominator. The fallback derives from the filtered rows + buckets, so
   // search interactions will re-base the percentages — same caveat as the
   // agents-mode branch.
   const denom = totalCost ?? (
-    named.reduce((s, u) => s + u.cost_usd, 0) +
+    rows.reduce((s, u) => s + u.cost_usd, 0) +
     (unidentified?.metrics.cost_usd ?? 0) +
     (unattributed?.metrics.cost_usd ?? 0)
   );
@@ -458,10 +467,14 @@ function UsersTopSpenders({
           </TableRow>
         ) : (
           <>
-            {named.map((u) => (
+            {rows.map((u) => (
               <TableRow key={u.user_id}>
                 <TableCell className="pr-4">
-                  <UserBadge userId={u.user_id} account={account} linkToProfile />
+                  {memberIds.has(u.user_id) ? (
+                    <UserBadge userId={u.user_id} account={account} linkToProfile />
+                  ) : (
+                    <SlackUserIdentity uid={u.user_id} teamId={u.slack_team_id} />
+                  )}
                 </TableCell>
                 <MetricsCells row={u} totalCost={denom} deploymentsByAgent={deploymentsByAgent} />
               </TableRow>
@@ -482,13 +495,57 @@ interface BucketRowProps {
   deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
 }
 
+// SlackUserIdentity renders the per-row label for an unlinked Slack user.
+//
+// When the server attaches a team_id (via the slack_identity_mappings
+// directory join — populated by the live-ingest path on /authorize and the
+// one-time backfill), the label deep-links into Slack's user-profile UI
+// (`slack://user?team=T&id=U`) so an admin can click through and see who
+// the human behind the id is. Slack's OS protocol handler routes to the
+// desktop app or to the open web tab. Rows without a team_id (directory
+// miss — tombstoned user pre-backfill) render as plain text.
+function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
+  const display = uid;
+  const deepLink = teamId ? `slack://user?team=${teamId}&id=${uid}` : undefined;
+
+  const body = (
+    <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+      <Slack className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className={cn("truncate", deepLink && "hover:underline")}>
+        Slack user - {display}
+      </span>
+    </span>
+  );
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {deepLink ? (
+            <a href={deepLink} rel="noreferrer" className="inline-flex">
+              {body}
+            </a>
+          ) : (
+            body
+          )}
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
+          {deepLink
+            ? "Slack user not linked to an Astro account. Click to open their Slack profile."
+            : "Slack user not linked to an Astro account. Connect to attribute their usage to a member."}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function BucketRow({ variant, agg, totalCost, deploymentsByAgent }: BucketRowProps) {
   const isUnidentified = variant === "unidentified";
   const label = isUnidentified
     ? `Unidentified · ${agg.count} ${agg.count === 1 ? "person" : "people"}`
     : "System spend";
   const tooltipText = isUnidentified
-    ? "Traces from people who reached an agent through an enabled adapter (Slack, etc.) but aren't linked to a member of this organization."
+    ? "Traces with user identifiers we don't recognize — typically custom agent integrations or direct SDK calls that emit non-WorkOS, non-Slack ids."
     : "Traces not associated with any user — typically background jobs, system tasks, or SDK calls that didn't forward a user identifier.";
   return (
     <TableRow>

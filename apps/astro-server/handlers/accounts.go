@@ -847,4 +847,3 @@ func GetAccountOrgs(log *logger.Logger, accountStore *account.AccountStore) gin.
 		c.JSON(http.StatusOK, gin.H{"orgs": resp})
 	}
 }
-

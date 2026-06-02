@@ -144,6 +144,11 @@ type UserRow = {
   tokens: number;
   last_seen?: string;
   agents_used: Array<{ name: string; account: string }>;
+  // Mirrors AccountUsersSummaryResponse.users — keep this field in the
+  // local type so the deep-link assertions below would fail to compile
+  // if the API ever dropped `slack_team_id`. The test exercises it via
+  // makeUserRow({ slack_team_id: "T07XYZ" }).
+  slack_team_id?: string;
 };
 
 function makeUserRow(overrides: Partial<UserRow> & { user_id: string }): UserRow {
@@ -290,5 +295,107 @@ describe("TopSpendersTable users mode", () => {
     );
     seedMembers(queryClient, []);
     expect(await screen.findByText("System spend")).toBeInTheDocument();
+  });
+
+  // Named members and unlinked Slack users sort into one merged list by
+  // spend — a Slack user out-spending a named member shows up above them.
+  // The row label component differentiates them visually (UserBadge vs
+  // SlackUserIdentity), but ordering is on cost alone.
+  it("sorts Slack users alongside named members by spend (merged, not grouped)", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({ user_id: "u_alice", cost_usd: 1 }),
+          makeUserRow({ user_id: "U07HEAVY1", cost_usd: 9 }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, [
+      { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
+    ]);
+
+    // Wait for member name to resolve so we can assert row order.
+    await screen.findByText("Alice Chen");
+    const allRows = screen.getAllByRole("row");
+    const slackRow = allRows.find((r) => within(r).queryByText("Slack user - U07HEAVY1"))!;
+    const aliceRow = allRows.find((r) => within(r).queryByText("Alice Chen"))!;
+    // Higher-spend Slack user must sort above lower-spend named member —
+    // proves the two groups aren't rendered as separate blocks.
+    expect(allRows.indexOf(slackRow)).toBeLessThan(allRows.indexOf(aliceRow));
+  });
+
+  // Admins clicking a Slack row should be punted into Slack's user-profile
+  // UI so they can see who the human behind the id is. The deep link uses
+  // team_id from the server-side directory join (slack_team_id on the
+  // response), not from parsing user_id.
+  it("renders a slack:// deep-link anchor when slack_team_id is present", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, slack_team_id: "T07XYZ" }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, []);
+
+    const label = await screen.findByText("Slack user - U07ABCDEF");
+    const anchor = label.closest("a");
+    expect(anchor).not.toBeNull();
+    expect(anchor!.getAttribute("href")).toBe("slack://user?team=T07XYZ&id=U07ABCDEF");
+  });
+
+  // When the directory join misses (e.g. tombstoned user, pre-backfill), the
+  // server omits slack_team_id and the row must stay plain text — clicking
+  // an empty-team deep link would land on a broken Slack URL.
+  it("renders plain text (no anchor) when slack_team_id is missing", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({ user_id: "U01LEGACY", cost_usd: 1 }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, []);
+
+    const label = await screen.findByText("Slack user - U01LEGACY");
+    expect(label.closest("a")).toBeNull();
+  });
+
+  // Unlinked Slack users used to disappear into the Unidentified bucket
+  // alongside any other non-member id. Now each one renders as its own
+  // "Slack user - U07…" row so a CEO scanning Insights can see which
+  // workspace teammates are driving spend without first asking them to
+  // link an Astro account.
+  it("renders unlinked Slack users as per-id rows, not aggregated", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, slack_team_id: "T07XYZ" }),
+          makeUserRow({ user_id: "U01LEGACY", cost_usd: 2 }),
+          makeUserRow({ user_id: "u_alice", cost_usd: 6 }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, [
+      { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
+    ]);
+
+    expect(await screen.findByText("Alice Chen")).toBeInTheDocument();
+    expect(screen.getByText("Slack user - U07ABCDEF")).toBeInTheDocument();
+    expect(screen.getByText("Slack user - U01LEGACY")).toBeInTheDocument();
+    // The aggregated Unidentified bucket must NOT appear for slack ids.
+    expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
   });
 });

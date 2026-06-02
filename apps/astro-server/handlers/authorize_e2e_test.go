@@ -81,6 +81,23 @@ func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) (bool, string) {
 	return body.Allowed, body.UserID
 }
 
+// decodeSlackResponse pulls the full slack-identity payload so tests can
+// assert that the messaging container has everything it needs to namespace
+// the trace userId for unlinked Slack users.
+func decodeSlackResponse(t *testing.T, w *httptest.ResponseRecorder) (allowed bool, userID, slackUserID, slackTeamID string) {
+	t.Helper()
+	var body struct {
+		Allowed     bool   `json:"allowed"`
+		UserID      string `json:"user_id"`
+		SlackUserID string `json:"slack_user_id"`
+		SlackTeamID string `json:"slack_team_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v (body=%s)", err, w.Body.String())
+	}
+	return body.Allowed, body.UserID, body.SlackUserID, body.SlackTeamID
+}
+
 const hasAnyGrantsQuery = "\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2\n\t\tLIMIT 1\n\t"
 
 // expectHasGrants queues the fallback's per-adapter "any grants exist?" query.
@@ -108,14 +125,14 @@ func TestAuthorize_AccountGrantMatch(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	// resolveCandidates: account_members lookup for alice
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Acme"))
 	// anyone short-circuit miss
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web").
 		WillReturnError(sql.ErrNoRows)
-	// account_members lookup for alice
-	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
-		WithArgs("alice").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Acme"))
 	// grant lookup hits
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-Acme"}), pq.Array([]string{"alice"})).
@@ -135,12 +152,12 @@ func TestAuthorize_AccountGrantNonMember(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "web").
-		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("bob").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"})) // bob is in no accounts
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string(nil)), pq.Array([]string{"bob"})).
 		WillReturnError(sql.ErrNoRows)
@@ -155,19 +172,29 @@ func TestAuthorize_AccountGrantNonMember(t *testing.T) {
 	}
 }
 
-// A6: anyone grant + authenticated user → allowed via short-circuit (no
-// principal resolution needed, no account_members query).
+// A6: anyone grant + authenticated user → allowed. Resolution still runs so
+// the response carries user_id, even though the anyone short-circuit makes
+// the grant lookup unnecessary.
 func TestAuthorize_AnyoneAuthenticated(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	// resolveCandidates runs regardless of anyone-grant.
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-A"))
+	// anyone-grant hits → allowed without MatchesGrant.
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web").
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
 
 	w := f.call(t, "identity_type=user&identity_id=alice&adapter=web")
-	if !decodeAllowed(t, w) {
+	allowed, userID := decodeResponse(t, w)
+	if !allowed {
 		t.Fatal("expected allowed=true via anyone")
+	}
+	if userID != "alice" {
+		t.Fatalf("expected user_id=alice in response, got %q", userID)
 	}
 }
 
@@ -214,12 +241,10 @@ func TestAuthorize_SlackBotAccountGrant(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack").
 		WillReturnError(sql.ErrNoRows)
-	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM deployments WHERE id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
@@ -236,12 +261,10 @@ func TestAuthorize_SlackNoGrantWithOtherGrants(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack").
 		WillReturnError(sql.ErrNoRows)
-	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM deployments WHERE id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
@@ -260,14 +283,14 @@ func TestAuthorize_FallbackNoGrants_OwnerAllowed(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	// anyone short-circuit miss
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "web").
-		WillReturnError(sql.ErrNoRows)
 	// alice is in acct-D
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("alice").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
+	// anyone short-circuit miss
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
 	// no explicit grant matches
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-D"}), pq.Array([]string{"alice"})).
@@ -287,12 +310,12 @@ func TestAuthorize_FallbackNoGrants_NonOwnerDenied(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "web").
-		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("bob").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Outside"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-Outside"}), pq.Array([]string{"bob"})).
 		WillReturnError(sql.ErrNoRows)
@@ -313,13 +336,13 @@ func TestAuthorize_FallbackPerAdapter_WebOpenWhenOnlySlackConfigured(t *testing.
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
 	// anyone short-circuit: scoped to web, so the slack:anyone row is invisible here
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web").
 		WillReturnError(sql.ErrNoRows)
-	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
-		WithArgs("alice").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-D"}), pq.Array([]string{"alice"})).
 		WillReturnError(sql.ErrNoRows)
@@ -339,12 +362,10 @@ func TestAuthorize_FallbackNoGrants_SlackOwnerAllowed(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack").
 		WillReturnError(sql.ErrNoRows)
-	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM deployments WHERE id = $1\n\t").
-		WithArgs("dep-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-D"))
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnError(sql.ErrNoRows)
@@ -364,20 +385,20 @@ func TestAuthorize_SlackWithScope_MappedUserGrantMatches(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	// 1. anyone short-circuit miss
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "slack").
-		WillReturnError(sql.ErrNoRows)
-	// 2. resolveCandidates(slack): owning account
+	// 1. resolveCandidates(slack): owning account
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
-	// 3. slack identity mapping HIT → resolved WorkOS user
-	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+	// 2. slack identity mapping HIT → resolved WorkOS user
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
 		WithArgs("T1", "U01").
 		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
-	// 4. mapped user's account memberships
+	// 3. mapped user's account memberships
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("user_alice").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	// 4. anyone short-circuit miss
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
 	// 5. grant lookup: user candidate hits the user-grant on slack
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
@@ -398,13 +419,13 @@ func TestAuthorize_SlackWithScope_NoMappingFallsBack(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "slack").
-		WillReturnError(sql.ErrNoRows)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 	// Mapping miss is benign — must NOT cause a 5xx.
-	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
 		WithArgs("T1", "U-unknown").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
 		WillReturnError(sql.ErrNoRows)
 	// Grant lookup runs with just the owning-account candidate (no user array).
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
@@ -428,12 +449,12 @@ func TestAuthorize_SlackWithoutScope_SkipsMappingLookup(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "slack").
-		WillReturnError(sql.ErrNoRows)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
 	// No slack_identity_mappings query expected — sqlmock's ExpectationsWereMet
 	// would fail if we queued one and the resolver skipped it.
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
@@ -454,16 +475,16 @@ func TestAuthorize_SlackResolvedUserIDInResponse(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "slack").
-		WillReturnError(sql.ErrNoRows)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
-	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
 		WithArgs("T1", "U01").
 		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("user_alice").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
@@ -484,12 +505,12 @@ func TestAuthorize_UserIdentityEchoesUserID(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "web").
-		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("user_alice").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-A"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnError(sql.ErrNoRows)
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "web", pq.Array([]string{"acct-A"}), pq.Array([]string{"user_alice"})).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
@@ -507,16 +528,16 @@ func TestAuthorize_DenyOmitsUserID(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()
 
-	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
-		WithArgs("dep-1", "slack").
-		WillReturnError(sql.ErrNoRows)
 	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
-	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2 AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
 		WithArgs("T1", "U01").
 		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
 	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
 		WithArgs("user_alice").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
 	// Grant lookup misses.
 	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
 		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D", "acct-Alice"}), pq.Array([]string{"user_alice"})).
@@ -530,6 +551,152 @@ func TestAuthorize_DenyOmitsUserID(t *testing.T) {
 	}
 	if userID != "" {
 		t.Fatalf("expected empty user_id on deny, got %q", userID)
+	}
+}
+
+// Slack identity is echoed back on every allowed=true response so the
+// messaging container can attribute unlinked Slack users via a namespaced
+// trace userId (slack:<team>:<user>) instead of dropping them onto the
+// Unattributed bucket.
+//
+// Cell (linked, anyone-grant): mapping hits, anyone short-circuits the grant
+// lookup, response carries WorkOS user_id AND echoed slack identity.
+func TestAuthorize_SlackAnyoneGrant_LinkedUserIDInResponse(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U01").
+		WillReturnRows(sqlmock.NewRows([]string{"workos_user_id"}).AddRow("user_alice"))
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Alice"))
+	// anyone-grant hits → short-circuit MatchesGrant. The resolution above must still surface in the response.
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U01&identity_scope=T1&adapter=slack")
+	allowed, userID, slackUserID, slackTeamID := decodeSlackResponse(t, w)
+	if !allowed {
+		t.Fatal("expected allowed=true")
+	}
+	if userID != "user_alice" {
+		t.Fatalf("expected user_id=user_alice via mapping, got %q", userID)
+	}
+	if slackUserID != "U01" || slackTeamID != "T1" {
+		t.Fatalf("expected echoed slack identity (U01,T1), got (%q,%q)", slackUserID, slackTeamID)
+	}
+}
+
+// Cell (unlinked, anyone-grant): no mapping; response carries the slack
+// identity but empty user_id, so the messaging container falls back to a
+// namespaced slack:<team>:<user> trace userId.
+func TestAuthorize_SlackAnyoneGrant_UnlinkedEchoesSlackOnly(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U-stranger").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U-stranger&identity_scope=T1&adapter=slack")
+	allowed, userID, slackUserID, slackTeamID := decodeSlackResponse(t, w)
+	if !allowed {
+		t.Fatal("expected allowed=true via anyone")
+	}
+	if userID != "" {
+		t.Fatalf("expected empty user_id for unlinked slack user, got %q", userID)
+	}
+	if slackUserID != "U-stranger" || slackTeamID != "T1" {
+		t.Fatalf("expected echoed slack identity (U-stranger,T1), got (%q,%q)", slackUserID, slackTeamID)
+	}
+}
+
+// Cell (unlinked, org-grant): unmapped slack user but owning-account candidate
+// matches a generic org grant. Same passthrough — slack identity echoed,
+// user_id empty.
+func TestAuthorize_SlackOrgGrant_UnlinkedEchoesSlackOnly(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U-stranger").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=slack&identity_id=U-stranger&identity_scope=T1&adapter=slack")
+	allowed, userID, slackUserID, slackTeamID := decodeSlackResponse(t, w)
+	if !allowed {
+		t.Fatal("expected allowed=true via org grant")
+	}
+	if userID != "" {
+		t.Fatalf("expected empty user_id for unlinked slack user, got %q", userID)
+	}
+	if slackUserID != "U-stranger" || slackTeamID != "T1" {
+		t.Fatalf("expected echoed slack identity (U-stranger,T1), got (%q,%q)", slackUserID, slackTeamID)
+	}
+}
+
+// Non-slack responses must omit the slack_user_id/slack_team_id fields.
+func TestAuthorize_WebResponse_OmitsSlackFields(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("user_alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-A"))
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "web").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=user&identity_id=user_alice&adapter=web")
+	allowed, userID, slackUserID, slackTeamID := decodeSlackResponse(t, w)
+	if !allowed || userID != "user_alice" {
+		t.Fatalf("expected allowed=true user_id=user_alice, got allowed=%v user_id=%q", allowed, userID)
+	}
+	if slackUserID != "" || slackTeamID != "" {
+		t.Fatalf("expected empty slack identity on web response, got (%q,%q)", slackUserID, slackTeamID)
+	}
+}
+
+// Slack-deny must not leak slack_user_id/slack_team_id either. Identity
+// fields are only safe to surface on allowed responses.
+func TestAuthorize_SlackDeny_OmitsSlackFields(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	expectDeploymentAccount(f.mock, "dep-1", "acct-D")
+	f.mock.ExpectQuery("\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t").
+		WithArgs("T1", "U-stranger").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack").
+		WillReturnError(sql.ErrNoRows)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "slack", pq.Array([]string{"acct-D"}), pq.Array([]string(nil))).
+		WillReturnError(sql.ErrNoRows)
+	expectHasGrants(f.mock, "dep-1", "slack", true)
+
+	w := f.call(t, "identity_type=slack&identity_id=U-stranger&identity_scope=T1&adapter=slack")
+	allowed, userID, slackUserID, slackTeamID := decodeSlackResponse(t, w)
+	if allowed {
+		t.Fatal("expected allowed=false")
+	}
+	if userID != "" || slackUserID != "" || slackTeamID != "" {
+		t.Fatalf("expected no identity fields on deny, got user=%q slack_user=%q slack_team=%q",
+			userID, slackUserID, slackTeamID)
 	}
 }
 

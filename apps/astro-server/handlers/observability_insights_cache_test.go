@@ -343,7 +343,7 @@ func TestGetAccountUsersSummary_CacheHit_ReturnsCachedBytes(t *testing.T) {
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountUsersSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, cache),
+		GetAccountUsersSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, nil, cache),
 		"/api/v1/accounts/:account/observability/users-summary",
 	)
 
@@ -370,7 +370,7 @@ func TestGetAccountUsersSummary_LangfuseFails_DegradesWithFlag(t *testing.T) {
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountUsersSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil),
+		GetAccountUsersSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil, nil),
 		"/api/v1/accounts/:account/observability/users-summary",
 	)
 
