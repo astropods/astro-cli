@@ -4,11 +4,11 @@ import { renderWithProviders } from "@/test/test-utils";
 import { SidebarAuthor } from "./SidebarAuthor";
 
 describe("SidebarAuthor", () => {
-  it("renders the Authors section title", () => {
+  it("renders the Contributors section title", () => {
     renderWithProviders(
       <SidebarAuthor authors={[]} ownerName="Acme Corp" ownerHandle="acme" />,
     );
-    expect(screen.getByText("Authors")).toBeInTheDocument();
+    expect(screen.getByText("Contributors")).toBeInTheDocument();
   });
 
   it("falls back to owner when authors array is empty", () => {

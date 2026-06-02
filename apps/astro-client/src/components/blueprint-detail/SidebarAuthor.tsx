@@ -49,7 +49,7 @@ export function SidebarAuthor({ authors, ownerName, ownerHandle }: SidebarAuthor
   const compact = hasAuthors && authors.length > AVATAR_THRESHOLD;
 
   return (
-    <SidebarSection title="Authors">
+    <SidebarSection title="Contributors">
       {hasAuthors ? (
         compact ? (
           <TooltipProvider>

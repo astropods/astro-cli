@@ -42,7 +42,7 @@ test.describe("weather-poet detail page", () => {
     )).toBeVisible();
   });
 
-  test("shows author", async ({ page }) => {
+  test("shows contributor", async ({ page }) => {
     // .last() targets the desktop sidebar — the first copy is inside min-[900px]:hidden (mobile)
     await expect(page.getByText(envConfig.authorDisplayName).last()).toBeVisible();
     await expect(page.getByText("@rabbah", { exact: true }).last()).toBeVisible();
