@@ -12,6 +12,11 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   } as unknown as typeof globalThis.ResizeObserver;
 }
 
+// jsdom logs "Not implemented" for window.scrollTo — stub it to silence the noise.
+if (typeof window !== 'undefined') {
+  window.scrollTo = () => {};
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => { server.resetHandlers(); cleanup(); });
 afterAll(() => server.close());

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { blueprintKeys } from "@/api/queries/keys";
@@ -12,13 +12,7 @@ import {
   BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
   hasBlueprintListFilters,
   type BlueprintListParams,
-  type BlueprintPageSize,
 } from "@/lib/blueprint-list-params";
-import {
-  persistBlueprintPageSize,
-  parseCookieBlueprintPageSize,
-  readStoredBlueprintPageSize,
-} from "@/lib/blueprint-page-size-preference";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useAuth } from "@/lib/auth";
@@ -28,19 +22,21 @@ import { loadAccountScoped } from "@/lib/api.server";
 import { blueprintGridSlotCount } from "@/lib/blueprint-page-numbers";
 import { useAccountBlueprintsList } from "./use-account-blueprints-list";
 import { useBlueprintSearch } from "./use-blueprint-search";
-import { BlueprintPageSizeControl } from "./BlueprintPageSizeControl";
 import { BlueprintsPagination } from "./BlueprintsPagination";
 import type { Route } from "./+types/Blueprints";
 
 export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
 
+const FIRST_PAGE_PARAMS: BlueprintListParams = {
+  limit: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
+  offset: 0,
+};
+
 export async function loader({ request }: Route.LoaderArgs) {
-  const pageSize = parseCookieBlueprintPageSize(request.headers.get("cookie"));
-  const firstPageParams: BlueprintListParams = { limit: pageSize, offset: 0 };
   const scoped = await loadAccountScoped(request, (api, account) =>
-    api.listAccountBlueprints(account, firstPageParams),
+    api.listAccountBlueprints(account, FIRST_PAGE_PARAMS),
   );
-  return { ...scoped, pageSize, firstPageParams };
+  return { ...scoped, firstPageParams: FIRST_PAGE_PARAMS };
 }
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
@@ -48,7 +44,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const { accounts, isAuthenticated } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const { search, setSearch, params, hasActiveFilters } = useBlueprintSearch();
-  const [pageSize, setPageSize] = useState<BlueprintPageSize | null>(null);
   const [page, setPage] = useState(1);
 
   usePrimeQueryCache(loaderData, (qc, ld) => {
@@ -56,14 +51,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
       qc.setQueryData(blueprintKeys.list(ld.account, ld.firstPageParams), ld.data);
     }
   });
-
-  useLayoutEffect(() => {
-    const stored = readStoredBlueprintPageSize();
-    setPageSize(stored);
-    if (stored !== loaderData?.pageSize) {
-      persistBlueprintPageSize(stored);
-    }
-  }, [loaderData?.pageSize]);
 
   // Consume ?account= param once accounts have loaded so deep-links and
   // org-switcher redirects land on the right scope without a flash.
@@ -78,10 +65,14 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
 
   useEffect(() => {
     setPage(1);
-  }, [activeAccount, pageSize, params]);
+  }, [activeAccount, params]);
 
-  const pageSizeReady = pageSize != null;
-  const isReady = isAuthenticated && !!activeAccount && pageSizeReady;
+  const handlePageChange = useCallback((nextPage: number) => {
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const isReady = isAuthenticated && !!activeAccount;
   const {
     data,
     isPending,
@@ -91,7 +82,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
     refetch,
   } = useAccountBlueprintsList(activeAccount, {
     enabled: isReady,
-    params: { ...params, limit: pageSize ?? BLUEPRINT_LIST_DEFAULT_PAGE_SIZE },
+    params: { ...params, limit: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE },
     page,
   });
 
@@ -120,10 +111,9 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const showRegistryEmpty = fetchSettled && isEmpty && !hasBlueprintListFilters(params);
 
   const gridSlotCount = blueprintGridSlotCount({
-    pageSizeReady,
     showFilteredEmpty,
     totalCount,
-    pageSize: pageSize ?? BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
+    pageSize: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
   });
 
   return (
@@ -139,8 +129,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         visible={showToolbar}
         search={search}
         onSearchChange={setSearch}
-        pageSize={pageSize}
-        onPageSizeChange={setPageSize}
       />
 
       <BlueprintsListArea
@@ -149,7 +137,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         blueprints={blueprints}
         totalCount={totalCount}
         page={page}
-        pageSize={pageSize ?? BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
+        pageSize={BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
         gridSlotCount={gridSlotCount}
         listLoading={listLoading}
         paginationDisabled={isFetching}
@@ -157,7 +145,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         error={error}
         refetch={refetch}
         ownerAccounts={ownerAccounts}
-        onPageChange={setPage}
+        onPageChange={handlePageChange}
       />
     </PageContainer>
   );
@@ -185,14 +173,10 @@ function BlueprintsToolbar({
   visible,
   search,
   onSearchChange,
-  pageSize,
-  onPageSizeChange,
 }: {
   visible: boolean;
   search: string;
   onSearchChange: (value: string) => void;
-  pageSize: BlueprintPageSize | null;
-  onPageSizeChange: (size: BlueprintPageSize) => void;
 }) {
   if (!visible) {
     return null;
@@ -206,9 +190,6 @@ function BlueprintsToolbar({
         onChange={(e) => onSearchChange(e.target.value)}
         containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
       />
-      {pageSize != null ? (
-        <BlueprintPageSizeControl value={pageSize} onChange={onPageSizeChange} />
-      ) : null}
     </div>
   );
 }

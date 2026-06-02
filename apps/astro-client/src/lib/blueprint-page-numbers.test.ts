@@ -3,7 +3,6 @@ import { blueprintGridSlotCount } from './blueprint-page-numbers';
 
 describe('blueprintGridSlotCount', () => {
   const base = {
-    pageSizeReady: true,
     showFilteredEmpty: false,
     pageSize: 10,
   };

@@ -207,56 +207,47 @@ describe('Blueprints – search', () => {
   });
 });
 
-describe('Blueprints – page size preference', () => {
-  it('restores page size from localStorage', async () => {
-    localStorage.setItem('astro:blueprints:page-size', '20');
-
-    renderBlueprintsPage();
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /code-reviewer/i })).toBeInTheDocument();
-      expect(screen.getByLabelText('20 per page')).toHaveAttribute('aria-pressed', 'true');
-    });
-  });
-
-  it('persists page size when changed', async () => {
-    const user = userEvent.setup();
-    renderBlueprintsPage();
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /code-reviewer/i })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByLabelText('10 per page'));
-
-    expect(localStorage.getItem('astro:blueprints:page-size')).toBe('10');
-  });
-});
-
 describe('Blueprints – pagination', () => {
-  it('shows page controls and fetches the selected offset', async () => {
-    const user = userEvent.setup();
-    localStorage.setItem('astro:blueprints:page-size', '10');
-    const accountBlueprints = Array.from({ length: 25 }, (_, index) => ({
+  function mockAccountBlueprints(total: number) {
+    const blueprints = Array.from({ length: total }, (_, index) => ({
       ...mockBlueprints[0],
       name: `agent-${index + 1}`,
     }));
-
     server.use(
       http.get('/api/v1/agents/:account', ({ request }) => {
         const url = new URL(request.url);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const offset = Number(url.searchParams.get('offset') ?? 0);
-        const page = accountBlueprints.slice(offset, offset + limit);
+        const page = blueprints.slice(offset, offset + limit);
         return HttpResponse.json({
           agents: page,
-          count: accountBlueprints.length,
+          count: blueprints.length,
           limit,
           offset,
-          has_more: offset + page.length < accountBlueprints.length,
+          has_more: offset + page.length < blueprints.length,
         });
       }),
     );
+    return blueprints;
+  }
+
+  it('hides pagination controls when total count fits in one page (≤ 50)', async () => {
+    mockAccountBlueprints(40);
+
+    renderBlueprintsPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /^agent-1$/i })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('button', { name: 'Page 1' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Previous page/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Next page/i })).not.toBeInTheDocument();
+  });
+
+  it('shows page controls and fetches the selected offset when count exceeds page size', async () => {
+    const user = userEvent.setup();
+    mockAccountBlueprints(120);
 
     renderBlueprintsPage();
 
@@ -270,7 +261,7 @@ describe('Blueprints – pagination', () => {
     await user.click(screen.getByRole('button', { name: 'Page 2' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /agent-11/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /^agent-51$/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
     });
   });

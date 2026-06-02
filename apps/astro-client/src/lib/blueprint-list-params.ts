@@ -9,8 +9,6 @@ export interface BlueprintListParams {
 }
 
 export const BLUEPRINT_LIST_DEFAULT_PAGE_SIZE = 50;
-export const BLUEPRINT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
-export type BlueprintPageSize = (typeof BLUEPRINT_PAGE_SIZE_OPTIONS)[number];
 export const BLUEPRINT_LIST_MAX_LIMIT = 100;
 
 function appendParam(params: URLSearchParams, key: string, value: string | undefined) {
