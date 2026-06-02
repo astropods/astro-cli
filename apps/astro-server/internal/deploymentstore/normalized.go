@@ -139,6 +139,11 @@ type NormalizedSpecConfig struct {
 	// so that existing build_env rows are preserved when variables cannot be
 	// re-encrypted (KMS encryptor is unavailable at repair time).
 	SkipBuildEnvClear bool
+	// LocalMode is true when astro-server is targeting a local K8s cluster
+	// (Docker Desktop / kind / k3d). It triggers a synthetic messaging
+	// ingress row pointing at the host-published NodePort so the Launch
+	// button has a working URL without a real ALB/ingress.
+	LocalMode bool
 }
 
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
@@ -624,18 +629,25 @@ func SaveNormalizedSpec(
 		}
 		// Messaging ingress — when web adapter is enabled.
 		// Uses GenerateMessagingIngressHost (not GenerateIngressHost) to match
-		// the hostname that spec_applier creates in K8s.
+		// the hostname that spec_applier creates in K8s. In local mode there
+		// is no real ingress; instead the messaging Service is exposed as
+		// NodePort and we write a synthetic row pointing at localhost:<port>
+		// so GetMessagingURLs surfaces a working Launch URL.
 		if webEnabled && webSvcID > 0 {
 			httpEp := ds.Interfaces.Endpoints["http"]
 			host := ""
+			tlsEnabled := true
 			if httpEp.Expose != nil && httpEp.Expose.Domain != "" {
 				host = httpEp.Expose.Domain
+			} else if nsCfg != nil && nsCfg.LocalMode {
+				host = k8s.LocalMessagingHost()
+				tlsEnabled = false
 			} else if nsCfg != nil && nsCfg.IngressDomain != "" && nsCfg.Namespace != "" {
 				host = k8s.GenerateMessagingIngressHost(agentName, nsCfg.Namespace, nsCfg.IngressDomain)
 			}
 			if host != "" {
 				if err := insertIngress(webSvcID, &Ingress{
-					Hostname: host, Path: "/", TLSEnabled: true,
+					Hostname: host, Path: "/", TLSEnabled: tlsEnabled,
 				}); err != nil {
 					return fmt.Errorf("messaging ingress: %w", err)
 				}
@@ -1248,13 +1260,15 @@ func (s *Store) GetSidecars(deploymentID string) ([]*Sidecar, error) {
 
 // GetMessagingURLs returns a map of deployment ID → messaging URL for the given
 // deployment IDs. Only deployments with a messaging sidecar and a web ingress
-// are included; IDs with no messaging entry are absent from the map.
+// are included; IDs with no messaging entry are absent from the map. The URL
+// scheme follows the ingress row's tls_enabled flag — local-mode deployments
+// write a synthetic non-TLS row pointing at the host NodePort.
 func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, error) {
 	if len(deploymentIDs) == 0 {
 		return nil, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT sc.deployment_id, di.hostname
+		SELECT sc.deployment_id, di.hostname, di.tls_enabled
 		FROM deployment_sidecars sc
 		JOIN deployment_services ds ON ds.sidecar_id = sc.id
 		JOIN deployment_ingresses di ON di.service_id = ds.id
@@ -1270,10 +1284,15 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 	result := make(map[string]string, len(deploymentIDs))
 	for rows.Next() {
 		var depID, hostname string
-		if err := rows.Scan(&depID, &hostname); err != nil {
+		var tlsEnabled bool
+		if err := rows.Scan(&depID, &hostname, &tlsEnabled); err != nil {
 			return nil, fmt.Errorf("scan messaging URL: %w", err)
 		}
-		result[depID] = "https://" + hostname
+		scheme := "https"
+		if !tlsEnabled {
+			scheme = "http"
+		}
+		result[depID] = scheme + "://" + hostname
 	}
 	return result, rows.Err()
 }

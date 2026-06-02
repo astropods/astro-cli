@@ -779,6 +779,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				IngressDomain:          ingressCfg.AgentIngressDomain,
 				IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
 				VarRefs:                dctx.varRefs,
+				LocalMode:              cfg.Deployment.K8sClientMode == "local",
 			}
 			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg); err != nil {
 				return err

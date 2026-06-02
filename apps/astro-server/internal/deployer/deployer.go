@@ -96,6 +96,20 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		return nil, fmt.Errorf("get account %s: %w", dep.AccountID, err)
 	}
 
+	// In local mode there's no ingress to inject an OIDC identity header
+	// into messaging. Resolve the account's first member and pin them as
+	// the fixed authn identity. The lookup is best-effort — if it fails
+	// the messaging container falls back to NoopSessionManager.
+	var authTestUserID string
+	if d.Cfg.Deployment.K8sClientMode == "local" {
+		if uid, uErr := d.AccountStore.GetFirstMemberUserID(dep.AccountID); uErr != nil {
+			d.Log.Warn("Local-mode authn user lookup failed; messaging will run unauthenticated",
+				"error", uErr, "account_id", dep.AccountID)
+		} else {
+			authTestUserID = uid
+		}
+	}
+
 	// Langfuse: ensure per-account project exists and compute auth token
 	var langfuseAuthToken string
 	if d.LangfuseProvisioner != nil && d.LangfuseStore != nil {
@@ -167,6 +181,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		// reuse the public-facing frontend URL — the API surface is co-
 		// located there, no separate authz endpoint.
 		AuthzCallbackURL: d.Cfg.Auth.FrontendURL,
+		AuthTestUserID:   authTestUserID,
 		NamespaceLabels:  buildNamespaceLabels(dep, acct.Name),
 		NamespaceAnnotations: map[string]string{
 			"astro.dev/display-name": dep.DisplayName,

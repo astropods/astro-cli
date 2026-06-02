@@ -11,6 +11,20 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// LocalMessagingNodePort is the fixed K8s NodePort published on the messaging
+// Service in local mode. Local mode has no ingress, so the Launch button
+// instead links to http://localhost:<LocalMessagingNodePort>/, which
+// docker-desktop / k3d map straight to the host. The port lives in the
+// default NodePort range (30000-32767) and is shared across all local
+// deployments — only one agent can be reached this way at a time.
+const LocalMessagingNodePort int32 = 30100
+
+// LocalMessagingHost returns the host:port the Launch URL points at in
+// local mode.
+func LocalMessagingHost() string {
+	return fmt.Sprintf("localhost:%d", LocalMessagingNodePort)
+}
+
 // LocalClient connects to a local Kubernetes cluster (Docker Desktop, kind, minikube)
 // using a standard kubeconfig file. No AWS dependencies.
 type LocalClient struct {

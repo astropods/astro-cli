@@ -81,6 +81,11 @@ type ApplierConfig struct {
 	// ASTRO_AUTHZ_URL alongside ASTRO_AUTHZ_TOKEN. When empty (local dev),
 	// the messaging container falls back to AllowAll.
 	AuthzCallbackURL string
+	// AuthTestUserID is the user_id (typically the account owner) that the
+	// messaging container should treat every web request as coming from.
+	// Set only in local mode where no ingress is in front to inject the
+	// real OIDC identity header.
+	AuthTestUserID string
 	// DeploymentID is reused as the key for deployment_build_env writes.
 	// Already set above for collector wiring; PersistResolutions uses it.
 	// (Field reused, not redeclared.)
@@ -129,6 +134,7 @@ type Applier struct {
 	boundCredentials       map[string]string
 	deployTokenSecret      string
 	authzCallbackURL       string
+	authTestUserID         string
 	persistResolutions     func(deploymentID string, rows []deployment.Resolution) error
 }
 
@@ -166,6 +172,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		boundCredentials:       cfg.BoundCredentials,
 		deployTokenSecret:      cfg.DeployTokenSecret,
 		authzCallbackURL:       cfg.AuthzCallbackURL,
+		authTestUserID:         cfg.AuthTestUserID,
 		persistResolutions:     cfg.PersistResolutions,
 	}
 }

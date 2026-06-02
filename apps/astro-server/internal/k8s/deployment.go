@@ -65,6 +65,7 @@ type MessagingDeploymentConfig struct {
 	Resources       *corev1.ResourceRequirements // From interfaces.resources; nil means hardcoded defaults
 	Environment     map[string]string            // Resolved env from interfaces.environment
 	DeployToken     string                       // Signed token injected as ASTRO_AUTHZ_TOKEN. The token's iss claim carries astro-server's base URL, so no separate URL env var is needed.
+	AuthTestUserID  string                       // When set, surfaced as AUTH_TEST_USER_ID — messaging treats every web request as this user. Local mode only.
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest.
@@ -228,6 +229,13 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 	// back, so no separate URL env var is needed.
 	if cfg.DeployToken != "" {
 		container.Env = append(container.Env, corev1.EnvVar{Name: "ASTRO_AUTHZ_TOKEN", Value: cfg.DeployToken})
+	}
+
+	// In local mode astro-server pins a fixed identity (the account owner)
+	// so messaging behaves as if the user is signed in via OIDC — no real
+	// ingress is in front to inject x-amzn-oidc-identity per request.
+	if cfg.AuthTestUserID != "" {
+		container.Env = append(container.Env, corev1.EnvVar{Name: "WEB_AUTHN_TEST_USER_ID", Value: cfg.AuthTestUserID})
 	}
 
 	// Add resolved environment from interfaces.environment (credential refs, etc.)

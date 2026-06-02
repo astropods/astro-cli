@@ -660,13 +660,21 @@ func (a *Applier) ApplyDeploymentSpec(
 			Resources:       msgResources,
 			Environment:     resolvedIfaceEnv,
 			DeployToken:     deployToken,
+			AuthTestUserID:  a.authTestUserID,
 		}
 
-		// Service — selects the agent pod (messaging is a sidecar container)
+		// Service — selects the agent pod (messaging is a sidecar container).
+		// In local mode we promote it to NodePort on the http port so the
+		// Launch button can reach the messaging UI at http://localhost:<port>
+		// without an ingress.
+		svcType := corev1.ServiceTypeClusterIP
+		if a.localMode && webEnabled {
+			svcType = corev1.ServiceTypeNodePort
+		}
 		msgSvc := BuildService(ServiceConfig{
 			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
-			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
+			Port: grpcPort, ServiceType: svcType,
 		})
 		msgSvc.Spec.Ports[0].Name = "grpc"
 		// The messaging sidecar runs inside the agent pod. By default, Services
@@ -675,15 +683,29 @@ func (a *Applier) ApplyDeploymentSpec(
 		// readiness deadlock. Publishing not-ready addresses breaks the cycle.
 		msgSvc.Spec.PublishNotReadyAddresses = true
 		if webEnabled {
-			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
+			httpPort := corev1.ServicePort{
 				Name: "http", Protocol: corev1.ProtocolTCP,
 				Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
-			})
+			}
+			if a.localMode {
+				httpPort.NodePort = LocalMessagingNodePort
+			}
+			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, httpPort)
 		}
 		a.applyServiceAndRecord(ctx, msgSvc, result)
 
-		// Ingress — expose web adapter if configured
-		if webEnabled {
+		// Ingress — expose web adapter if configured.
+		// In local mode there's no ingress controller; instead the NodePort
+		// above surfaces the messaging UI on the host and we record that as
+		// the deployment's external URL so the Launch button just works.
+		if webEnabled && a.localMode {
+			result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+				Name: "messaging", Type: "web",
+				URL:  fmt.Sprintf("http://%s", LocalMessagingHost()),
+				Port: LocalMessagingNodePort,
+			})
+		}
+		if webEnabled && !a.localMode {
 			ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-messaging")
 			host := ""
 			if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
