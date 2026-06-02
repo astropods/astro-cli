@@ -16,4 +16,6 @@ func TestErrAgentTargetMessages(t *testing.T) {
 	require.EqualError(t, errTraceStartAfterEnd(), "--start must be before --end")
 	require.EqualError(t, errAgentTraceNotFound("abc123", "coach"), `no trace "abc123" found for "coach"`)
 	require.Equal(t, msgNoTracesForAgent("coach"), "No traces found for coach")
+	require.EqualError(t, errAgentTraceSummaryWithTraceID(), "--summary cannot be used with --trace-id")
+	require.Equal(t, msgNoObsSummaryForAgent("coach"), "No activity summary for coach yet (updates about every 10m)")
 }

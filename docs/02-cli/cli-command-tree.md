@@ -71,7 +71,7 @@ Target a deployment with exactly one of `--name` (display name or blueprint name
 | `agent redeploy` | Redeploy with updated config or build (`--name` or `--id`) |
 | `agent history` | List deployment history (`--name` or `--id`) |
 | `agent logs` | Fetch deployment logs; `--tail` streams live (`--name` or `--id`, `--workload` accepts `workload[/container]`) |
-| `agent trace` | List traces or show a single trace Overview (`--name` or `--id`, `--trace-id` for detail) |
+| `agent trace` | List traces, show a single trace Overview, or print the agents-page activity summary (`--name` or `--id`; `--trace-id` for detail; `--summary` for 30d sparkline; Redis-backed, ~10m refresh) |
 
 ---
 

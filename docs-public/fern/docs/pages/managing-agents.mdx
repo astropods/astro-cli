@@ -54,10 +54,16 @@ ast agent logs --name "My Production Agent" --workload collector
 
 Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get --name "My Production Agent"` to see each workload's K8s name.
 
-List recent traces (the same Monitor data as the web UI):
+List recent traces (live Langfuse; the same Monitor data as the web UI):
 
 ```bash
 ast agent trace --name "My Production Agent"
+```
+
+Show the activity summary from the `/agents` dashboard (sparkline, last active, totals). Use this when you want to match what the card shows without querying Langfuse directly; data updates about every 10 minutes. `--summary` ignores list window flags (`--limit`, `--start`, etc.).
+
+```bash
+ast agent trace --name "My Production Agent" --summary
 ```
 
 Show a single trace Overview — input, output, observations, and scores:

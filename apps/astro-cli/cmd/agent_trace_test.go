@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,20 @@ func TestAgentTraceList(t *testing.T) {
 		{name: "shows latency", body: tracesPayload, statusCode: http.StatusOK, wantOut: "12450ms"},
 		{name: "shows cost when nonzero", body: tracesPayload, statusCode: http.StatusOK, wantOut: "$0.0234"},
 		{name: "shows timestamp", body: tracesPayload, statusCode: http.StatusOK, wantOut: "2026-05-28"},
+		{name: "object input output", body: map[string]any{
+			"traces": []any{
+				map[string]any{
+					"trace_id":   "abc123",
+					"name":       "agent.run",
+					"status":     "ok",
+					"latency_ms": 100.0,
+					"input":      map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}},
+					"output":     map[string]any{"text": "hello"},
+					"timestamp":  "2026-06-01T12:00:00Z",
+				},
+			},
+			"total": 1, "limit": 50, "offset": 0,
+		}, statusCode: http.StatusOK, wantOut: "abc123"},
 		{name: "empty", body: map[string]any{"traces": []any{}, "total": 0, "limit": 50, "offset": 0}, statusCode: http.StatusOK, wantOut: msgNoTracesForAgent("coach")},
 		{name: "json output", body: tracesPayload, statusCode: http.StatusOK, jsonOutput: true, wantOut: `"traces"`},
 		{name: "server error", body: map[string]any{"error": "boom"}, statusCode: http.StatusInternalServerError, wantErr: true},
@@ -431,4 +446,128 @@ func TestAgentTraceListQueryParams(t *testing.T) {
 
 func TestAgentTraceRejectsPositionalArgs(t *testing.T) {
 	require.EqualError(t, agentTargetArgs(agentTraceCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
+}
+
+func TestAgentTraceSummary(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	summariesPayload := map[string]any{
+		"summaries": map[string]any{
+			"dep-abc-123": map[string]any{
+				"total_traces":   42,
+				"last_trace_at":  "2026-06-01T10:00:00Z",
+				"request_series": []any{0, 1, 2},
+				"token_series":   []any{10, 20, 30},
+			},
+		},
+	}
+
+	cases := []struct {
+		name       string
+		body       any
+		jsonOutput bool
+		wantOut    string
+	}{
+		{name: "shows totals", body: summariesPayload, wantOut: "Total traces:  42"},
+		{name: "shows sparkline and stats", body: summariesPayload, wantOut: "3 total"},
+		{name: "json output", body: summariesPayload, jsonOutput: true, wantOut: "dep-abc-123"},
+		{name: "json missing entry", body: map[string]any{"summaries": map[string]any{}}, jsonOutput: true, wantOut: `"summary": null`},
+		{name: "missing entry", body: map[string]any{"summaries": map[string]any{}}, wantOut: msgNoObsSummaryForAgent("coach")},
+		{name: "stats aligned under series", body: summariesPayload, wantOut: "Requests  (30d):"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.Contains(r.URL.Path, "/observability/deployment-summaries"):
+					jsonHandler(http.StatusOK, tc.body)(w, r)
+				default:
+					jsonHandler(http.StatusOK, listPayload)(w, r)
+				}
+			})
+			setupAgentTest(t, handler)
+			setAgentTargetName(t, agentTraceCmd, "coach")
+			require.NoError(t, agentTraceCmd.Flags().Set("summary", "true"))
+			t.Cleanup(func() { _ = agentTraceCmd.Flags().Set("summary", "false") })
+			if tc.jsonOutput {
+				require.NoError(t, agentTraceCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { _ = agentTraceCmd.Flags().Set("json", "false") })
+			}
+			buf := &bytes.Buffer{}
+			agentTraceCmd.SetOut(buf)
+			agentTraceCmd.SetContext(context.Background())
+
+			require.NoError(t, runAgentTrace(agentTraceCmd, nil))
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func TestAgentTraceSummarySkipsListFlagValidation(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	summariesPayload := map[string]any{
+		"summaries": map[string]any{
+			"dep-abc-123": map[string]any{"total_traces": 1, "last_trace_at": "2026-06-01T10:00:00Z"},
+		},
+	}
+	var tracesCalled bool
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/observability/traces"):
+			tracesCalled = true
+			jsonHandler(http.StatusOK, map[string]any{"traces": []any{}, "total": 0})(w, r)
+		case strings.Contains(r.URL.Path, "/observability/deployment-summaries"):
+			jsonHandler(http.StatusOK, summariesPayload)(w, r)
+		default:
+			jsonHandler(http.StatusOK, listPayload)(w, r)
+		}
+	})
+	setupAgentTest(t, handler)
+	setAgentTargetName(t, agentTraceCmd, "coach")
+	require.NoError(t, agentTraceCmd.Flags().Set("summary", "true"))
+	require.NoError(t, agentTraceCmd.Flags().Set("limit", "0"))
+	t.Cleanup(func() {
+		_ = agentTraceCmd.Flags().Set("summary", "false")
+		_ = agentTraceCmd.Flags().Set("limit", "50")
+	})
+
+	agentTraceCmd.SetContext(context.Background())
+	require.NoError(t, runAgentTrace(agentTraceCmd, nil))
+	assert.False(t, tracesCalled, "summary mode must not call traces endpoint")
+}
+
+func TestFormatObsLastActive(t *testing.T) {
+	t.Parallel()
+	_, err := parseObsTimestamp(time.Now().Add(-time.Hour).Format(time.RFC3339))
+	require.NoError(t, err)
+	_, err = parseObsTimestamp(time.Now().Add(-time.Hour).Format(time.RFC3339Nano))
+	require.NoError(t, err)
+	assert.Equal(t, "not-a-date", formatObsLastActive("not-a-date"))
+
+	got := formatObsLastActive(time.Now().Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	assert.Contains(t, got, "hour")
+	assert.NotContains(t, got, "T") // parsed, not raw timestamp
+
+	// Avoid Round() pushing sub-hour durations to "60 minutes ago".
+	assert.Equal(t, "59 minutes ago", formatObsLastActive(time.Now().Add(-59*time.Minute-time.Second).Format(time.RFC3339)))
+	assert.Equal(t, "1 hour ago", formatObsLastActive(time.Now().Add(-90*time.Minute).Format(time.RFC3339)))
+}
+
+func TestAgentTraceSummaryRejectsTraceID(t *testing.T) {
+	setAgentTargetName(t, agentTraceCmd, "coach")
+	setAgentTraceID(t, "trace-abc")
+	require.NoError(t, agentTraceCmd.Flags().Set("summary", "true"))
+	t.Cleanup(func() { _ = agentTraceCmd.Flags().Set("summary", "false") })
+
+	agentTraceCmd.SetContext(context.Background())
+	err := runAgentTrace(agentTraceCmd, nil)
+	require.EqualError(t, err, errAgentTraceSummaryWithTraceID().Error())
 }
