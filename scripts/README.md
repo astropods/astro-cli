@@ -74,13 +74,13 @@ bun scripts/release.ts --yes           # skip confirmation prompt
 
 ## agent-k8sfwd.sh
 
-Port-forwards an agent pod's gRPC observability port (8090) to localhost. Useful for inspecting a running agent deployment with local tooling.
+Port-forwards an agent pod's messaging HTTP/SSE port (8090) to localhost. This is the endpoint the web-experience hits, so it's what you want when driving the local web UI against a running agent.
 
 ```bash
-bash scripts/agent-k8sfwd.sh <agent-name>
+bash scripts/agent-k8sfwd.sh <agent-name> [host-port]
 ```
 
-Kills any existing `kubectl port-forward` processes before establishing the new one.
+Defaults to `localhost:18090` (avoids the common 8090 collision with locally-published Docker containers). Always runs against the `docker-desktop` kubectl context — override with `AGENT_K8SFWD_CONTEXT=<name>`. Never mutates your active context. Prints the context, namespace, pod, PID, and a `kill` command for cleanup. Kills any matching `kubectl port-forward` on this agent's 8090 before starting a new one.
 
 ## merge-svg-pixels.ts
 
