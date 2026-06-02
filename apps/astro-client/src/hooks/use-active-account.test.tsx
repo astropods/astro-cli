@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Outlet } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // jsdom's localStorage is missing from this vitest environment (theme.test.tsx
 // hits the same issue). Stub a minimal in-memory Storage so the hook's
@@ -48,18 +49,19 @@ interface RenderOpts {
 }
 
 function renderWithProviders({ rootAccount = "", auth = mockAuthContext }: RenderOpts = {}) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Stub = createRoutesStub([
     {
-      // Root route — exposes activeAccount via loader so useRouteLoaderData("root")
-      // can read it inside the provider. Mirrors how the real app wires it.
       id: "root",
       loader: () => ({ activeAccount: rootAccount }),
       Component: () => (
-        <AuthContext.Provider value={auth}>
-          <ActiveAccountProvider>
-            <Outlet />
-          </ActiveAccountProvider>
-        </AuthContext.Provider>
+        <QueryClientProvider client={queryClient}>
+          <AuthContext.Provider value={auth}>
+            <ActiveAccountProvider>
+              <Outlet />
+            </ActiveAccountProvider>
+          </AuthContext.Provider>
+        </QueryClientProvider>
       ),
       children: [{ index: true, Component: Probe }],
     },
@@ -99,12 +101,14 @@ describe("useActiveAccount — source-of-truth precedence", () => {
     expect(await screen.findByTestId("active")).toHaveTextContent("testuser");
   });
 
-  it("setActiveAccount override beats the loader value immediately", async () => {
+  it("setActiveAccount override beats the loader value after switch", async () => {
     renderWithProviders({ rootAccount: "testuser", auth: authWithAcme });
     expect(await screen.findByTestId("active")).toHaveTextContent("testuser");
 
     await userEvent.click(screen.getByText("switch-acme"));
-    expect(screen.getByTestId("active")).toHaveTextContent("acme");
+    await waitFor(() => {
+      expect(screen.getByTestId("active")).toHaveTextContent("acme");
+    });
   });
 
   it("ignores an override that names a non-member account (validOverride gate)", async () => {

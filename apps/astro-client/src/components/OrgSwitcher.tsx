@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown } from "lucide-react";
@@ -13,6 +13,10 @@ import {
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import {
+  getOrgSwitchProgress,
+  subscribeOrgSwitchProgress,
+} from "@/lib/org-switch-progress";
 import type { Account } from "@/lib/api";
 
 interface OrgSwitcherProps {
@@ -33,6 +37,33 @@ function AccountIcon({ account }: { account: Account }) {
 export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
   const { accounts } = useAuth();
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const orgSwitching = useSyncExternalStore(
+    subscribeOrgSwitchProgress,
+    getOrgSwitchProgress,
+    () => false,
+  );
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (next && orgSwitching) return;
+      setOpen(next);
+    },
+    [orgSwitching],
+  );
+
+  const handleSelect = useCallback(
+    (accountName: string) => {
+      onChange(accountName);
+      setOpen(false);
+      triggerRef.current?.blur();
+    },
+    [onChange],
+  );
+
+  useLayoutEffect(() => {
+    if (orgSwitching) setOpen(false);
+  }, [orgSwitching]);
 
   const sorted = useMemo(
     () =>
@@ -44,10 +75,13 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
 
   const activeAccountObj = sorted.find((a) => a.name === activeAccount);
 
+  const menuOpen = orgSwitching ? false : open;
+
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={menuOpen} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label="Switch account"
           className={cn(
@@ -67,15 +101,19 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
           <ChevronDown className="size-4 shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      {!orgSwitching ? (
+      <DropdownMenuContent
+        align="end"
+        className="w-48"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         {sorted.map((a) => {
           const isActive = a.name === activeAccount;
           return (
             <DropdownMenuItem
               key={a.id}
               className="relative cursor-pointer pl-8"
-              onSelect={(e) => e.preventDefault()}
-              onClick={() => { onChange(a.name); setOpen(false); }}
+              onSelect={() => handleSelect(a.name)}
             >
               <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
                 {isActive && <Check className="size-4" />}
@@ -93,6 +131,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
+      ) : null}
     </DropdownMenu>
   );
 }

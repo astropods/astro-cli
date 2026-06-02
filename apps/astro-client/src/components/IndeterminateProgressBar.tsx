@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type TransitionEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type TransitionEvent } from "react";
 
 // nprogress-style trickle on `active` (snap-in → ease toward ceiling → snap-to-done).
 // Design rationale (why not useIsFetching) lives in the PR changelog.
@@ -17,15 +17,20 @@ export function IndeterminateProgressBar({ active }: { active: boolean }) {
 
   const trickleRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (active) {
       setVisible(true);
       setFinishing(false);
       setProgress(INITIAL_PROGRESS);
+    }
+  }, [active]);
+
+  useEffect(() => {
+    if (active) {
       trickleRef.current = setInterval(() => {
         setProgress((p) => (p < TRICKLE_CEILING ? p + (TRICKLE_CEILING - p) * TRICKLE_DECAY : p));
       }, TRICKLE_INTERVAL_MS);
-    } else {
+    } else if (visible) {
       if (trickleRef.current) {
         clearInterval(trickleRef.current);
         trickleRef.current = null;
@@ -36,7 +41,7 @@ export function IndeterminateProgressBar({ active }: { active: boolean }) {
     return () => {
       if (trickleRef.current) clearInterval(trickleRef.current);
     };
-  }, [active]);
+  }, [active, visible]);
 
   // Unmount when the opacity fade actually completes. Filters out the inner
   // bar's `width` transition-end events that bubble up to the wrapper, and
@@ -48,7 +53,9 @@ export function IndeterminateProgressBar({ active }: { active: boolean }) {
     setFinishing(false);
   }
 
-  if (!visible) return null;
+  if (!active && !visible) return null;
+
+  const barWidth = active ? Math.max(progress, INITIAL_PROGRESS) : progress;
 
   return (
     <div
@@ -63,7 +70,7 @@ export function IndeterminateProgressBar({ active }: { active: boolean }) {
       <div
         className="h-full bg-primary"
         style={{
-          width: `${progress}%`,
+          width: `${barWidth}%`,
           transition: "width 200ms ease-out",
         }}
       />

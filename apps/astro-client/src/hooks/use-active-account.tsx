@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useTransition, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRevalidator, useRouteLoaderData } from "react-router";
 import { useAuth } from "@/lib/auth";
+import { setOrgSwitchProgress } from "@/lib/org-switch-progress";
 import {
   ACTIVE_ACCOUNT_COOKIE,
   LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY,
@@ -38,6 +40,7 @@ function readActiveAccountCookie(): string | null {
 export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   const { accounts, personalAccount } = useAuth();
   const revalidator = useRevalidator();
+  const queryClient = useQueryClient();
   // Source initial value from the root loader (cookie-derived) rather than
   // localStorage so SSR and first client render agree — prevents a hydration
   // flash on the switcher.
@@ -47,10 +50,16 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   // Client override makes setActiveAccount feel instant; the revalidator
   // refreshes loader data underneath.
   const [override, setOverride] = useState<string | null>(null);
+  const [isAccountPending, startAccountTransition] = useTransition();
   const validOverride = override && accounts.some((a) => a.name === override) ? override : null;
   const activeAccount = validOverride || ssrAccount || personalAccount?.name || "";
+  const accountSwitchTargetRef = useRef<string | null>(null);
 
   const setActiveAccount = useCallback((accountName: string) => {
+    const fromAccount = activeAccount;
+    const switching =
+      accounts.some((a) => a.name === accountName) && accountName !== fromAccount;
+
     if (accountName === personalAccount?.name) {
       clearActiveAccountCookie();
       try { localStorage.removeItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
@@ -58,11 +67,71 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
       writeActiveAccountCookie(accountName);
       try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
     }
+
+    if (switching) {
+      accountSwitchTargetRef.current = accountName;
+      setOrgSwitchProgress(true);
+      // Defer revalidate + override so the progress bar can paint before the
+      // heavy outlet re-render on cached pages.
+      requestAnimationFrame(() => {
+        revalidator.revalidate();
+        requestAnimationFrame(() => {
+          startAccountTransition(() => setOverride(accountName));
+        });
+      });
+      return;
+    }
     setOverride(accountName);
     // Re-runs page loaders (and the root loader thanks to shouldRevalidate)
     // under the new cookie so SSR-backed data refreshes for the new org.
     revalidator.revalidate();
-  }, [personalAccount?.name, revalidator]);
+  }, [accounts, activeAccount, personalAccount?.name, revalidator]);
+
+  // Keep org-switch progress active until revalidation, the account override
+  // transition, and any account-scoped fetches have settled.
+  useEffect(() => {
+    const target = accountSwitchTargetRef.current;
+    if (!target || activeAccount !== target) return;
+
+    let sawFetch = false;
+    let pendingClear = false;
+
+    function accountFetching() {
+      return queryClient.isFetching({
+        predicate: (q) => q.queryKey.includes(target),
+      });
+    }
+
+    function finishSwitch() {
+      if (accountSwitchTargetRef.current !== target) return;
+      accountSwitchTargetRef.current = null;
+      setOrgSwitchProgress(false);
+    }
+
+    function scheduleWarmCacheClear() {
+      if (pendingClear) return;
+      pendingClear = true;
+      // Let the progress bar paint and the outlet commit before clearing on warm cache.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(finishSwitch);
+      });
+    }
+
+    function checkDone() {
+      if (revalidator.state !== "idle") return;
+      if (isAccountPending) return;
+      if (accountFetching() > 0) sawFetch = true;
+      if (sawFetch) {
+        if (accountFetching() === 0) finishSwitch();
+        return;
+      }
+      scheduleWarmCacheClear();
+    }
+
+    checkDone();
+    const unsub = queryClient.getQueryCache().subscribe(checkDone);
+    return () => unsub();
+  }, [activeAccount, isAccountPending, queryClient, revalidator.state]);
 
   // One-time migration for users from before the cookie existed: if
   // localStorage has a valid stored account but the cookie isn't set yet,
