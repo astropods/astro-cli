@@ -118,3 +118,11 @@ func errAgentTraceNotFound(traceID, target string) error {
 func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }
+
+func errAgentTraceSummaryWithTraceID() error {
+	return fmt.Errorf("--summary cannot be used with --trace-id")
+}
+
+func msgNoObsSummaryForAgent(target string) string {
+	return fmt.Sprintf("No activity summary for %s yet (updates about every 10m)", target)
+}
