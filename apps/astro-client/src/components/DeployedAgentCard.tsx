@@ -11,7 +11,6 @@ import {
   DocumentDuplicateIcon,
   EllipsisHorizontalIcon,
   ShareIcon,
-  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
@@ -20,7 +19,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -81,10 +79,6 @@ export interface DeployedAgentCardProps {
    *  configure form pre-loaded with that build — same flow as the
    *  detail page's update affordance. */
   latestBuildId?: string;
-  /** Called when the user chooses "Delete agent" from the card menu. The
-   *  parent owns the confirmation dialog so it isn't nested inside the
-   *  card's click target. */
-  onDeleteRequest?: () => void;
   className?: string;
 }
 
@@ -492,7 +486,6 @@ export function DeployedAgentCard({
   installedAt,
   hasUpdateAvailable,
   latestBuildId,
-  onDeleteRequest,
   className,
 }: DeployedAgentCardProps) {
   // Vertical fade: avatar tint at the top of the card, fading to the bare
@@ -645,22 +638,6 @@ export function DeployedAgentCard({
                 {copied ? <CheckIcon className="h-4 w-4" /> : <DocumentDuplicateIcon className="h-4 w-4" />}
                 {copied ? "Copied!" : "Copy deploy ID"}
               </DropdownMenuItem>
-            )}
-            {deploymentId && onDeleteRequest && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => {
-                    setMenuOpen(false);
-                    onDeleteRequest();
-                  }}
-                  className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
-                >
-                  <TrashIcon className="h-4 w-4" />
-                  Delete agent
-                </DropdownMenuItem>
-              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>

@@ -1,46 +1,25 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderRoute } from "@/test/test-utils";
-import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { DeployedAgentCard } from "./DeployedAgentCard";
 
 afterEach(cleanup);
-
-function AgentCardWithDeleteDialog() {
-  const [deleteOpen, setDeleteOpen] = useState(false);
-
-  return (
-    <>
-      <DeployedAgentCard
-        account="postman"
-        name="prism"
-        displayName="Prism"
-        deploymentId="dep-prism"
-        requestSeries={[0, 1, 2]}
-        onDeleteRequest={() => setDeleteOpen(true)}
-      />
-      {deleteOpen && (
-        <DeleteDeploymentDialog
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-          deploymentId="dep-prism"
-          deploymentName="prism"
-          displayName="Prism"
-          account="postman"
-        />
-      )}
-    </>
-  );
-}
 
 function renderDeployedAgentCard() {
   return renderRoute(
     [
       {
         path: "/",
-        Component: AgentCardWithDeleteDialog,
+        Component: () => (
+          <DeployedAgentCard
+            account="postman"
+            name="prism"
+            displayName="Prism"
+            deploymentId="dep-prism"
+            requestSeries={[0, 1, 2]}
+          />
+        ),
       },
       {
         // Card-level click on `/agents` routes to the Monitor tab; the
@@ -96,18 +75,12 @@ describe("DeployedAgentCard", () => {
     expect(screen.queryByTestId("agent-detail")).not.toBeInTheDocument();
   });
 
-  it("does not navigate when interacting with the delete confirmation dialog", async () => {
+  it("does not expose a Delete agent option in the card menu", async () => {
     const user = userEvent.setup();
     renderDeployedAgentCard();
 
     await user.click(screen.getByRole("button", { name: "Agent options" }));
-    await user.click(screen.getByRole("menuitem", { name: "Delete agent" }));
 
-    expect(screen.getByRole("dialog", { name: "Delete Prism" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("checkbox"));
-
-    expect(screen.getByRole("dialog", { name: "Delete Prism" })).toBeInTheDocument();
-    expect(screen.queryByTestId("agent-detail")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete agent" })).not.toBeInTheDocument();
   });
 });
