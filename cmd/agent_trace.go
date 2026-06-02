@@ -62,10 +62,10 @@ type tracesListResponse struct {
 }
 
 type deploymentSummaryEntry struct {
-	TotalTraces   int   `json:"total_traces"`
+	TotalTraces   int    `json:"total_traces"`
 	LastTraceAt   string `json:"last_trace_at"`
-	RequestSeries []int `json:"request_series,omitempty"`
-	TokenSeries   []int `json:"token_series,omitempty"`
+	RequestSeries []int  `json:"request_series,omitempty"`
+	TokenSeries   []int  `json:"token_series,omitempty"`
 }
 
 type deploymentSummariesResponse struct {
@@ -290,8 +290,8 @@ func runAgentTraceSummary(cmd *cobra.Command, label, depID string, at AccountTok
 		return nil
 	}
 
-	accent.Fprintf(w, "%s\n", label) //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  ID:            %s\n", depID) //nolint:errcheck,gosec
+	accent.Fprintf(w, "%s\n", label)                           //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  ID:            %s\n", depID)             //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Total traces:  %d\n", entry.TotalTraces) //nolint:errcheck,gosec
 	if entry.LastTraceAt != "" {
 		rel := formatObsLastActive(entry.LastTraceAt)
@@ -355,7 +355,7 @@ func printObsSeriesBlock(w io.Writer, label string, series []int) {
 	const seriesSuffix = " (30d):  "
 	spark := formatObsSparkline(series)
 	stats := formatObsSeriesStats(series)
-	fmt.Fprintf(w, "%s%-*s%s%s\n", pad, labelWidth, label, seriesSuffix, spark) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s%-*s%s%s\n", pad, labelWidth, label, seriesSuffix, spark)               //nolint:errcheck,gosec
 	fmt.Fprintf(w, "%s%s%s\n", pad, strings.Repeat(" ", labelWidth+len(seriesSuffix)), stats) //nolint:errcheck,gosec
 }
 
@@ -472,16 +472,16 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 	}
 
 	if len(t.Metadata) > 0 {
-		dim.Fprintln(w, "\nMetadata:")               //nolint:errcheck,gosec
+		dim.Fprintln(w, "\nMetadata:")                //nolint:errcheck,gosec
 		fmt.Fprintln(w, indentJSON(t.Metadata, "  ")) //nolint:errcheck,gosec
 	}
 
 	if len(t.Input) > 0 {
-		dim.Fprintln(w, "\nInput:")               //nolint:errcheck,gosec
+		dim.Fprintln(w, "\nInput:")                //nolint:errcheck,gosec
 		fmt.Fprintln(w, indentJSON(t.Input, "  ")) //nolint:errcheck,gosec
 	}
 	if len(t.Output) > 0 {
-		dim.Fprintln(w, "\nOutput:")               //nolint:errcheck,gosec
+		dim.Fprintln(w, "\nOutput:")                //nolint:errcheck,gosec
 		fmt.Fprintln(w, indentJSON(t.Output, "  ")) //nolint:errcheck,gosec
 	}
 
@@ -506,11 +506,11 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 				dim.Fprintf(w, "    %s\n", o.StatusMessage) //nolint:errcheck,gosec
 			}
 			if len(o.Input) > 0 {
-				dim.Fprintln(w, "    Input:")                  //nolint:errcheck,gosec
+				dim.Fprintln(w, "    Input:")                //nolint:errcheck,gosec
 				fmt.Fprintln(w, indentJSON(o.Input, "    ")) //nolint:errcheck,gosec
 			}
 			if len(o.Output) > 0 {
-				dim.Fprintln(w, "    Output:")                  //nolint:errcheck,gosec
+				dim.Fprintln(w, "    Output:")                //nolint:errcheck,gosec
 				fmt.Fprintln(w, indentJSON(o.Output, "    ")) //nolint:errcheck,gosec
 			}
 		}
