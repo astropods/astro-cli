@@ -106,7 +106,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		cyan.Print("→ ") //nolint:errcheck,gosec
 		fmt.Print("Opening browser to: ")
 		dim.Println(verificationURL) //nolint:errcheck,gosec
-		if err := browser.OpenURL(verificationURL); err != nil {
+		if openErr := browser.OpenURL(verificationURL); openErr != nil {
 			yellow.Println("  Could not open browser automatically.") //nolint:errcheck,gosec
 			fmt.Print("  Please visit: ")
 			bold.Println(verificationURL) //nolint:errcheck,gosec
@@ -149,6 +149,21 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	// Store credentials
 	storage := auth.NewStorage(buildinfo.BinaryName)
 
+	var priorCurrent, priorPrevious string
+	var priorAccounts []auth.StoredAccount
+	var priorUserAccountName, priorUserAccountID string
+	if creds, loadErr := storage.LoadCredentials(); loadErr == nil {
+		if old, ok := creds.Profiles["default"]; ok && old != nil {
+			priorCurrent = old.CurrentAccount
+			priorPrevious = old.PreviousAccount
+			priorAccounts = append([]auth.StoredAccount(nil), old.Accounts...)
+			if old.User != nil {
+				priorUserAccountName = old.User.AccountName
+				priorUserAccountID = old.User.AccountID
+			}
+		}
+	}
+
 	profile := &auth.Profile{
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
@@ -169,8 +184,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if verbose {
 		fmt.Printf("  %s GET %s\n", cyan.Sprint("→"), dim.Sprint(serverURL+"/api/v1/me")) //nolint:errcheck,gosec
 	}
-	accounts, err := fetchUserAccounts(serverURL, profile.AccessToken)
-	if err == nil && len(accounts) > 0 {
+	accounts, fetchErr := fetchUserAccounts(serverURL, profile.AccessToken)
+	accountsFetched := fetchErr == nil
+	if accountsFetched && len(accounts) > 0 {
 		if verbose {
 			fmt.Printf("  %s accounts: %s\n", cyan.Sprint("→"), dim.Sprintf("%d found (%s)", len(accounts), accounts[0].Name)) //nolint:errcheck,gosec
 		}
@@ -183,13 +199,21 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		} else {
 			return fmt.Errorf("no personal account found. You must have a personal account to log in. Only organization accounts were found")
 		}
-	} else if verbose && err != nil {
-		red := color.New(color.FgRed)
-		fmt.Printf("  %s accounts: %s\n", red.Sprint("✗"), dim.Sprintf("fetch failed: %v", err)) //nolint:errcheck,gosec
+	} else if fetchErr != nil {
+		if verbose {
+			red := color.New(color.FgRed)
+			fmt.Printf("  %s accounts: %s\n", red.Sprint("✗"), dim.Sprintf("fetch failed: %v", fetchErr)) //nolint:errcheck,gosec
+		}
+		mergePriorAccountsOnFetchFailure(profile, priorAccounts, priorUserAccountName, priorUserAccountID)
+	}
+
+	priorHasContext := priorCurrent != "" || len(priorAccounts) > 0
+	if accountsFetched && len(accounts) == 0 && priorHasContext {
+		return errLoginAccountsLoadEmpty()
 	}
 
 	// If no account exists, prompt the user to claim a username now
-	if len(profile.Accounts) == 0 {
+	if accountsFetched && len(profile.Accounts) == 0 {
 		fmt.Println()
 		yellow.Println("  No account found. Choose a username to get started.") //nolint:errcheck,gosec
 		account, claimErr := claimUsernameInteractive(serverURL, profile.AccessToken, verbose)
@@ -207,6 +231,12 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if loginAccount == "" {
+		if unavailable := restorePriorLoginSelection(profile, priorCurrent, priorPrevious, priorAccounts, accountsFetched); unavailable != "" {
+			yellow.Print(msgLoginPriorAccountUnavailable(unavailable)) //nolint:errcheck,gosec
+		}
+	}
+
 	if err := storage.SaveProfile("default", profile); err != nil {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
@@ -215,11 +245,12 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	activeAccount := profile.User.AccountName
 	if loginAccount != "" {
 		if err := storage.SetCurrentAccount(loginAccount); err != nil {
-			yellow := color.New(color.FgYellow)
 			yellow.Printf("  Warning: could not switch to account %q: %v\n", loginAccount, err) //nolint:errcheck,gosec
 		} else {
 			activeAccount = loginAccount
 		}
+	} else if acct, err := storage.GetCurrentAccount(); err == nil {
+		activeAccount = acct
 	}
 
 	// Success message
@@ -496,6 +527,79 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 		})
 	}
 	return accounts, nil
+}
+
+// mergePriorAccountsOnFetchFailure keeps the last known account list and personal
+// account metadata when GET /api/v1/me fails so re-login does not drop org context.
+func mergePriorAccountsOnFetchFailure(profile *auth.Profile, priorAccounts []auth.StoredAccount, priorUserAccountName, priorUserAccountID string) {
+	if len(priorAccounts) > 0 {
+		profile.Accounts = priorAccounts
+	}
+	if profile.User == nil {
+		return
+	}
+	if profile.User.AccountName == "" && priorUserAccountName != "" {
+		profile.User.AccountName = priorUserAccountName
+		profile.User.AccountID = priorUserAccountID
+		return
+	}
+	if profile.User.AccountName == "" {
+		if personal := findPersonalAccount(priorAccounts); personal != nil {
+			profile.User.AccountName = personal.Name
+			profile.User.AccountID = personal.ID
+		}
+	}
+}
+
+// restorePriorLoginSelection reapplies the last active account after login.
+// When accountsFetched is false (transient /api/v1/me failure), the prior selection
+// is copied only if it exists in the stored account list (avoids orphan CurrentAccount
+// without WorkOS org metadata). When true, applyPriorLoginAccount validates against
+// the non-empty fresh list so removed org members fall back to personal.
+func restorePriorLoginSelection(profile *auth.Profile, priorCurrent, priorPrevious string, priorAccounts []auth.StoredAccount, accountsFetched bool) string {
+	if priorCurrent == "" {
+		return ""
+	}
+	if !accountsFetched {
+		if !accountNameInList(priorAccounts, priorCurrent) {
+			return ""
+		}
+		profile.CurrentAccount = priorCurrent
+		if priorPrevious != "" && accountNameInList(priorAccounts, priorPrevious) {
+			profile.PreviousAccount = priorPrevious
+		}
+		return ""
+	}
+	if len(profile.Accounts) == 0 {
+		return ""
+	}
+	return applyPriorLoginAccount(profile, priorCurrent, priorPrevious)
+}
+
+// applyPriorLoginAccount restores the last active account on re-login when it still
+// exists in the freshly fetched account list. Returns the prior account name when it
+// is no longer available (caller may warn and fall back to personal).
+func applyPriorLoginAccount(profile *auth.Profile, priorCurrent, priorPrevious string) string {
+	if priorCurrent == "" {
+		return ""
+	}
+	if !accountNameInList(profile.Accounts, priorCurrent) {
+		return priorCurrent
+	}
+	profile.CurrentAccount = priorCurrent
+	if priorPrevious != "" && accountNameInList(profile.Accounts, priorPrevious) {
+		profile.PreviousAccount = priorPrevious
+	}
+	return ""
+}
+
+func accountNameInList(accounts []auth.StoredAccount, name string) bool {
+	for _, a := range accounts {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // findPersonalAccount returns the first account with type "personal", or nil.

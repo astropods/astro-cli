@@ -126,3 +126,13 @@ func errAgentTraceSummaryWithTraceID() error {
 func msgNoObsSummaryForAgent(target string) string {
 	return fmt.Sprintf("No activity summary for %s yet (updates about every 10m)", target)
 }
+
+func msgLoginPriorAccountUnavailable(account string) string {
+	return fmt.Sprintf("  Note: previous account %q is no longer available; using personal account.\n", account)
+}
+
+func errLoginAccountsLoadEmpty() error {
+	return fmt.Errorf(
+		"could not load your accounts from the server (empty response). Try again in a moment",
+	)
+}
