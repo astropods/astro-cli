@@ -1337,10 +1337,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&deployment.UndeployRequest{}),
 				oapispec.Response(202, &handlers.UndeployResponseAlias{}),
 			)
-			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, deploymentStore, agentIndex, avatarStore),
+			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.GetDeploymentStatusResponse{}),
 			)
 			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
@@ -1439,12 +1440,19 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, k8sReg, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
+			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, deploymentStore, agentIndex, avatarStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/runtime", "Get deployment runtime", handlers.GetDeploymentRuntime(log, accountStore, cfg, k8sReg, deploymentStore, agentIndex, k8sCache),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.GetDeploymentRuntimeResponse{}),
 			)
 			// Messaging proxy — same-origin chat on astropod.ai without a second WorkOS login.
 			// Validates Astro session, forwards to the deployment messaging sidecar, and

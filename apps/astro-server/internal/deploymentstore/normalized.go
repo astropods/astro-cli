@@ -1070,22 +1070,23 @@ func (s *Store) GetWorkloads(deploymentID string) ([]*Workload, error) {
 
 // WorkloadSummary is a lightweight view of a workload for API responses and metering.
 type WorkloadSummary struct {
-	Name          string
-	ComponentKind string
-	ComponentKey  string
-	WorkloadType  string
-	Image         string
-	Replicas      int
-	CPURequest    string
-	MemoryRequest string
-	Persistent    bool
+	Name            string
+	ComponentKind   string
+	ComponentKey    string
+	WorkloadType    string
+	Image           string
+	Replicas        int
+	CPURequest      string
+	MemoryRequest   string
+	Persistent      bool
+	TriggerSchedule string // cron expression for CronJob workloads; empty for non-scheduled.
 }
 
 // GetWorkloadSummaries returns lightweight workload data for a deployment.
 // Used by API responses and admin gRPC to avoid full spec JSON parsing.
 func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT name, component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request, persistent
+		SELECT name, component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request, persistent, COALESCE(trigger_schedule, '')
 		FROM deployment_workloads
 		WHERE deployment_id = $1
 		ORDER BY id
@@ -1098,7 +1099,7 @@ func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, e
 	var result []*WorkloadSummary
 	for rows.Next() {
 		var w WorkloadSummary
-		if err := rows.Scan(&w.Name, &w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest, &w.Persistent); err != nil {
+		if err := rows.Scan(&w.Name, &w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest, &w.Persistent, &w.TriggerSchedule); err != nil {
 			return nil, fmt.Errorf("scan workload summary: %w", err)
 		}
 		result = append(result, &w)
@@ -1271,6 +1272,14 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 	if len(deploymentIDs) == 0 {
 		return nil, nil
 	}
+	// Filter local-mode placeholder rows: at normalization we don't yet know
+	// the auto-allocated NodePort, so the synthetic row is written with
+	// hostname='localhost' and tls_enabled=false. After apply the
+	// UpdateMessagingIngressHost callback overwrites it with the real
+	// 'localhost:<port>'. The `di.hostname LIKE '%:%'` clause keeps non-TLS
+	// rows out of the result until they include a port, which prevents the
+	// dashboard from surfacing a clickable http://localhost Launch button
+	// during the apply window or after a failed apply.
 	rows, err := s.db.Query(`
 		SELECT sc.deployment_id, di.hostname, di.tls_enabled
 		FROM deployment_sidecars sc
@@ -1279,6 +1288,7 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 		WHERE sc.deployment_id = ANY($1)
 		  AND sc.component_kind = 'messaging'
 		  AND ds.name = 'http'
+		  AND (di.tls_enabled OR di.hostname LIKE '%:%')
 	`, pq.Array(deploymentIDs))
 	if err != nil {
 		return nil, fmt.Errorf("query messaging URLs: %w", err)
@@ -1326,6 +1336,41 @@ func (s *Store) UpdateMessagingIngressHost(deploymentID, host string) error {
 }
 
 // GetIngresses returns all ingresses for a deployment.
+// GetWorkloadIngresses returns each workload's ingress entries (hostname +
+// scheme), keyed by the workload's K8s resource name (deployment_workloads.name).
+// Only workload-attached ingresses are included — messaging sidecar ingresses
+// are surfaced separately via GetMessagingURLs. Used by the per-workload URL
+// list rendered in the pod detail panel.
+func (s *Store) GetWorkloadIngresses(deploymentID string) (map[string][]string, error) {
+	rows, err := s.db.Query(`
+		SELECT dw.name, di.hostname, di.tls_enabled
+		FROM deployment_ingresses di
+		JOIN deployment_services ds ON ds.id = di.service_id
+		JOIN deployment_workloads dw ON dw.id = ds.workload_id
+		WHERE dw.deployment_id = $1
+		ORDER BY di.id
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query workload ingresses: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string][]string)
+	for rows.Next() {
+		var workloadName, hostname string
+		var tlsEnabled bool
+		if err := rows.Scan(&workloadName, &hostname, &tlsEnabled); err != nil {
+			return nil, fmt.Errorf("scan workload ingress: %w", err)
+		}
+		scheme := "https"
+		if !tlsEnabled {
+			scheme = "http"
+		}
+		result[workloadName] = append(result[workloadName], scheme+"://"+hostname)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) GetIngresses(deploymentID string) ([]*Ingress, error) {
 	rows, err := s.db.Query(`
 		SELECT di.id, di.service_id, di.hostname, di.path, di.tls_enabled

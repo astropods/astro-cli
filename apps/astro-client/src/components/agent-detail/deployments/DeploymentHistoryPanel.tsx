@@ -4,12 +4,13 @@ import { ArrowUp, ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pa
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import {
   useDeploymentHistory,
+  useDeploymentStatus,
   useRestartDeployment,
   useStopDeployment,
   useWakeUpDeployment,
 } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { isPausedState, isDeployingState } from "@/lib/deployment-utils";
+import { isPausedState } from "@/lib/deployment-utils";
 import type { AgentDeployment, DeploymentHistoryRecord } from "@/lib/api";
 import { DeploymentTile } from "./DeploymentTile";
 import { Button } from "@/components/ui/button";
@@ -86,10 +87,12 @@ function ActiveTileMenu({
   const restartMutation = useRestartDeployment(account);
   const stopMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
+  const { data: statusData } = useDeploymentStatus(deployment.id);
+  const status = statusData?.value;
 
   const { copy, copied } = useCopyToClipboard();
   const paused = isPausedState(deployment);
-  const deploying = isDeployingState(deployment);
+  const deploying = status === "deploying" || status === "undeploying";
   const busy = restartMutation.isPending || stopMutation.isPending || wakeupMutation.isPending;
 
   return (

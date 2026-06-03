@@ -1080,6 +1080,54 @@ Bun.serve({
       return json({ deployment: dep });
     }
 
+    // GET /:id/runtime — K8s-derived view. The mock store keeps a single fat
+    // workload list on each deployment for historical reasons; project the
+    // live-state fields onto a WorkloadRuntime[] keyed by name so the
+    // client-side join in AgentDeployments matches the real wire shape.
+    const deploymentRuntimeMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/runtime$/);
+    if (deploymentRuntimeMatch && request.method === "GET") {
+      const dep = deployments.find((d) => d.id === deploymentRuntimeMatch[1]);
+      if (!dep) return json({ error: "not_found" }, 404);
+      const workloads = (dep.workloads ?? []).map((w) => ({
+        name: w.name,
+        age: w.age,
+        containers: w.containers,
+      }));
+      const ready = dep.status === "active" ? (dep.replicas ?? 1) : 0;
+      return json({
+        runtime: {
+          ready,
+          replicas: dep.replicas ?? 1,
+          messaging_reachable: dep.status === "active",
+          manual_ingestions: (dep as { manual_ingestions?: string[] }).manual_ingestions,
+          workloads,
+        },
+      });
+    }
+
+    // GET /:id/status — server-derived coarse status. Mirrors the handler's
+    // DB-precedence ladder: paused/undeploying/failed/pending all short-
+    // circuit; active probes the workload (mocked here as ready=replicas).
+    const deploymentStatusMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/status$/);
+    if (deploymentStatusMatch && request.method === "GET") {
+      const dep = deployments.find((d) => d.id === deploymentStatusMatch[1]);
+      if (!dep) return json({ error: "not_found" }, 404);
+      const s = (dep.status ?? "").toLowerCase();
+      if (s === "stopped" || s === "scaled_down") {
+        return json({ value: "inactive", reason: "paused", details: "Deployment is paused" });
+      }
+      if (s === "undeploying") {
+        return json({ value: "undeploying", reason: "undeploying", details: "Deployment is being torn down" });
+      }
+      if (s === "failed" || s === "error") {
+        return json({ value: "error", reason: "failed", details: "Deployment failed" });
+      }
+      if (s === "pending" || s === "provisioning" || s === "deploying") {
+        return json({ value: "deploying", reason: "provisioning", details: "Pods are being provisioned" });
+      }
+      return json({ value: "active", reason: "ready", details: "All replicas ready" });
+    }
+
     const deploymentLogsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/logs$/);
     if (deploymentLogsMatch && request.method === "GET") {
       return json([

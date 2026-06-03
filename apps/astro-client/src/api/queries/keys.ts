@@ -100,6 +100,8 @@ export const deploymentKeys = {
   summary: ['deployments', 'summary'] as const,
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,
+  runtime: (id: string) => ['deployments', 'detail', id, 'runtime'] as const,
+  status: (id: string) => ['deployments', 'detail', id, 'status'] as const,
   logs: (deploymentId: string, workloadName: string, container: string, timeRange?: string, timezone?: string) =>
     ['deployments', deploymentId, 'logs', workloadName, container, timeRange, timezone] as const,
   spec: (account: string, name: string) =>

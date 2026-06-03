@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { useAgentDetailContext } from "../AgentDetail";
 import { PodGraph } from "@/components/agent-detail/pods/PodGraph";
@@ -6,6 +6,8 @@ import { PodTile } from "@/components/agent-detail/pods/PodTile";
 import { DeploymentHistoryPanel } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
 import { PodDetailPanel } from "@/components/agent-detail/pods/PodDetailPanel";
 import { useContainerSize } from "@/hooks/use-container-size";
+import { isPausedState } from "@/lib/deployment-utils";
+import type { WorkloadDetail } from "@/lib/api";
 
 const PANEL_SPRING = { type: "spring" as const, bounce: 0.12, duration: 0.5 };
 const PANEL_WIDTH_REM = 43; // 42rem pod detail panel + 1rem gap
@@ -20,9 +22,34 @@ function remToPx(rem: number) {
 
 export default function AgentDeployments() {
   const {
-    deployment, account,
+    deployment, runtime, account,
   } = useAgentDetailContext();
-  const workloads = deployment.workloads ?? [];
+  const paused = isPausedState(deployment);
+  // Merge record (spec) + runtime (live) workloads by name, keyed by the
+  // union of both sides. The SPEC list is the stable source of truth for
+  // which tiles to render — it doesn't change on pause/resume/redeploy.
+  // Live state from runtime is overlaid where available, but the tile's
+  // presence is never gated on it. This eliminates the flicker that
+  // happened on pause/resume when runtime briefly reported zero containers
+  // mid-transition and tiles disappeared. The PodTile itself decides what
+  // to show: "Paused" (whole agent off), "Probing" (runtime still loading),
+  // or the K8s-derived per-workload status. Runtime-only entries (e.g.
+  // manual-trigger ingestion firings whose spec row was filtered at
+  // normalization) still get a tile via the name union.
+  const workloads = useMemo<WorkloadDetail[]>(() => {
+    const specByName = new Map((deployment.workloads ?? []).map((w) => [w.name, w]));
+    const liveByName = new Map((runtime?.workloads ?? []).map((w) => [w.name, w]));
+    const names = new Set<string>([...specByName.keys(), ...liveByName.keys()]);
+    return Array.from(names).map((name) => ({
+      // Spec defaults — make sure required-for-component fields exist when
+      // we're rendering a runtime-only entry (e.g. manual ingestion pod).
+      kind: specByName.get(name)?.kind ?? "Pod",
+      component: specByName.get(name)?.component ?? "",
+      ...specByName.get(name),
+      ...liveByName.get(name),
+      name,
+    }));
+  }, [deployment.workloads, runtime]);
   const [selectedPodIndex, setSelectedPodIndex] = useState<number | null>(null);
   const [podPanelExpanded, setPodPanelExpanded] = useState(false);
 
@@ -85,10 +112,23 @@ export default function AgentDeployments() {
           <PodGraph
             count={workloads.length}
             effectiveWidth={effectiveWidth}
+            // probing/paused/live each render different tile chrome (notices
+            // appear/disappear, age toggles), so the cached measurements
+            // become stale. Re-key the layout when the mode changes.
+            layoutKey={paused ? "paused" : runtime === undefined ? "probing" : "live"}
             renderTile={(i) => (
               <PodTile
                 workload={workloads[i]}
                 deploymentId={deployment.id}
+                // While the runtime query hasn't returned, render each tile
+                // in the grey blinking "Probing" state so the user can tell
+                // the difference between "we don't know yet" and "K8s says
+                // pending/starting".
+                probing={runtime === undefined}
+                // When the whole deployment is paused, every tile renders as
+                // "Paused" regardless of its individual K8s status — see
+                // PodTile's status precedence rules.
+                paused={paused}
                 onClick={() => handlePodClick(i)}
                 selected={selectedPodIndex === i}
                 dimmed={selectedPodIndex !== null && selectedPodIndex !== i}

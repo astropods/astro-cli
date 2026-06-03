@@ -2862,6 +2862,12 @@ func TestDeploy_DisplayNameCollision_NewDeployRejected(t *testing.T) {
 }
 
 // --- GetDeploymentStatus tests ---
+//
+// The /deployments/:id/status endpoint returns the coarse, server-derived
+// status enum the UI renders. The handler short-circuits to the DB status
+// for non-active states (paused/undeploying/failed/pending) and only probes
+// K8s when DB status is active. Tests below exercise the DB precedence path
+// without a cluster client — the active+K8s path is integration-tested.
 
 func setupGetDeploymentStatusRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
@@ -2879,41 +2885,26 @@ func setupGetDeploymentStatusRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id/status", GetDeploymentStatus(log, accountStore, deployStore, nil, nil))
+	// k8sReg=nil makes k8sRegistryReady return false; handler falls back to
+	// DB-status-only and skips the readiness probe. That's exactly the path
+	// we want to exercise here.
+	router.GET("/api/v1/deployments/:id/status", GetDeploymentStatus(log, accountStore, nil, deployStore))
 
 	return router, deployMock, accountMock
 }
 
-func TestGetDeploymentStatus_Success(t *testing.T) {
+func TestGetDeploymentStatus_PausedReportsInactive(t *testing.T) {
 	router, deployMock, accountMock := setupGetDeploymentStatusRouter(t)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	// GetDeploymentByID
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, "active", now, nil))
-
-	// GetByID (account lookup for permission + avatar resolution)
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow(acctID, "myaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-
-	// IsMember check
+			"My Agent", `{}`, "stopped", now, nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	// GetDeploymentEvents — columns: id, deployment_id, status, message, details, created_at
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "deployment_id", "status", "message", "details", "created_at"}).
-			AddRow(int64(1), depID, "active", "", json.RawMessage(nil), now))
-
-	// GetRevisions — columns: id, deployment_id, revision, build_id, spec_json, kms_ciphertext, kms_key_id, created_at
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "deployment_id", "revision", "build_id", "spec_json", "kms_ciphertext", "kms_key_id", "created_at"}).
-			AddRow(int64(1), depID, 1, "build-1", json.RawMessage(`{}`), []byte(nil), (*string)(nil), now))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/status", nil)
 	w := httptest.NewRecorder()
@@ -2922,21 +2913,10 @@ func TestGetDeploymentStatus_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-
-	var resp map[string]interface{}
+	var resp DeploymentStatus
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if resp["deployment_id"] != depID {
-		t.Errorf("expected deployment_id %q, got %v", depID, resp["deployment_id"])
-	}
-	if resp["status"] != "active" {
-		t.Errorf("expected status 'active', got %v", resp["status"])
-	}
-	if resp["events"] == nil {
-		t.Error("expected events in response")
-	}
-	if resp["revisions"] == nil {
-		t.Error("expected revisions in response")
+	if resp.Value != "inactive" {
+		t.Errorf("expected inactive, got %q", resp.Value)
 	}
 }
 
@@ -2945,7 +2925,6 @@ func TestGetDeploymentStatus_NotFound(t *testing.T) {
 
 	depID := deployid.New()
 
-	// GetDeploymentByID returns no rows
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(emptyDeploymentByIDRows())
 
@@ -2953,8 +2932,114 @@ func TestGetDeploymentStatus_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	// resolveDeployment returns 403 (not 404) when the deployment doesn't
+	// exist or isn't accessible — same shape as the rest of the deployment
+	// endpoints, so the auth pathway is uniform.
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// DB-status precedence — each of these short-circuits before the K8s probe,
+// so we exercise them with k8sReg=nil (no cluster client available).
+func TestGetDeploymentStatus_DBStatusPrecedence(t *testing.T) {
+	cases := []struct {
+		name        string
+		dbStatus    string
+		wantValue   string
+		wantReason  string
+		wantDetails string
+	}{
+		{"scaled_down", "scaled_down", "inactive", StatusReasonPaused, "Deployment is paused"},
+		{"stopped", "stopped", "inactive", StatusReasonPaused, "Deployment is paused"},
+		{"undeploying", "undeploying", "undeploying", StatusReasonUndeploying, "Deployment is being torn down"},
+		{"failed", "failed", "error", StatusReasonFailed, "Deployment failed"},
+		{"pending", "pending", "deploying", StatusReasonProvisioning, "Pods are being provisioned"},
+		{"provisioning", "provisioning", "deploying", StatusReasonProvisioning, "Pods are being provisioned"},
+		// active falls through to the K8s probe path; with k8sReg=nil that's
+		// the cluster_unreachable fallback (also "active" but with a different
+		// reason and details).
+		{"active_no_cluster", "active", "active", StatusReasonClusterUnreachable, "Cluster unreachable; reporting active from spec"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			router, deployMock, accountMock := setupGetDeploymentStatusRouter(t)
+
+			depID := deployid.New()
+			acctID := uuid.New().String()
+			now := time.Now()
+
+			deployMock.ExpectQuery(`SELECT`).
+				WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+					"My Agent", `{}`, tc.dbStatus, now, nil))
+			accountMock.ExpectQuery(`SELECT`).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/status", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			var resp DeploymentStatus
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			if resp.Value != tc.wantValue {
+				t.Errorf("value: got %q, want %q", resp.Value, tc.wantValue)
+			}
+			if resp.Reason != tc.wantReason {
+				t.Errorf("reason: got %q, want %q", resp.Reason, tc.wantReason)
+			}
+			if resp.Details != tc.wantDetails {
+				t.Errorf("details: got %q, want %q", resp.Details, tc.wantDetails)
+			}
+		})
+	}
+}
+
+// Failed deployments surface the stored error_message in the details string
+// so the rendered tooltip points users at the actual failure.
+func TestGetDeploymentStatus_FailedIncludesErrorMessage(t *testing.T) {
+	router, deployMock, accountMock := setupGetDeploymentStatusRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	errMsg := "image pull failed: backoff"
+
+	rows := sqlmock.NewRows([]string{
+		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at", "avatar_colors",
+	}).AddRow(
+		depID, acctID, nil, "my-agent", "build-1", "astro-abc123",
+		"My Agent", `{}`, []byte(nil), (*string)(nil), nil,
+		"failed", &errMsg, json.RawMessage(nil), now, nil,
+		now, (*time.Time)(nil), nil,
+	)
+	deployMock.ExpectQuery(`SELECT`).WillReturnRows(rows)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp DeploymentStatus
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Value != "error" || resp.Reason != StatusReasonFailed {
+		t.Errorf("value/reason: got %q/%q, want error/%s", resp.Value, resp.Reason, StatusReasonFailed)
+	}
+	if !strings.Contains(resp.Details, errMsg) {
+		t.Errorf("details %q should contain error message %q", resp.Details, errMsg)
+	}
+	if resp.ErrorMessage != errMsg {
+		t.Errorf("ErrorMessage: got %q, want %q", resp.ErrorMessage, errMsg)
 	}
 }
 
@@ -4318,7 +4403,8 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, testK8sRegistry(k8sClient), deployStore, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, deployStore, nil, nil, nil))
+	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, cfg, testK8sRegistry(k8sClient), deployStore, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -4366,83 +4452,15 @@ func TestGetDeployment_Success(t *testing.T) {
 	}
 }
 
-func TestGetDeployment_ExternalURLNotReady(t *testing.T) {
-	depID := deployid.New()
-	namespace := "astro-abc123def-0"
-	agentName := "my-agent"
-	buildID := "build-1"
-	host := "my-agent-chat.example.com"
-	acctID := uuid.New().String()
-	now := time.Now().Add(-10 * time.Minute)
-
-	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sListHandlerWithMessagingIngress(namespace, agentName, buildID, host))
-
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(deploymentByIDRow(depID, acctID, agentName, buildID, namespace, "My Agent", `{}`, "active", now, nil))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Deployment AgentDeployment `json:"deployment"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	var messaging *ServiceEndpointInfo
-	for i := range resp.Deployment.ExternalURLs {
-		if resp.Deployment.ExternalURLs[i].Type == "messaging" {
-			messaging = &resp.Deployment.ExternalURLs[i]
-			break
-		}
-	}
-	if messaging == nil {
-		t.Fatal("expected messaging external URL")
-	}
-	if messaging.Ready {
-		t.Fatal("expected messaging URL to be not ready")
-	}
-	if messaging.Message != "Launch is unavailable while we create your custom URL" {
-		t.Fatalf("expected launch URL pending message, got %q", messaging.Message)
-	}
-}
-
-func k8sListHandlerWithMessagingIngress(namespace, agentLabel, buildID, host string) http.Handler {
-	base := k8sListHandler(namespace, agentLabel, buildID)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/ingresses") {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{
-				"kind":"IngressList",
-				"apiVersion":"networking.k8s.io/v1",
-				"items":[{
-					"metadata":{
-						"name":"messaging-ingress",
-						"namespace":%q,
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"messaging"
-						}
-					},
-					"spec":{"rules":[{"host":%q}]},
-					"status":{}
-				}]
-			}`, namespace, agentLabel, buildID, host)
-			return
-		}
-		base.ServeHTTP(w, r)
-	})
-}
+// TestGetDeployment_ExternalURLNotReady previously asserted that GET
+// /deployments/:id surfaced K8s ingress readiness (Ready=false + a "creating
+// your custom URL" message) when the ALB hadn't provisioned an LB hostname.
+// After the record/runtime split, the record endpoint only returns the URL
+// (sourced from deployment_ingresses); readiness moved to the runtime
+// endpoint, which evaluates the K8s Ingress object live. Test removed —
+// runtime readiness behavior is covered by EvaluateEndpointReadiness unit
+// tests in internal/k8s and should grow a dedicated runtime-endpoint test
+// when the runtime response exposes per-URL readiness.
 
 func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
 	depID := deployid.New()
@@ -4549,7 +4567,8 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, &config.Config{}, reg, deployStore, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, &config.Config{}, deployStore, nil, nil, nil))
+	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, &config.Config{}, reg, deployStore, nil, k8scache.NoopCache{}))
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(deploymentByIDColumns).AddRow(
@@ -4561,7 +4580,10 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
+	// The DB-only deployment record endpoint succeeds regardless of cluster
+	// state — that's the point of the split. The runtime endpoint is what
+	// returns 503 when the cluster is disabled.
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/runtime", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

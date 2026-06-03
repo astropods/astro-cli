@@ -22,8 +22,10 @@ test("status toggle sends stop request and updates to Paused", async ({ page }) 
   await toggle.getByRole("switch").click();
   await stopReq;
 
-  // After query invalidation the mock returns status: "stopped" → label changes to Paused
-  await expect(page.getByText("Paused")).toBeVisible({ timeout: 10_000 });
+  // After query invalidation the mock returns status: "stopped" → label changes to Paused.
+  // Scope to the toggle: pod tiles also render "Paused" once the deployment is paused,
+  // so an unscoped getByText would fail strict-mode with two matches.
+  await expect(toggle.getByText("Paused")).toBeVisible({ timeout: 10_000 });
 });
 
 test("status toggle sends wakeup request and updates to Active", async ({ page }) => {

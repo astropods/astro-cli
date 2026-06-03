@@ -15,7 +15,6 @@ function mockDeployment(overrides: Partial<AgentDeployment> = {}): AgentDeployme
     namespace: "ns",
     status: "running",
     replicas: 1,
-    ready: 1,
     created_at: new Date().toISOString(),
     components: ["agent"],
     ...overrides,

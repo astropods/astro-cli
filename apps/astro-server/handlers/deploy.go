@@ -47,6 +47,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -1181,6 +1182,128 @@ type AgentDeployment struct {
 	Workloads          []WorkloadDetail      `json:"workloads,omitempty"`
 }
 
+// DeploymentRecord is the DB-only view of a deployment — spec, status, URLs,
+// metadata, intent-level workload list. No K8s reads. Served by
+// GET /deployments/:id; renders instantly even when the cluster is
+// unreachable. Live observational state (ready counts, pod state, restart
+// counts, age) lives in DeploymentRuntime.
+//
+// The dividing principle: anything we *wrote* into the deployment at apply
+// time (or earlier, at normalization) belongs here. Anything that *the
+// cluster reports about itself right now* belongs in DeploymentRuntime.
+type DeploymentRecord struct {
+	ID                  string                `json:"id"`
+	Name                string                `json:"name"`
+	DisplayName         string                `json:"display_name,omitempty"`
+	AvatarURL           string                `json:"avatar_url,omitempty"`
+	AvatarColors        json.RawMessage       `json:"avatar_colors,omitempty"`
+	BuildID             string                `json:"build_id"`
+	LatestBuildID       string                `json:"latest_build_id,omitempty"`
+	SourceAccount       string                `json:"source_account,omitempty"`
+	Namespace           string                `json:"namespace"`
+	Status              string                `json:"status"`
+	ErrorMessage        string                `json:"error_message,omitempty"`
+	CreatedAt           string                `json:"created_at"`
+	UpdatedAt           string                `json:"updated_at,omitempty"`
+	UpdatedBy           string                `json:"updated_by,omitempty"`
+	ExternalURLs        []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	Replicas            int32                 `json:"replicas"`            // desired (sum of primary workload specs)
+	Components          []string              `json:"components"`          // distinct component_kind across workloads + sidecars
+	MessagingConfigured bool                  `json:"messaging_configured"` // a messaging sidecar is part of the spec
+	Workloads           []WorkloadSpec        `json:"workloads,omitempty"`  // intent — name, kind, image, replicas, etc.
+	// ManualIngestions is sourced from a namespace annotation today (live K8s)
+	// because the normalized store doesn't persist trigger.type="manual"
+	// ingestions (they have no K8s workload to point at). When the spec-side
+	// list lands in the DB, move this here. Until then, it lives in
+	// DeploymentRuntime.
+}
+
+// DeploymentStatus is the coarse, server-derived status of a deployment —
+// what the toggle/history badges render. It's the join of the DB status
+// enum and the K8s agent-workload readiness, computed once on the server
+// so the client doesn't have to reconcile two query results across timing
+// windows. Served by GET /deployments/:id/status.
+//
+// Returned directly (no envelope) — the response body IS this object.
+//
+// `value` enumerates:
+//   "active"      — DB active AND observed ready >= desired
+//   "deploying"   — DB pending/provisioning, OR DB active but ready<desired
+//   "inactive"    — DB stopped/scaled_down (paused)
+//   "undeploying" — DB undeploying
+//   "error"       — DB failed/crashloopbackoff
+//
+// `reason` is a stable machine-readable label for *why* the value was
+// chosen — useful for client branching (e.g. show a tooltip when ready_lag)
+// without re-deriving anything. `details` is the human-readable counterpart
+// rendered in tooltips / status panels.
+//
+// Live replica/ready counts and per-workload state live on the runtime
+// endpoint; this endpoint intentionally stays narrow.
+type DeploymentStatus struct {
+	Value        string `json:"value"`
+	Reason       string `json:"reason"`
+	Details      string `json:"details"`
+	ErrorMessage string `json:"error_message,omitempty"`
+}
+
+// Stable reason codes — keep in sync with the client's DeploymentStatusReason
+// type. Adding a new reason requires a client type change but never breaks
+// existing consumers (they branch on the union and ignore unknown codes).
+const (
+	StatusReasonPaused             = "paused"              // DB scaled_down/stopped
+	StatusReasonUndeploying        = "undeploying"         // DB undeploying
+	StatusReasonFailed             = "failed"              // DB failed
+	StatusReasonProvisioning       = "provisioning"        // DB pending/provisioning
+	StatusReasonReady              = "ready"               // DB active, K8s ready >= desired
+	StatusReasonReadyLag           = "ready_lag"           // DB active, K8s ready < desired
+	StatusReasonClusterUnreachable = "cluster_unreachable" // DB active, K8s probe failed/skipped
+)
+
+// DeploymentRuntime is the K8s-sourced view — purely live state. Served by
+// GET /deployments/:id/runtime, keyed by workload name so the client can
+// stitch this onto DeploymentRecord.Workloads to render the detail page.
+// May return empty/zero fields if the cluster is briefly unreachable;
+// renderers must tolerate that without breaking the record-driven UI.
+type DeploymentRuntime struct {
+	Ready              int32             `json:"ready"`    // observed ready replicas across the deployment
+	Replicas           int32             `json:"replicas"` // observed total replicas (may differ from desired during scale events)
+	MessagingReachable bool              `json:"messaging_reachable"`
+	// ManualIngestions is currently sourced from a namespace annotation.
+	// See DeploymentRecord note — this field should move to the record once
+	// the spec-side list is persisted in the DB.
+	ManualIngestions []string          `json:"manual_ingestions,omitempty"`
+	Workloads        []WorkloadRuntime `json:"workloads,omitempty"`
+}
+
+// WorkloadSpec is the DB-sourced intent for a single workload: what we
+// asked K8s to run. Mirrors the fields the normalized store persists at
+// apply time. URLs come from deployment_ingresses (DB), not from live K8s
+// Ingress objects.
+type WorkloadSpec struct {
+	Name      string                `json:"name"`               // K8s resource name
+	Kind      string                `json:"kind"`               // "Deployment", "StatefulSet", "Job", "CronJob"
+	Component string                `json:"component"`          // component_kind from deployment_workloads / deployment_sidecars
+	Image     string                `json:"image"`
+	Replicas  int32                 `json:"replicas"`           // desired
+	Schedule  string                `json:"schedule,omitempty"` // cron expression for scheduled ingestion
+	URLs      []ServiceEndpointInfo `json:"urls,omitempty"`     // per-workload ingress hostnames
+}
+
+// WorkloadRuntime is the K8s-sourced live state for a single workload,
+// keyed by Name to match the corresponding WorkloadSpec.
+type WorkloadRuntime struct {
+	Name        string            `json:"name"`               // key into DeploymentRecord.Workloads
+	Age         string            `json:"age,omitempty"`      // K8s creationTimestamp
+	Phase       string            `json:"phase,omitempty"`    // pod phase for long-running workloads
+	PodName     string            `json:"pod_name,omitempty"` // representative pod (for restart UI)
+	Containers  []ContainerStatus `json:"containers,omitempty"`
+	Status      string            `json:"status,omitempty"`      // Job / CronJob status
+	StartTime   string            `json:"start_time,omitempty"`  // Job pod start / CronJob last fire
+	Completions string            `json:"completions,omitempty"` // Job "succeeded/desired"
+	Runs        []JobDetail       `json:"runs,omitempty"`        // CronJob children
+}
+
 // AgentDeploymentSummary is the trimmed shape returned by ListDeployments.
 // It contains only the fields consumed by the agents-grid card and profile
 // page, omitting K8s-derived replica counts, workloads, and other detail-only
@@ -1330,7 +1453,19 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 	}
 }
 
-// ListDeployments returns a handler for listing deployed agents
+// ListDeployments returns the list of deployments visible to the account.
+//
+// DB-ONLY. Do not add Kubernetes reads to this handler. Live operational
+// state (replicas, pods, workload status, events) is exposed via the per-
+// deployment runtime endpoint (GET /api/v1/deployments/:id/runtime) so the
+// dashboard renders deterministically off the database even when a cluster
+// is unreachable. Mixing K8s state in here re-creates the source-of-truth
+// drift the record/runtime split was introduced to fix.
+//
+// The messaging Launch URL comes from deployment_ingresses via
+// GetMessagingURLs — that table is the authoritative URL source for both
+// local-mode (NodePort, written post-apply) and remote (Ingress hostname,
+// written at normalization).
 func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
@@ -1581,9 +1716,118 @@ func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, acco
 	}
 }
 
-// GetDeployment returns live K8s status for a single deployment.
+// GetDeployment returns the DB-sourced view of a single deployment — spec,
+// URL, metadata, coarse status.
+//
+// DB-ONLY. Do not add Kubernetes reads to this handler. The companion
+// GetDeploymentRuntime (GET /api/v1/deployments/:id/runtime) exposes live
+// K8s state — replicas, pods, workload conditions, MessagingAvailable.
+// Keeping the two endpoints disjoint is load-bearing:
+//
+//   - The detail page renders instantly from the DB and keeps working when
+//     the cluster is briefly unreachable.
+//   - deployment_ingresses is the single source of truth for the Launch URL
+//     (both local NodePort and remote Ingress hostname); the K8s Ingress /
+//     Service overlay this code used to do is now considered duplication.
+//   - Caching and polling cadences can differ per concern: the DB record
+//     changes on apply / status transitions, the runtime view changes on
+//     every kubelet heartbeat.
+//
+// If you find yourself wanting a K8s field here, that field belongs in the
+// runtime endpoint instead — extend DeploymentRuntime, not DeploymentRecord.
 // GET /api/v1/deployments/:id
-func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dbDep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		sourceAccount := resolveSourceAccountName(log, accountStore, agentIdx, dbDep)
+		record := deploymentRecordFromDB(dbDep, sourceAccount)
+
+		// CreatedAt should reflect when the deployment first appeared, not the
+		// latest revision's deployed_at. Match the historical behavior of
+		// enrichDeployment so the detail page's "created" timestamp doesn't
+		// jump on every redeploy.
+		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
+			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+		} else if firstEventAt != nil {
+			record.CreatedAt = firstEventAt.Format(time.RFC3339)
+		}
+
+		if auditStore != nil {
+			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
+			if auditErr != nil {
+				log.Warn("Failed to load audit timestamps for deployment", "error", auditErr)
+			} else if latest, ok := latestMap[dbDep.ID]; ok {
+				record.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
+				record.UpdatedBy = latest.ActorID
+			}
+		}
+
+		if avatarStore != nil {
+			record.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
+			record.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), record.AvatarColors,
+				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dbDep.ID) },
+				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(dbDep.ID, j) },
+			)
+		}
+
+		// LatestBuildID — surface the "new build available" upgrade affordance.
+		// Reuses the list endpoint's lineage-aware batch lookup. We pass a
+		// throwaway AgentDeployment slice (the helper writes back into it)
+		// and copy the resolved ID onto the record.
+		tmp := []AgentDeployment{{ID: record.ID, Name: record.Name, BuildID: record.BuildID}}
+		populateLatestBuildIDs(log, agentIdx, accountStore, []*deploymentstore.Deployment{dbDep}, tmp)
+		record.LatestBuildID = tmp[0].LatestBuildID
+
+		// Intent-shaped fields (workload list, components, desired replicas,
+		// messaging-configured) from the normalized store. These describe
+		// what the deployment is supposed to be running; live state lives in
+		// the runtime endpoint.
+		record.Workloads, record.Components, record.Replicas, record.MessagingConfigured = loadRecordIntentFromDB(log, deployStore, dbDep.ID)
+
+		// Overlay the messaging Launch URL. Resolution order:
+		//   1. MessagingURLOverride (config) — wins when set, so a developer
+		//      pointing at a local messaging stub can override whatever the
+		//      DB has. Also flags messaging_configured=true so the Launch
+		//      button shows even on agents without a real messaging sidecar.
+		//   2. deployment_ingresses row from GetMessagingURLs — the regular
+		//      source of truth for the URL (local NodePort or remote
+		//      ingress hostname).
+		// Exactly one messaging entry is added to ExternalURLs.
+		if override := cfg.Deployment.MessagingURLOverride; override != "" {
+			record.MessagingConfigured = true
+			record.ExternalURLs = append(record.ExternalURLs, ServiceEndpointInfo{
+				Name: "messaging", Type: "messaging", URL: override, Ready: true,
+			})
+		} else if messagingURLs, merr := deployStore.GetMessagingURLs([]string{dbDep.ID}); merr != nil {
+			log.Warn("Failed to load messaging URL for deployment", "error", merr, "deployment_id", dbDep.ID)
+		} else if url, ok := messagingURLs[dbDep.ID]; ok {
+			record.ExternalURLs = append(record.ExternalURLs, ServiceEndpointInfo{
+				Name: "messaging", Type: "messaging", URL: url, Ready: true,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"deployment": record})
+	}
+}
+
+// GetDeploymentRuntime returns the live K8s state for a single deployment —
+// replicas, pods, workloads, messaging Service existence. This is the
+// counterpart to GetDeployment (which is DB-only). Failure modes are
+// independent: K8s unreachable returns 503 here without affecting the
+// deployment record endpoint, and the UI can render the page from the
+// record alone while runtime is loading.
+// GET /api/v1/deployments/:id/runtime
+func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -1606,104 +1850,366 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
+		// Reuse the existing enrichment pipeline; it already handles namespace-
+		// missing fallback, workload listing, and rolling-update build ID
+		// selection. We project the result down to DeploymentRuntime — the
+		// DB fields it also fills are returned by the record endpoint.
 		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0, &k8sListOpts{})
-		result := deps[0]
-		// During a rolling build update the namespace contains workloads for both the old and
-		// new build ID. Pick the entry matching the DB's current build so the client always
-		// sees the new ingress URL, not the stale entry from the outgoing build.
+		picked := deps[0]
 		for _, dep := range deps {
 			if dep.BuildID == dbDep.BuildID {
-				result = dep
+				picked = dep
 				break
 			}
 		}
 
-		// Annotate K8s-derived env entries with authoritative metadata
-		// (Source, IsSecret) from deployment_build_env. The values still
-		// come from K8s; the rows just supply provenance the UI uses for
-		// badge color and redaction, replacing the client-side
-		// isSensitiveEnvVar name heuristic. No-op when no rows exist
-		// (legacy deployments fall back to From-based inference client-side).
 		if rows, rowErr := deployStore.GetBuildEnv(dbDep.ID); rowErr == nil && len(rows) > 0 {
-			annotateWorkloadsWithRows(result.Workloads, rows)
+			annotateWorkloadsWithRows(picked.Workloads, rows)
 		} else if rowErr != nil {
 			log.Warn("GetBuildEnv failed for deployment annotation",
 				"error", rowErr, "deployment_id", dbDep.ID)
 		}
 
-		if auditStore != nil {
-			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
-			if auditErr != nil {
-				log.Warn("Failed to load audit timestamps for deployment", "error", auditErr)
-			} else if latest, ok := latestMap[dbDep.ID]; ok {
-				result.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
-				result.UpdatedBy = latest.ActorID
-			}
-		}
-
-		if avatarStore != nil {
-			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
-			result.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), result.AvatarColors,
-				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dbDep.ID) },
-				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(dbDep.ID, j) },
-			)
-		}
-
-		// Check if the messaging ClusterIP service exists in K8s.
-		// ExternalURLs only contains Ingress-exposed endpoints, so an internal-only
-		// messaging sidecar would never appear there.
+		// Messaging Service liveness probe — distinct from the spec-level
+		// "messaging is configured" flag on the record, which only tells you
+		// the sidecar is part of the intent. This is the in-cluster reachability
+		// check ("the Service object exists right now").
 		messagingServiceName := deployment.GenerateAgentResourceName(dbDep.AgentName, "messaging")
 		_, svcErr := k8sClient.Clientset().CoreV1().Services(dbDep.Namespace).Get(
 			c.Request.Context(), messagingServiceName, metav1.GetOptions{},
 		)
-		result.MessagingAvailable = svcErr == nil
-
-		// Overlay the messaging Launch URL from the DB. enrichDeployment only
-		// reads K8s Ingress objects, which don't exist in local mode (NodePort)
-		// or for any ingress-less messaging exposure; the DB ingress row is
-		// the source of truth for the URL. Mirrors the list endpoint at the
-		// `GetMessagingURLs` site above.
-		if messagingURLs, merr := deployStore.GetMessagingURLs([]string{dbDep.ID}); merr != nil {
-			log.Warn("Failed to load messaging URL for deployment", "error", merr, "deployment_id", dbDep.ID)
-		} else if url, ok := messagingURLs[dbDep.ID]; ok {
-			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
-				Name: "messaging", Type: "messaging", URL: url, Ready: true,
-			})
-		}
-
+		messagingReachable := svcErr == nil
 		if override := cfg.Deployment.MessagingURLOverride; override != "" {
-			result.MessagingAvailable = true
-			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
-				Name: "messaging", Type: "messaging", URL: override, Ready: true,
-			})
+			messagingReachable = true
 		}
 
-		c.JSON(http.StatusOK, gin.H{"deployment": result})
+		runtime := DeploymentRuntime{
+			Replicas:           picked.Replicas,
+			Ready:              picked.Ready,
+			MessagingReachable: messagingReachable,
+			ManualIngestions:   picked.ManualIngestions,
+			Workloads:          workloadRuntimesFromDetails(picked.Workloads),
+		}
+
+		c.JSON(http.StatusOK, gin.H{"runtime": runtime})
 	}
+}
+
+// GetDeploymentStatus returns the server-derived coarse status of a single
+// deployment — the join of the DB status enum and live K8s agent-workload
+// readiness, computed in one place so the client doesn't have to reconcile
+// two queries across timing windows. The status badge / pause toggle / tile
+// each call this directly and read `status` verbatim.
+//
+// Lightweight: at most one K8s Deployment.Get on the agent workload (skipped
+// entirely for non-active DB statuses). Polls cheaply.
+// GET /api/v1/deployments/:id/status
+func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dbDep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		status := DeploymentStatus{}
+		if dbDep.ErrorMessage != nil {
+			status.ErrorMessage = *dbDep.ErrorMessage
+		}
+
+		// DB status precedence — these statuses are authoritative regardless of
+		// what K8s reports. Pause, undeploy, failed, and explicit transitional
+		// states all resolve here without a cluster round-trip.
+		switch dbDep.Status {
+		case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
+			status.Value, status.Reason = "inactive", StatusReasonPaused
+			status.Details = "Deployment is paused"
+			c.JSON(http.StatusOK, status)
+			return
+		case deploymentstore.StatusUndeploying:
+			status.Value, status.Reason = "undeploying", StatusReasonUndeploying
+			status.Details = "Deployment is being torn down"
+			c.JSON(http.StatusOK, status)
+			return
+		case deploymentstore.StatusFailed:
+			status.Value, status.Reason = "error", StatusReasonFailed
+			status.Details = "Deployment failed"
+			if status.ErrorMessage != "" {
+				status.Details = "Deployment failed: " + status.ErrorMessage
+			}
+			c.JSON(http.StatusOK, status)
+			return
+		case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+			status.Value, status.Reason = "deploying", StatusReasonProvisioning
+			status.Details = "Pods are being provisioned"
+			c.JSON(http.StatusOK, status)
+			return
+		}
+
+		// DB status is active — probe K8s for the agent workload's readiness.
+		// A single Deployments.Get is enough; we don't need the full namespace
+		// scan that GetDeploymentRuntime does. If K8s is unreachable, fall
+		// back to "active" (record is the source of truth for the spec, and
+		// "we lost the cluster" shouldn't mask a known-good deployment).
+		if !k8sRegistryReady(k8sReg) {
+			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
+			status.Details = "Cluster unreachable; reporting active from spec"
+			c.JSON(http.StatusOK, status)
+			return
+		}
+		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dbDep)
+		if !ok {
+			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
+			status.Details = "Cluster client unavailable; reporting active from spec"
+			c.JSON(http.StatusOK, status)
+			return
+		}
+		ready, replicas, found, probeErr := probeAgentReadiness(c.Request.Context(), k8sClient, dbDep.Namespace, dbDep.AgentName)
+		if probeErr != nil {
+			log.Warn("agent readiness probe failed; falling back to DB status",
+				"deployment_id", dbDep.ID, "error", probeErr)
+			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
+			status.Details = "Readiness probe failed; reporting active from spec"
+			c.JSON(http.StatusOK, status)
+			return
+		}
+		// DB says active but no agent workload exists in K8s — namespace deleted
+		// out from under us, or reconciler hasn't applied yet. Report as
+		// deploying/provisioning rather than "active" so the badge reflects the
+		// real cluster state instead of the stale spec.
+		if !found {
+			status.Value, status.Reason = "deploying", StatusReasonProvisioning
+			status.Details = "Agent workload not found in cluster"
+			c.JSON(http.StatusOK, status)
+			return
+		}
+		if replicas > 0 && ready < replicas {
+			status.Value, status.Reason = "deploying", StatusReasonReadyLag
+			status.Details = fmt.Sprintf("%d of %d replicas ready", ready, replicas)
+			c.JSON(http.StatusOK, status)
+			return
+		}
+		status.Value, status.Reason = "active", StatusReasonReady
+		switch replicas {
+		case 0:
+			status.Details = "Deployment is active"
+		case 1:
+			status.Details = "1 replica ready"
+		default:
+			status.Details = fmt.Sprintf("All %d replicas ready", replicas)
+		}
+		c.JSON(http.StatusOK, status)
+	}
+}
+
+// probeAgentReadiness reads the agent's primary K8s workload (a Deployment,
+// or — for stateful agents — a StatefulSet) and returns its observed ready
+// + desired replica counts. Used by GetDeploymentStatus instead of a full
+// namespace scan.
+//
+// The `found` return distinguishes "workload exists with 0 replicas" (true)
+// from "neither Deployment nor StatefulSet exists" (false) so the caller can
+// avoid silently reporting "active" for a missing workload. Transport
+// errors propagate as `err`; the NotFound case is the absence signal, not a
+// failure.
+func probeAgentReadiness(ctx context.Context, k8sClient k8s.ClusterClient, namespace, agentName string) (ready, replicas int32, found bool, err error) {
+	name := deployment.GenerateAgentResourceName(agentName, "agent")
+	clientset := k8sClient.Clientset()
+	dep, depErr := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if depErr == nil {
+		desired := int32(0)
+		if dep.Spec.Replicas != nil {
+			desired = *dep.Spec.Replicas
+		}
+		return dep.Status.ReadyReplicas, desired, true, nil
+	}
+	if !apierrors.IsNotFound(depErr) {
+		return 0, 0, false, depErr
+	}
+	// Fall through to StatefulSet for stateful agents (persistent: true).
+	sts, stsErr := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if stsErr == nil {
+		desired := int32(0)
+		if sts.Spec.Replicas != nil {
+			desired = *sts.Spec.Replicas
+		}
+		return sts.Status.ReadyReplicas, desired, true, nil
+	}
+	if !apierrors.IsNotFound(stsErr) {
+		return 0, 0, false, stsErr
+	}
+	// Both NotFound — workload genuinely absent (namespace deleted / never
+	// applied). Caller decides how to report this against DB-status=active.
+	return 0, 0, false, nil
+}
+
+// workloadRuntimesFromDetails projects the K8s-enriched WorkloadDetail
+// records (which still carry intent fields filled in by listAstroDeployments)
+// down to the slim live-state-only WorkloadRuntime shape. The client stitches
+// these by Name onto the per-workload entries in DeploymentRecord.Workloads.
+func workloadRuntimesFromDetails(details []WorkloadDetail) []WorkloadRuntime {
+	if len(details) == 0 {
+		return nil
+	}
+	out := make([]WorkloadRuntime, 0, len(details))
+	for _, d := range details {
+		out = append(out, WorkloadRuntime{
+			Name:        d.Name,
+			Age:         d.Age,
+			Phase:       d.Phase,
+			PodName:     d.PodName,
+			Containers:  d.Containers,
+			Status:      d.Status,
+			StartTime:   d.StartTime,
+			Completions: d.Completions,
+			Runs:        d.Runs,
+		})
+	}
+	return out
+}
+
+// loadRecordIntentFromDB pulls the intent-shaped fields (workload specs,
+// components, desired replicas, messaging-configured flag) out of
+// deployment_workloads + deployment_sidecars. Best-effort: a query failure
+// logs and leaves the field at its zero value rather than failing the
+// whole record response — the page still renders, just without that
+// detail. Returns zero values when no rows exist.
+func loadRecordIntentFromDB(log *logger.Logger, deployStore *deploymentstore.Store, deploymentID string) (workloads []WorkloadSpec, components []string, desiredReplicas int32, messagingConfigured bool) {
+	summaries, err := deployStore.GetWorkloadSummaries(deploymentID)
+	if err != nil {
+		log.Warn("GetWorkloadSummaries failed", "deployment_id", deploymentID, "error", err)
+	}
+	sidecars, err := deployStore.GetSidecars(deploymentID)
+	if err != nil {
+		log.Warn("GetSidecars failed", "deployment_id", deploymentID, "error", err)
+	}
+	workloadURLs, err := deployStore.GetWorkloadIngresses(deploymentID)
+	if err != nil {
+		log.Warn("GetWorkloadIngresses failed", "deployment_id", deploymentID, "error", err)
+	}
+
+	seenComp := make(map[string]struct{}, len(summaries)+len(sidecars))
+	addComp := func(c string) {
+		if c == "" {
+			return
+		}
+		if _, ok := seenComp[c]; ok {
+			return
+		}
+		seenComp[c] = struct{}{}
+		components = append(components, c)
+	}
+
+	for _, w := range summaries {
+		addComp(w.ComponentKind)
+		// Sum desired replicas across primary-shape workloads. Job/CronJob have
+		// Replicas=0 (one-shot or scheduled) so they contribute nothing — that
+		// matches the historical K8s-derived behavior.
+		if w.WorkloadType == "deployment" || w.WorkloadType == "statefulset" {
+			desiredReplicas += int32(w.Replicas) //nolint:gosec
+		}
+		// "manual"-trigger ingestion entries don't have a workload row at all
+		// (they get filtered out at normalization), so they don't appear here.
+		var urls []ServiceEndpointInfo
+		for _, u := range workloadURLs[w.Name] {
+			urls = append(urls, ServiceEndpointInfo{Name: "http", Type: "http", URL: u, Ready: true})
+		}
+		workloads = append(workloads, WorkloadSpec{
+			Name:      w.Name,
+			Kind:      workloadKindForType(w.WorkloadType),
+			Component: w.ComponentKind,
+			Image:     w.Image,
+			Replicas:  int32(w.Replicas), //nolint:gosec
+			Schedule:  w.TriggerSchedule,
+			URLs:      urls,
+		})
+	}
+	for _, sc := range sidecars {
+		addComp(sc.ComponentKind)
+		if sc.ComponentKind == "messaging" {
+			messagingConfigured = true
+		}
+	}
+	return workloads, components, desiredReplicas, messagingConfigured
+}
+
+// workloadKindForType maps the lowercase workload_type column ("deployment",
+// "statefulset", "job", "cronjob") to the Pascal-cased K8s Kind the API
+// surface uses. Unknown values pass through capitalized as-is.
+var workloadKindByType = map[string]string{
+	"deployment":  "Deployment",
+	"statefulset": "StatefulSet",
+	"job":         "Job",
+	"cronjob":     "CronJob",
+}
+
+func workloadKindForType(t string) string {
+	if k, ok := workloadKindByType[t]; ok {
+		return k
+	}
+	if t == "" {
+		return ""
+	}
+	return strings.ToUpper(t[:1]) + t[1:]
+}
+
+// dbStatusToUIStatus maps the canonical DB status enum to the loose status
+// string the client renders ("Running", "pending", "Stopped", "undeploying",
+// "error"). Single source of truth — both deploymentRecordFromDB and
+// agentDeploymentFromDB delegate here, so a new status enum value lights up
+// every consumer at once.
+func dbStatusToUIStatus(s string) string {
+	switch s {
+	case deploymentstore.StatusActive:
+		return "Running"
+	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+		return "pending"
+	case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
+		return "Stopped"
+	case deploymentstore.StatusUndeploying:
+		return "undeploying"
+	}
+	return "error"
+}
+
+// deploymentRecordFromDB projects a stored Deployment into the public
+// DeploymentRecord view. Mirrors agentDeploymentFromDB but produces the
+// thin DB-only shape returned by GET /deployments/:id.
+func deploymentRecordFromDB(dep *deploymentstore.Deployment, sourceAccount string) DeploymentRecord {
+	r := DeploymentRecord{
+		ID:            dep.ID,
+		Name:          dep.AgentName,
+		DisplayName:   dep.DisplayName,
+		BuildID:       dep.BuildID,
+		Namespace:     dep.Namespace,
+		Status:        dbStatusToUIStatus(dep.Status),
+		SourceAccount: sourceAccount,
+		CreatedAt:     dep.DeployedAt.Format(time.RFC3339),
+	}
+	if dep.AvatarColors != nil {
+		r.AvatarColors = *dep.AvatarColors
+	}
+	if dep.ErrorMessage != nil && *dep.ErrorMessage != "" {
+		r.ErrorMessage = *dep.ErrorMessage
+	}
+	return r
 }
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
 func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.Deployment) AgentDeployment {
-	status := "error"
-	switch dep.Status {
-	case deploymentstore.StatusActive:
-		status = "Running"
-	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
-		status = "pending"
-	case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
-		status = "Stopped"
-	case deploymentstore.StatusUndeploying:
-		status = "undeploying"
-	}
-
 	ad := AgentDeployment{
 		ID:          dep.ID,
 		Name:        dep.AgentName,
 		DisplayName: dep.DisplayName,
 		BuildID:     dep.BuildID,
 		Namespace:   dep.Namespace,
-		Status:      status,
+		Status:      dbStatusToUIStatus(dep.Status),
 		Replicas:    0,
 		Ready:       0,
 		CreatedAt:   dep.DeployedAt.Format(time.RFC3339),
@@ -4142,59 +4648,6 @@ func toValidationErrors(errs []string) []gin.H {
 func injectManagedCredentials(resolved *deployment.ResolvedEnv, cfg *config.Config) {
 	if val := cfg.Deployment.ManagedAnthropicAPIKey; val != "" {
 		resolved.SecretData["ANTHROPIC_API_KEY"] = val
-	}
-}
-
-// GetDeploymentStatus returns the current status, events, and revisions for a deployment.
-func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		dep, err := deployStore.GetDeploymentByID(c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
-			return
-		}
-		if dep == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-			return
-		}
-
-		acct, acctErr := accountStore.GetByID(dep.AccountID)
-		if acctErr != nil || acct == nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-		isMember, _ := accountStore.IsMember(acct.ID, user.ID)
-		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
-		events, evErr := deployStore.GetDeploymentEvents(dep.ID, 50)
-		if evErr != nil {
-			log.Warn("Failed to load deployment events", "error", evErr, "deployment_id", dep.ID)
-		}
-		revisions, revErr := deployStore.GetRevisions(dep.ID)
-		if revErr != nil {
-			log.Warn("Failed to load deployment revisions", "error", revErr, "deployment_id", dep.ID)
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"deployment_id":     dep.ID,
-			"status":            dep.Status,
-			"current_revision":  dep.CurrentRevision,
-			"error_message":     dep.ErrorMessage,
-			"error_details":     dep.ErrorDetails,
-			"deployed_at":       dep.DeployedAt,
-			"status_changed_at": dep.StatusChangedAt,
-			"events":            events,
-			"revisions":         revisions,
-		})
 	}
 }
 

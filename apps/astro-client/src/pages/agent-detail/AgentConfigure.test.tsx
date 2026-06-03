@@ -23,7 +23,6 @@ function makeDeployment(overrides?: Partial<AgentDeployment>): AgentDeployment {
     namespace: "astro-ns",
     status: "Running",
     replicas: 1,
-    ready: 1,
     created_at: "2025-04-01T00:00:00Z",
     components: ["agent"],
     avatar_colors: { accent: "#2dd4bf", base: "#0f766e", vibrant: "#2dd4bf", vibrant_light: "#5eead4", accent_light: "#99f6e4", background: "#042f2e", foreground: "#f0fdfa", glow: "#2dd4bf" },

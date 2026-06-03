@@ -1,16 +1,14 @@
 import type { ReactNode } from "react";
 import { Github, Loader2, SquareTerminal } from "lucide-react";
-import { formatRelativeTime, mapDeploymentStatus, type DeployedAgentStatus } from "@/lib/deployment-utils";
-import type { AgentDeployment } from "@/lib/api";
+import { formatRelativeTime } from "@/lib/deployment-utils";
+import { useDeploymentStatus } from "@/api/queries/deployments";
+import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
 
 type StatusColor = { bg: string; border: string; badgeBg: string; badgeText: string };
 
-const STATUS_COLORS: Record<string, StatusColor> = {
+const STATUS_COLORS: Record<DeploymentStatusValue, StatusColor> = {
   active:      { bg: "color-mix(in oklch, var(--color-green-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-green-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-green-600) 20%, transparent)",  badgeText: "var(--color-green-600)" },
   deploying:   { bg: "color-mix(in oklch, var(--color-yellow-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-yellow-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-yellow-400) 30%, transparent)", badgeText: "var(--color-yellow-300)" },
-  restarting:  { bg: "color-mix(in oklch, var(--color-yellow-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-yellow-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-yellow-400) 30%, transparent)", badgeText: "var(--color-yellow-300)" },
-  pausing:     { bg: "color-mix(in oklch, var(--color-yellow-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-yellow-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-yellow-400) 30%, transparent)", badgeText: "var(--color-yellow-300)" },
-  resuming:    { bg: "color-mix(in oklch, var(--color-yellow-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-yellow-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-yellow-400) 30%, transparent)", badgeText: "var(--color-yellow-300)" },
   error:       { bg: "color-mix(in oklch, var(--color-coral-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-coral-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-coral-600) 20%, transparent)",  badgeText: "var(--color-coral-600)" },
   undeploying: { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
   inactive:    { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
@@ -18,30 +16,23 @@ const STATUS_COLORS: Record<string, StatusColor> = {
 
 const NEUTRAL_COLORS: StatusColor = { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" };
 
-const STATUS_LABELS: Record<DeployedAgentStatus, string> = {
+const STATUS_LABELS: Record<DeploymentStatusValue, string> = {
   active: "Active",
   deploying: "Deploying",
   error: "Error",
   undeploying: "Undeploying",
   inactive: "Inactive",
-  restarting: "Restarting",
-  pausing: "Pausing",
-  resuming: "Resuming",
 };
 
-const SPINNING_STATUSES = new Set<string>(["deploying", "restarting", "pausing", "resuming", "undeploying"]);
-
-function resolveStatus(deployment: AgentDeployment | undefined, isCurrent: boolean): DeployedAgentStatus | null {
-  if (!isCurrent || !deployment) return null;
-  return mapDeploymentStatus(deployment);
-}
+const SPINNING_STATUSES: ReadonlySet<DeploymentStatusValue> = new Set(["deploying", "undeploying"]);
 
 export interface DeploymentTileProps {
   /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
   name: string;
   /** Whether this is the currently active deployment. */
   active?: boolean;
-  /** Live deployment object — used to derive status for the current tile. */
+  /** Live deployment object — used only to derive the deployment id for the
+   *  status fetch, and to surface error_message when the badge is in 'error'. */
   deployment?: AgentDeployment;
   /** Deployment source: "github" or "direct". */
   source: "github" | "direct";
@@ -71,7 +62,10 @@ export function DeploymentTile({
   repoFullName,
   menu,
 }: DeploymentTileProps) {
-  const status = resolveStatus(deployment, !!active);
+  // Only the currently-active tile fetches status — historical tiles render
+  // without a status badge.
+  const { data: statusData } = useDeploymentStatus(deployment?.id ?? "", !!active && !!deployment);
+  const status: DeploymentStatusValue | null = active && deployment ? statusData?.value ?? null : null;
   const colors = status ? (STATUS_COLORS[status] ?? NEUTRAL_COLORS) : NEUTRAL_COLORS;
   const shortBuild = buildId.length > 8 ? buildId.slice(0, 8) : buildId;
   const commitUrl = repoFullName && commitSha

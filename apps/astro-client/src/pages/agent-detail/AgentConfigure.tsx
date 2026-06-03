@@ -14,8 +14,10 @@ import { deploymentKeys } from "@/api/queries/keys";
 const FORM_ID = "agent-configure-form";
 
 export default function AgentConfigure() {
-  const { deployment, account, deploymentId } = useAgentDetailContext();
-  const manualIngestions = deployment.manual_ingestions ?? [];
+  const { deployment, runtime, account, deploymentId } = useAgentDetailContext();
+  // manual_ingestions is K8s-namespace-annotation sourced today (see
+  // DeploymentRuntime); the record doesn't carry it yet.
+  const manualIngestions = runtime?.manual_ingestions ?? [];
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();

@@ -6,8 +6,8 @@ import { PageStarField } from "@/components/agent-detail/starfield/PageStarField
 import { AgentTabBar } from "@/components/agent-detail/AgentTabBar";
 import { AgentIdentity } from "@/components/agent-detail/AgentIdentity";
 import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
-import { useDeployment } from "@/api/queries/deployments";
-import type { AgentDeployment } from "@/lib/api";
+import { useDeployment, useDeploymentRuntime } from "@/api/queries/deployments";
+import type { AgentDeployment, DeploymentRuntime } from "@/lib/api";
 import { getMessagingEndpoint, isLaunchReady, launchUnavailableMessage } from "@/lib/deployment-utils";
 import { ArrowUpRight } from "lucide-react";
 
@@ -39,6 +39,10 @@ export const meta: Route.MetaFunction = () => {
 
 interface AgentDetailContext {
   deployment: AgentDeployment;
+  // Runtime view stitched onto the record's workloads by name. Undefined
+  // while the runtime query is still loading or if it errored — child tabs
+  // must tolerate that without breaking the record-driven UI.
+  runtime: DeploymentRuntime | undefined;
   account: string;
   deploymentId: string;
 }
@@ -58,13 +62,15 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       ? { deployment: loaderData.deployment }
       : undefined,
   });
+  const { data: runtimeData } = useDeploymentRuntime(deploymentId ?? "");
   const deployment = data?.deployment ?? loaderData.deployment;
+  const runtime = runtimeData?.runtime;
   const messagingEndpoint = getMessagingEndpoint(deployment);
   const messagingUrl = messagingEndpoint?.url;
   const launchReady = isLaunchReady(deployment);
 
   const context: AgentDetailContext | null = deployment
-    ? { deployment, account: account ?? "", deploymentId: deploymentId ?? "" }
+    ? { deployment, runtime, account: account ?? "", deploymentId: deploymentId ?? "" }
     : null;
 
   return (

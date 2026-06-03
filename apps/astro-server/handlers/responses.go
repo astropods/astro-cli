@@ -157,10 +157,24 @@ type ListDeploymentsResponse struct {
 	Count       int                      `json:"count"`
 }
 
-// GetDeploymentDetailResponse wraps a single deployment for the detail endpoint.
+// GetDeploymentDetailResponse wraps the DB-only deployment record returned by
+// GET /deployments/:id. Live K8s state is served separately by the runtime
+// endpoint and surfaced as GetDeploymentRuntimeResponse.
 type GetDeploymentDetailResponse struct {
-	Deployment AgentDeployment `json:"deployment"`
+	Deployment DeploymentRecord `json:"deployment"`
 }
+
+// GetDeploymentRuntimeResponse wraps the K8s-sourced runtime view returned by
+// GET /deployments/:id/runtime.
+type GetDeploymentRuntimeResponse struct {
+	Runtime DeploymentRuntime `json:"runtime"`
+}
+
+// GetDeploymentStatusResponse is the body returned by GET /deployments/:id/status.
+// It's just DeploymentStatus itself — no envelope. The endpoint answers a
+// single narrow question (what's the current status?), so the body is the
+// status object verbatim.
+type GetDeploymentStatusResponse = DeploymentStatus
 
 // ActiveDeploymentResponse is returned by the active deployment endpoint.
 type ActiveDeploymentResponse struct {

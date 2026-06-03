@@ -378,6 +378,27 @@ export const handlers = [
     return HttpResponse.json({ deployment: dep });
   }),
 
+  // GET /api/v1/deployments/:id/runtime — default mock matches the record's
+  // desired-replicas, claims everything is observed-ready and reachable, and
+  // returns no workload-level live entries. Tests that exercise transitional
+  // or degraded runtime states override this handler with `server.use(...)`.
+  http.get('/api/v1/deployments/:id/runtime', () => {
+    return HttpResponse.json({
+      runtime: {
+        ready: 1,
+        replicas: 1,
+        messaging_reachable: true,
+      },
+    });
+  }),
+
+  // GET /api/v1/deployments/:id/status — default mock returns "active".
+  // Tests that exercise transitional/error states override with
+  // `server.use(...)`. Response is the status object itself (no envelope).
+  http.get('/api/v1/deployments/:id/status', () => {
+    return HttpResponse.json({ value: "active", reason: "ready", details: "1 replica ready" });
+  }),
+
   // GET /api/v1/deployments
   http.get('/api/v1/deployments', () => {
     return HttpResponse.json(mockDeployments);

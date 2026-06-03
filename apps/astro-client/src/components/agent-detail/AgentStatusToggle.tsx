@@ -3,8 +3,8 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
-import { isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { useDeploymentStatus, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
+import { isPausedState } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 
 interface AgentStatusToggleProps {
@@ -15,10 +15,15 @@ interface AgentStatusToggleProps {
 export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProps) {
   const stopMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
+  // Server-derived status — the single source of truth for the badge label
+  // and transitioning indicator. No record/runtime join here; the server
+  // already did it.
+  const { data: statusData } = useDeploymentStatus(deployment.id);
+  const liveStatus = statusData?.value;
+  const statusDetails = statusData?.details;
 
   const paused = isPausedState(deployment);
-  const status = mapDeploymentStatus(deployment);
-  const serverTransitioning = status === "deploying" || status === "pausing" || status === "resuming";
+  const serverTransitioning = liveStatus === "deploying" || liveStatus === "undeploying";
 
   // Track local intent: "pausing" or "resuming" until server catches up
   const [intent, setIntent] = useState<"pausing" | "resuming" | null>(null);
@@ -93,7 +98,7 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
           <TooltipContent side="bottom">
             {transitioning
               ? (checked ? "Resuming agent…" : "Pausing agent…")
-              : checked ? "Pause this agent" : "Resume this agent"}
+              : statusDetails ?? (checked ? "Pause this agent" : "Resume this agent")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

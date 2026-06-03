@@ -590,20 +590,62 @@ export interface ContainerStatus {
   env?: EnvVar[];
 }
 
+// WorkloadDetail is the JOINED view of a workload — what the page builds by
+// zipping a WorkloadSpec from the record onto its WorkloadRuntime entry from
+// the runtime response, keyed by name. Leaf components (PodTile,
+// PodDetailPanel) consume this shape; the join lives at the page boundary.
+//
+// Fields are typed as optional where they only come from one side of the
+// join, so a runtime-less render (cluster unreachable, loading) still
+// produces a valid object containing just the spec.
 export interface WorkloadDetail {
+  // Intent (WorkloadSpec):
+  name: string;
+  kind: string;
+  component: string;
+  image?: string;
+  replicas?: number;
+  schedule?: string;
+  urls?: ServiceEndpointInfo[];
+  // Live (WorkloadRuntime):
+  age?: string;
+  phase?: string;
+  pod_name?: string;
+  containers?: ContainerStatus[];
+  status?: string;
+  start_time?: string;
+  completions?: string;
+  runs?: JobDetail[];
+}
+
+// WorkloadSpec is the DB-sourced intent for a single workload — what the
+// deployment is supposed to run. Lives on AgentDeployment (the record).
+// Live state (age, pod state, restart counts, runs) is on WorkloadRuntime
+// in the runtime response, keyed by Name.
+export interface WorkloadSpec {
   name: string;
   // "Deployment" | "StatefulSet" | "Job" | "CronJob"
   kind: string;
   component: string;
-  age: string;
+  // image / replicas are populated on the wire; declared optional so fixtures
+  // and Partial<> consumers don't have to set them.
+  image?: string;
+  replicas?: number;
+  schedule?: string;
+  urls?: ServiceEndpointInfo[];
+}
+
+// WorkloadRuntime is the K8s-sourced live state for a single workload,
+// keyed by Name to stitch onto the corresponding WorkloadSpec on the record.
+export interface WorkloadRuntime {
+  name: string;
+  age?: string;
   phase?: string;
   pod_name?: string;
   containers?: ContainerStatus[];
-  urls?: ServiceEndpointInfo[];
   // Job/CronJob-only fields. Empty for Deployment/StatefulSet — their health
   // is read from containers[].ready instead.
   status?: string;
-  schedule?: string;
   start_time?: string;
   completions?: string;
   runs?: JobDetail[];
@@ -618,6 +660,11 @@ export interface JobDetail {
   completions: string;
 }
 
+// AgentDeployment is the DB-sourced view of a deployment (GET /deployments/:id).
+// Mirrors handlers.DeploymentRecord on the server: spec, URLs, status, intent-
+// level workload list — everything we wrote at apply / normalization time.
+// Live operational state (ready count, per-pod containers/restarts/age, runs)
+// is fetched separately via useDeploymentRuntime and stitched in by Name.
 export interface AgentDeployment {
   id: string;
   name: string;
@@ -645,16 +692,66 @@ export interface AgentDeployment {
   // status writer that recorded a message on deployments.error_message.
   // Surfaced as a tooltip on the status badge.
   error_message?: string;
+  // Desired replica count, summed across primary workload specs. Live (observed)
+  // count is on DeploymentRuntime.
   replicas: number;
-  ready: number;
   created_at: string;
   updated_at?: string;
   updated_by?: string;
   components: string[];
-  manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];
-  messaging_available?: boolean;
-  workloads?: WorkloadDetail[];
+  // A messaging sidecar is part of the deployment spec. Distinct from
+  // DeploymentRuntime.messaging_reachable, which is the live in-cluster
+  // Service existence probe.
+  messaging_configured?: boolean;
+  workloads?: WorkloadSpec[];
+}
+
+// DeploymentStatusValue is the coarse, server-derived status the UI renders.
+// Single source of truth: GET /deployments/:id/status.
+export type DeploymentStatusValue =
+  | "active"
+  | "deploying"
+  | "inactive"
+  | "undeploying"
+  | "error";
+
+// DeploymentStatusReason is a stable machine-readable code for *why* the
+// server chose `value`. Use it to branch UI (e.g. distinguish "warming up
+// pods" from "DB pending") without re-deriving anything client-side. Keep
+// in sync with the Status* constants on the server.
+export type DeploymentStatusReason =
+  | "paused"
+  | "undeploying"
+  | "failed"
+  | "provisioning"
+  | "ready"
+  | "ready_lag"
+  | "cluster_unreachable";
+
+// DeploymentStatus is the body of GET /deployments/:id/status (no envelope).
+// Mirrors handlers.DeploymentStatus on the server. Live replica/ready counts
+// and per-workload state live on DeploymentRuntime; this stays narrow.
+//
+// `details` is a human-readable sentence ("3 of 4 replicas ready", "Cluster
+// unreachable; reporting active from spec") suitable for tooltips. `reason`
+// is the machine-readable companion.
+export interface DeploymentStatus {
+  value: DeploymentStatusValue;
+  reason: DeploymentStatusReason;
+  details: string;
+  error_message?: string;
+}
+
+// DeploymentRuntime is the K8s-sourced live view (GET /deployments/:id/runtime).
+// Mirrors handlers.DeploymentRuntime on the server. Frontend stitches
+// `workloads` onto AgentDeployment.workloads by `name`.
+export interface DeploymentRuntime {
+  ready: number;
+  replicas: number;
+  messaging_reachable: boolean;
+  manual_ingestions?: string[];
+  workloads?: WorkloadRuntime[];
 }
 
 export interface AgentDeploymentSummary {
@@ -1798,6 +1895,18 @@ class ApiClient {
   async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
     return this.request<{ deployment: AgentDeployment }>(
       `/api/v1/deployments/${encodeURIComponent(id)}`
+    );
+  }
+
+  async getDeploymentRuntime(id: string): Promise<{ runtime: DeploymentRuntime }> {
+    return this.request<{ runtime: DeploymentRuntime }>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/runtime`
+    );
+  }
+
+  async getDeploymentStatus(id: string): Promise<DeploymentStatus> {
+    return this.request<DeploymentStatus>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/status`
     );
   }
 

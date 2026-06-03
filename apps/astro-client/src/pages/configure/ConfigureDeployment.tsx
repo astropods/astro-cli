@@ -8,7 +8,7 @@ import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
-import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
+import { useDeploymentRuntime, useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 
 export const meta: MetaFunction = () => [{ title: "Configure Deployment | Astro" }];
@@ -70,7 +70,10 @@ export default function ConfigureDeployment() {
     }
   }, [deployError]);
 
-  const manualIngestions = deployment.manual_ingestions ?? [];
+  // manual_ingestions is K8s-namespace-annotation sourced (see DeploymentRuntime);
+  // pull it from the runtime endpoint rather than expanding ConfigureContext.
+  const { data: runtimeData } = useDeploymentRuntime(deployment.id);
+  const manualIngestions = runtimeData?.runtime?.manual_ingestions ?? [];
 
   const saveAndRedeploy = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();

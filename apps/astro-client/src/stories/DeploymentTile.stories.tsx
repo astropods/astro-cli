@@ -10,7 +10,6 @@ function mockDeployment(overrides: Partial<AgentDeployment> = {}): AgentDeployme
     namespace: "ns",
     status: "running",
     replicas: 1,
-    ready: 1,
     created_at: new Date().toISOString(),
     components: ["agent"],
     ...overrides,
@@ -150,7 +149,7 @@ export const ActiveDeploying: Story = {
     buildId: "abcdef12",
     deployedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     active: true,
-    deployment: mockDeployment({ status: "pending", ready: 0 }),
+    deployment: mockDeployment({ status: "pending" }),
   },
 };
 
@@ -161,7 +160,7 @@ export const ActiveError: Story = {
     buildId: "abcdef12",
     deployedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     active: true,
-    deployment: mockDeployment({ status: "error", ready: 0 }),
+    deployment: mockDeployment({ status: "error" }),
   },
 };
 
@@ -186,7 +185,7 @@ export const AllVariants: Story = {
           buildId="b1c2d3e4f5a6"
           deployedAt={new Date(Date.now() - 1000 * 60 * 1).toISOString()}
           active
-          deployment={mockDeployment({ status: "deploying", ready: 0 })}
+          deployment={mockDeployment({ status: "deploying" })}
         />
         <DeploymentTile
           name="Bump model to claude-sonnet-4-6"

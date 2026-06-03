@@ -1,10 +1,8 @@
-import { keepPreviousData, useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { AgentDeployment, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
-import { hasContainerMismatch } from '@/lib/deployment-utils';
 import { deploymentKeys } from './keys';
-
-export { hasContainerMismatch } from '@/lib/deployment-utils';
 
 export function useDeploymentsSummary() {
   const api = useApiClient();
@@ -40,20 +38,6 @@ export function useDeployments(account: string, enabled = true) {
   });
 }
 
-function deploymentNeedsPolling(dep: AgentDeployment | null | undefined): boolean {
-  if (!dep) return false;
-  const status = dep.status?.toLowerCase?.() ?? "";
-  const isTransitional =
-    status === "pending" ||
-    status === "provisioning" ||
-    status === "deploying" ||
-    status === "undeploying";
-  // A Running deployment with no workloads is a transient K8s state (pods cycling during
-  // a rolling update). Keep polling until workloads appear so the playground URL surfaces.
-  const missingWorkloads = status === "running" && !(dep.workloads?.length ?? 0);
-  return isTransitional || hasContainerMismatch(dep) || missingWorkloads;
-}
-
 export function useDeployment(
   id: string,
   enabled = true,
@@ -66,19 +50,78 @@ export function useDeployment(
     enabled: !!id && enabled,
     initialData: options?.initialData,
     initialDataUpdatedAt: options?.initialData ? 0 : undefined,
-    refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
+    // No polling. The record is DB-only and its volatile fields (status
+    // enum, ingress URLs) are refreshed via the status-transition effect in
+    // useDeploymentRuntime (invalidates the detail prefix on flip-to-active)
+    // and via invalidateDeployment on mutations.
   });
 }
 
-
-export function useDeploymentSuspense(id: string) {
+// useDeploymentStatus fetches the coarse, server-derived deployment status
+// the UI renders (toggle label, history badge, deployment tile). The server
+// joins DB status + K8s readiness in one place — the client doesn't have to
+// reconcile two queries across timing windows, and the status badge never
+// gets stuck in a transitional state because the runtime cache is stale.
+// Polls every 3s while transitional (deploying/undeploying), idles otherwise.
+export function useDeploymentStatus(id: string, enabled = true) {
   const api = useApiClient();
-  return useSuspenseQuery({
-    queryKey: deploymentKeys.detail(id),
-    queryFn: () => api.getDeployment(id),
-    refetchInterval: (query) => deploymentNeedsPolling(query.state.data?.deployment) ? 3000 : false,
+  return useQuery({
+    queryKey: deploymentKeys.status(id),
+    queryFn: () => api.getDeploymentStatus(id),
+    enabled: !!id && enabled,
+    refetchInterval: (query) => {
+      const s = query.state.data?.value;
+      return s === "deploying" || s === "undeploying" ? 3000 : false;
+    },
   });
 }
+
+// useDeploymentRuntime fetches the workload-level K8s view (pod containers,
+// restart counts, runs). Only the AgentDeployments page needs this — the
+// status badge / toggle should consume useDeploymentStatus instead. Polls
+// while the deployment is transitional so the pod grid catches up after
+// pause/resume/deploy.
+//
+// On the deploying → active transition we invalidate the entire deployment
+// detail subtree once. The 3s poll loop halts as soon as status becomes
+// active, but the LAST polled snapshot was taken while pods were still
+// cycling — without this refetch the pod grid would render stale (e.g. show
+// only the old replica until the next focus/remount). Invalidating the
+// detail key prefix also refreshes the record (so URLs surfaced late in the
+// deploy show up immediately) since runtime + status keys are children of
+// detail.
+export function useDeploymentRuntime(id: string, enabled = true) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  const statusQuery = useDeploymentStatus(id, enabled);
+  const status = statusQuery.data?.value;
+  const prevStatusRef = useRef<typeof status>(undefined);
+  useEffect(() => {
+    if (prevStatusRef.current && prevStatusRef.current !== "active" && status === "active") {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(id) });
+    }
+    prevStatusRef.current = status;
+  }, [status, id, queryClient]);
+
+  return useQuery({
+    queryKey: deploymentKeys.runtime(id),
+    queryFn: () => api.getDeploymentRuntime(id),
+    enabled: !!id && enabled,
+    refetchInterval: (query) => {
+      if (status === "deploying" || status === "undeploying") return 3000;
+      if (status === "active") {
+        // Running but the workload list hasn't shown up yet — fast poll
+        // until pods surface.
+        if (!(query.state.data?.runtime?.workloads?.length ?? 0)) return 3000;
+        // Steady-state active: slow background poll so live signals (pod
+        // restarts, container crashes, age) refresh without a manual nudge.
+        return 60_000;
+      }
+      return false;
+    },
+  });
+}
+
 
 const TIME_RANGE_MS: Record<string, number> = {
   '15m': 15 * 60 * 1000,
@@ -198,6 +241,19 @@ export function useUndeployAgent(account: string) {
   });
 }
 
+// invalidateDeployment refetches every deployment-scoped query for the id:
+// the record, the runtime, and the status. The single invalidate call is
+// enough because runtime() and status() keys are children of detail() —
+// TanStack matches by prefix by default, so invalidating the detail key
+// invalidates the whole subtree. Mutations that change pod state (pause /
+// resume / restart) must hit all three: invalidating only the record would
+// leave the runtime cached at its pre-mutation snapshot, which manifests as
+// the toggle/history badge sticking on "Resuming"/"Deploying" after the
+// mutation completes.
+function invalidateDeployment(queryClient: ReturnType<typeof useQueryClient>, deploymentId: string) {
+  queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deploymentId) });
+}
+
 export function useRestartDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -206,7 +262,7 @@ export function useRestartDeployment(account: string) {
     mutationFn: api.restartDeployment.bind(api),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+      invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
 }
@@ -218,7 +274,7 @@ export function useRestartPod() {
   return useMutation<{ status: string; pod: string }, Error, { deploymentId: string; podName: string }>({
     mutationFn: api.restartPod.bind(api),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+      invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
 }
@@ -231,7 +287,7 @@ export function useStopDeployment(account: string) {
     mutationFn: api.stopDeployment.bind(api),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+      invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
 }
@@ -256,7 +312,7 @@ export function useWakeUpDeployment(account: string) {
         },
       );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+      invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
 }

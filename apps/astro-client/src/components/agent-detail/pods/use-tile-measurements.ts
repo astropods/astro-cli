@@ -8,8 +8,13 @@ import type { TileSize } from "./pod-layout";
  * 1. Render tiles inside a hidden measurement container.
  * 2. Pass each tile's DOM element to `measureRef` via a callback ref.
  * 3. Once all tiles have been measured, `sizes` will be populated.
+ *
+ * Pass a `layoutKey` to force a re-measure when the tile *content* changes
+ * shape without changing the count — e.g. probing → live, where the tile
+ * gets taller because age/warning rows appear. Without the key, PodGraph
+ * would keep using the smaller cached dimensions and overlap.
  */
-export function useTileMeasurements(count: number) {
+export function useTileMeasurements(count: number, layoutKey?: unknown) {
   const [sizes, setSizes] = useState<TileSize[] | null>(null);
   const collected = useRef<(TileSize | null)[]>([]);
 
@@ -30,11 +35,11 @@ export function useTileMeasurements(count: number) {
     [count],
   );
 
-  // Reset when count changes so stale positions are never used.
+  // Reset when count or layoutKey changes so stale positions are never used.
   useEffect(() => {
     collected.current = [];
     setSizes(null);
-  }, [count]);
+  }, [count, layoutKey]);
 
   return { sizes, measureRef };
 }

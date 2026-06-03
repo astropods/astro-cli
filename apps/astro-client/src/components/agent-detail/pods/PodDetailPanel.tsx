@@ -7,17 +7,10 @@ import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent } from "@/lib/api";
 import { useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
-import { derivePodStatus } from "./PodTile";
+import { derivePodStatus, POD_STATUS_STYLES } from "./PodTile";
 import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
 import { PodMetricsTab } from "./PodMetricsTab";
-
-const STATUS_CONFIG = {
-  healthy: { dot: "bg-green-400", glow: "shadow-[0_0_6px_2px] shadow-green-400/50" },
-  warning: { dot: "bg-amber-400", glow: "shadow-[0_0_6px_2px] shadow-amber-400/50" },
-  unhealthy: { dot: "bg-red-400", glow: "shadow-[0_0_6px_2px] shadow-red-400/50" },
-  pending: { dot: "bg-blue-400", glow: "shadow-[0_0_6px_2px] shadow-blue-400/50" },
-} as const;
 
 const TABS = ["General", "Logs", "Metrics", "Events"] as const;
 type Tab = (typeof TABS)[number];
@@ -64,7 +57,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, ex
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-normal text-foreground">{name}</h2>
           <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1">
-            <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_CONFIG[status].dot, STATUS_CONFIG[status].glow)} />
+            <span className={cn("size-1.5 shrink-0 rounded-full", POD_STATUS_STYLES[status].dot, POD_STATUS_STYLES[status].glow)} />
             <span className="text-mono-sm text-muted-foreground">{statusLabel}</span>
           </span>
         </div>

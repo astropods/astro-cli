@@ -24,6 +24,13 @@ interface PodGraphProps {
   renderTile: (index: number) => ReactNode;
   /** Effective visible width (container minus panel). Drives layout breakpoints. */
   effectiveWidth?: number;
+  /**
+   * Optional key that invalidates the cached tile measurements when the
+   * tile *content* changes shape without changing count. Pass a string or
+   * number that varies with the rendered tile mode (e.g. `"probing"` vs
+   * `"live"`); the layout pass will re-measure and re-position.
+   */
+  layoutKey?: string | number;
 }
 
 /**
@@ -33,9 +40,9 @@ interface PodGraphProps {
  *
  * Below 750px width, switches to a vertical stack layout.
  */
-export function PodGraph({ count, renderTile, effectiveWidth }: PodGraphProps) {
+export function PodGraph({ count, renderTile, effectiveWidth, layoutKey }: PodGraphProps) {
   const { ref: containerRef, width: containerW, height: containerH } = useContainerSize();
-  const { sizes, measureRef } = useTileMeasurements(count);
+  const { sizes, measureRef } = useTileMeasurements(count, layoutKey);
   const hasAnimatedIn = useRef(false);
 
   // Use effectiveWidth (accounts for panel) if provided, otherwise container width

@@ -11,6 +11,7 @@ import type {
   ContainerStatus,
   DeploymentHistoryResponse,
   DeploymentEventsResponse,
+  DeploymentRuntime,
 } from "@/lib/api";
 import type { LogEntry } from "@/lib/log-utils";
 import AgentDeployments from "./AgentDeployments";
@@ -127,13 +128,42 @@ function makeDeployment(overrides?: Partial<AgentDeployment>): AgentDeployment {
     namespace: "astro-ns",
     status: "Running",
     replicas: 1,
-    ready: 1,
     created_at: "2025-04-01T00:00:00Z",
     components: ["agent"],
     workloads: [makeWorkload()],
     external_urls: [{ name: "http", url: "https://public.example.com", type: "http" }],
     avatar_colors: { accent: "#2dd4bf", base: "#0f766e", vibrant: "#2dd4bf", vibrant_light: "#5eead4", accent_light: "#99f6e4", background: "#042f2e", foreground: "#f0fdfa", glow: "#2dd4bf" },
     ...overrides,
+  };
+}
+
+/**
+ * Default runtime view for a deployment: assumes the cluster has reached the
+ * desired state (ready = replicas) and lifts the joined workload entries'
+ * runtime fields (containers, age, pod_name, status) into a WorkloadRuntime
+ * keyed by name. Tests that need a transitional or degraded runtime build a
+ * `DeploymentRuntime` literal directly and pass it as the second arg to
+ * `renderDeployments`.
+ */
+function defaultRuntimeFor(dep: AgentDeployment): DeploymentRuntime {
+  return {
+    ready: dep.replicas,
+    replicas: dep.replicas,
+    messaging_reachable: true,
+    workloads: (dep.workloads ?? []).map((w) => {
+      const wd = w as WorkloadDetail;
+      return {
+        name: wd.name,
+        age: wd.age,
+        phase: wd.phase,
+        pod_name: wd.pod_name,
+        containers: wd.containers,
+        status: wd.status,
+        start_time: wd.start_time,
+        completions: wd.completions,
+        runs: wd.runs,
+      };
+    }),
   };
 }
 
@@ -164,8 +194,12 @@ function makeHistoryRecord(overrides?: Partial<import("@/lib/api").DeploymentHis
  * Renders the AgentDeployments page inside a minimal layout that provides
  * the outlet context AgentDetail normally supplies.
  */
-function renderDeployments(deployment?: AgentDeployment) {
+function renderDeployments(deployment?: AgentDeployment, runtime?: DeploymentRuntime) {
   const dep = deployment ?? makeDeployment();
+  // Default runtime: assume the deployment is fully observed (ready === replicas)
+  // unless the test overrides. Keeps "Active" the default for tests that don't
+  // care about the runtime split.
+  const rt = runtime ?? defaultRuntimeFor(dep);
   const user = userEvent.setup();
 
   const result = renderRoute(
@@ -176,6 +210,7 @@ function renderDeployments(deployment?: AgentDeployment) {
           <Outlet
             context={{
               deployment: dep,
+              runtime: rt,
               account: "testuser",
               deploymentId: dep.id,
             }}
@@ -252,13 +287,19 @@ describe("user views running pods", () => {
     expect(await screen.findByText("OOMKilled")).toBeInTheDocument();
   });
 
-  it("shows Starting status when containers are empty", async () => {
+  it("keeps spec workload tiles visible when runtime reports zero containers", async () => {
+    // The spec workload list is the stable source of truth — tiles never
+    // disappear mid-transition (pause/resume window). When runtime shows
+    // no containers and the deployment isn't paused, derivePodStatus
+    // surfaces "Starting" until pods come up, but the tile itself stays
+    // mounted to avoid flicker.
     renderDeployments(
       makeDeployment({
         workloads: [makeWorkload({ containers: [] })],
       }),
     );
     expect(await screen.findByText("Starting")).toBeInTheDocument();
+    expect(screen.queryByText("No active pods")).not.toBeInTheDocument();
   });
 });
 
@@ -503,29 +544,22 @@ describe("user views deployment history", () => {
   it("shows current deployment tile with commit message and status", async () => {
     renderDeployments();
     expect(await screen.findByText("Fix auth flow")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    // Status badge is now driven by useDeploymentStatus; wait for it async.
+    expect(await screen.findByText("Active")).toBeInTheDocument();
   });
 
-  it("shows Deploying on history tile when replica count is ready but a sidecar is not", async () => {
-    renderDeployments(
-      makeDeployment({
-        status: "Running",
-        replicas: 1,
-        ready: 1,
-        workloads: [
-          makeWorkload({
-            kind: "Deployment",
-            name: "my-agent",
-            containers: [
-              makeContainer({ name: "app", ready: true }),
-              makeContainer({ name: "messaging", ready: false, state: "waiting" }),
-            ],
-          }),
-        ],
-      }),
+  it("shows Deploying on history tile when the status endpoint reports deploying", async () => {
+    // Status is now server-derived. The handler joins DB status + K8s
+    // readiness; from the client's POV we just mock the endpoint and assert
+    // the badge mirrors it.
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({ value: "deploying" }),
+      ),
     );
+    renderDeployments();
     expect(await screen.findByText("Fix auth flow")).toBeInTheDocument();
-    expect(screen.getByText("Deploying")).toBeInTheDocument();
+    expect(await screen.findByText("Deploying")).toBeInTheDocument();
     expect(screen.queryByText("Active")).not.toBeInTheDocument();
   });
 

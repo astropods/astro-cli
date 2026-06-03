@@ -5,7 +5,16 @@ import { ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import { useLastErrorLog } from "@/api/queries/deployments";
 import { Squircle } from "../Squircle";
 
-export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending";
+// "probing" is rendered while the runtime query is still in flight (record
+// returned, runtime undefined). It's visually distinct from "pending"
+// (which means K8s reported a starting pod) so the user can tell whether
+// we're waiting on the cluster or whether the cluster is genuinely warming
+// up a pod.
+// "paused" is rendered when the parent deployment is in the paused/inactive
+// state — every tile gets it regardless of K8s's own per-workload status,
+// since "the whole agent is off" trumps any individual workload's idle/active
+// reading (e.g. a CronJob still appearing Idle when nothing will actually fire).
+export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending" | "probing" | "paused";
 
 export interface PodStatusInfo {
   status: PodStatus;
@@ -86,27 +95,19 @@ function findUnhealthyContainer(workload: WorkloadDetail): string {
   return unhealthy?.name ?? containers[0]?.name ?? "";
 }
 
-const STATUS_STYLES: Record<PodStatus, { dot: string; glow: string; label: string }> = {
-  healthy: {
-    dot: "bg-green-400",
-    glow: "shadow-[0_0_6px_2px] shadow-green-400/50",
-    label: "Online",
-  },
-  warning: {
-    dot: "bg-amber-400",
-    glow: "shadow-[0_0_6px_2px] shadow-amber-400/50",
-    label: "Degraded",
-  },
-  unhealthy: {
-    dot: "bg-red-400",
-    glow: "shadow-[0_0_6px_2px] shadow-red-400/50",
-    label: "Error",
-  },
-  pending: {
-    dot: "bg-blue-400",
-    glow: "shadow-[0_0_6px_2px] shadow-blue-400/50",
-    label: "Starting",
-  },
+/**
+ * Visual styling for every PodStatus. Single source of truth — PodDetailPanel
+ * imports this map directly rather than maintaining a parallel copy. Adding
+ * a new status here automatically propagates everywhere the dot/glow/label
+ * is rendered.
+ */
+export const POD_STATUS_STYLES: Record<PodStatus, { dot: string; glow: string; label: string }> = {
+  healthy:   { dot: "bg-green-400",                   glow: "shadow-[0_0_6px_2px] shadow-green-400/50",  label: "Online" },
+  warning:   { dot: "bg-amber-400",                   glow: "shadow-[0_0_6px_2px] shadow-amber-400/50",  label: "Degraded" },
+  unhealthy: { dot: "bg-red-400",                     glow: "shadow-[0_0_6px_2px] shadow-red-400/50",    label: "Error" },
+  pending:   { dot: "bg-blue-400",                    glow: "shadow-[0_0_6px_2px] shadow-blue-400/50",   label: "Starting" },
+  probing:   { dot: "bg-muted-foreground/60 animate-pulse", glow: "",                                    label: "Probing" },
+  paused:    { dot: "bg-stone-500",                   glow: "",                                          label: "Paused" },
 };
 
 type IconComponent = React.ComponentType<{ className?: string }>;
@@ -153,7 +154,7 @@ export interface PodTileContentProps {
 }
 
 export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
-  const styles = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
+  const styles = POD_STATUS_STYLES[status] ?? POD_STATUS_STYLES.pending;
   const { dot, glow } = styles;
   const label = statusLabel ?? styles.label;
 
@@ -184,18 +185,36 @@ export function PodTileContent({ name, status = "pending", statusLabel, icon: Ic
 interface PodTileProps {
   workload: WorkloadDetail | undefined;
   deploymentId: string;
+  /**
+   * True while the runtime query is in flight and we have no live state yet.
+   * Renders a grey blinking "Probing" indicator instead of the K8s-derived
+   * status so users can distinguish "we don't know yet" from "K8s says
+   * starting". Once runtime returns, callers flip this to false and the
+   * derived status takes over.
+   */
+  probing?: boolean;
+  /**
+   * True when the parent deployment is paused. Every tile reads "Paused"
+   * regardless of the K8s-derived per-workload status, so the whole agent
+   * being off trumps an individual CronJob still appearing Idle, etc.
+   */
+  paused?: boolean;
   className?: string;
   onClick?: () => void;
   selected?: boolean;
   dimmed?: boolean;
 }
 
-export function PodTile({ workload, deploymentId, className, onClick, selected, dimmed }: PodTileProps) {
+export function PodTile({ workload, deploymentId, probing, paused, className, onClick, selected, dimmed }: PodTileProps) {
   // Hooks must run unconditionally (rules-of-hooks). Pass safe defaults when
   // workload is missing so we can still bail out below — see PodGraph for the
   // root-cause fix; this is a defensive backstop for AnimatePresence exits and
   // query refetches that can briefly feed undefined through.
-  const { status, label } = derivePodStatus(workload);
+  // Status precedence: paused > probing > derived (paused is the whole-agent
+  // state, probing is a transient loading state, derived is per-workload).
+  const derived = derivePodStatus(workload);
+  const status: PodStatus = paused ? "paused" : probing ? "probing" : derived.status;
+  const label = paused || probing ? undefined : derived.label;
   const containerName = workload && status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
     deploymentId,
@@ -205,19 +224,33 @@ export function PodTile({ workload, deploymentId, className, onClick, selected, 
   );
   if (!workload) return null;
   const lastError = errorLogs?.[0]?.message ?? null;
-  const warningMessage = status === "warning" && workload.containers
-    ? `Restarting frequently (${workload.containers.reduce((sum, c) => sum + c.restart_count, 0)} restarts)`
+  // "Restarting frequently" only applies to long-running pods that are
+  // flapping (isFlapping → status="warning"). Job/CronJob also use the
+  // "warning" status for Suspended state, but that has no restart-count
+  // semantics — guarding on kind + a non-zero restart total prevents the
+  // contradictory "Restarting frequently (0 restarts)" message from
+  // appearing on a Suspended ingestion tile.
+  const isLongRunning = workload.kind === "Deployment" || workload.kind === "StatefulSet";
+  const totalRestarts = isLongRunning
+    ? (workload.containers ?? []).reduce((sum, c) => sum + (c.restart_count ?? 0), 0)
+    : 0;
+  const warningMessage = status === "warning" && isLongRunning && totalRestarts > 0
+    ? `Restarting frequently (${totalRestarts} restarts)`
     : null;
 
+  // Hide ephemeral details (age, restart warnings, error logs) when the
+  // tile is in a non-live state — they're either stale (paused) or
+  // unknown (probing).
+  const idle = paused || probing;
   return (
     <PodTileContent
       name={workload.component || workload.name}
       status={status}
       statusLabel={label}
       icon={getWorkloadIcon(workload)}
-      age={workload.age}
-      warningMessage={warningMessage}
-      errorMessage={lastError}
+      age={idle ? undefined : workload.age}
+      warningMessage={idle ? null : warningMessage}
+      errorMessage={idle ? null : lastError}
       className={className}
       onClick={onClick}
       selected={selected}
