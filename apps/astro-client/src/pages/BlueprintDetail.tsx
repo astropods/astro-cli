@@ -1,11 +1,8 @@
-import { useMemo, useState, useEffect, useRef } from "react";
-import { Check } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import type { BlueprintCardProps } from "@/components/BlueprintCard";
 import type { Route } from "./+types/BlueprintDetail";
 import { Button } from "@/components/ui/button";
-import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { GradientGridWash } from "@/components/GradientGridWash";
 import {
   BlueprintDetailBreadcrumb,
@@ -26,54 +23,6 @@ import {
   getBlueprintCapabilities,
 } from "@/lib/blueprint-utils";
 import type { AccountPublic, Blueprint } from "@/lib/api";
-
-// ─── Build success overlay ────────────────────────────────────────────────────
-
-function BuildSuccessOverlay({ account, name, onDismiss }: { account: string; name: string; onDismiss: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  return (
-    <div
-      ref={containerRef}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
-      style={{ background: "radial-gradient(ellipse at 50% 0%, hsla(40,50%,90%,0.95) 0%, hsla(40,30%,96%,0.98) 60%), hsl(40,20%,97%)" }}
-    >
-      <LiveRevealConfetti containerRef={containerRef} />
-      <div className="flex flex-col items-center gap-6 text-center px-6">
-        <div className="relative size-20 overflow-hidden rounded-2xl border border-border shadow-sm">
-          <BlueprintIdentity account={account} name={name} size={80} className="size-full" />
-          <div
-            className="absolute left-0 right-0 h-[2px] opacity-80"
-            style={{
-              background: "linear-gradient(90deg, transparent, var(--color-slate-500), transparent)",
-              animation: "scanLine 2.5s ease-in-out infinite",
-              boxShadow: "0 0 12px 2px color-mix(in oklch, var(--color-slate-500) 30%, transparent)",
-            }}
-          />
-        </div>
-        <div>
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shrink-0">
-              <Check className="size-3" />
-            </div>
-            <h2 className="text-lg font-semibold">Blueprint is live</h2>
-          </div>
-          <p className="font-mono text-sm text-muted-foreground">{account}/{name}</p>
-        </div>
-        <Button onClick={onDismiss}>
-          View blueprint →
-        </Button>
-      </div>
-      <style>{`
-        @keyframes scanLine {
-          0%, 100% { top: 10%; }
-          50% { top: 85%; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -276,16 +225,6 @@ function BlueprintDetailInner({
     return { ...blueprint, draft_card: latchedDraftCard };
   }, [blueprint, latchedDraftCard]);
 
-  // Detect draft → published transition and show success overlay for the GitHub path.
-  const [showBuildSuccess, setShowBuildSuccess] = useState(false);
-  const wasDraftRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (wasDraftRef.current === true && !isDraft && githubRepoName) {
-      setShowBuildSuccess(true);
-    }
-    wasDraftRef.current = isDraft;
-  }, [isDraft, githubRepoName]);
-
   const integrations = getBlueprintIntegrations(effectiveBlueprint);
   const categories = getBlueprintCategories(effectiveBlueprint);
   const readme = getBlueprintReadme(effectiveBlueprint);
@@ -293,13 +232,6 @@ function BlueprintDetailInner({
   const capabilities = getBlueprintCapabilities(effectiveBlueprint);
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-background">
-      {showBuildSuccess && (
-        <BuildSuccessOverlay
-          account={blueprint.account}
-          name={blueprint.name}
-          onDismiss={() => setShowBuildSuccess(false)}
-        />
-      )}
       <BlueprintDetailBreadcrumb account={blueprint.account} blueprintName={blueprint.name} hearted={blueprint.hearted} heartCount={blueprint.heart_count} shareUrl={loaderData?.canonicalUrl} />
 
       <div className="relative flex flex-1 overflow-y-auto">
