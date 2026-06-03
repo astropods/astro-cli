@@ -63,3 +63,5 @@ The following resources are scoped per account:
 | Secrets and variables | `ast secrets` |
 
 Switching accounts with `ast account switch` takes effect immediately; the next command you run will use the new account.
+
+Re-running `ast login` keeps the same active account you had before, unless you no longer have access to it (then the CLI uses your personal account). Use `ast login --account <name>` to pick a different account when logging in.

@@ -137,7 +137,7 @@ Manage CLI settings and shell completions.
 
 | Command | Description |
 |---|---|
-| `login` | Authenticate with Astropods (device flow) |
+| `login` | Authenticate with Astropods (device flow). Re-login restores the last active account. `--no-browser` prints the verification URL instead of opening it; `--account <name>` switches to that account after auth (overrides restored selection). |
 | `logout` | Clear stored credentials |
 | `whoami` | Show the currently authenticated user |
 | `upgrade` | Upgrade the CLI to the latest version |

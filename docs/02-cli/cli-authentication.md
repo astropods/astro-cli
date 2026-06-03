@@ -85,12 +85,18 @@ Server and registry URLs are stored per profile. Registry is derived as `registr
         "email": "user@example.com",
         "first_name": "Jane",
         "last_name": "Doe"
-      }
+      },
+      "current_account": "my-org",
+      "previous_account": "jane"
     }
   },
   "current_profile": "default"
 }
 ```
+
+### Active account on re-login
+
+The active account (`current_account`) is stored in the profile alongside tokens. `ast account switch` updates it; `ast login` preserves it when you re-authenticate, as long as you still belong to that account. If membership was removed, the CLI falls back to your personal account and prints a note. Use `ast login --account <name>` to override the restored selection.
 
 ## Token Lifecycle
 
@@ -105,12 +111,13 @@ Tokens are refreshed automatically when within 5 minutes of expiry. The CLI chec
 
 ## CLI Commands
 
-| Command                  | Description                          |
-| ------------------------ | ------------------------------------ |
-| `ast login`              | Authenticate via device flow         |
-| `ast login --no-browser` | Print URL instead of opening browser |
-| `ast logout`             | Clear stored credentials             |
-| `ast whoami`             | Display current user info            |
+| Command                       | Description                                      |
+| ----------------------------- | ------------------------------------------------ |
+| `ast login`                   | Authenticate via device flow; restores last active account |
+| `ast login --no-browser`      | Print URL instead of opening browser             |
+| `ast login --account <name>`  | Switch to this account after login               |
+| `ast logout`                  | Clear stored credentials                         |
+| `ast whoami`                  | Display current user info                        |
 
 ## Security Measures
 

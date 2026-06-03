@@ -432,10 +432,10 @@ Alias: `ast doc`
 Authenticate with the Astro AI platform.
 
 ```bash
-ast login [--no-browser]
+ast login [--no-browser] [--account <name>]
 ```
 
-`--no-browser` prints the verification URL instead of opening it. Credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication).
+`--no-browser` prints the verification URL instead of opening it. `--account` switches to the named account after login. Re-login restores your last active account unless you pass `--account`. Credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication).
 
 ---
 

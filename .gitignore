@@ -152,6 +152,9 @@ test-results/
 
 # Claude Code
 .claude
+
+# Cursor IDE
+.cursor/
 apps/astro-client/.certs.bak/local.astropods.ai-key.pem
 apps/astro-client/.certs.bak/local.astropods.ai.pem
 apps/astro-client/.certs.bak/local.odesdaz.com-key.pem

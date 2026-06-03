@@ -19,8 +19,9 @@ Tokens are stored in the system keyring when available (macOS Keychain, Linux Se
 
 | Command | Description |
 |--------|-------------|
-| `ast login` | Start device flow and open browser to authenticate |
+| `ast login` | Start device flow and open browser to authenticate; re-login restores your last active account |
 | `ast login --no-browser` | Print the verification URL instead of opening it |
+| `ast login --account <name>` | Switch to the named account after login; overrides the account restored from your previous session |
 | `ast logout` | Clear stored credentials for the current profile |
 | `ast logout --all` | Clear all stored credentials |
 | `ast whoami` | Show current user and account info |
